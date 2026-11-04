@@ -128,16 +128,23 @@ pinned block weights and required GPU backends available:
 RL_KERNEL_H3_WEIGHTS=<dir> python -m pytest tests/models/minimax_h3/test_h3_one_block.py -q -rs
 ```
 
-The 2026-11-04 RTX A6000 run reported **104 passed, 6 skipped** with Python 3.12.3,
-PyTorch 2.8.0+cu128 and Triton 3.4.0. Skips were the two-GPU test and five block /
-real-weight checks requiring optional native extensions or checkpoint artifacts.
-Existing B200 block reports used provider-only RoPE and cannot qualify this binding.
-Full block/model and ROCm qualification remain separate work.
+The latest RTX A6000 regression used Python 3.12.3, PyTorch 2.8.0+cu128 and
+Triton 3.4.0. The operator, unified-input, benchmark-helper and registry suites
+reported **117 passed, 2 skipped, 2 xfailed**. Skips are the BF16/FP32 two-GPU
+device tests. Strict xfails preserve the known independent BF16 accuracy conflict
+for Native and Triton; they are not accuracy passes. The unified CUDA checker
+also passed sampled forward/gradient checks for both supported dtypes.
 
-The subsequent CPU completion checks also cover the unified checker and saved
-accuracy counterexamples. The two-GPU test now covers both BF16 and FP32.
-These additions still need the next GPU regression; they do not alter the
-candidate's forward/backward arithmetic or requalify the historical benchmark.
+After building the existing H3 CUDA extensions without fast math and verifying
+the pinned weight hashes, the block and review-fix suites reported **19 passed,
+2 failed, no skips**. Both forward layouts (`tiny` and `small`) failed the existing
+`norm1` isolated provider-bitwise assertion; the block backward test passed.
+Replacing only Triton RoPE with the original provider reproduced the same
+RMSNorm discrepancies and left every node's forward SHA256 unchanged. The
+`rope_q` and `rope_k` nodes passed isolated provider parity, repeatability and
+batch checks. See the [block evidence](h3-one-block.md#evidence) for the scope of
+this comparison. Complete block acceptance remains open; the historical B200
+provider-only reports do not qualify the current binding or environment.
 
 ### BF16 accuracy finding from the wider benchmark
 
@@ -172,14 +179,13 @@ references do, or should its training and rollout arithmetic both change to an
 all-FP32 intermediate path? The current implementation does neither implicitly;
 it retains model rounding and reports the unrounded FP32 discrepancy separately.
 
-### Remaining GPU qualification
+### Remaining qualification
 
-- Run the complete operator/registry/benchmark regression on a two-GPU NVIDIA
-  machine, including the noncurrent-device cases for both supported dtypes.
-- Build the existing H3 CUDA extension without fast math, fetch the pinned
-  conditioning and block-0 weights with `tools/weights/prepare_h3_weights.py
-  --out <dir> --block`, and run the block tests above with `RL_KERNEL_H3_WEIGHTS`
-  set. Missing extensions/weights must not be counted as successful integration.
+- Run the noncurrent-device cases for BF16 and FP32 on a two-GPU NVIDIA machine;
+  the completed single-GPU run cannot qualify device switching.
+- Investigate the existing RMSNorm provider-bitwise discrepancies in the A6000 /
+  PyTorch 2.8 block run before claiming complete block acceptance. The unchanged
+  forward hashes in the RoPE replacement comparison do not waive those failures.
 - Retain the independent BF16 failure until the arithmetic/reference contract
   is agreed with the maintainer. A successful repeatability test is not an
   accuracy acceptance result.
@@ -215,21 +221,22 @@ JSON retains raw samples, medians, standard deviations and incremental peak
 allocation (excluding inputs and prebuilt graphs). Source hashes and complete
 validation logs are kept as PR attachments rather than committed benchmark data.
 
-The A6000 run timed 15 of 16 shapes, producing 135 provider/mode measurements;
+The latest A6000 run timed 15 of 16 shapes, producing 135 provider/mode measurements;
 the failed BF16 14-head long case above was not timed. At `[1, 73426, 56, 128]`:
 
 | Dtype | Mode | Original eager model ms | Native ms | Triton ms | Original / Triton |
 |---|---|---:|---:|---:|---:|
-| BF16 | Forward | 21.658 | 21.666 | 8.857 | 2.45x |
-| BF16 | Backward | 29.300 | 40.310 | 9.158 | 3.20x |
-| BF16 | Forward + backward | 50.759 | 61.769 | 17.641 | 2.88x |
-| FP32 | Forward | 36.443 | 36.483 | 12.819 | 2.84x |
-| FP32 | Backward | 53.883 | 34.746 | 13.243 | 4.07x |
-| FP32 | Forward + backward | 90.066 | 70.825 | 25.544 | 3.53x |
+| BF16 | Forward | 21.671 | 21.689 | 8.884 | 2.44x |
+| BF16 | Backward | 29.424 | 40.373 | 9.227 | 3.19x |
+| BF16 | Forward + backward | 50.775 | 61.793 | 17.791 | 2.85x |
+| FP32 | Forward | 36.499 | 36.560 | 12.822 | 2.85x |
+| FP32 | Backward | 53.883 | 34.754 | 13.242 | 4.07x |
+| FP32 | Forward + backward | 90.097 | 70.836 | 25.521 | 3.53x |
 
 All entries in this table passed the shape's checks before timing. Relative sample
-standard deviations for these entries were below 1.4%. Smaller eager measurements
-were noisy (60 of 135 measurements had standard deviation above 15% of their
+standard deviations for these entries were below 1.8%; Triton medians differed by
+less than 1% from the preceding run on the same GPU model. Smaller eager measurements
+were noisy (51 of 135 measurements had standard deviation above 15% of their
 median), so they are preliminary and the raw samples must accompany comparisons.
 These are single-operator A6000 measurements, not H100 or model throughput claims;
 the unresolved BF16 accuracy finding prevents overall qualification.

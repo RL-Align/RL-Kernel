@@ -25,8 +25,10 @@ The current graph binds seven of the 17 nodes to four row operators: AdaLN proje
 modulated RMSNorm, gate residual, and the new Triton partial MM-RoPE. The other ten use
 **interim** deterministic operators until their own rows land (see Bindings). Speed and exact
 rounding of interim nodes belong to those operators, not to this row. The block-level tests
-apply to every binding, but **the new MM-RoPE binding still needs GPU block regression**;
-the historical measurements below do not qualify it.
+apply to every binding. The new MM-RoPE binding has now been exercised on A6000:
+its isolated forward checks and block backward test passed, while existing RMSNorm
+provider-bitwise discrepancies still prevent complete block acceptance. The
+historical measurements below do not qualify the current binding or environment.
 
 ## Entry Point
 
@@ -112,6 +114,29 @@ other rows. Text rows use AdaLN table row 0 and media rows use row 1.
 
 ## Evidence
 
+### A6000 regression with Triton MM-RoPE
+
+Python 3.12.3, PyTorch 2.8.0+cu128 and Triton 3.4.0; H3 CUDA extensions built
+without fast math for SM86, and pinned conditioning/block-0 tensor hashes verified.
+The one-block and review-fix suites reported **19 passed, 2 failed, no skips**.
+
+- `tiny` and `small` forward both failed the existing `norm1` isolated comparison
+  with the provider. Its maximum absolute differences were 0.001953125 and
+  0.0078125 respectively. The diagnostic also found isolated provider-bitwise
+  discrepancies at `q_norm`, `k_norm` and `norm2`.
+- Replacing only Triton MM-RoPE with the original provider left every candidate
+  node's forward SHA256 unchanged and reproduced the same RMSNorm discrepancies.
+  The new RoPE binding did not introduce these block-forward differences.
+- Triton `rope_q` and `rope_k` passed isolated provider-bitwise comparison,
+  repeatability and batch invariance for both layouts. The `tiny` block backward
+  test passed its existing repeatability, batch and accuracy assertions.
+
+The block suite remains failed; the replacement comparison does not waive the
+RMSNorm checks or establish full-model acceptance. Raw logs and per-node reports
+are retained with the MM-RoPE PR evidence, rather than committed benchmark data.
+
+### Historical B200 run with provider-only MM-RoPE
+
 [`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr539/reports/experiments/h3-one-block-b200/report.json) was generated from a clean tree
 at `41e4293` on an otherwise idle B200 (torch 2.13.0+cu130), before the Triton MM-RoPE binding:
 
@@ -185,8 +210,9 @@ RL_KERNEL_H3_WEIGHTS=<dir> CUDA_VISIBLE_DEVICES=0,1 python -m pytest tests/model
   ROCm, but the block has not been run there.
 - **Interim nodes.** Ten of the 17 nodes use interim operators. Their speed and rounding are
   not the owning rows' final ones.
-- **New MM-RoPE binding.** The Triton candidate is wired into forward and backward replay;
-  fresh GPU results are required before claiming its block-level parity, accuracy or speed.
+- **Current block acceptance.** The A6000 run with Triton MM-RoPE has passing RoPE
+  node checks and block backward, but existing RMSNorm isolated-provider checks
+  still fail. Neither historical B200 results nor isolated RoPE parity waive this.
 - **Stand-in inputs.** The block input is a seeded stand-in and `temb` is the provider's.
   Real packed projections arrive with the input-projection rows.
 - **Not covered here.** Block 0 only (`ws1_full_h3_transformer` covers 50 blocks and the refiner),
