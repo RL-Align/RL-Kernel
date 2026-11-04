@@ -1,2 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Reserved model package. No validated implementation is available yet."""
+"""DeepSeek-V4 model package.
+
+Implemented: the layer end after the last decoder layer (``layer_end``), on
+ROCm. There is no model specification or full model assembly yet.
+"""
