@@ -339,6 +339,12 @@ def qwenimage_det_linear_backward_input(
     weight: torch.Tensor,
     out_dtype: torch.dtype,
 ) -> torch.Tensor: ...
+def qwenimage_det_linear_input_partials(
+    grad: torch.Tensor, weight: torch.Tensor
+) -> torch.Tensor: ...
+def qwenimage_det_linear_fold_input_partials(
+    partials: torch.Tensor, out_dtype: torch.dtype
+) -> torch.Tensor: ...
 def qwenimage_det_linear_backward_weight(
     grad: torch.Tensor,
     x: torch.Tensor,

@@ -564,27 +564,22 @@ std::vector<torch::Tensor> qwenimage_det_linear_forward(torch::Tensor x, torch::
   return {out};
 }
 
-// grad [T, N] (float32), weight [N, K] -> grad_input [T, K] in out_dtype.
-torch::Tensor qwenimage_det_linear_backward_input(torch::Tensor grad, torch::Tensor weight,
-                                           c10::ScalarType out_dtype) {
+// Expose the existing 64-column partials before the final fold for TP transport.
+torch::Tensor qwenimage_det_linear_input_partials(torch::Tensor grad, torch::Tensor weight) {
   TORCH_CHECK(grad.is_cuda() && grad.dim() == 2 && grad.is_contiguous() &&
                   grad.scalar_type() == at::kFloat,
               "grad must be a contiguous 2-D float32 CUDA tensor");
   check_matrix(weight, "weight");
   TORCH_CHECK(grad.device() == weight.device(), "grad and weight must be on the same device");
   TORCH_CHECK(grad.size(1) == weight.size(0), "grad N != weight N");
-  TORCH_CHECK(out_dtype == at::kFloat || out_dtype == at::kBFloat16,
-              "out_dtype must be float32 or bfloat16");
   const int64_t rows = grad.size(0);
   TORCH_CHECK(rows > 0, "grad must have at least one row");
   const int64_t n_out = weight.size(0);
   const int64_t k_in = weight.size(1);
   const c10::cuda::CUDAGuard device_guard(grad.device());
-  auto out = torch::empty({rows, k_in}, grad.options().dtype(out_dtype));
-  if (k_in == 0) return out;
-  if (n_out == 0) return out.zero_();
   const int64_t chunks = (n_out + kDInputChunk - 1) / kDInputChunk;
   auto partial = torch::empty({chunks, rows, k_in}, grad.options());
+  if (k_in == 0 || n_out == 0) return partial;
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
   dim3 grid(static_cast<unsigned>((k_in + threads - 1) / threads), static_cast<unsigned>(chunks));
@@ -598,6 +593,26 @@ torch::Tensor qwenimage_det_linear_backward_input(torch::Tensor grad, torch::Ten
         n_out, k_in);
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return partial;
+}
+
+// Transport only moves these FP32 partials. Their global order defines the fold.
+torch::Tensor qwenimage_det_linear_fold_input_partials(torch::Tensor partial,
+                                                     c10::ScalarType out_dtype) {
+  TORCH_CHECK(partial.is_cuda() && partial.dim() == 3 && partial.is_contiguous() &&
+                  partial.scalar_type() == at::kFloat,
+              "partial must be a contiguous 3-D float32 CUDA tensor");
+  TORCH_CHECK(out_dtype == at::kFloat || out_dtype == at::kBFloat16,
+              "out_dtype must be float32 or bfloat16");
+  const c10::cuda::CUDAGuard device_guard(partial.device());
+  const int64_t chunks = partial.size(0);
+  const int64_t rows = partial.size(1);
+  const int64_t k_in = partial.size(2);
+  auto out = torch::empty({rows, k_in}, partial.options().dtype(out_dtype));
+  if (out.numel() == 0) return out;
+  if (chunks == 0) return out.zero_();
+  auto stream = at::cuda::getCurrentCUDAStream();
+  const int threads = 256;
   const int64_t elems = rows * k_in;
   const unsigned fold_blocks = static_cast<unsigned>((elems + threads - 1) / threads);
   if (out_dtype == at::kFloat) {
@@ -609,6 +624,15 @@ torch::Tensor qwenimage_det_linear_backward_input(torch::Tensor grad, torch::Ten
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return out;
+}
+
+// grad [T, N] (float32), weight [N, K] -> grad_input [T, K] in out_dtype.
+torch::Tensor qwenimage_det_linear_backward_input(torch::Tensor grad, torch::Tensor weight,
+                                                c10::ScalarType out_dtype) {
+  TORCH_CHECK(out_dtype == at::kFloat || out_dtype == at::kBFloat16,
+              "out_dtype must be float32 or bfloat16");
+  return qwenimage_det_linear_fold_input_partials(
+      qwenimage_det_linear_input_partials(grad, weight), out_dtype);
 }
 
 // grad [T, N] float32, x [T, K] (float32 or bfloat16) -> (dW [N, K], dbias [N]) in w_dtype.
