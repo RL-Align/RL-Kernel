@@ -239,6 +239,9 @@ def get_extensions():
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            # Grouped expert MLP (SM90 mma.sync + TMA).  Not hipified: ROCm uses
+            # the shared Triton provider, so a ROCm build must not see this file.
+            cuda_sources.append("csrc/cuda/moe/nemotron_experts.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):

@@ -248,6 +248,47 @@ def det_gemm_fwd_rhs_transposed(
 def det_gemm_da(dc: torch.Tensor, b: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_db(a: torch.Tensor, dc: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_db_transposed(a: torch.Tensor, dc: torch.Tensor) -> torch.Tensor: ...
+def nemotron_experts_compiled() -> bool: ...
+def nemotron_experts_forward(
+    packed: torch.Tensor,
+    x: torch.Tensor | None,
+    weights: torch.Tensor,
+    permutation: torch.Tensor,
+    offsets: torch.Tensor,
+    w_up: torch.Tensor,
+    w_down: torch.Tensor,
+    w_sh1: torch.Tensor | None,
+    w_sh2: torch.Tensor | None,
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor | None,
+    torch.Tensor | None,
+]: ...
+def nemotron_experts_backward(
+    grad_out: torch.Tensor,
+    packed: torch.Tensor,
+    x: torch.Tensor | None,
+    weights: torch.Tensor,
+    permutation: torch.Tensor,
+    offsets: torch.Tensor,
+    up: torch.Tensor,
+    down: torch.Tensor,
+    inverse: torch.Tensor,
+    w_up: torch.Tensor,
+    w_down: torch.Tensor,
+    w_sh1: torch.Tensor | None,
+    w_sh2: torch.Tensor | None,
+    shared_up: torch.Tensor | None,
+    shared_down: torch.Tensor | None,
+    need_packed: bool,
+    need_x: bool,
+    need_weights: bool,
+    need_weight_grad: bool,
+    need_shared_weight_grad: bool,
+) -> list[torch.Tensor]: ...
 def silu_forward(x: torch.Tensor) -> torch.Tensor: ...
 def silu_backward(dy: torch.Tensor, x: torch.Tensor) -> torch.Tensor: ...
 def swiglu_forward(gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor: ...
