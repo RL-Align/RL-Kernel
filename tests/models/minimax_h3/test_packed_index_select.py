@@ -194,6 +194,18 @@ class TestCuda:
         for a, b in zip(actual, expected, strict=True):
             assert_bits(a, b)
 
+    def test_nondefault_stream(self):
+        stream = torch.cuda.Stream()
+        with torch.cuda.stream(stream):
+            x = torch.randn(2, 67, 96, device="cuda")
+            index = torch.tensor([66, 0, 66, 5, 0], device="cuda")
+            grad = torch.randn(2, 5, 96, device="cuda")
+            output, dx = vjp(self.op(), x, index, grad)
+        torch.cuda.current_stream().wait_stream(stream)
+        expected = vjp(NativePackedIndexSelectOp(), x, index, grad)
+        assert_bits(output, expected[0])
+        assert_bits(dx, expected[1])
+
     def test_device_guards_deterministic_mode_and_runtime(self):
         from rl_engine.ops.autograd.backward_runtime import snapshot_backward_runtime
         from rl_engine.runtime.registry import KernelRegistry
