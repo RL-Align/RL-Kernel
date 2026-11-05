@@ -199,7 +199,10 @@ def test_empty_linear_reduction_remains_opt_in():
         slot = session.register("other.weight", torch.full((1, 2), -1, dtype=torch.int64))
         with pytest.raises(RuntimeError, match="no active logical rows"):
             session.submit_linear(
-                "other.weight", slot, torch.ones(1, 4), torch.zeros(1, 3),
+                "other.weight",
+                slot,
+                torch.ones(1, 4),
+                torch.zeros(1, 3),
                 lambda rows, grads: pytest.fail("default must reject empty reductions"),
             )
 

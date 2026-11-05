@@ -8,6 +8,20 @@ import math
 from pathlib import Path
 
 
+def _load_cases(bundle):
+    """Keep every accuracy case and prefer the full report for duplicate timings."""
+    cases = []
+    random_timing = {}
+    for name in ("full.json", "tasks.json"):
+        if name in bundle["artifacts"]:
+            for case in bundle["artifacts"][name]["content"]["cases"]:
+                cases.append(case)
+                if case["input_family"] == "random":
+                    timings = random_timing.setdefault(case["semantic_op"], {})
+                    timings.setdefault(case["rows"], case)
+    return cases, random_timing
+
+
 def _accuracy_series(cases, tensor):
     """Collect measured maxima and retain rows with unavailable accuracy checks."""
     by_size = {}
@@ -34,17 +48,11 @@ def main():
     args = parser.parse_args()
     raw = args.evidence.read_bytes()
     bundle = json.loads(raw)
-    unique_cases = {}
-    for name in ("full.json", "tasks.json"):
-        if name in bundle["artifacts"]:
-            for case in bundle["artifacts"][name]["content"]["cases"]:
-                key = (case["semantic_op"], case["input_family"], case["rows"])
-                unique_cases.setdefault(key, case)
+    all_cases, random_timing = _load_cases(bundle)
     required_ops = {"h3_ffn_gate_up_gemm", "h3_attention_o_gemm"}
-    missing_ops = required_ops - {key[0] for key in unique_cases if key[1] == "random"}
+    missing_ops = required_ops - random_timing.keys()
     if missing_ops:
         raise ValueError(f"evidence has no random cases for: {', '.join(sorted(missing_ops))}")
-    report = {"cases": list(unique_cases.values())}
     import matplotlib
 
     matplotlib.use("Agg")
@@ -58,7 +66,7 @@ def main():
             ("h3_attention_o_gemm", "Attention output"),
         ]
     ):
-        cases = [c for c in report["cases"] if c["semantic_op"] == kind]
+        cases = [c for c in all_cases if c["semantic_op"] == kind]
         unavailable = set()
         for tensor in ("y", "dx", "dw"):
             sizes, values, missing = _accuracy_series(cases, tensor)
@@ -78,9 +86,8 @@ def main():
             ylabel="Error / tolerance",
         )
         axes[row, 0].set_ylim(bottom=0)
-        random_cases = sorted(
-            [c for c in cases if c["input_family"] == "random"], key=lambda c: c["rows"]
-        )
+        timings = random_timing[kind]
+        random_cases = [timings[size] for size in sorted(timings)]
         for col, phase in enumerate(("forward", "forward_backward"), 1):
             for prefix, label in (
                 ("candidate", "Candidate"),
@@ -115,7 +122,7 @@ def main():
             "Date": None,
             "Description": "Derived from h100.json SHA256 "
             + hashlib.sha256(raw).hexdigest()
-            + "; no measurements modified; full report preferred for duplicate rows.",
+            + "; all accuracy cases retained; full report preferred for duplicate timings.",
         },
     )
     if args.output.suffix.lower() == ".svg":

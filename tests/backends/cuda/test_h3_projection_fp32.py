@@ -31,12 +31,14 @@ def test_direct_launch_uses_bias_slot_and_fixed_h3_specialization(monkeypatch):
                     asm={"cubin": b"launch contract fixture"},
                     metadata=SimpleNamespace(num_warps=4),
                 )
+
             return launch
 
     backend = adapter.FixedFP32Backend.__new__(adapter.FixedFP32Backend)
     backend.kernel = Kernel()
-    backend.triton = SimpleNamespace(cdiv=lambda a, b: (a + b - 1) // b,
-                                     __version__="contract-only")
+    backend.triton = SimpleNamespace(
+        cdiv=lambda a, b: (a + b - 1) // b, __version__="contract-only"
+    )
     monkeypatch.setattr(adapter, "_BINARY_HASHES", {})
     a = torch.empty_strided((33, 65), (130, 2), dtype=torch.bfloat16)
     b = torch.empty_strided((65, 67), (134, 2), dtype=torch.bfloat16)
@@ -47,9 +49,18 @@ def test_direct_launch_uses_bias_slot_and_fixed_h3_specialization(monkeypatch):
     assert (m, n, k) == (33, 67, 65) and grid == (1, 2)
     assert strides == (*a.stride(), *b.stride(), *output.stride())
     assert options == dict(
-        BLOCK_M=64, BLOCK_N=64, BLOCK_K=32, PROMOTE_INPUTS=False,
-        HAS_BIAS=False, INDEX_64=True, COMPENSATED=False, CHUNK_K=0,
-        EVEN_K=False, EVEN_N=False, num_warps=4, num_stages=2,
+        BLOCK_M=64,
+        BLOCK_N=64,
+        BLOCK_K=32,
+        PROMOTE_INPUTS=False,
+        HAS_BIAS=False,
+        INDEX_64=True,
+        COMPENSATED=False,
+        CHUNK_K=0,
+        EVEN_K=False,
+        EVEN_N=False,
+        num_warps=4,
+        num_stages=2,
         enable_fp_fusion=False,
     )
     assert output.shape == (33, 67) and output.dtype == torch.bfloat16

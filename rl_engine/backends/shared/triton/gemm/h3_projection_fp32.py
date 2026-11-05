@@ -5,6 +5,4 @@
 import importlib
 import sys
 
-sys.modules[__name__] = importlib.import_module(
-    "rl_engine.backends.cuda.gemm.h3_projection_fp32"
-)
+sys.modules[__name__] = importlib.import_module("rl_engine.backends.cuda.gemm.h3_projection_fp32")
