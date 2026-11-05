@@ -1,0 +1,331 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+"""Isolated vLLM runtime for the real-framework PPO integration check.
+
+JSON control messages reference locally generated tensor files. No network
+service, framework patch, synthetic behavior logprob or pretrained model.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+import torch
+
+
+def install_weights(worker, filename: str, version: int):
+    """Executed by vLLM's real collective_rpc on each inference worker (TP=1)."""
+    weights = torch.load(filename, map_location="cpu", weights_only=True)
+    model = worker.model_runner.model
+    loaded = model.load_weights(weights.items())
+    assert loaded == set(weights), (loaded, set(weights))
+    parameters = dict(model.named_parameters())
+    for name, expected in weights.items():
+        if name.endswith(".weight") and any(x in name for x in (".c_attn.", ".c_proj.", ".c_fc.")):
+            expected = expected.t()
+        actual = parameters[name].detach().cpu()
+        # vLLM pads the vocabulary internally; only real vocabulary rows matter.
+        if name in ("transformer.wte.weight", "lm_head.weight"):
+            actual = actual[: expected.shape[0]]
+        torch.testing.assert_close(
+            actual,
+            expected,
+            atol=0,
+            rtol=0,
+        )
+    torch.cuda.synchronize()
+    worker.ppo_actor_version = version
+    return {"version": version, "verified_tensors": len(weights)}
+
+
+class PPOWeightLoader:
+    def install_ppo_weights(self, filename: str, version: int):
+        """Install with the Qwen3 installer for Qwen3 models, else this module's GPT-2 one."""
+        if self.model_runner.model.config.model_type == "qwen3":
+            from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
+                install_weights as qwen_install,
+            )
+
+            return qwen_install(self, filename, version)
+        return install_weights(self, filename, version)
+
+    def probe_ppo_rejections(self, filename: str, version: int):
+        """Return this rank's evidence that a stale install and a corrupt QKV shard are rejected.
+
+        Reinstalling ``version`` must fail, and one perturbed QKV element must fail
+        ``verify_parameters``; the restored weights must then verify again.
+        """
+        from vllm.distributed import (
+            get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_world_size,
+        )
+
+        from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
+            install_weights as qwen_install,
+        )
+        from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import verify_parameters
+
+        try:
+            qwen_install(self, filename, version)
+        except ValueError:
+            stale_rejected = True
+        else:
+            raise AssertionError("stale installation unexpectedly succeeded")
+        weights = torch.load(filename, map_location="cpu", weights_only=True)["weights"]
+        model = self.model_runner.model
+        rank, tp = get_tensor_model_parallel_rank(), get_tensor_model_parallel_world_size()
+        name, parameter = next((n, p) for n, p in model.named_parameters() if ".qkv_proj." in n)
+        original = parameter.data.flatten()[0].clone()
+        try:
+            parameter.data.flatten()[0] = original + 1
+            try:
+                verify_parameters(model, weights, rank=rank, tp=tp)
+            except ValueError:
+                shard_rejected = True
+            else:
+                raise AssertionError("corrupt GPU QKV shard unexpectedly accepted")
+        finally:
+            parameter.data.flatten()[0] = original
+        verify_parameters(model, weights, rank=rank, tp=tp)
+        return dict(rank=rank, stale_rejected=stale_rejected, corrupt_shard_rejected=shard_rejected)
+
+
+def main():
+    """Serve JSON-line requests from stdin with a vLLM engine and reply on ``--response-fd``.
+
+    Without ``--checkpoint`` the engine is a dummy-weight tiny GPT-2. ``install`` checks every
+    worker's acknowledgment and resets the prefix cache; ``sample`` requires a cold cache and
+    checks that a cached replay matches the cold tokens and, within tolerance, their logprobs;
+    ``negative_controls`` runs the rejection probes; ``close`` stops the loop.
+    """
+    from importlib.metadata import version
+
+    from transformers import GPT2Config
+    from vllm import LLM, SamplingParams
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--response-fd", type=int, required=True)
+    parser.add_argument("--checkpoint", type=Path)
+    parser.add_argument("--cache-logprob-atol", type=float)
+    parser.add_argument("--tp", type=int, choices=[1, 2], default=1)
+    args = parser.parse_args()
+    if args.checkpoint and (args.cache_logprob_atol is None or args.cache_logprob_atol < 0):
+        parser.error("Qwen3 cache replay needs a frozen calibration tolerance")
+    responses = os.fdopen(args.response_fd, "w", buffering=1)
+    args.directory.mkdir(parents=True, exist_ok=True)
+    config = GPT2Config(
+        vocab_size=32,
+        n_positions=64,
+        n_embd=128,
+        n_layer=2,
+        n_head=4,
+        n_inner=256,
+        activation_function="gelu",
+        resid_pdrop=0.0,
+        embd_pdrop=0.0,
+        attn_pdrop=0.0,
+        layer_norm_epsilon=1e-5,
+        tie_word_embeddings=False,
+        bos_token_id=1,
+        eos_token_id=31,
+    )
+    config.architectures = ["GPT2LMHeadModel"]
+    if not args.checkpoint:
+        config.save_pretrained(args.directory)
+    elif args.tp not in (1, 2):
+        raise ValueError("Qwen3 acceptance supports vLLM TP=1/2")
+    started = time.perf_counter()
+    llm = LLM(
+        model=str(args.checkpoint or args.directory),
+        skip_tokenizer_init=True,
+        load_format="safetensors" if args.checkpoint else "dummy",
+        dtype="bfloat16" if args.checkpoint else "float32",
+        tensor_parallel_size=args.tp,
+        max_model_len=256 if args.checkpoint else 64,
+        enforce_eager=True,
+        enable_prefix_caching=True,
+        max_num_seqs=8,
+        max_num_batched_tokens=128,
+        gpu_memory_utilization=0.7 if args.checkpoint else 0.1,
+        kv_cache_memory_bytes=64 * 1024**2,
+        attention_backend="TRITON_ATTN",
+        worker_extension_cls="tests.distributed.tp.vllm_ppo_sidecar.PPOWeightLoader",
+        disable_log_stats=True,
+        seed=44,
+    )
+
+    def emit(value):
+        """Write ``value`` as one JSON line to the response pipe."""
+        print(json.dumps(value), file=responses, flush=True)
+
+    emit(
+        {
+            "ready": True,
+            "vllm": version("vllm"),
+            "torch": torch.__version__,
+            "startup_seconds": time.perf_counter() - started,
+        }
+    )
+    active = -1
+    last_prompts = None
+    for line in sys.stdin:
+        request = json.loads(line)
+        started = time.perf_counter()
+        try:
+            if request["op"] == "close":
+                emit({"closed": True})
+                break
+            if request["op"] == "install":
+                assert request["version"] == active + 1
+                acknowledgments = llm.collective_rpc(
+                    "install_ppo_weights", args=(request["filename"], request["version"])
+                )
+                if args.checkpoint:
+                    from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
+                        verify_acknowledgments,
+                    )
+
+                    verify_acknowledgments(acknowledgments, version=request["version"], tp=args.tp)
+                else:
+                    assert len(acknowledgments) == args.tp
+                    assert all(ack["version"] == request["version"] for ack in acknowledgments)
+                reset = llm.reset_prefix_cache()
+                if reset is False:
+                    raise RuntimeError("vLLM refused prefix-cache reset")
+                active = request["version"]
+                last_install_file = request["filename"]
+                last_acks = acknowledgments
+                emit(
+                    {
+                        "installed": active,
+                        "workers": acknowledgments,
+                        "seconds": time.perf_counter() - started,
+                    }
+                )
+            elif request["op"] == "negative_controls":
+                from rl_engine.integrations.engines.rollout.vllm.ppo_qwen3 import (
+                    verify_acknowledgments,
+                )
+
+                checks = llm.collective_rpc(
+                    "probe_ppo_rejections", args=(last_install_file, active)
+                )
+                for invalid in (last_acks[:-1], last_acks + [last_acks[0]]):
+                    try:
+                        verify_acknowledgments(invalid, version=active, tp=args.tp)
+                    except ValueError:
+                        pass
+                    else:
+                        raise AssertionError("invalid rank acknowledgment accepted")
+                # Actual warm-cache requests supply the deliberately invalid cold-cache evidence.
+                probe = SamplingParams(temperature=1.0, top_k=-1, top_p=1.0, max_tokens=1, seed=44)
+                llm.generate([{"prompt_token_ids": p} for p in last_prompts], probe, use_tqdm=False)
+                warm = llm.generate(
+                    [{"prompt_token_ids": p} for p in last_prompts], probe, use_tqdm=False
+                )
+                if not any(o.num_cached_tokens > 0 for o in warm):
+                    raise AssertionError("cache negative control did not exercise cache reuse")
+                try:
+                    assert all(o.num_cached_tokens == 0 for o in warm), "stale cache"
+                except AssertionError:
+                    cache_rejected = True
+                else:
+                    raise AssertionError("warm evidence accepted as cold")
+                if llm.reset_prefix_cache() is False:
+                    raise RuntimeError("cache reset failed after negative control")
+                emit(
+                    dict(
+                        workers=checks,
+                        missing_duplicate_rank_rejected=True,
+                        stale_cache_rejected=cache_rejected,
+                    )
+                )
+            elif request["op"] == "sample":
+                last_prompts = request["prompts"]
+                assert request["version"] == active
+                params = SamplingParams(
+                    temperature=1.0,
+                    top_p=1.0,
+                    top_k=-1,
+                    max_tokens=4,
+                    stop_token_ids=[151645] if args.checkpoint else [31],
+                    logprobs=0,
+                    detokenize=False,
+                    seed=123 + active,
+                )
+                outputs = llm.generate(
+                    [{"prompt_token_ids": p} for p in request["prompts"]], params, use_tqdm=False
+                )
+                generation_seconds = time.perf_counter() - started
+                assert all(output.num_cached_tokens == 0 for output in outputs)
+                probe_started = time.perf_counter()
+                replay = llm.generate(
+                    [{"prompt_token_ids": p} for p in request["prompts"]], params, use_tqdm=False
+                )
+                assert all(output.num_cached_tokens >= 16 for output in replay)
+                for cold, cached in zip(outputs, replay, strict=True):
+                    assert cold.outputs[0].token_ids == cached.outputs[0].token_ids
+                    cold_lp = [
+                        x[t].logprob
+                        for t, x in zip(
+                            cold.outputs[0].token_ids, cold.outputs[0].logprobs, strict=True
+                        )
+                    ]
+                    cached_lp = [
+                        x[t].logprob
+                        for t, x in zip(
+                            cached.outputs[0].token_ids, cached.outputs[0].logprobs, strict=True
+                        )
+                    ]
+                    torch.testing.assert_close(
+                        torch.tensor(cold_lp),
+                        torch.tensor(cached_lp),
+                        atol=args.cache_logprob_atol if args.checkpoint else 2e-6,
+                        rtol=0 if args.checkpoint else 2e-6,
+                    )
+                probe_seconds = time.perf_counter() - probe_started
+                sequences = []
+                for output in outputs:
+                    completion = output.outputs[0]
+                    assert completion.finish_reason in ("stop", "length")
+                    assert completion.logprobs is not None
+                    sequences.append(
+                        {
+                            "prompt": output.prompt_token_ids,
+                            "tokens": completion.token_ids,
+                            "logprobs": [
+                                lp[token].logprob
+                                for token, lp in zip(
+                                    completion.token_ids, completion.logprobs, strict=True
+                                )
+                            ],
+                            "terminated": completion.finish_reason == "stop",
+                        }
+                    )
+                emit(
+                    {
+                        "version": active,
+                        "sequences": sequences,
+                        "seconds": generation_seconds,
+                        "cache_probe_seconds": probe_seconds,
+                        "cached_tokens_after_install": [o.num_cached_tokens for o in outputs],
+                        "cached_tokens_on_replay": [o.num_cached_tokens for o in replay],
+                    }
+                )
+            else:
+                raise ValueError("unknown operation")
+        except Exception as exc:
+            emit({"error": f"{type(exc).__name__}: {exc}"})
+            raise
+    # Engine lifetime ends with the isolated process, not the trainer's groups.
+    del llm
+
+
+if __name__ == "__main__":
+    main()

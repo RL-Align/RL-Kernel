@@ -71,6 +71,9 @@ jobs:
       - name: Check refactor packaging and compatibility
         run: python ci/run.py layout -q
 
+      - name: Run PPO BF16 buffer and checkpoint contracts
+        run: python -m pytest -q tests/integrations/engines/train/test_ppo_bf16.py tests/integrations/engines/train/test_qwen3_ppo_checkpoint.py tests/integrations/engines/train/test_qwen3_vllm_install.py tests/integrations/engines/train/test_ppo_adapters.py tests/integrations/common/test_ppo.py
+
       - name: Run Mocked Hardware Discovery Tests
         run: |
           python -m pytest tests/runtime/test_dispatch.py -v
