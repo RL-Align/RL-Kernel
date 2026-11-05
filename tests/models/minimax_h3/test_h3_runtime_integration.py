@@ -290,6 +290,32 @@ def test_lora_gradient_gate():
 
 
 @needs_gpu
+def test_lora_gate_detects_a_gradient_reaching_the_base(monkeypatch):
+    """``base_frozen`` is a real check: a backward that returns a base gradient fails it."""
+
+    pytest.importorskip("triton")
+    backward = rt._StrictLoRA.backward
+
+    def leaky(ctx, grad):
+        dx, _, d_a, d_b, _ = backward(ctx, grad)
+        return dx, torch.zeros_like(ctx.saved_tensors[1]), d_a, d_b, None
+
+    monkeypatch.setattr(rt._StrictLoRA, "backward", staticmethod(leaky))
+    g = torch.Generator().manual_seed(3)
+    w = (torch.randn(64, 32, generator=g) / 20).bfloat16().cuda()
+    x = torch.randn(8, 32, generator=g).bfloat16().cuda()
+    grad = torch.randn(8, 64, generator=g).bfloat16().cuda()
+    assert rt.lora_gradient_gate(w, x, grad)["base_frozen"] is False
+
+
+def test_transition_refuses_sample_ids_that_do_not_match_the_batch():
+    provider = rt.H3TrainingProvider(_FakeModel(), "off")
+    x = torch.zeros(3, 4, 2)
+    with pytest.raises(ValueError, match="sample_ids has 1 entries for a batch of 3"):
+        provider.transition(x, x, 0.75, 0.5, seed=1, step=0, sample_ids=[0], modality="video")
+
+
+@needs_gpu
 def test_lora_gradients_match_fp64_autograd():
     pytest.importorskip("triton")
     g = torch.Generator().manual_seed(4)

@@ -211,9 +211,18 @@ class H3TrainingProvider:
         noise_level=None,
         prev_sample=None,
     ):
-        """CPS transition for a batch whose per-sample noise depends on ``sample_ids`` only."""
+        """CPS transition for a batch whose per-sample noise depends on ``sample_ids`` only.
+
+        ``sample_ids`` names every row of the batch, in order: a length that differs from the batch
+        size is refused (one id would otherwise broadcast one noise draw over every sample).
+        """
 
         from rl_engine.models.minimax_h3 import transition as tr
+
+        if len(sample_ids) != sample.shape[0]:
+            raise ValueError(
+                f"sample_ids has {len(sample_ids)} entries for a batch of {sample.shape[0]}"
+            )
 
         level = tr.NOISE_LEVEL if noise_level is None else noise_level
         noise = None
@@ -301,11 +310,12 @@ def lora_gradient_gate(
 
     def run(rows):
         a, b = a0.clone().requires_grad_(True), b0.clone().requires_grad_(True)
-        w = weight.detach().clone()
+        # the base asks for a gradient, so the check fails if the LoRA backward ever returns one
+        w = weight.detach().clone().requires_grad_(True)
         xi = x[rows].detach().clone().requires_grad_(True)
         y = strict_lora_linear(xi, w, a, b, scale)
         y.backward(grad[rows])
-        frozen.append(w.grad is None and not w.requires_grad)
+        frozen.append(w.grad is None)
         return y.detach(), xi.grad, a.grad, b.grad
 
     full = run(slice(None))

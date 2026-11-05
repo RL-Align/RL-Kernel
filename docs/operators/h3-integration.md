@@ -37,4 +37,4 @@ recipe changes the noise law, only `transition.py` and its test change.
 
 ## Evidence
 
-`tests/models/minimax_h3/test_h3_runtime_integration.py` (runtime modes, overlay, adapter, transition, LoRA gate). The transition tests compare with the verl-omni scheduler when it is importable and are skipped otherwise.
+`tests/models/minimax_h3/test_h3_runtime_integration.py` (runtime modes, overlay, adapter, transition, LoRA gate). The scheduler comparison runs when `VERL_OMNI_PATH` points at a verl-omni checkout: the test loads its `verl_omni/pipelines/schedulers/flow_match_sde.py` by path (the scheduler is not imported as a package) and is skipped when the variable is unset or the file is missing.
