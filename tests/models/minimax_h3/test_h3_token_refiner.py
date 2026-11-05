@@ -212,3 +212,27 @@ def test_text_path_context_projection_then_refiner(refiner_weights):
         provider = hr.run_refiner("provider", refiner_weights, h_prov)
         golden = hr.run_refiner("golden", refiner_weights, h_prov)
     assert hb.rel_err(out, golden) <= 2 * hb.rel_err(provider, golden) + 2e-3
+
+
+def test_refiner_qkv_nodes_share_one_combined_row_call():
+    """As in the block graph: one ``h3_qkv_gemm`` call for q/k/v (fused input gradient)."""
+
+    calls = []
+
+    class _Ops:
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            calls.append(logical_keys.shape)
+            return tuple(flat @ w.t() for w in (wq, wk, wv))
+
+    nodes = {n.name: n for n in hr.NODES}
+    prefix = "token_refiner.refiner_blocks.0"
+    names = ("attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight")
+    ctx = {"prefix": prefix, "weights": {f"{prefix}.{w}": torch.randn(4, 6) for w in names}}
+    x = torch.randn(1, 3, 6)
+    outs = [nodes[n].candidate(_Ops, ctx, x) for n in ("q_proj", "k_proj", "v_proj")]
+    assert len(calls) == 1
+    for out, w in zip(outs, names):
+        assert torch.equal(
+            out, (x.reshape(3, 6) @ ctx["weights"][f"{prefix}.{w}"].t()).view(1, 3, 4)
+        )
