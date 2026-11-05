@@ -4,7 +4,27 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
+
+
+def _accuracy_series(cases, tensor):
+    """Collect measured maxima and retain rows with unavailable accuracy checks."""
+    by_size = {}
+    unavailable = set()
+    for case in cases:
+        size = case["rows"]
+        ratios = [
+            check.get("max_error_over_tolerance")
+            for check in case["checks"]
+            if check["tensor"] == tensor and check["transform"] == "fp32_reference"
+        ]
+        measured = [ratio for ratio in ratios if ratio is not None and math.isfinite(ratio)]
+        by_size.setdefault(size, []).extend(measured)
+        if not ratios or len(measured) != len(ratios):
+            unavailable.add(size)
+    sizes = sorted(by_size)
+    return sizes, [max(by_size[size], default=math.nan) for size in sizes], unavailable
 
 
 def main():
@@ -39,19 +59,19 @@ def main():
         ]
     ):
         cases = [c for c in report["cases"] if c["semantic_op"] == kind]
-        sizes = sorted({c["rows"] for c in cases if c["input_family"] != "checkpoint_fixture"})
+        unavailable = set()
         for tensor in ("y", "dx", "dw"):
-            values = [
-                max(
-                    check["max_error_over_tolerance"]
-                    for c in cases
-                    if c["rows"] == size
-                    for check in c["checks"]
-                    if check["tensor"] == tensor and check["transform"] == "fp32_reference"
-                )
-                for size in sizes
-            ]
+            sizes, values, missing = _accuracy_series(cases, tensor)
+            unavailable.update(missing)
             axes[row, 0].plot(sizes, values, marker=".", label=tensor)
+        if unavailable:
+            axes[row, 0].plot(
+                sorted(unavailable),
+                [0.04] * len(unavailable),
+                "kx",
+                transform=axes[row, 0].get_xaxis_transform(),
+                label="Unavailable accuracy ratio",
+            )
         axes[row, 0].axhline(1, color="black", linestyle="--", label="Failure threshold")
         axes[row, 0].set(
             title=f"{title}: worst accuracy ratio",

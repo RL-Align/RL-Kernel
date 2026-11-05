@@ -7,8 +7,12 @@ from __future__ import annotations
 import torch
 
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
+
 # Preserve historical imports without duplicating reference state or arithmetic.
-from rl_engine.reference.gemm.h3_projections import fp32_math, reference_projection  # noqa: F401
+from rl_engine.reference.gemm.h3_projections import (  # noqa: F401
+    fp32_math,
+    reference_projection,
+)
 
 
 def raw_equal(lhs, rhs):

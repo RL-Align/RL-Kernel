@@ -108,23 +108,25 @@ comparator without byte-invariance qualification.
 `INDEX_64=False` launches: 24 accuracy/repeat/permutation/chunk cases across
 three shapes, four BF16/FP32 dtype pairs and contiguous/strided layouts;
 four exact cancellation cases; four bias/aligned-load cases; and two upstream
-chunked-reduction cases with K tails. The NVIDIA full-K FP32-output helper uses
-eight warps and explicitly rounded compensated tile addition. Direct H3 calls
-retain their four-warp uncompensated arithmetic; upstream chunked callers retain
-their two-half reduction and never select compensation.
+chunked-reduction cases with K tails. The generic NVIDIA FP32-output entry
+points select eight warps and explicitly rounded compensated tile addition.
+Direct H3 and video projection callers retain four-warp uncompensated
+arithmetic. Upstream chunked callers use wide indexing and retain their
+two-half reduction.
 
 ```bash
 RL_KERNEL_REQUIRE_FP32_GPU=1 python -m pytest -q tests/ops/gemm/test_det_gemm_fp32.py
 ```
 
 Strict mode fails on missing NVIDIA SM90+ or Triton prerequisites. The H3 smoke
-script requires exact SM90 and runs it first. The proposed GPU workflow adds
-`test-h3` with an SM90-only job, retaining the `needs-gpu-ci` label gate and
-the existing matrix on other targets. The trusted runner executes this suite
-before native extension smoke checks when the checked-out head contains it.
-The workflow and runner are read from the trusted base branch: a maintainer must
-enable that route there, or provide another SM90+ CI route. No actual CI result
-is claimed. Local preparation does not enable or trigger remote jobs.
+script requires exact SM90 and runs it first. GitHub loads the
+`pull_request_target` workflow from the default branch, `main`. The workflow
+checks out its runner script from the trusted `test-h3` base commit. The
+changes proposed here require the `test-h3` SM90 job trigger on `main` and
+the shared FP32 test step in the trusted `test-h3` runner. With both in
+place, a maintainer can approve the run with the `needs-gpu-ci` label.
+An existing trusted SM90+ CI route can also execute the strict command above.
+The shared FP32 suite still awaits a CI run.
 
 ## Results and evidence status
 
@@ -144,16 +146,19 @@ Triton 3.0.0 and driver 595.91.07.
 The original archive SHA256 is
 `11d129c9d6bd8d1b5327639c25d14740076c77a833c8583c36334af23a02f4ce`;
 all 780 file hashes were verified. Source manifests and captured launch/compiled
-artifacts bind the execution to the tested source. These are recorded manual
-results, reused without rerunning for this documentation update; they are not a
-GitHub CI result or production/performance qualification. Full evidence remains
-private pending separately authorized delivery.
+artifacts bind the execution to the tested source. The table reports historical
+manual runs. Full evidence remains private pending separately authorized
+delivery.
 
 Subsequent integration of `test-h3` at
 `9efa2643e31626f8b5de4b514373dbfe94f7bd6e` brings upstream TP AdaLN
 changes. The tested projection/shared FP32 sources and their validation execution
-paths remain unchanged. This execution does not validate those upstream native/TP
-changes.
+paths were unchanged at that merge. Integration with `test-h3` at
+`cfec0d98054eb04162b932ea9f4fc46334ebe870` changes shared FP32 indexing and
+launch routing, includes the upstream chunk-size bound, and updates canonical
+backward dependencies. GPU validation for this integrated revision remains
+outstanding, including the H3 adapter, shared FP32 default-index and chunked
+regressions, and upstream video input/output projection regressions.
 
 Earlier executions and their limitations remain historical:
 

@@ -2,8 +2,10 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """CPU launch-contract checks; no CUDA arithmetic is emulated here."""
 
+from inspect import signature
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from rl_engine.backends.cuda.gemm import h3_projection_fp32 as adapter
@@ -51,3 +53,40 @@ def test_direct_launch_uses_bias_slot_and_fixed_h3_specialization(monkeypatch):
         enable_fp_fusion=False,
     )
     assert output.shape == (33, 67) and output.dtype == torch.bfloat16
+
+
+@pytest.mark.parametrize(
+    "m,k,n,wide",
+    [
+        (65536, 32768, 1, False),  # Largest input offset is exactly INT32_MAX.
+        (65536, 32769, 1, True),
+        (1, 32769, 65536, True),
+        (65536, 1, 32769, True),
+    ],
+)
+def test_shared_full_k_index_width_binds_real_kernel(monkeypatch, m, k, n, wide):
+    """Verify the dispatch boundary without allocating the large tensors."""
+
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+
+    if not det_gemm._TRITON_AVAILABLE:
+        pytest.skip("Triton is needed to inspect the real JIT signature")
+    kernel_parameters = signature(det_gemm._det_gemm_fp32_kernel.fn)
+    calls = []
+
+    class Kernel:
+        def __getitem__(self, grid):
+            def launch(*args, num_warps, **kwargs):
+                call = kernel_parameters.bind(*args, **kwargs)
+                call.apply_defaults()
+                calls.append(call.arguments["INDEX_64"])
+
+            return launch
+
+    monkeypatch.setattr(det_gemm, "_det_gemm_fp32_kernel", Kernel())
+    a = torch.empty((m, k), device="meta")
+    b = torch.empty((k, n), device="meta")
+    result = det_gemm._triton_gemm_fp32(a, b)
+
+    assert result.shape == (m, n)
+    assert calls == [wide]

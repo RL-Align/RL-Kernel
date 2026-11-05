@@ -143,6 +143,7 @@ def test_shared_fp32_bias_and_aligned_loads(aligned, strided, default_index_laun
         a = a.t().contiguous().t()
         b = b.t().contiguous().t()
         bias = bias.repeat_interleave(2)[::2]
+
     def gemm():
         return det_gemm._triton_gemm_fp32(
             a, b, bias=bias, aligned_tiles=aligned, cuda_fp32_compensation=True

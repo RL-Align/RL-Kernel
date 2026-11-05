@@ -306,6 +306,7 @@ def main(argv=None):
     report = {
         "schema": "h3-projections-qualification-v1",
         "status": "running",
+        # Passing this operator matrix does not establish workload acceptance.
         "acceptance_complete": False,
         "cases": [],
         "scope": "single SM90 CUDA device, BF16, eager, operator-only",
