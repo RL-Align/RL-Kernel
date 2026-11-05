@@ -174,12 +174,8 @@ class TestPackedIO:
 # --- Multi-process grids --------------------------------------------------------------------
 
 
-def _reference(seq_len=0, backward=False):
-    from rl_engine.validation.models.h3_weights import load_h3_block_weights
-
-    return h3_tp.block_case(
-        load_h3_block_weights("cuda"), h3_tp.Grid(1, 1, 0, 0), seq_len=seq_len, backward=backward
-    )
+def _reference(weights, seq_len=0, backward=False):
+    return h3_tp.block_case(weights, h3_tp.Grid(1, 1, 0, 0), seq_len=seq_len, backward=backward)
 
 
 def _assemble(ranks, tp, cp, key="out"):
@@ -210,7 +206,8 @@ GRIDS = [
 
 @needs_gpu
 @pytest.mark.parametrize(("tp", "cp", "sp", "length"), GRIDS)
-def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length):
+def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length, h3_block_weights_cuda):
+    # the fixture skips without extracted weights; every rank loads the same pinned files
     _triton()
     ranks = run_world(
         tp * cp,
@@ -222,7 +219,7 @@ def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length):
         seq_len=length,
         backward=True,
     )
-    ref = _reference(length, backward=True)
+    ref = _reference(h3_block_weights_cuda, length, backward=True)
     out, spans = _assemble(ranks, tp, cp)
     assert out.shape == ref["out"].shape, (spans, out.shape)
     assert torch.equal(out.cpu(), ref["out"].cpu()), "forward differs from the single-GPU block"
