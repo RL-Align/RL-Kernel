@@ -61,6 +61,11 @@ def timed(model, inputs, candidate, repeats, attention="auto"):
 
     grad_inputs = ("hidden_states", "audio_hidden_states", "encoder_hidden_states")
     backends = {}
+    ops = None
+    if candidate:  # built once and outside every timed region: registry lookups, CUDA init
+        from rl_engine.validation.models.h3_block import CandidateOps
+
+        ops = CandidateOps(attention=attention)
 
     def once():
         fresh = {
@@ -68,16 +73,12 @@ def timed(model, inputs, candidate, repeats, attention="auto"):
             for k, v in inputs.items()
         }
         trace = FullModelTrace()
-        torch.cuda.synchronize()
-        t0 = time.perf_counter()
-        ops = None
-        if candidate:
-            from rl_engine.validation.models.h3_block import CandidateOps
-
-            ops = CandidateOps(attention=attention)
         with full_model_execution(
             model, candidate=candidate, trace=trace, ops=ops, strict_boundaries=candidate
         ):
+            # timed: forward and backward of the bound model only, not the binding setup
+            torch.cuda.synchronize()
+            t0 = time.perf_counter()
             with torch.autograd.graph.save_on_cpu(pin_memory=True):
                 video, audio = model(**fresh)
                 torch.cuda.synchronize()

@@ -19,6 +19,14 @@ the strict operators on both sides read bit-identical weights:
 The tables mirror ``vllm_omni.diffusion.models.minimax_h3.fasth3`` (checked by a test when that
 package is importable). Mapping is pure data movement:
 ``native_to_diffusers(diffusers_to_native(x))`` is bitwise ``x``.
+
+Two QKV layouts exist on the native side, and both directions take ``qkv_layout``:
+
+* ``"module"`` (default): ``attn.qkv_proj.weight`` as the loaded module holds it, ``[Q; K; V]``
+  rows. This is what ``install_h3_rollout`` reads and what ``load_state_dict`` writes in place;
+* ``"checkpoint"``: a serialised native checkpoint, per-head ``[q, k, v]`` groups, which
+  vLLM-Omni's loader converts to ``[Q; K; V]`` itself. Writing the module layout into a file
+  for that loader would permute the rows twice.
 """
 
 from __future__ import annotations
@@ -29,6 +37,9 @@ import torch
 
 PLAIN, SWAP_HALVES = "plain", "swap_halves"
 QKV_SLOTS = ("q", "k", "v")
+QKV_LAYOUTS = ("module", "checkpoint")
+HEAD_DIM = 128
+TENSOR_KINDS = ("weight", "bias")
 
 MODEL_LEVEL = {
     "proj_in": "video_patch_proj",
@@ -110,15 +121,33 @@ def qkv_to_grouped(fused: torch.Tensor, *, heads: int, head_dim: int) -> torch.T
     return torch.cat(parts, dim=1).reshape(heads * 3 * head_dim, *fused.shape[1:])
 
 
-def diffusers_to_native(state: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    """Diffusers state dict -> native names, fused QKV, gate-first ``fc1``; unmapped keys fail."""
+def _check_layout(qkv_layout: str) -> None:
+    if qkv_layout not in QKV_LAYOUTS:
+        raise ValueError(f"qkv_layout must be one of {QKV_LAYOUTS}, got {qkv_layout!r}")
 
+
+def _heads(fused: torch.Tensor) -> int:
+    if fused.shape[0] % (3 * HEAD_DIM):
+        raise ValueError(f"fused QKV rows {fused.shape[0]} are not whole {HEAD_DIM}-wide heads")
+    return fused.shape[0] // (3 * HEAD_DIM)
+
+
+def diffusers_to_native(
+    state: Mapping[str, torch.Tensor], *, qkv_layout: str = "module"
+) -> dict[str, torch.Tensor]:
+    """Diffusers state dict -> native names, fused QKV, gate-first ``fc1``; unmapped keys fail.
+
+    ``qkv_layout`` selects the module layout (``[Q; K; V]``) or the serialised checkpoint
+    layout (per-head groups) of the fused QKV, see the module docstring.
+    """
+
+    _check_layout(qkv_layout)
     out: dict[str, torch.Tensor] = {}
     qkv: dict[str, dict[str, torch.Tensor]] = {}
     for name, tensor in state.items():
         module, _, kind = name.rpartition(".")
         target = resolve(module)
-        if target is None or kind not in ("weight", "bias"):
+        if target is None or kind not in TENSOR_KINDS:
             raise ValueError(f"unmapped Diffusers H3 tensor: {name}")
         native, layout = target
         key = f"{native}.{kind}"
@@ -131,7 +160,10 @@ def diffusers_to_native(state: Mapping[str, torch.Tensor]) -> dict[str, torch.Te
     for key, parts in qkv.items():
         if set(parts) != set(QKV_SLOTS):
             raise ValueError(f"{key} needs q, k and v, got {sorted(parts)}")
-        out[key] = fuse_qkv(parts["q"], parts["k"], parts["v"])
+        fused = fuse_qkv(parts["q"], parts["k"], parts["v"])
+        if qkv_layout == "checkpoint":
+            fused = qkv_to_grouped(fused, heads=_heads(fused), head_dim=HEAD_DIM)
+        out[key] = fused
     return out
 
 
@@ -144,9 +176,16 @@ def _native_block(module: str) -> tuple[str, str, str] | None:
     return None
 
 
-def native_to_diffusers(state: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    """Inverse of :func:`diffusers_to_native` (splits fused QKV, swaps ``fc1`` halves back)."""
+def native_to_diffusers(
+    state: Mapping[str, torch.Tensor], *, qkv_layout: str = "module"
+) -> dict[str, torch.Tensor]:
+    """Inverse of :func:`diffusers_to_native` (splits fused QKV, swaps ``fc1`` halves back).
 
+    ``qkv_layout`` must name the layout the native QKV tensors are in (``"checkpoint"`` for a
+    serialised native checkpoint). Tensor kinds other than ``weight`` / ``bias`` are refused.
+    """
+
+    _check_layout(qkv_layout)
     model = {native: diff for diff, native in MODEL_LEVEL.items()}
     block = {
         native: (diff, layout)
@@ -156,6 +195,8 @@ def native_to_diffusers(state: Mapping[str, torch.Tensor]) -> dict[str, torch.Te
     out: dict[str, torch.Tensor] = {}
     for name, tensor in state.items():
         module, _, kind = name.rpartition(".")
+        if kind not in TENSOR_KINDS:
+            raise ValueError(f"unmapped native H3 tensor: {name}")
         if module in model:
             out[f"{model[module]}.{kind}"] = tensor
             continue
@@ -164,6 +205,8 @@ def native_to_diffusers(state: Mapping[str, torch.Tensor]) -> dict[str, torch.Te
             raise ValueError(f"unmapped native H3 tensor: {name}")
         source, index, suffix = parsed
         if suffix == "attn.qkv_proj":
+            if qkv_layout == "checkpoint":
+                tensor = grouped_qkv_to_qkv(tensor, heads=_heads(tensor), head_dim=HEAD_DIM)
             for slot, part in zip(QKV_SLOTS, split_qkv(tensor)):
                 out[f"{source}{index}.attn.to_{slot}.{kind}"] = part
         elif suffix in block:
