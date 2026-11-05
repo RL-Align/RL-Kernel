@@ -256,6 +256,21 @@ def swiglu_backward(
     gate: torch.Tensor,
     up: torch.Tensor,
 ) -> list[torch.Tensor]: ...
+def packed_index_copy_forward(
+    text: torch.Tensor,
+    video: torch.Tensor,
+    audio: torch.Tensor,
+    text_indices: torch.Tensor,
+    video_indices: torch.Tensor,
+    audio_indices: torch.Tensor,
+    sequence_length: int,
+) -> torch.Tensor: ...
+def packed_index_copy_backward(
+    grad: torch.Tensor,
+    text_indices: torch.Tensor,
+    video_indices: torch.Tensor,
+    audio_indices: torch.Tensor,
+) -> list[torch.Tensor]: ...
 def rmsnorm_forward(
     x: torch.Tensor,
     weight: torch.Tensor,
