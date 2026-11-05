@@ -39,8 +39,9 @@ integration step and must report both selection calls in the model trace.
 NVIDIA A40 (SM86), using PyTorch 2.8.0+cu128 and Triton 3.4.0. The operator,
 registry, unified-input/checker and dispatch suite passed all 130 cases with
 no skips. The SM80+ device guard defines eligibility; other architectures have
-not been measured. ROCm has not been tested and is not registered. Production dispatch fails closed on unsupported platforms or
-an unavailable Triton backend; the Native reference must be requested explicitly.
+not been measured. ROCm has not been tested and is not registered. Production
+dispatch fails closed on unsupported platforms or an unavailable Triton backend;
+the Native reference must be requested explicitly.
 
 ## Tensor contract
 
@@ -139,7 +140,7 @@ qualify CUDA, and skipped device tests are not passes.
 For CPU-only validation select `-k TestReference`; the unified checker also
 accepts `--candidate pytorch --device cpu`. No CUDA extension is needed for
 this Triton implementation. Record the actual torch/Triton/driver versions
-alongside each GPU validation run. The measured environment is listed below.
+alongside each GPU validation run.
 
 ## Benchmark and evidence
 
@@ -148,13 +149,18 @@ timeout 1200 python benchmarks/operators/embedding/benchmark_packed_index_select
   --rows 129 4097 38734 110750 367986 --widths 32 96 \
   --duplicates 0 0.25 --dtype float32 --batch 1 --warmup 5 --samples 30 \
   --output artifacts/packed-index-select/benchmark.json
-python benchmarks/operators/embedding/plot_packed_index_select.py \
-  artifacts/packed-index-select/benchmark.json \
-  --output artifacts/packed-index-select/latency.png
 ```
 
-The timeout command above is GNU `timeout` on the GPU Linux host. Plotting
-requires Matplotlib and consumes measured JSON only.
+The timeout command above is GNU `timeout` on the GPU Linux host. Repeat with
+`--dtype float16` and `--dtype bfloat16`, using separate output files. A
+high-repeat stress run uses the same benchmark entry point:
+
+```bash
+timeout 600 python benchmarks/operators/embedding/benchmark_packed_index_select.py \
+  --rows 129 4097 --widths 32 96 --duplicates 0.75 0.99 \
+  --dtype float32 --batch 2 --warmup 5 --samples 30 \
+  --output artifacts/packed-index-select/benchmark-b2-repeats.json
+```
 
 The ordinary `torch.index_select` + autograd baseline uses deterministic mode
 **off**; a second PyTorch baseline uses it **on**. The candidate is timed with
@@ -181,71 +187,9 @@ operator measurements, not end-to-end model throughput. Large-repeat segments
 have a sequential dependency and can be slow. Raw evidence belongs in ignored
 `artifacts/packed-index-select/` and an external download bundle, not Git.
 
-### A40 measurements (2026-11-05)
-
-Measured revision: `888656ee75a9ea307a86085ee26d4a461d33a3e8`, clean checkout.
-Single NVIDIA A40 / SM86, driver 595.91.07, Python 3.12.3,
-PyTorch 2.8.0+cu128, CUDA runtime 12.8, Triton 3.4.0. No CUDA extension
-was built or required. The initial backward compilation failed on Triton's
-unsupported `break`; replacing it with a masked next-row load and a loop
-condition preserved the declared sequential arithmetic and passed the suite.
-
-- 130 pytest cases passed, including all 31 CUDA cases, with no skips.
-- Six unified-checker runs passed: B=2, S=129, D=32/96, random VJP,
-  FP32/FP16/BF16. The two-head registry example also ran successfully.
-- The main matrix has 20 cases per dtype: B=1, S=129/4097/38734/110750/367986,
-  D=32/96, repeat fractions 0/25%, for all three dtypes. Eight FP32 stress
-  cases use B=2, S=129/4097, D=32/96 and repeat fractions 75/99%.
-- All 68 candidate cases passed all-element forward-copy bits, gradient
-  accuracy and repeated forward/gradient bits. Thresholds were unchanged.
-  Maximum absolute gradient error was 0 for the main FP32 matrix,
-  0.001953125 for FP16, 0.015625 for BF16, and 1.335145e-5 for FP32 stress.
-  These errors passed their combined absolute/relative tolerances.
-- Ordinary PyTorch had gradient repeat-bit mismatches in all eight stress
-  cases; its accuracy checks passed. PyTorch deterministic mode and Triton
-  had no repeat-bit mismatches. Each benchmark repeat check compares two VJPs;
-  the focused CUDA suite additionally repeats selected VJPs three times.
-
-Repeat the main benchmark command above with `--dtype float16` and
-`--dtype bfloat16`, using separate output files. The stress run is:
-
-```bash
-timeout 600 python benchmarks/operators/embedding/benchmark_packed_index_select.py \
-  --rows 129 4097 --widths 32 96 --duplicates 0.75 0.99 \
-  --dtype float32 --batch 2 --warmup 5 --samples 30 \
-  --output artifacts/packed-index-select/benchmark-b2-repeats.json
-```
-
-Median synchronized forward+backward wall time (ms), B=1, S=367986, FP32,
-K=183993; 5 warmups and 30 measured samples per implementation and phase:
-
-| D | Repeats | PyTorch | PyTorch deterministic | Triton |
-| --- | --- | --- | --- | --- |
-| 32 | 0% | 0.4235 | 0.8358 | 1.5343 |
-| 32 | 25% | 0.4495 | 0.9790 | 1.5421 |
-| 96 | 0% | 1.0249 | 1.7200 | 1.6175 |
-| 96 | 25% | 0.9785 | 1.6581 | 1.3911 |
-
-The candidate is **slower than ordinary PyTorch in every measured case**.
-Across the 20 main FP32 cases its combined wall-time ratio to ordinary
-PyTorch is 1.42–6.41 (median 3.67); relative to deterministic PyTorch it is
-0.84–2.86 (median 1.58). This establishes a fixed-order implementation, not
-a general speedup. The small advantages over deterministic PyTorch in the
-largest D=96 cases are single-run observations, not a robust optimization
-claim. Host dispatch and synchronization are included, the baseline order is
-fixed, and shared-host noise is visible in the nonmonotonic timings.
-
-For S=367986, D=96, 0% repeats, incremental peak allocation during combined
-execution was 202.14 MiB (PyTorch), 278.52 MiB (deterministic PyTorch) and
-209.74 MiB (Triton). This is allocation above live inputs/retained graph,
-not total GPU or model memory. Full phase medians, memory, checks, environment,
-source fingerprints and raw-file hashes are in the compact
-[measurement summary](../assets/benchmarks/h3-packed-index-select-a40/summary.json).
-Raw per-sample JSON and logs are retained outside Git.
-
-![Measured eager FP32 latency on A40](../assets/benchmarks/h3-packed-index-select-a40/latency-float32.png)
-
-The nondefault-stream test passed on this one-device host; changing the
-current device while targeting another GPU remains untested. These results
-do not qualify other architectures, ROCm, CUDA Graph capture, higher-order
-autograd, full-model output-selection binding or model-level trajectories.
+Measured A40 results and methodology are summarized in
+[PR #663](https://github.com/RL-Align/RL-Kernel/pull/663). The candidate was
+slower than ordinary PyTorch in every measured workload; no general speedup
+is claimed. Generated figures and result files are kept outside the source
+tree. The nondefault-stream test passed on one GPU; changing the current
+device while targeting another GPU remains untested.
