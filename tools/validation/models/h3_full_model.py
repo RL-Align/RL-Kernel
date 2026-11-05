@@ -21,8 +21,10 @@ from rl_engine.validation.models.h3_cases import h3_fl2va_layout
 from rl_engine.validation.models.h3_full_model import (
     MODEL_REVISION,
     PROVIDER_REVISION,
+    PROVIDER_VARIANTS,
     FullModelTrace,
     full_model_execution,
+    provider_variant_context,
 )
 
 
@@ -75,29 +77,6 @@ def packed_inputs(device):
         audio_indices=(tags == 2).nonzero().flatten(),
         return_dict=False,
     )
-
-
-# Provider passes that change only which kernels compute the same diffusers graph, to
-# measure how much an independent BF16 provider's errors move on their own. Each forces
-# one choice; an unavailable kernel raises instead of falling back.
-PROVIDER_VARIANTS = ("default", "sdpa-flash", "sdpa-efficient", "sdpa-cudnn", "blas-cublaslt")
-
-
-def provider_variant_context(variant: str):
-    """Context manager forcing one SDPA backend, or a no-op (BLAS choice is set globally)."""
-
-    from contextlib import nullcontext
-
-    from torch.nn.attention import SDPBackend, sdpa_kernel
-
-    backends = {
-        "sdpa-flash": SDPBackend.FLASH_ATTENTION,
-        "sdpa-efficient": SDPBackend.EFFICIENT_ATTENTION,
-        "sdpa-cudnn": SDPBackend.CUDNN_ATTENTION,
-    }
-    if variant == "blas-cublaslt":
-        torch.backends.cuda.preferred_blas_library("cublaslt")
-    return sdpa_kernel([backends[variant]]) if variant in backends else nullcontext()
 
 
 def main():

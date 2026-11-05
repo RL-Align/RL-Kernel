@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Site options (partition, account, job name) are given at submission; see README.md.
-# Numerical gates of the full-model candidate. Generation is a separate job, allowed only after
-# this job passed for the same commit.
+# Numerical gates and the generation preflight of the full-model candidate. Full generation is
+# generation.sbatch (one task per seed), allowed only after this job passed for the same commit.
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:b200:1
@@ -14,8 +14,9 @@ python_bin=$2
 checkpoint=$3
 reference_root=$4
 result_root=$5
-provider_source=$6
-extra_dependencies=$7
+reference_image=$6
+provider_source=$7
+extra_dependencies=$8
 cd "$source_dir"
 [[ -z $(git status --porcelain) ]]
 result_dir="$result_root/job-$SLURM_JOB_ID-attempt-${SLURM_RESTART_COUNT:-0}"
@@ -53,3 +54,6 @@ export RL_KERNEL_H3_WEIGHTS="$result_dir/preflight/weights"
   --rule examples/models/minimax_h3/full-model-ensemble-rule.json \
   --candidate "$result_dir/full-model-comparison.json" \
   --output "$result_dir/full-model-acceptance.json" > "$result_dir/acceptance.log" 2>&1
+"$python_bin" -m tools.validation.models.h3_full_generation --checkpoint "$checkpoint" \
+  --reference-image "$reference_image" --candidate --preflight --output "$result_dir/generation-preflight" \
+  > "$result_dir/generation-preflight.log" 2>&1

@@ -11,8 +11,9 @@ source_dir=$1
 python_bin=$2
 checkpoint=$3
 result_root=$4
-provider_source=$5
-extra_dependencies=$6
+reference_image=$5
+provider_source=$6
+extra_dependencies=$7
 cd "$source_dir"
 [[ -z $(git status --porcelain) ]]
 result_dir="$result_root/job-$SLURM_JOB_ID-attempt-${SLURM_RESTART_COUNT:-0}"
@@ -33,5 +34,18 @@ done
 "$python_bin" -m tools.validation.models.h3_full_compare \
   --reference "$result_dir/fp32-reference" --other "$result_dir/bf16-provider" \
   --output "$result_dir/full-model-thresholds.json" > "$result_dir/calibration.log" 2>&1
+"$python_bin" -m tools.validation.models.h3_full_generation --checkpoint "$checkpoint" \
+  --reference-image "$reference_image" --preflight --output "$result_dir/generation-preflight" \
+  > "$result_dir/generation-preflight.log" 2>&1
+"$python_bin" -m tools.validation.models.h3_full_generation --checkpoint "$checkpoint" \
+  --reference-image "$reference_image" --output "$result_dir/generation-reference" \
+  > "$result_dir/generation-reference.log" 2>&1
+"$python_bin" -m tools.validation.models.h3_full_generation --checkpoint "$checkpoint" \
+  --reference-image "$reference_image" --output "$result_dir/generation-reference-repeat" \
+  > "$result_dir/generation-reference-repeat.log" 2>&1
+"$python_bin" -m tools.validation.models.h3_generation_compare --reference "$result_dir/generation-reference" \
+  --candidate "$result_dir/generation-reference-repeat" --provider-repeat \
+  --contract examples/models/minimax_h3/generation-contract.json --output "$result_dir/reference-repeat-quality.json" \
+  > "$result_dir/reference-repeat-quality.log" 2>&1
 # Candidate jobs are submitted only after these immutable reference artifacts
 # are reviewed and the numerical thresholds have been committed.
