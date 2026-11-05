@@ -482,6 +482,39 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             version_or_build_fingerprint="h3-euler-fp32-triton-v1",
         ),
         OperatorBackendDescriptor(
+            semantic_op="h3_ode_step",
+            backend_id="rlkernel.pytorch.h3_ode_step.euler_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            # Portable reference: no device kernel, so CPU and every GPU platform
+            # that runs PyTorch can resolve it (the PR registers a ``pytorch``
+            # candidate in OP_SPECS and this descriptor is its semantic entry).
+            supported_devices=frozenset({"cpu", "cuda", "rocm"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "torch.elementwise_euler_blend, one declared fp32 program",
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-pytorch-strict-v1",
+                "accumulator_dtype": "float32",
+                "epilogue_cast": "storage_dtype",
+                "reduction": "none",
+                "sigma_layout": "per_packed_row",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.PYTORCH_H3_ODE_STEP.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-euler-fp32-reference-v1",
+        ),
+        OperatorBackendDescriptor(
             semantic_op="selected_logprob",
             backend_id="rlkernel.reference_logp",
             supported_targets=frozenset({"rollout", "training"}),
