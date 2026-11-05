@@ -52,16 +52,15 @@ def _select_backward(
     if row != previous:
         accumulator = tl.full((BLOCK_D,), 0, tl.float32)
         cursor = position
-        while cursor < K:
-            current = tl.load(SortedIndex + cursor)
-            if current != row:
-                break
+        current = row
+        while (cursor < K) & (current == row):
             source = tl.load(Order + cursor)
             value = tl.load(
                 Grad + batch * GB + source * GK + channel * GD, channel < D, other=0
             ).to(tl.float32)
             accumulator = accumulator + value
             cursor += 1
+            current = tl.load(SortedIndex + cursor, cursor < K, other=-1).to(tl.int64)
         tl.store(DX + (batch * S + row) * D + channel, accumulator, channel < D)
 
 
