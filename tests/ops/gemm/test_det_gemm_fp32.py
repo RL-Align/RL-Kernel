@@ -87,15 +87,18 @@ def test_shared_fp32_default_index_accuracy_and_invariance(
         a = a.t().contiguous().t()
         b = b.t().contiguous().t()
 
-    actual = det_gemm._triton_gemm_fp32(a, b)
+    def gemm(lhs, rhs):
+        return det_gemm._triton_gemm(lhs, rhs, output_dtype=torch.float32)
+
+    actual = gemm(a, b)
     reference = a.float() @ b.float()
     tolerance = load_contract()["accuracy"]["default"]["reduction"]["float32"]
     assert actual.dtype == torch.float32
     assert torch.isfinite(actual).all()
     torch.testing.assert_close(actual, reference, **tolerance)
-    assert_same_bytes(actual, det_gemm._triton_gemm_fp32(a, b))
-    assert_same_bytes(actual, det_gemm._triton_gemm_fp32(a.flip(0), b).flip(0))
-    chunks = torch.cat([det_gemm._triton_gemm_fp32(part, b) for part in a.split(31)])
+    assert_same_bytes(actual, gemm(a, b))
+    assert_same_bytes(actual, gemm(a.flip(0), b).flip(0))
+    chunks = torch.cat([gemm(part, b) for part in a.split(31)])
     assert_same_bytes(actual, chunks)
     # Cover the public FP32-output operator entry point as well as its helper.
     assert_same_bytes(actual, det_gemm.TritonDetGemmOp().forward_fp32(a, b))
@@ -140,11 +143,15 @@ def test_shared_fp32_bias_and_aligned_loads(aligned, strided, default_index_laun
         a = a.t().contiguous().t()
         b = b.t().contiguous().t()
         bias = bias.repeat_interleave(2)[::2]
-    actual = det_gemm._triton_gemm_fp32(a, b, bias=bias, aligned_tiles=aligned)
+    def gemm():
+        return det_gemm._triton_gemm_fp32(
+            a, b, bias=bias, aligned_tiles=aligned, cuda_fp32_compensation=True
+        )
+
+    actual = gemm()
     tolerance = load_contract()["accuracy"]["default"]["reduction"]["float32"]
     torch.testing.assert_close(actual, a @ b + bias, **tolerance)
-    assert_same_bytes(actual, det_gemm._triton_gemm_fp32(
-        a, b, bias=bias, aligned_tiles=aligned))
+    assert_same_bytes(actual, gemm())
     assert default_index_launches == [False, False]
 
 

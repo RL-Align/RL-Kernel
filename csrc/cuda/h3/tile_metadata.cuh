@@ -79,6 +79,48 @@ inline void check_tile_metadata(cudaStream_t stream, const int64_t* sorted_pos, 
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
+// Sequence-parallel entry points take explicit lists. `rows` (n_rows entries, each a row of an
+// M-row activation, so in [0, row_limit)) and the tiles [tile_begin, tile_end) over it, and/or the
+// segment boundaries seg_first_tile (segments + 1 entries, in [0, seg_limit], non-decreasing). A
+// null pointer skips its part. Same device-side asserts, same single small launch.
+static __global__ void check_lists_kernel(const int64_t* __restrict__ rows, int64_t n_rows,
+                                          int64_t row_limit,
+                                          const int64_t* __restrict__ tile_begin,
+                                          const int64_t* __restrict__ tile_end, int64_t tiles,
+                                          const int64_t* __restrict__ seg_first_tile,
+                                          int64_t segments, int64_t seg_limit) {
+  const int64_t first_thread = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
+  if (rows != nullptr) {
+    for (int64_t i = first_thread; i < n_rows; i += stride) {
+      CUDA_KERNEL_ASSERT(rows[i] >= 0 && rows[i] < row_limit);
+    }
+  }
+  if (tile_begin != nullptr) {
+    for (int64_t i = first_thread; i < tiles; i += stride) {
+      CUDA_KERNEL_ASSERT(tile_begin[i] >= 0 && tile_begin[i] <= tile_end[i] &&
+                         tile_end[i] <= n_rows);
+    }
+  }
+  if (seg_first_tile != nullptr) {
+    for (int64_t i = first_thread; i <= segments; i += stride) {
+      CUDA_KERNEL_ASSERT(seg_first_tile[i] >= 0 && seg_first_tile[i] <= seg_limit);
+      CUDA_KERNEL_ASSERT(i == segments || seg_first_tile[i] <= seg_first_tile[i + 1]);
+    }
+  }
+}
+
+inline void check_lists(cudaStream_t stream, const int64_t* rows, int64_t n_rows, int64_t row_limit,
+                        const int64_t* tile_begin, const int64_t* tile_end, int64_t tiles,
+                        const int64_t* seg_first_tile, int64_t segments, int64_t seg_limit) {
+  // At least one block, so an empty list is a no-op and not an invalid launch.
+  const int64_t items = std::max({n_rows, tiles, segments + 1, int64_t{1}});
+  const unsigned blocks = static_cast<unsigned>(std::min<int64_t>((items + 255) / 256, 1024));
+  check_lists_kernel<<<blocks, 256, 0, stream>>>(rows, n_rows, row_limit, tile_begin, tile_end,
+                                                 tiles, seg_first_tile, segments, seg_limit);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
 // Table-row indices read inside a kernel's loop: `n` entries, each a row of a table with `limit`
 // rows. The assert would cost the loop its scheduling (the same 6-12% as above, measured on the
 // rmsnorm dweight partials), so the entry point checks the S index values once, here, before it

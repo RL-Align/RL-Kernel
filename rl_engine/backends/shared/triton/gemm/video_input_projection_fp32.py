@@ -33,10 +33,7 @@ def projection_gemm_fp32(a, b, *, bias=None):
 
     # Forward has K=96; short parameter-gradient reductions also use full-K GEMM.
     if a.shape[1] <= VIDEO_PATCH_WIDTH:
-        # Preserve the four-warp, uncompensated arithmetic in the backend fingerprint.
-        return _triton_gemm_fp32(
-            a, b, bias=bias, aligned_tiles=True, cuda_fp32_compensation=False
-        )
+        return _triton_gemm_fp32(a, b, bias=bias, aligned_tiles=True)
     # Long input and weight gradients both have 96 output columns.
     if b.shape[1] == VIDEO_PATCH_WIDTH:
         output = _triton_chunked_gemm_fp32(

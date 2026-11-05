@@ -8,9 +8,11 @@ Downloads only the config, the shard index and the shards that hold the
 manifest tensors (shard 1 of 14, ~4.8 GB) at the pinned revision, verifies
 every sha256 against ``rl_engine/validation/models/h3_manifest.json`` and writes the
 tensors to ``<out>/h3_conditioning.safetensors``. Point the tests at it with
-``export RL_KERNEL_H3_WEIGHTS=<out>``.
+``export RL_KERNEL_H3_WEIGHTS=<out>``. ``--block`` also writes block 0's
+attention/FFN weights (manifest ``block_tensors``, same shard) to
+``<out>/h3_block0.safetensors`` for the ``ws1_one_h3_block`` replay.
 
-    python tools/weights/prepare_h3_weights.py --out ~/.cache/rl-kernel/h3
+    python tools/weights/prepare_h3_weights.py --out ~/.cache/rl-kernel/h3 [--block]
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 from rl_engine.validation.models.h3_weights import (  # noqa: E402
+    BLOCK_FILE,
     EXTRACTED_FILE,
     load_h3_manifest,
     sha256_file,
@@ -50,6 +53,9 @@ def main() -> None:
         type=Path,
         default=None,
         help="where the raw shard goes (default: <out>/hf)",
+    )
+    parser.add_argument(
+        "--block", action="store_true", help="also extract block 0 (manifest block_tensors)"
     )
     args = parser.parse_args()
 
@@ -80,30 +86,38 @@ def main() -> None:
     _check(index_path, identity["index_sha256"])
     weight_map = json.loads(index_path.read_text())["weight_map"]
 
-    tensors = {}
-    for shard in sorted({weight_map[name] for name in manifest["tensors"]}):
-        if shard not in manifest["weight_shards"]:
-            raise SystemExit(f"shard {shard} is not pinned in the manifest")
-        shard_path = fetch(shard)
-        _check(shard_path, manifest["weight_shards"][shard]["sha256"])
-        with safe_open(str(shard_path), framework="pt") as handle:
-            for name in manifest["tensors"]:
-                if weight_map[name] == shard:
-                    tensors[name] = handle.get_tensor(name).contiguous()
+    def extract(section: str, filename: str) -> None:
+        """Pull one manifest section's tensors from their pinned shards, verify, and save."""
 
-    for name, spec in manifest["tensors"].items():
-        tensor = tensors[name]
-        if str(tensor.dtype).removeprefix("torch.") != spec["dtype"]:
-            raise SystemExit(f"{name}: dtype {tensor.dtype} != manifest {spec['dtype']}")
-        if list(tensor.shape) != spec["shape"]:
-            raise SystemExit(f"{name}: shape {list(tensor.shape)} != manifest {spec['shape']}")
-        actual = sha256_tensor(tensor)
-        if actual != spec["sha256"]:
-            raise SystemExit(f"{name}: sha256 {actual} != manifest {spec['sha256']}")
+        specs = manifest[section]
+        tensors = {}
+        for shard in sorted({weight_map[name] for name in specs}):
+            if shard not in manifest["weight_shards"]:
+                raise SystemExit(f"shard {shard} is not pinned in the manifest")
+            shard_path = fetch(shard)
+            _check(shard_path, manifest["weight_shards"][shard]["sha256"])
+            with safe_open(str(shard_path), framework="pt") as handle:
+                for name in specs:
+                    if weight_map[name] == shard:
+                        tensors[name] = handle.get_tensor(name).contiguous()
 
-    target = out_dir / EXTRACTED_FILE
-    save_file(tensors, str(target), metadata={"revision": identity["revision"]})
-    print(f"wrote {len(tensors)} tensors to {target}")
+        for name, spec in specs.items():
+            tensor = tensors[name]
+            if str(tensor.dtype).removeprefix("torch.") != spec["dtype"]:
+                raise SystemExit(f"{name}: dtype {tensor.dtype} != manifest {spec['dtype']}")
+            if list(tensor.shape) != spec["shape"]:
+                raise SystemExit(f"{name}: shape {list(tensor.shape)} != manifest {spec['shape']}")
+            actual = sha256_tensor(tensor)
+            if actual != spec["sha256"]:
+                raise SystemExit(f"{name}: sha256 {actual} != manifest {spec['sha256']}")
+
+        target = out_dir / filename
+        save_file(tensors, str(target), metadata={"revision": identity["revision"]})
+        print(f"wrote {len(tensors)} tensors to {target}")
+
+    extract("tensors", EXTRACTED_FILE)
+    if args.block:
+        extract("block_tensors", BLOCK_FILE)
     print(f"export RL_KERNEL_H3_WEIGHTS={out_dir}")
 
 

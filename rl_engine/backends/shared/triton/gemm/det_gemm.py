@@ -795,7 +795,7 @@ if _TRITON_AVAILABLE:
         start_k = chunk * CHUNK_K
         offs_k = start_k + tl.arange(0, BLOCK_K)
         if INDEX_64:
-            # Large H3 token matrices can exceed signed 32-bit element offsets.
+            # Large or strided tensors can exceed signed 32-bit element offsets.
             offs_m = offs_m.to(tl.int64)
             offs_n = offs_n.to(tl.int64)
             offs_k = offs_k.to(tl.int64)
@@ -911,7 +911,7 @@ def _triton_chunked_gemm_fp32(
     *,
     tile: tuple[int, int, int] = (_BLOCK_M, _BLOCK_N, 4),
 ) -> torch.Tensor:
-    """Compute FP32 input or weight gradients with fixed 128-term K chunks.
+    """Compute an FP32 matrix product with fixed 128-term K chunks.
 
     Merge the partials in one grid. Split independent output rows when needed
     to keep the partial-result workspace within its element budget.
@@ -920,6 +920,11 @@ def _triton_chunked_gemm_fp32(
     m_size, k_size = a.shape
     n_size = b.shape[1]
     chunks = triton.cdiv(k_size, _FP32_CHUNK_K)
+    padded_chunks = triton.next_power_of_2(chunks)
+    merge_block_c = 64
+    if padded_chunks * merge_block_c > tl.TRITON_MAX_TENSOR_NUMEL:
+        max_k = (tl.TRITON_MAX_TENSOR_NUMEL // merge_block_c) * _FP32_CHUNK_K
+        raise ValueError(f"FP32 chunk GEMM supports K <= {max_k}; got K={k_size}")
     rows_per_chunk = _MAX_TREE_WORKSPACE_ELEMENTS // (chunks * n_size)
     if rows_per_chunk < 1:
         raise RuntimeError("FP32 chunk GEMM exceeds the workspace budget for one row")
@@ -956,17 +961,18 @@ def _triton_chunked_gemm_fp32(
         BLOCK_K=_BLOCK_K,
         PROMOTE_INPUTS=True,
         HAS_BIAS=False,
+        INDEX_64=True,
         CHUNK_K=_FP32_CHUNK_K,
         enable_fp_fusion=False,
         num_warps=num_warps,
     )
-    _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, 64),)](
+    _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, merge_block_c),)](
         partial,
         output,
         m_size * n_size,
         CHUNKS=chunks,
-        PADDED_CHUNKS=triton.next_power_of_2(chunks),
-        BLOCK_C=64,
+        PADDED_CHUNKS=padded_chunks,
+        BLOCK_C=merge_block_c,
         enable_fp_fusion=False,
         num_warps=4,
     )
@@ -979,14 +985,13 @@ def _triton_gemm_fp32(
     *,
     bias: torch.Tensor | None = None,
     aligned_tiles: bool = False,
-    cuda_fp32_compensation: bool = True,
+    cuda_fp32_compensation: bool = False,
 ) -> torch.Tensor:
     """Compute a full-K FP32 GEMM with optional column bias.
 
     aligned_tiles permits omitting K/N load masks after divisibility checks.
-    cuda_fp32_compensation controls the NVIDIA full-K correction and warp count.
-    Existing FP32 video projection callers can retain their four-warp arithmetic
-    by disabling it explicitly.
+    The generic FP32-output entry points request compensated accumulation on
+    NVIDIA. Direct callers retain the original four-warp arithmetic by default.
     """
 
     a, b = a.contiguous(), b.contiguous()
@@ -996,6 +1001,8 @@ def _triton_gemm_fp32(
     _, N = b.shape
     c = torch.empty((M, N), device=a.device, dtype=torch.float32)
     grid = (triton.cdiv(M, _BLOCK_M), triton.cdiv(N, _BLOCK_N))
+    # The largest live offset in a contiguous tensor is its element count minus one.
+    index_options = {"INDEX_64": True} if max(a.numel(), b.numel(), c.numel()) > 2**31 else {}
     compensate = cuda_fp32_compensation and a.device.type == "cuda" and torch.version.hip is None
     _det_gemm_fp32_kernel[grid](
         a,
@@ -1022,6 +1029,7 @@ def _triton_gemm_fp32(
         HAS_BIAS=bias is not None,
         EVEN_K=aligned_tiles and K % _BLOCK_K == 0,
         EVEN_N=aligned_tiles and N % _BLOCK_N == 0,
+        **index_options,
     )
     return c
 
@@ -1037,7 +1045,7 @@ def _triton_gemm(
     if output_dtype is None or output_dtype == torch.bfloat16:
         return _triton_tree_gemm(a, b)
     if output_dtype == torch.float32:
-        return _triton_gemm_fp32(a, b)
+        return _triton_gemm_fp32(a, b, cuda_fp32_compensation=True)
     raise TypeError(f"unsupported deterministic Triton GEMM output dtype: {output_dtype}")
 
 
@@ -1377,7 +1385,9 @@ class _TritonDetGemmFn(torch.autograd.Function):
 
         ctx.save_for_backward(a, b)
         ctx.output_fp32 = bool(output_fp32)
-        return _triton_gemm_fp32(a, b) if output_fp32 else _triton_tree_gemm(a, b)
+        if output_fp32:
+            return _triton_gemm_fp32(a, b, cuda_fp32_compensation=True)
+        return _triton_tree_gemm(a, b)
 
     @staticmethod
     def backward(ctx, grad_out):
