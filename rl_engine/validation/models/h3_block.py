@@ -98,6 +98,7 @@ class CandidateOps:
         self.gate = registry.get_op("adaln_gate_residual", device="cuda")
         self.rope = TritonH3MMRoPEOp()
         self.gemm = TritonDetGemmOp()
+        self.qkv = registry.get_op("h3_qkv_gemm", device="cuda")
         self.attention = DeterministicAttentionOp()
         self.swiglu = SwiGLUCudaOp()
 
@@ -174,6 +175,39 @@ def _linear_node(name: str, source: str, weight: str, row: str, status: str) -> 
     )
 
 
+def _row_keys(x: torch.Tensor) -> torch.Tensor:
+    """Logical identity ``(batch row, token position)`` of every flattened row of ``[B, S, C]``.
+
+    The parameter-gradient reduction of a projection sorts its rows by this key, so dW does not
+    depend on the physical order the rows reach the GEMM in.
+    """
+
+    batch, seq = x.shape[0], x.shape[1]
+    rows = torch.arange(batch, device=x.device).repeat_interleave(seq)
+    positions = torch.arange(seq, device=x.device).repeat(batch)
+    return torch.stack([rows, positions], dim=1)
+
+
+def _qkv_node(name: str, weight: str) -> Node:
+    """Q, K or V projection: the ``h3_qkv_gemm`` row (fixed-order Triton GEMM, BF16)."""
+
+    def candidate(ops, ctx, x):
+        flat = x.reshape(-1, x.shape[-1])
+        return ops.qkv.project(flat, _w(ctx, weight), logical_keys=_row_keys(x)).view(
+            *x.shape[:-1], -1
+        )
+
+    return Node(
+        name=name,
+        inputs=("norm1",),
+        binding=Binding("h3_qkv_gemm", "row", "H3QKVGemmCudaOp.project"),
+        candidate=candidate,
+        provider=lambda ctx, x: prov.provider_linear(x, _w(ctx, weight)),
+        golden=lambda ctx, x: gold.golden_linear(x, _w(ctx, weight)),
+        provider_bitwise_isolated=False,  # fixed-order K loop vs cuBLAS
+    )
+
+
 def _norm_modulate_node(name: str, source: str, weight: str, shift: int, scale: int) -> Node:
     return Node(
         name=name,
@@ -245,9 +279,9 @@ NODES: list[Node] = [
         provider_bitwise_isolated=False,  # tensor-core tree vs cuBLAS
     ),
     _norm_modulate_node("norm1", "hidden", "norm1.weight", shift=0, scale=1),
-    _linear_node("q_proj", "norm1", "attn.to_q.weight", "h3_qkv_gemm", "interim"),
-    _linear_node("k_proj", "norm1", "attn.to_k.weight", "h3_qkv_gemm", "interim"),
-    _linear_node("v_proj", "norm1", "attn.to_v.weight", "h3_qkv_gemm", "interim"),
+    _qkv_node("q_proj", "attn.to_q.weight"),
+    _qkv_node("k_proj", "attn.to_k.weight"),
+    _qkv_node("v_proj", "attn.to_v.weight"),
     _head_norm_node("q_norm", "q_proj", "attn.norm_q.weight"),
     _head_norm_node("k_norm", "k_proj", "attn.norm_k.weight"),
     _rope_node("rope_q", "q_norm"),
@@ -318,6 +352,7 @@ def make_block_context(
         latent_height=spec["latent_height"],
         latent_width=spec["latent_width"],
         num_audio_latents=spec["num_audio_latents"],
+        device=weights["time_embedder.linear_1.weight"].device,
     )
     seq_len = packed["position_ids"].shape[0]
     w = weights
@@ -605,7 +640,8 @@ def permutation_probe(
     keys in packed order, so a different key order may round differently.
     """
 
-    perm = torch.randperm(ctx["seq_len"], generator=torch.Generator().manual_seed(seed + 7)).cuda()
+    perm = torch.randperm(ctx["seq_len"], generator=torch.Generator().manual_seed(seed + 7))
+    perm = perm.to(ctx["hidden"].device)
     permuted = {
         **ctx,
         "hidden": ctx["hidden"][:, perm],
@@ -693,8 +729,9 @@ def run_block_backward(
     generator = torch.Generator().manual_seed(seed + 11)
     up_row0 = torch.randn((1, ctx["seq_len"], HIDDEN), generator=generator)
     up_row1 = torch.randn((1, ctx["seq_len"], HIDDEN), generator=generator)
-    upstream = up_row0.bfloat16().cuda()
-    upstream2 = torch.cat([up_row0, up_row1]).bfloat16().cuda()
+    device = ctx["hidden"].device
+    upstream = up_row0.bfloat16().to(device)
+    upstream2 = torch.cat([up_row0, up_row1]).bfloat16().to(device)
 
     golden, _ = _backward("golden", ctx, None, upstream)
     provider, _ = _backward("provider", ctx, None, upstream)

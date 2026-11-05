@@ -77,6 +77,7 @@ def test_graph_is_well_formed():
         "adaln_projection_3mod",
         "h3_rmsnorm",
         "adaln_gate_residual",
+        "h3_qkv_gemm",
         "h3_mm_rope_3axis_partial",
     }
 

@@ -75,6 +75,13 @@ jobs:
         run: |
           python -m pytest tests/reference/minimax_h3 tests/runtime/test_h3_sigma_schedule_dispatch.py -q
 
+      - name: Run full H3 binding contracts
+        run: |
+          python -m pytest -q \
+            tests/models/minimax_h3/test_h3_full_model.py \
+            tests/models/minimax_h3/test_h3_full_ensemble_rule.py \
+            tests/models/minimax_h3/test_h3_generation_resume.py
+
       - name: Run Mocked Hardware Discovery Tests
         run: |
           python -m pytest tests/runtime/test_dispatch.py -v
