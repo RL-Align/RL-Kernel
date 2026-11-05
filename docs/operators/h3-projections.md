@@ -153,12 +153,11 @@ delivery.
 Subsequent integration of `test-h3` at
 `9efa2643e31626f8b5de4b514373dbfe94f7bd6e` brings upstream TP AdaLN
 changes. The tested projection/shared FP32 sources and their validation execution
-paths were unchanged at that merge. Integration with `test-h3` at
-`cfec0d98054eb04162b932ea9f4fc46334ebe870` changes shared FP32 indexing and
-launch routing, includes the upstream chunk-size bound, and updates canonical
-backward dependencies. GPU validation for this integrated revision remains
-outstanding, including the H3 adapter, shared FP32 default-index and chunked
-regressions, and upstream video input/output projection regressions.
+paths were unchanged at that merge. The 2026-10-30 run predates integration
+with `test-h3` at `cfec0d98054eb04162b932ea9f4fc46334ebe870`. That integration
+changes shared FP32 indexing and launch routing, includes the upstream
+chunk-size bound, and updates canonical backward dependencies. The historical
+results above do not cover those changes.
 
 Earlier executions and their limitations remain historical:
 
