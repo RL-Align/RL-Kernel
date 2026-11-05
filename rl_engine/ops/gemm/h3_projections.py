@@ -4,11 +4,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 from torch.autograd.function import once_differentiable
 
 from rl_engine.ops.autograd.backward_runtime import record_backward
-from rl_engine.ops.autograd.canonical_backward import active_session
+from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession, active_session
 
 SPECS = {
     "h3_ffn_gate_up_gemm": (5376, 28672),
@@ -53,7 +55,15 @@ def _require_backend(device, backend):
     return FixedFP32Backend()
 
 
-def _register_rows(session, weight, keys, rows, parameter_id):
+@dataclass
+class _PendingUse:
+    session: CanonicalBackwardSession
+    parameter_id: str
+    session_counts: tuple[int, int]
+    slot: int | None = None
+
+
+def _prepare_rows(session, weight, keys, rows, parameter_id):
     if not isinstance(keys, torch.Tensor) or keys.dtype != torch.int64:
         raise TypeError("logical_keys must be an int64 Tensor")
     if keys.ndim != 2 or keys.shape[0] != rows or keys.shape[1] not in (2, 3):
@@ -64,16 +74,19 @@ def _register_rows(session, weight, keys, rows, parameter_id):
         raise ValueError("parameter_id must be a nonempty stable parameter name")
     # Own the keys: caller mutation must not change a pending backward graph.
     keys = keys.detach().clone()
-    bindings = getattr(session, "_h3_projection_bindings", None)
-    if bindings is None:
-        bindings = {}
-        session._h3_projection_bindings = bindings
+    counts = _validate_session_rows(session, weight, keys, parameter_id)
+    return _PendingUse(session, parameter_id, counts), keys
+
+
+def _validate_session_rows(session, weight, keys, parameter_id):
+    bindings = getattr(session, "_h3_projection_bindings", {})
+    entries = session.uses.get(parameter_id, ())
+    counts = len(entries), len(bindings)
     previous = bindings.get(parameter_id)
     if previous is not None and previous is not weight:
         raise ValueError("parameter_id is already bound to another weight Tensor")
     if any(value is weight and name != parameter_id for name, value in bindings.items()):
         raise ValueError("one weight Tensor must use one parameter_id per session")
-    entries = session.uses.get(parameter_id, ())
     if any(entry.keys.shape[1] != keys.shape[1] for entry in entries):
         raise ValueError("logical key width must remain fixed per parameter")
     all_keys = torch.cat([entry.keys for entry in entries] + [keys])
@@ -82,9 +95,21 @@ def _register_rows(session, weight, keys, rows, parameter_id):
         raise ValueError("canonical active row count exceeds the declared H3 row limit")
     if torch.unique(active, dim=0).shape[0] != active.shape[0]:
         raise ValueError("active logical keys must be unique across parameter uses")
-    slot = session.register(parameter_id, keys)
+    if session.backward_started:
+        raise RuntimeError("cannot register canonical rows after backward started")
+    return counts
+
+
+def _commit_rows(use, weight, keys):
+    session, parameter_id = use.session, use.parameter_id
+    bindings = getattr(session, "_h3_projection_bindings", {})
+    counts = len(session.uses.get(parameter_id, ())), len(bindings)
+    if counts != use.session_counts:
+        # A saved-tensor hook can register another projection during apply.
+        _validate_session_rows(session, weight, keys, parameter_id)
+    use.slot = session.register(parameter_id, keys)
     bindings[parameter_id] = weight
-    return slot, keys
+    session._h3_projection_bindings = bindings
 
 
 def _weight_gradient(extension, rows, grads):
@@ -105,7 +130,7 @@ def _weight_gradient(extension, rows, grads):
 
 class _H3ProjectionFn(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, weight, session, slot, keys, parameter_id, trace):
+    def forward(ctx, x, weight, use, keys, trace):
         input_dim, output_dim = SPECS[trace["semantic_op"]]
         extension = _require_backend(x.device, trace["requested_backend"])
         flat = x.reshape(-1, input_dim).contiguous()
@@ -115,7 +140,7 @@ class _H3ProjectionFn(torch.autograd.Function):
             y = extension.det_gemm_fwd_rhs_transposed(flat, native_weight)
         # Retain original version counters even when layout normalization copies.
         ctx.save_for_backward(flat, native_weight, keys, x, weight)
-        ctx.session, ctx.slot, ctx.parameter_id = session, slot, parameter_id
+        ctx.use = use
         ctx.extension, ctx.trace, ctx.input_shape = extension, trace, x.shape
         trace.update(actual_backend=trace["requested_backend"], forward_executed=True)
         trace["kernel_id"] = getattr(
@@ -144,6 +169,8 @@ class _H3ProjectionFn(torch.autograd.Function):
                 if hasattr(ctx.extension, "h3_last_launch"):
                     ctx.trace["input_gradient_launch"] = ctx.extension.h3_last_launch
             if ctx.needs_input_grad[1]:
+                use = ctx.use
+                assert use is not None and use.slot is not None
 
                 def reducer(rows, grads):
                     value = _weight_gradient(ctx.extension, rows, grads)
@@ -163,8 +190,8 @@ class _H3ProjectionFn(torch.autograd.Function):
                         ctx.trace["weight_gradient_launch"] = ctx.extension.h3_last_launch
                     return value
 
-                dw = ctx.session.submit_linear(
-                    ctx.parameter_id, ctx.slot, x, grad, reducer, allow_empty=True
+                dw = use.session.submit_linear(
+                    use.parameter_id, use.slot, x, grad, reducer, allow_empty=True
                 )
         if executed:
             record_backward(
@@ -173,7 +200,7 @@ class _H3ProjectionFn(torch.autograd.Function):
                 impl=ctx.trace["requested_backend"],
                 family="triton",
             )
-        return dx, dw, None, None, None, None, None
+        return dx, dw, None, None, None
 
 
 class H3ProjectionOp:
@@ -198,12 +225,12 @@ class H3ProjectionOp:
         if torch.compiler.is_compiling():
             raise RuntimeError("this H3 profile currently supports eager execution only")
         _require_backend(x.device, self.backend)
-        session, slot, keys = None, None, None
+        use, keys = None, None
         if torch.is_grad_enabled() and weight.requires_grad:
             session = active_session()
             if session is None:
                 raise RuntimeError("weight gradients require an active canonical backward session")
-            slot, keys = _register_rows(
+            use, keys = _prepare_rows(
                 session, weight, logical_keys, x.numel() // input_dim, parameter_id
             )
         trace = {
@@ -234,7 +261,11 @@ class H3ProjectionOp:
             "qualification": "pending_h3_gpu_evidence",
         }
         self.last_execution = trace
-        return _H3ProjectionFn.apply(x, weight, session, slot, keys, parameter_id, trace)
+        result = _H3ProjectionFn.apply(x, weight, use, keys, trace)
+        if use is not None:
+            # Only returned outputs can provide a backward contribution.
+            _commit_rows(use, weight, keys)
+        return result
 
 
 class H3FFNGateUpGemmOp(H3ProjectionOp):

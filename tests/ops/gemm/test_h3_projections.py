@@ -3,6 +3,7 @@
 """CPU contract/orchestration checks and separate full-width SM90 checks."""
 
 from contextlib import nullcontext
+from dataclasses import replace
 
 import pytest
 import torch
@@ -139,6 +140,63 @@ def test_training_requires_session_and_unique_stable_keys(cpu_orchestration, kin
             op(x, w, logical_keys=keys + 10, parameter_id="other")
 
 
+@pytest.mark.parametrize("failure", ["gemm", "saved_tensor_hook"])
+def test_failed_forward_does_not_leave_pending_rows(cpu_orchestration, kind, failure, monkeypatch):
+    x = torch.ones(2, 4, dtype=torch.bfloat16)
+    w = torch.ones(3, 4, dtype=torch.bfloat16).requires_grad_(True)
+    keys = logical_keys(2, "cpu")
+    op = down.H3ProjectionOp(kind)
+
+    def fail(*args):
+        raise RuntimeError("injected forward failure")
+
+    with canonical_backward_session() as session:
+        first = op(x[:1], w, logical_keys=keys[:1])
+        with monkeypatch.context() as patch:
+            hooks = nullcontext()
+            if failure == "gemm":
+                patch.setattr(cpu_orchestration, "det_gemm_fwd_rhs_transposed", fail)
+            else:
+                hooks = torch.autograd.graph.saved_tensors_hooks(fail, lambda value: value)
+            with hooks, pytest.raises(RuntimeError, match="injected forward failure"):
+                op(x[1:], w, logical_keys=keys[1:])
+
+        assert len(session.uses[f"{kind}.weight"]) == 1
+        retry = op(x[1:], w, logical_keys=keys[1:])
+        torch.autograd.backward((first, retry), (torch.ones_like(first), torch.ones_like(retry)))
+        session.validate_complete()
+
+    assert raw_equal(w.grad, torch.full_like(w, 2))
+    assert len(cpu_orchestration.weight_reduction_inputs) == 1
+
+
+def test_forward_rechecks_keys_after_reentrant_registration(cpu_orchestration, kind):
+    x = torch.ones(1, 4, dtype=torch.bfloat16)
+    w = torch.ones(3, 4, dtype=torch.bfloat16).requires_grad_(True)
+    keys = logical_keys(1, "cpu")
+    op = down.H3ProjectionOp(kind)
+    inner_outputs = []
+
+    def identity(value):
+        return value
+
+    def pack(value):
+        if not inner_outputs:
+            with torch.enable_grad(), torch.autograd.graph.saved_tensors_hooks(identity, identity):
+                inner_outputs.append(op(x, w, logical_keys=keys))
+        return value
+
+    with canonical_backward_session() as session:
+        with torch.autograd.graph.saved_tensors_hooks(pack, identity):
+            with pytest.raises(ValueError, match="active logical keys must be unique"):
+                op(x, w, logical_keys=keys)
+        (inner,) = inner_outputs
+        inner.backward(torch.ones_like(inner))
+        session.validate_complete()
+
+    assert raw_equal(w.grad, torch.ones_like(w))
+
+
 def test_keys_are_snapshotted_and_incomplete_backward_is_detected(cpu_orchestration, kind):
     x = torch.ones(2, 4).bfloat16().requires_grad_(True)
     w = torch.ones(3, 4).bfloat16().requires_grad_(True)
@@ -238,6 +296,7 @@ def test_candidate_registration_cannot_enter_default_strict_resolution(kind):
             device="cuda",
             dtype="bfloat16",
             topology={"world_size": 1, "tensor_parallel_size": 1},
+            alignment_properties={"cuda_sm": 90, "tf32": False},
         ),
     )
     with pytest.raises(OperatorResolutionError):
@@ -248,6 +307,10 @@ def test_candidate_registration_cannot_enter_default_strict_resolution(kind):
     assert isinstance(instance, down.H3ProjectionOp)
     assert instance.last_execution == {}
     assert not resolved.descriptor.determinism_or_alignment_properties["gpu_qualified"]
+    for incompatible in ({"cuda_sm": 80}, {"tf32": True}):
+        unsupported = replace(request["requirements"], alignment_properties=incompatible)
+        with pytest.raises(OperatorResolutionError, match="alignment_properties"):
+            session.resolve(**(request | {"requirements": unsupported}))
 
 
 def test_nonzero_padding_gradient_is_rejected(cpu_orchestration, kind):
@@ -387,9 +450,10 @@ def test_expanded_row_boundary_and_session_limit(monkeypatch, kind):
     monkeypatch.setattr(down, "H3_MAX_ROWS", 3)
     with canonical_backward_session() as session:
         weight = torch.ones(1)
-        down._register_rows(session, weight, logical_keys(2, "cpu"), 2, "weight")
+        _, keys = down._prepare_rows(session, weight, logical_keys(2, "cpu"), 2, "weight")
+        session.register("weight", keys)
         with pytest.raises(ValueError, match="row limit"):
-            down._register_rows(session, weight, logical_keys(2, "cpu") + 10, 2, "weight")
+            down._prepare_rows(session, weight, keys + 10, 2, "weight")
 
 
 def test_byte_mismatch_count_crosses_comparison_chunk_boundary():
