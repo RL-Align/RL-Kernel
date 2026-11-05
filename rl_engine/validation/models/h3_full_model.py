@@ -192,7 +192,7 @@ PROVIDER_BOUNDARIES = ("time_embedder", "norm_out")
 
 
 @contextmanager
-def _strict_boundaries(model, trace, ops):
+def _strict_boundaries(model, trace, ops, native=frozenset()):
     """Rebind the video and audio projections, the text projection and the token refiner to rows."""
 
     from rl_engine.runtime.registry import KernelRegistry
@@ -202,7 +202,7 @@ def _strict_boundaries(model, trace, ops):
     row_ops = {
         name: registry.get_op(row, device="cuda")
         for name, row in STRICT_BOUNDARY_ROWS.items()
-        if name != "token_refiner"
+        if name != "token_refiner" and name not in native
     }
     originals = []
 
@@ -240,10 +240,14 @@ def _strict_boundaries(model, trace, ops):
             ),
         )
 
-    originals.append((refiner, refiner.forward))
-    refiner.forward = refine
+    if "token_refiner" not in native:
+        originals.append((refiner, refiner.forward))
+        refiner.forward = refine
     trace.boundary_bindings = {
-        **{n: dict(row=r, status="row") for n, r in STRICT_BOUNDARY_ROWS.items()},
+        **{
+            n: dict(row=r, status="provider" if n in native else "row")
+            for n, r in STRICT_BOUNDARY_ROWS.items()
+        },
         **{n: dict(row=None, status="provider") for n in PROVIDER_BOUNDARIES},
     }
     try:
@@ -262,6 +266,7 @@ def full_model_execution(
     ops=None,
     provider_nodes=(),
     strict_boundaries: bool = False,
+    native_boundaries=(),
 ):
     """Temporarily bind each real block, preserving module parameters and restoring on error.
 
@@ -278,11 +283,18 @@ def full_model_execution(
     trace.provider_nodes = tuple(sorted(provider_nodes))
     if strict_boundaries and not candidate:
         raise ValueError("strict_boundaries applies to candidate execution only")
+    unknown_boundaries = set(native_boundaries) - set(STRICT_BOUNDARY_ROWS)
+    if unknown_boundaries:
+        raise ValueError(f"unknown boundary modules: {sorted(unknown_boundaries)}")
     if candidate:
         ops = ops or h3_block.CandidateOps()
         if hasattr(ops, "backends"):
             trace.actual_backends = require_candidate_cuda(ops)
-    boundary_context = _strict_boundaries(model, trace, ops) if strict_boundaries else None
+    boundary_context = (
+        _strict_boundaries(model, trace, ops, frozenset(native_boundaries))
+        if strict_boundaries
+        else None
+    )
     try:
         if boundary_context is not None:
             boundary_context.__enter__()
