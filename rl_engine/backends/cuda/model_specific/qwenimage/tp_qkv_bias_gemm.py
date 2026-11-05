@@ -25,7 +25,7 @@ from rl_engine.reference.model_specific.qwenimage.tp_qkv_bias_gemm import (
 # These are #537's native chunk width and a bound on independent input rows.
 _INPUT_CHUNK = 64
 _INPUT_ROWS = 128
-_CONTRACT = "qwenimage-qkv-tp-det-linear-v1"
+_CONTRACT = "qwenimage-qkv-tp-det-linear"
 
 
 def _require_qkv_extension():
