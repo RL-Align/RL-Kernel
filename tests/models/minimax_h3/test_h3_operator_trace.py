@@ -27,9 +27,16 @@ GRAPH = fp.build_graph()
 BLOCK0 = [n.path for n in GRAPH if n.path.startswith("transformer_blocks.0.")]
 
 
+def _observed(row: str) -> dict:
+    """What a conforming operator reports for its accumulator, split policy and fallback."""
+
+    return dict(accumulator=ot.expected_accumulator(row), split_policy="none", fallback=False)
+
+
 def _run(trace: ot.OperatorTrace, nodes=GRAPH, **overrides) -> ot.OperatorTrace:
     for node in nodes:
         values = dict(status="row", backend=f"cuda.{node.row}", dtype="bfloat16")
+        values.update(_observed(node.row))
         values.update(overrides)
         trace.record_node(node.path, **values)
     return trace
@@ -43,14 +50,24 @@ def test_full_graph_trace_with_all_rows_is_strict() -> None:
     assert trace.coverage() == {"wrong_count": [], "unexpected": []}
 
 
-def test_accumulator_follows_the_row_contract() -> None:
-    trace = _run(ot.OperatorTrace())
-    by_path = {call.path: call for call in trace.calls}
-    assert by_path["transformer_blocks.3.q_proj"].accumulator == "fp32"
-    assert by_path["transformer_blocks.3.attention"].accumulator == "fp32"
-    assert by_path["transformer_blocks.3.swiglu"].accumulator == "none"
-    assert by_path["transformer_blocks.3.rope_q"].accumulator == "none"
+def test_accumulator_contract_per_row() -> None:
+    assert ot.expected_accumulator("h3_qkv_gemm") == "fp32"
+    assert ot.expected_accumulator("h3_full_attention") == "fp32"
+    assert ot.expected_accumulator("h3_swiglu") == "none"
     assert ot.expected_accumulator("video_input_projection_fp32") == "fp32"
+
+
+def test_an_unreported_accumulator_or_split_policy_is_not_filled_in_from_the_contract() -> None:
+    trace = ot.OperatorTrace()
+    call = trace.record_node("transformer_blocks.3.q_proj", status="row", backend="b")
+    assert (call.accumulator, call.split_policy) == (ot.NOT_OBSERVED, ot.NOT_OBSERVED)
+    problems = trace.violations(paths=["transformer_blocks.3.q_proj"])
+    assert any("accumulator not observed" in p for p in problems), problems
+    assert any("split policy not observed" in p for p in problems), problems
+    with pytest.raises(ValueError, match="not strict"):
+        trace.assert_strict(paths=["transformer_blocks.3.q_proj"])
+    # checking the bindings alone is possible, but only by asking for it
+    assert trace.violations(paths=["transformer_blocks.3.q_proj"], require_observed=False) == []
 
 
 def test_record_rejects_unknown_paths_wrong_rows_and_statuses() -> None:
@@ -72,6 +89,7 @@ def test_record_rejects_unknown_paths_wrong_rows_and_statuses() -> None:
         ({"requested_backend": "rlkernel.other"}, "requested"),
         ({"split_policy": "split_k"}, "split policy"),
         ({"accumulator": "bf16"}, "accumulator"),
+        ({"fallback": None}, "fallback not observed"),
         ({"backend": ""}, "no backend"),
     ],
 )
@@ -93,7 +111,7 @@ def test_interim_and_reference_can_be_allowed_explicitly() -> None:
     trace = ot.OperatorTrace()
     for node in GRAPH:
         status = "interim" if node.node in ("q_proj", "k_proj") else "row"
-        trace.record_node(node.path, status=status, backend="b")
+        trace.record_node(node.path, status=status, backend="b", **_observed(node.row))
     assert trace.violations()
     assert trace.violations(allowed_statuses=("row", "interim")) == []
 
@@ -237,7 +255,12 @@ def _resolve(descriptor: OperatorBackendDescriptor, **topology):
 def test_call_from_a_resolution_carries_registry_provenance() -> None:
     resolution, provenance = _resolve(_descriptor())
     call = ot.trace_call_from_resolution(
-        "transformer_blocks.0.norm1", resolution=resolution, provenance=provenance, shapes=[(1, 8)]
+        "transformer_blocks.0.norm1",
+        resolution=resolution,
+        provenance=provenance,
+        shapes=[(1, 8)],
+        accumulator="fp32",
+        split_policy="none",
     )
     assert call.row == "h3_rmsnorm" and call.backend == "rlkernel.test_h3_rmsnorm"
     assert call.requested_backend == call.backend
@@ -256,6 +279,8 @@ def test_call_from_a_resolution_keeps_topology_and_rejects_unknown_paths() -> No
         "transformer_blocks.0.norm1", resolution=resolution, provenance=provenance
     )
     assert dict(call.topology) == {"tp": 4, "cp": 2}
+    # a resolution says nothing about the accumulator or split policy: they stay unobserved
+    assert (call.accumulator, call.split_policy) == (ot.NOT_OBSERVED, ot.NOT_OBSERVED)
     with pytest.raises(ValueError, match="not a node"):
         ot.trace_call_from_resolution("nope", resolution=resolution, provenance=provenance)
 
@@ -292,7 +317,11 @@ def test_block_replay_trace_matches_h3_block_bindings(h3_block_weights_cuda) -> 
         )
     # Today's stack still has interim and reference nodes: the strict gate must say so.
     assert trace.violations(paths=BLOCK0)
-    assert trace.violations(paths=BLOCK0, allowed_statuses=("row", "interim", "reference")) == []
+    # The hook sees only node names: accumulator, split policy and fallback stay unobserved.
+    every = ("row", "interim", "reference")
+    unobserved = trace.violations(paths=BLOCK0, allowed_statuses=every)
+    assert unobserved and all("not observed" in p for p in unobserved), unobserved
+    assert trace.violations(paths=BLOCK0, allowed_statuses=every, require_observed=False) == []
     # Replaying twice gives the same ledger: the trace is part of the repeatable surface.
     again = ot.OperatorTrace(mode="candidate", metadata={"layout": "tiny", "block": 0})
     ctx["node_observer"] = ot.block_observer(again, block_index=0)
