@@ -1,0 +1,229 @@
+# DSv4 SM90 Batch-Invariant Plan and Todo
+
+- Control PR: RL-Align/RL-Kernel #635 (`test-dsv4-cuda`)
+- Reference architecture: vLLM #54955 (`ISEEKYAN/vllm:ds4-v9-rc1 @ 1a6542c`)
+- Scope: CUDA SM90 only. Forward (selected-token logprob) must be bitwise; backward only
+  needs to be run-to-run deterministic.
+- Last updated: 2026-11-05
+
+## 0. Strategy in one sentence
+
+Do not write every kernel from scratch. Freeze an execution profile from the pinning rules
+that vLLM #54955 has already validated end to end, borrow kernel bodies wherever possible
+(FlashMLA sparse, DeepGEMM, the DeepEP fork, our own P1/P5/det_gemm), and have RL-Kernel
+supply only what decides the reduction order: contracts, stable top-k, per-request
+chunking, and test oracles. Get every component batch-invariant (BI) and aligned end to end
+first, then come back for the known performance debt (shared-expert K-tree).
+
+## 1. Current state
+
+| Package | Contents | Status | Disposition in this plan |
+|---|---|---|---|
+| P1 | mHC + RMSNorm + fp32_gemm_rms | Done (unfused canonical) | Keep as is |
+| P5 | MXFP8 act quant, MXFP4 routed-expert WGMMA grouped GEMM, LoRA delta, shared expert, clamp SwiGLU | Done | **Keep as is for now.** Grouped GEMM is optimized and BI; shared expert runs the det_gemm K-tree, a known performance debt handled in Phase 5 |
+| P3 | Router: gate GEMM, stable_topk6, routing weights, RoutePlan | T01 + T05 merged, T08 (#639) draft | Finish live CUDA for gate / weights / combine-plan |
+| P2 | Compressed attention: KV compressor C4/C128, FP4 index, paged cache | T01 start kit only | **Critical path**, T02-T07 all open |
+| P6 | Fixed-order MoE combine | T01 + T05 fwd (#462) | T06 + multi-rank |
+| P4 | EP transport | Empty | DeepEP fork adapter |
+| P7 | Sampling gate + M10 logprob | T02 (#648) merged | Wire to the #241 vocab-TP deterministic reduce |
+
+## 2. Design decisions (settled)
+
+### D1. Parallel layout: DP-attention + EP-MoE, TP=1 inside attention
+
+Each rank owns whole requests, so there is no cross-rank reduction anywhere on the attention
+path and batch invariance follows directly from per-request chunking. The only cross-rank
+operations left are EP dispatch/combine (fixed order), the LM-head vocab-TP reduce (#241
+already provides a deterministic one), and the mHC broadcast.
+
+**DCP/CP attention is out of scope for v1.** The review on #54955 already shows that the
+local selector (prefers larger local indices) and the DCP merge (prefers smaller global ids)
+use inconsistent tie-breaks and can keep different KV sets. Supporting DCP requires a single
+comparator carried through local and global selection; track it as a separate issue.
+
+### D2. Expert path stays on our own P5
+
+- Routed experts: the P5-4 WGMMA grouped GEMM (optimized and BI). Not switching to DeepGEMM.
+- Shared expert: currently `p5-det-gemm-v1` (det_gemm mid-split K-tree). Its performance
+  gap is significant, but we keep it for now. Phase 5 picks one of: (a) fold the shared
+  expert into the grouped GEMM as one fixed group, or (b) move it onto the grouped kernel's
+  serial profile. Other components come first.
+- det_gemm's TP-equivalence property (a contiguous half-K shard is one child of the tree) is
+  not needed under the D1 layout, so giving it up costs nothing.
+
+### D3. Dense FP8 block-scaled GEMM (q/kv/indexer projections): three-step DeepGEMM probe
+
+det_gemm is a BF16 fixed K-tree with no 1x128 / 128x128 FP8 scaling; the P5 WGMMA kernel
+is MXFP8xMXFP4 with block-32 scales, also the wrong format. Dense FP8 therefore goes through
+DeepGEMM:
+
+1. Pin one DeepGEMM commit, change nothing, and run the P5-3 invariance sweep against dense
+   `fp8_gemm_nt` (M in {1, 8, 64, 256, 4096}). DeepGEMM's BLOCK_K=128 with one FP32
+   promotion per 128-K block does not depend on M, so SM90 dense will likely pass as is.
+2. If it fails: drop M from config selection in the C++ heuristic (pick a fixed tile from
+   N/K only). Carry it as a patch under `third_party/patches/` applied at build time.
+3. If that is still not enough: take `zhuzilin/DeepGEMM@batch_invariant` directly, with a
+   capability probe that fails closed when the installed build does not support the
+   contract (the same pattern vLLM uses).
+
+The Megatron side must call the same kernel (the slime #2262 patch-set approach); otherwise
+we get BI without train/inference parity.
+
+### D4. The router gate GEMM must not use bare `torch.mm`
+
+vLLM can use `torch.mm` only because `VLLM_BATCH_INVARIANT=1` makes `batch_invariant.py`
+override `aten.mm/addmm` with a fixed-tile Triton matmul. A bare cuBLAS FP32 sgemm chooses
+split-K on its own at small M and is not BI. RL-Kernel uses det_gemm's FP32-output path or a
+pinned-tile Triton FP32 matmul.
+
+### D5. Backward is relaxed
+
+FlashMLA sparse has no backward. Training-side backward uses existing Megatron kernels with
+a fixed reduction; it must be run-to-run deterministic but is not required to be bitwise
+against inference.
+
+### D6. Anchor stays `anchor_pending`
+
+The vLLM fork is not written into #230's formal provenance (we do not want to tie the
+roadmap to an engine other than vime/Miles). Its golden outputs are used only as a
+development fixture under `tests/`, with the artifact explicitly labelled
+`reference: vllm-ds4-preview@1a6542c (development only)`. The formal WS1 Miles anchor slot
+keeps `MISSING_PROVENANCE`.
+
+### D7. Performance gate
+
+Each operator must stay within 1.3x of the non-invariant path to merge; anything above goes
+on the Phase 5 list. BI does not mean giving up tensor cores: pinned tiles, no split-K, and
+`allow_tf32=False` are sufficient (demonstrated in P5-3).
+
+## 3. Pinning rules adopted from vLLM #54955 (to be written into the execution profile)
+
+1. Attention never uses a batch-local grouped plan: prefill chunks each request
+   independently; decode and prefill call the same `flash_mla_sparse_fwd`.
+2. Top-k uses a composite (score, index) key with a stable tie-break, the same selector for
+   prefill and decode, and canonicalizes the selected indices before FlashMLA.
+3. Capacities come from the model config: top-k width, gather capacity, workspaces, and MoE
+   expert capacity are all fixed, never derived from neighbours or `expert_num_tokens.max()`.
+4. Activation quantization uses fixed launch geometry and 64-bit offsets (P5 already has the
+   >= 2^31-element test).
+5. mHC uses explicit pre/post operations, a fixed split count, and stable token order
+   (consistent with P1).
+6. Hopper keeps FP32 block scales; SM90 and SM100+ are not treated as numerically
+   interchangeable.
+7. A missing kernel is a hard error, never a silent fallback.
+
+## 4. Reuse map
+
+| Need | Reuse from | What RL-Kernel adds |
+|---|---|---|
+| Sparse MLA core (fwd) | FlashMLA `flash_mla_sparse_fwd` | Wrapper: num_splits/workspace pinned from config; canonical sorted indices; per-request chunking; stable addresses under CUDA graphs |
+| Indexer top-k | Design of vLLM `csrc/ds4_bi_topk_extension.cu` | Own implementation; comparator semantics shared with `stable_topk6` |
+| Indexer logits (FP4/FP8 MQA scoring) | DeepGEMM `fp8_mqa_logits` / FP4 indexer | Verify head-sum and K reduction do not depend on M; fall back to own kernel if not |
+| Dense FP8 GEMM | DeepGEMM (D3 three-step) | Sweep plus possible heuristic patch |
+| Routed / shared expert, act quant, SwiGLU, LoRA | Own P5 | Unchanged (shared expert goes to Phase 5) |
+| EP dispatch/combine | `zhuzilin/DeepEP@align_fp8_quantization` | P4 adapter + route-metadata capture + fixed-capacity staging |
+| Router gate | det_gemm FP32 / pinned-tile Triton FP32 matmul | Wire into the P3 provider |
+| mHC / RMSNorm / logprob | Own P1 / linear_logp / #241 | Unchanged |
+| Sliding-window dense attention | Own #240 or FA3 | Verify split-KV is pinned |
+| Integration methodology | slime #2262 | Layerwise exact-zero diff gate, logprob CI threshold, Megatron patch-set structure |
+
+## 5. Phases
+
+| Phase | Weeks | Goal | Parallelism |
+|---|---|---|---|
+| 0 | this week | Unblock #635 and merge into main; rebase every P-dev branch onto one trunk | - |
+| 1 | 1-2 | Freeze the execution profile; stand up the vLLM-fork golden (dev fixture); run the DeepGEMM three-step probe | overlaps the tail of Phase 0 |
+| 2 | 2-5 | P2 attention T02-T07 (critical path) | parallel with Phase 3 |
+| 3 | 3-6 | Finish P3, P6 T06, P4 DeepEP adapter | parallel with Phase 2 |
+| 4 | 5-7 | Layerwise 0-diff gate -> #230 cross_config M0-M10 bitwise -> performance table | - |
+| 5 | 7+ | Performance debt: shared-expert K-tree, operators above 1.3x, DCP (if required) | - |
+
+## 6. Todo
+
+### Phase 0 - #635 blockers
+
+- [ ] `build_tools/extensions.py`: move `sm90_fused_moe_mlp.cu` into the `not is_rocm` branch
+      and gate it on `KERNEL_ALIGN_MOE_SM90`
+- [ ] `csrc/bindings/ops.cpp`: wrap the `sm90_moe_*` declarations and `m.def` calls in
+      `#if defined(RL_KERNEL_ENABLE_SM90)`
+- [ ] Remove the `and not is_rocm` exemption from the fast-math hard error (hipcc defines
+      `__FAST_MATH__`, so the existing `#error` guard does not fire)
+- [ ] `rl_engine/kernels/ops/triton/mhc.py`: replace libdevice `mul_rn/add_rn` with plain
+      operators (FTZ flushes subnormals); add a subnormal byte-equality test
+- [ ] `fp32_gemm_rms.cu`: add `4*n_i + 8 <= 128` to the G8 dispatch condition so N=31 /
+      T>288 takes the fallback; add a test
+- [ ] `pre-commit run --all-files` so Black passes
+- [ ] Benchmark fixes: clone baseline, TF32 flag save/restore, rsqrt eps placement, external
+      MX baselines as asserts, `.mul_(3.0)` in place
+- [ ] Merge main; rebase the P2/P3/P6/P7 dev branches onto the trunk
+
+### Phase 1 - profile, oracle, GEMM probe
+
+- [ ] Write `docs/architecture/dsv4-sm90-batch-invariant-profile.md`: D1-D7, the seven rules
+      in section 3, the reuse map in section 4, the reduction-order contract for each
+      M-module, the performance budget
+- [ ] Bring up the `ISEEKYAN/vllm:ds4-v9-rc1` image (`VLLM_BATCH_INVARIANT=1`,
+      `VLLM_DS4_DECODE_KERNEL=sparse`) and produce selected-token logprob goldens for a fixed
+      prompt set: batch 1/8/64, chunked prefill, decode
+- [ ] Land the goldens under `tests/fixtures/dsv4/`, labelled development only; leave #230
+      provenance untouched
+- [ ] DeepGEMM probe step 1: pin a commit; sweep dense `fp8_gemm_nt`, contiguous grouped,
+      masked grouped, including "same tokens via contiguous vs masked"
+- [ ] Only on failure: step 2 (heuristic patch) / step 3 (zhuzilin branch + capability probe)
+- [ ] Decide the dense FP8 GEMM path and record it in the profile
+
+### Phase 2 - P2 attention (critical path)
+
+- [ ] T02 KV compressor C4/C128 CUDA: block boundaries are per request, never crossing
+      requests
+- [ ] T03 indexer projection + FP4/FP8 logits: use the GEMM decided in Phase 1; run the
+      invariance probe against DeepGEMM `fp8_mqa_logits` (5 seeds x 5 sub-batch sizes x
+      production shape)
+- [ ] T04 stable top-k: composite key, fixed output slots, one selector for prefill and
+      decode; regression covers "all ties + true cutoff"
+- [ ] T05 FlashMLA sparse wrapper: canonicalize indices, pin num_splits/workspace from
+      config, stable addresses under CUDA graphs; test `fwd(x)[t] == fwd(x[t:t+1])`
+      byte-equal
+- [ ] T06 sliding window: confirm split-KV is pinned on the #240 / FA3 path
+- [ ] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x)
+- [ ] Wire the Megatron-side recompute path to the same kernel set (forward only)
+
+### Phase 3 - MoE wrap-up
+
+- [ ] P3 gate GEMM: det_gemm FP32-output or pinned-tile Triton FP32 matmul (never bare
+      `torch.mm`)
+- [ ] P3 routing-weights CUDA and combine-plan live provider; close out T08 (#639)
+- [ ] P6 T06 + real EP=2/4/8 collectives (replacing the values-only mock)
+- [ ] P4: DeepEP `align_fp8_quantization` adapter, route-metadata capture (top-k slot
+      order), fixed-capacity staging; empty ranks still join the collective
+- [ ] P5 unchanged; the shared-expert K-tree is recorded as known performance debt (Phase 5)
+
+### Phase 4 - integration and gates
+
+- [ ] Layerwise exact-zero hidden-state diff gate, advancing one layer at a time from layer 0
+- [ ] #230 cross_config M0-M10 selected-token logprob bitwise; add a logprob threshold to CI
+      (target 0; slime's 1.9e-7 MAE is the reference upper bound)
+- [ ] Performance table: per-operator overhead against the non-invariant path; anything above
+      1.3x goes to Phase 5
+
+### Phase 5 - performance debt
+
+- [ ] Shared expert: fold into the grouped GEMM as a fixed group, or move to the grouped
+      kernel's serial profile; retire the det_gemm K-tree
+- [ ] Operators that exceeded the Phase 4 performance table
+- [ ] DCP attention (single comparator across local and global selection; separate issue)
+
+### Explicitly out of scope (v1)
+
+- DCP / CP attention
+- Bitwise FlashMLA sparse backward
+- ROCm (as stated on #635)
+- Writing the vLLM fork into the formal anchor
+
+## 7. References
+
+- RL-Kernel #635, #447 (P2 T01), #498 (P3 T01), #448 (P6 T01), #462 (P6 T05), #648 (P7
+  T02), #639 (P3 T08), #230 (cross_config), #241 (TP logprob)
+- vLLM #54955 (DSv4 batch-invariant preview)
+- slime #2262 (Megatron/SGLang DSA alignment)
+- `zhuzilin/DeepGEMM@batch_invariant`, `zhuzilin/DeepEP@align_fp8_quantization`
