@@ -20,7 +20,8 @@ On one B200, at S = 264, 925 and 3160:
 - **Accuracy.** The block output is exactly as close to the FP32 golden as diffusers' (relative
   error 5.2e-3 / 7.9e-3 / 9.0e-3).
 
-Only three of the 17 nodes are bound to this stack's row operators. The others use **interim**
+Five of the 17 nodes are bound to this stack's three row operators (AdaLN projection, modulated
+RMSNorm for `norm1` / `norm2`, gate residual for the two residual nodes). The other twelve use **interim**
 deterministic operators until their own rows land, or the provider replay where no kernel exists
 yet (see Bindings). The block-level promises above hold with whatever a node is bound to. Speed
 and the exact rounding of interim nodes belong to those operators, not to this row.
@@ -174,7 +175,7 @@ RL_KERNEL_H3_WEIGHTS=<dir> CUDA_VISIBLE_DEVICES=0,1 python -m pytest tests/model
 
 - **Single platform.** CUDA only. `DeterministicAttentionOp` and the Triton GEMM also build for
   ROCm, but the block has not been run there.
-- **Interim nodes.** Eleven of the 17 nodes are interim or reference bindings. Their speed and
+- **Interim nodes.** Twelve of the 17 nodes (ten interim, two reference) are not bound to a row operator. Their speed and
   rounding are not the owning rows' final ones, and the MM-RoPE nodes are the provider replay
   itself, so they carry no RL-Kernel evidence until `h3_mm_rope_3axis_partial` lands.
 - **Stand-in inputs.** The block input is a seeded stand-in and `temb` is the provider's.

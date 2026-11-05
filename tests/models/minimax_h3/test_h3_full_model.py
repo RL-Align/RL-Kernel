@@ -103,6 +103,7 @@ def test_candidate_execution_requires_every_node():
         "proj_in",
         "audio_proj_in",
         "context_embedder",
+        "time_proj",
         "token_refiner",
         "time_embedder",
         "norm_out",
@@ -112,6 +113,114 @@ def test_candidate_execution_requires_every_node():
         trace.calls[name] = 1
     with pytest.raises(ValueError, match="candidate nodes did not execute"):
         trace.validate()
+
+
+BOUNDARIES = [
+    "proj_in",
+    "audio_proj_in",
+    "context_embedder",
+    "time_proj",
+    "token_refiner",
+    "time_embedder",
+    "norm_out",
+    "proj_out",
+    "audio_proj_out",
+]
+
+
+def _complete_trace(*, skip=(), backward_skip=("time_proj",)):
+    trace = FullModelTrace()
+    for name in [f"block.{i}" for i in range(50)] + ["refiner.0", "refiner.1"] + BOUNDARIES:
+        if name not in skip:
+            trace.calls[name] = 1
+        if name not in backward_skip:
+            trace.backward_calls[name] = 1
+    return trace
+
+
+def test_a_run_that_never_calls_time_proj_is_incomplete():
+    with pytest.raises(ValueError, match="time_proj"):
+        _complete_trace(skip=("time_proj",)).validate()
+
+
+def test_time_proj_is_required_forward_only():
+    trace = _complete_trace()  # no backward event for time_proj: it has no gradient
+    assert trace.validate(backward=True)["calls"]["time_proj"] == 1
+    with pytest.raises(ValueError, match=r"norm_out\.backward"):
+        _complete_trace(backward_skip=("time_proj", "norm_out")).validate(backward=True)
+
+
+def test_the_trace_reports_the_nodes_a_diagnostic_hybrid_replayed_with_the_provider():
+    assert _complete_trace().validate()["diagnostic_provider_nodes"] == []
+    trace = FullModelTrace()
+    with full_model_execution(
+        Model(), candidate=True, trace=trace, ops=object(), provider_nodes=("swiglu", "attention")
+    ):
+        assert trace.provider_nodes == ("attention", "swiglu")
+    hybrid = _complete_trace()
+    hybrid.provider_nodes = ("swiglu",)
+    # still a valid trace (the diagnostic has to complete), but marked as not a candidate result
+    assert hybrid.validate()["diagnostic_provider_nodes"] == ["swiglu"]
+
+
+class _FakeBlas:
+    """Stands in for ``torch.backends.cuda.preferred_blas_library`` (getter and setter)."""
+
+    def __init__(self, current="default"):
+        self.current, self.calls = current, []
+
+    def __call__(self, backend=None):
+        if backend is None:
+            return self.current
+        self.calls.append(backend)
+        self.current = backend
+
+
+def test_the_cublaslt_variant_puts_the_blas_library_back_on_exit(monkeypatch):
+    from rl_engine.validation.models.h3_full_model import provider_variant_context
+
+    blas = _FakeBlas("default")
+    monkeypatch.setattr(torch.backends.cuda, "preferred_blas_library", blas)
+    with provider_variant_context("blas-cublaslt"):
+        assert blas.current == "cublaslt"
+    assert blas.current == "default"
+    assert blas.calls == ["cublaslt", "default"]
+
+
+def test_the_blas_library_is_restored_also_when_the_body_raises(monkeypatch):
+    from rl_engine.validation.models.h3_full_model import provider_variant_context
+
+    blas = _FakeBlas("cublas")
+    monkeypatch.setattr(torch.backends.cuda, "preferred_blas_library", blas)
+    with pytest.raises(RuntimeError, match="boom"):
+        with provider_variant_context("blas-cublaslt"):
+            raise RuntimeError("boom")
+    assert blas.current == "cublas"
+
+
+def test_the_default_variant_leaves_the_blas_library_alone(monkeypatch):
+    from rl_engine.validation.models.h3_full_model import provider_variant_context
+
+    blas = _FakeBlas("default")
+    monkeypatch.setattr(torch.backends.cuda, "preferred_blas_library", blas)
+    with provider_variant_context("default"):
+        pass
+    assert blas.calls == []
+
+
+def test_the_variant_context_is_also_correct_with_the_real_library():
+    from rl_engine.validation.models.h3_full_model import provider_variant_context
+
+    before = torch.backends.cuda.preferred_blas_library()
+    try:  # a torch build without cuBLASLt (the CPU wheel in CI) refuses to select it
+        torch.backends.cuda.preferred_blas_library("cublaslt")
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    finally:
+        torch.backends.cuda.preferred_blas_library(before)
+    with provider_variant_context("blas-cublaslt"):
+        assert "cublaslt" in str(torch.backends.cuda.preferred_blas_library()).lower()
+    assert torch.backends.cuda.preferred_blas_library() == before
 
 
 def test_drift_order_follows_execution_instead_of_lexical_names():

@@ -59,8 +59,10 @@ out = op(x, norm_out_norm_w, temb, norm_out_linear_w, norm_out_linear_b, timeste
 python benchmarks/models/benchmark_h3_conditioning.py --op final_adaln_out
 ```
 
-B200, B = 1, T = 3, pinned `norm_out` weights. Backward timings exclude input
-and forward-graph setup:
+B200, B = 1, T = 3, pinned `norm_out` weights. The `fwd+bwd` columns are the stored B200
+measurements, whose timed region includes forward-graph setup: they are not backward-only numbers.
+The current benchmark builds the graph outside the timed backward region; these historical
+timings are kept as recorded with their original commit and have not been re-measured:
 
 | S | CUDA fwd | diffusers fwd | CUDA fwd+bwd | diffusers fwd+bwd |
 | --- | --- | --- | --- | --- |
@@ -70,11 +72,6 @@ and forward-graph setup:
 
 At small S the backward is dominated by fixed setup: the stable sort for the segment sums and the
 projection backward.
-
-The stored timing evidence includes forward graph setup in the columns labeled
-`fwd+bwd`; those values are not backward-only measurements. The current benchmark
-prepares the graph outside the timed backward region. Historical timings are retained
-with their original commit and corrected scope.
 
 ## Evidence
 
