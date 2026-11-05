@@ -142,6 +142,7 @@ class TestMusaPlatform:
             ],
             "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
             "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+            "h3_ode_step": [OpBackend.TRITON_H3_ODE_STEP],
         }
         for op_name, candidates in expected.items():
             assert registry._priority_map["musa"][op_name] == candidates

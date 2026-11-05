@@ -58,6 +58,7 @@ def make_operator_inputs(
         "h3_rmsnorm": _make_h3_rmsnorm_inputs,
         "adaln_gate_residual": _make_adaln_gate_residual_inputs,
         "final_adaln_out": _make_final_adaln_out_inputs,
+        "h3_ode_step": _make_h3_ode_step_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -105,6 +106,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "h3_rmsnorm": f"{batch}x{seq}x{_h3_hidden(args)}",
         "adaln_gate_residual": f"{batch}x{seq}x{_h3_hidden(args)}",
         "final_adaln_out": f"{batch}x{seq}x{_h3_hidden(args)}",
+        # batch = packed-row count, seq = latent channel width (24 video / 32 audio)
+        "h3_ode_step": f"{batch}x{seq}",
     }
     try:
         return names[op_name]
@@ -669,4 +672,43 @@ def _make_h3_attention_inputs(args, dtype, device):
     return {
         name: _floating_tensor((batch, seq, 56, 128), args, dtype, device, offset)
         for offset, name in enumerate(("q", "k", "v"))
+    }
+
+
+def _h3_sigma_pair(rows, args, device):
+    """Per-row (sigma, sigma_next) from a deduplicated descending sigma grid.
+
+    The grid is ``linspace(1, 0, steps)``; consecutive fp32 duplicates are removed
+    first, so every step satisfies 1 >= sigma > sigma_next >= 0 and the operator's
+    fail-closed validation never fires on legal input (and raising ``steps`` cannot
+    collapse a pair to ``sigma == sigma_next``).
+    """
+    steps = 8
+    grid = torch.linspace(1.0, 0.0, steps + 1, dtype=torch.float32, device=device)
+    keep = torch.ones(grid.numel(), dtype=torch.bool, device=device)
+    keep[1:] = grid[1:] < grid[:-1]
+    grid = grid[keep]
+    steps = grid.numel() - 1
+    if _arg_str(args, "input_mode", "random") == "constant":
+        index = torch.zeros(rows, dtype=torch.long, device=device)
+    else:
+        generator = _generator(args, device, offset=23)
+        index = torch.randint(0, steps, (rows,), generator=generator, device=device)
+    return grid[index].unsqueeze(-1), grid[index + 1].unsqueeze(-1)
+
+
+def _make_h3_ode_step_inputs(args, dtype, device):
+    """Build the ``[R, C]`` packed-row case for the H3 Euler step.
+
+    For this operator the generic CLI shape flags mean: ``--batch`` is the packed
+    row count and ``--seq`` is the latent channel width (24 video / 32 audio), so
+    the generated case is the documented ``[R, C]`` per-packed-row layout.
+    """
+    rows, channels = _batch_seq(args)
+    sigma, sigma_next = _h3_sigma_pair(rows, args, device)
+    return {
+        "xt": _floating_tensor((rows, channels), args, dtype, device, offset=0),
+        "v": _floating_tensor((rows, channels), args, dtype, device, offset=1),
+        "sigma": sigma,
+        "sigma_next": sigma_next,
     }

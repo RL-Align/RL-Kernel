@@ -29,6 +29,7 @@ nav:
       - operators/video-patch-pack-unpack.md
       - operators/video-input-projection-fp32.md
       - operators/video-output-projection-fp32.md
+      - operators/h3-ode-step.md
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md

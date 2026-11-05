@@ -1,0 +1,144 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+"""MiniMax-H3 deterministic rectified-flow Euler step (WS1 reference).
+
+    x0     = xt + sigma * v
+    r      = sigma_next / sigma
+    x_next = r * xt + (1 - r) * x0
+
+FP32 throughout, one cast at the end. Keep this exact expression order: the
+equivalent ``xt + (sigma - sigma_next) * v`` reassociates the sum and is a
+different FP32 program (RFC #420 ablation probe H13).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import torch
+from torch import Tensor
+
+_SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
+
+
+def _row_count(reference: Tensor) -> int:
+    """Flattened packed-row count: numel divided by the last dim."""
+    if reference.dim() < 1:
+        return 1
+    return reference.numel() // max(reference.shape[-1], 1)
+
+
+def _as_sigma(value: Any, reference: Tensor, name: str) -> Tensor:
+    """Return contiguous fp32 sigma as a 0-dim scalar or ``[..., 1]`` per row.
+
+    A bare ``[R]`` must not survive: it broadcasts against the channel axis of
+    ``[R, C]``, which is silently wrong whenever ``R == C``.  Schedule tensors are
+    detached: ``sigma`` / ``sigma_next`` are not differentiable inputs here, and
+    both GPU backends expose gradients only for ``xt`` and ``v``.
+    """
+    if not isinstance(value, Tensor):
+        value = torch.as_tensor(value, dtype=torch.float32, device=reference.device)
+    if value.device != reference.device:
+        raise ValueError(
+            f"{name} must be on xt's device, got {value.device} and {reference.device}."
+        )
+    if not value.is_floating_point():
+        raise TypeError(f"{name} must be floating point, got {value.dtype}.")
+    value = value.detach().to(dtype=torch.float32).contiguous()
+    if value.numel() == 1:
+        return value.reshape(())
+    if value.numel() == _row_count(reference):
+        return value.reshape(*reference.shape[:-1], 1)
+    raise ValueError(
+        f"{name} must be a scalar or one value per packed row ({_row_count(reference)}), got "
+        f"numel={value.numel()}. Refusing to broadcast implicitly."
+    )
+
+
+def _check_xt_v(xt: Tensor, v: Tensor) -> None:
+    """Validate dtype, device and shape of the ``(xt, v)`` input pair."""
+    for name, tensor in (("xt", xt), ("v", v)):
+        if tensor.dtype not in _SUPPORTED_DTYPES:
+            raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {tensor.dtype}.")
+    if xt.device != v.device:
+        raise ValueError(f"xt and v must share a device, got {xt.device} and {v.device}.")
+    if xt.shape != v.shape:
+        raise ValueError(
+            f"xt and v must share a shape, got {tuple(xt.shape)} and {tuple(v.shape)}."
+        )
+
+
+def _check_sigma_layout(sigma: Tensor, sigma_next: Tensor) -> None:
+    """Reject a scalar/per-row mix before it can be broadcast silently.
+
+    The Triton and CUDA kernels select one ``ROW_SIGMA`` branch from ``sigma`` and
+    apply it to both operands, so the reference must not accept an input pair the
+    candidates cannot represent.
+    """
+    if sigma.dim() != sigma_next.dim():
+        raise ValueError(
+            "sigma and sigma_next must use the same layout: both scalar or both "
+            "one value per packed row."
+        )
+
+
+def _check_sigma_values(sigma: Tensor, sigma_next: Tensor) -> None:
+    """Reject geometry the pinned H3 shifted grid can never produce.
+
+    One folded predicate keeps this identical to the CUDA and Triton wrappers, so a
+    caller sees the same rejection whichever backend resolves.
+    """
+    ok = (
+        torch.isfinite(sigma)
+        & torch.isfinite(sigma_next)
+        & (sigma > 0)
+        & (sigma_next >= 0)
+        & (sigma_next <= sigma)
+    ).all()
+    if not bool(ok):
+        raise ValueError(
+            "sigma and sigma_next must be finite, with sigma > 0 and "
+            "0 <= sigma_next <= sigma; the H3 grid is monotonically decreasing."
+        )
+
+
+def _ode_step_fp32(
+    xt: Tensor, v: Tensor, sigma: Tensor, sigma_next: Tensor
+) -> tuple[Tensor, Tensor]:
+    """Evaluate the declared FP32 program; this is the gold expression order."""
+    r = sigma_next / sigma
+    x0 = xt + sigma * v
+    return r * xt + (1.0 - r) * x0, x0
+
+
+class NativeH3OdeStepOp:
+    """PyTorch reference: data-ward ``x0`` plus the FP32 Euler blend."""
+
+    op_class = "elementwise"
+
+    def __call__(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Alias for :meth:`forward` so the op can be invoked like a function."""
+        return self.forward(xt, v, sigma, sigma_next)
+
+    def forward(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Return ``(x_next, x0)`` in the input dtype, computed in FP32."""
+        s, sn = self._prepare(xt, v, sigma, sigma_next)
+        x_next, x0 = _ode_step_fp32(xt.float(), v.float(), s, sn)
+        return x_next.to(xt.dtype), x0.to(xt.dtype)
+
+    def forward_fp32(
+        self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any
+    ) -> tuple[Tensor, Tensor]:
+        """gtest gold path: FP32 in, FP32 out."""
+        s, sn = self._prepare(xt, v, sigma, sigma_next)
+        return _ode_step_fp32(xt.float(), v.float(), s, sn)
+
+    @staticmethod
+    def _prepare(xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Validate the inputs and normalise both sigma arguments."""
+        _check_xt_v(xt, v)
+        s = _as_sigma(sigma, xt, "sigma")
+        sn = _as_sigma(sigma_next, xt, "sigma_next")
+        _check_sigma_layout(s, sn)
+        _check_sigma_values(s, sn)
+        return s, sn
