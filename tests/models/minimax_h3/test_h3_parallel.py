@@ -311,3 +311,54 @@ def test_hierarchical_equals_single_node_fixed_tree(local_size, dtype):
     assert torch.equal(ranks[0]["rs"], ranks[0]["hier"][:64])
     assert torch.equal(ranks[3]["rs"], ranks[3]["hier"][192:256])
     assert torch.equal(ranks[1]["ag"], torch.cat([r["x"][:2] for r in ranks]))
+
+
+def _fake_dist(rank: int, world: int, calls: list):
+    """Just enough of ``torch.distributed`` for one rank to build a ``HierarchicalCollective``."""
+
+    from types import SimpleNamespace
+
+    everything = tuple(range(world))
+
+    def new_group(ranks):
+        calls.append(tuple(ranks))
+        return tuple(ranks)
+
+    return SimpleNamespace(
+        is_initialized=lambda: True,
+        group=SimpleNamespace(WORLD=everything),
+        get_world_size=lambda group=None: len(everything if group is None else group),
+        get_rank=lambda group=None: (everything if group is None else group).index(rank),
+        get_process_group_ranks=lambda group: list(group),
+        new_group=new_group,
+        ProcessGroup=tuple,
+    )
+
+
+@pytest.mark.parametrize(("tp", "cp", "local_size"), [(2, 2, 1), (4, 2, 2), (8, 2, 4), (8, 1, 4)])
+def test_hierarchical_subgroups_are_created_in_one_global_order(monkeypatch, tp, cp, local_size):
+    """``dist.new_group`` is entered by every rank with the same lists in the same order, also
+    when several TP groups (CP > 1) each build a hierarchical collective."""
+
+    from types import SimpleNamespace
+
+    import rl_engine.distributed.algorithms.hierarchical as hier
+
+    world = tp * cp
+    tp_ranks = [list(range(c * tp, (c + 1) * tp)) for c in range(cp)]
+    monkeypatch.setattr(hier, "DeterministicCollective", lambda g, d, **_: SimpleNamespace(g=g))
+    sequences = []
+    for rank in range(world):
+        calls: list = []
+        monkeypatch.setattr(hier, "dist", _fake_dist(rank, world, calls))
+        mine = tuple(tp_ranks[rank // tp])
+        h = hier.HierarchicalCollective(local_size, mine, group_ranks=tp_ranks)
+        sequences.append(calls)
+        assert rank in h._local.g and rank in h._cross  # its own subgroups, of its own TP group
+        assert set(h._local.g) | set(h._cross) <= set(mine)
+        assert len(h._local.g) == local_size and len(h._cross) == tp // local_size
+    assert all(seq == sequences[0] for seq in sequences)
+    if cp > 1:  # a TP subgroup alone would make the ranks disagree; it is refused instead
+        monkeypatch.setattr(hier, "dist", _fake_dist(0, world, []))
+        with pytest.raises(ValueError, match="group_ranks"):
+            hier.HierarchicalCollective(local_size, tuple(tp_ranks[0]))
