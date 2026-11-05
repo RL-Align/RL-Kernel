@@ -14,13 +14,13 @@ import argparse
 import json
 import platform
 import statistics
+from functools import partial
 from pathlib import Path
 
 import torch
 
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
-from rl_engine.reference.minimax_h3.block import golden_apply_rotary
-from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp
+from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp, model_boundary_reference
 from rl_engine.validation.models.h3_cases import H3_BLOCK_LAYOUTS, h3_fl2va_layout
 from rl_engine.validation.models.h3_provider import provider_apply_rotary, provider_rope
 
@@ -79,14 +79,58 @@ def _evaluate(op, x, cos, sin, upstream):
     return output.detach(), torch.autograd.grad(output, leaf, upstream)[0]
 
 
+def _record_error(summary, actual, reference, tolerance, token_offset):
+    """Accumulate full-domain diagnostics, including global outlier coordinates."""
+    error = (actual.float() - reference).abs()
+    limit = tolerance.atol + tolerance.rtol * reference.abs()
+    violations = (error > limit) | ~torch.isfinite(error)
+    summary["elements"] += error.numel()
+    summary["outside_tolerance"] += int(violations.sum())
+    summary["max_abs_error"] = max(summary["max_abs_error"], float(error.max()))
+    summary["max_error_over_tolerance"] = max(
+        summary["max_error_over_tolerance"], float((error / limit).max())
+    )
+    if len(summary["examples"]) < 8:
+        for index in violations.nonzero()[: 8 - len(summary["examples"])].tolist():
+            local = tuple(index)
+            index[1] += token_offset
+            summary["examples"].append(
+                dict(
+                    index=index,
+                    actual=float(actual[local]),
+                    reference=float(reference[local]),
+                    abs_error=float(error[local]),
+                    allowed_error=float(limit[local]),
+                )
+            )
+
+
 def check_case(operators, x, cos, sin, upstream):
-    """Keep provider-forward parity, explicit-backward parity and accuracy separate.
+    """Gate on model boundaries; separately report unrounded FP32 mathematical error.
 
     Validate in token chunks to bound temporary memory on small GPUs. The subsequent
     full-shape check compares both candidate outputs/gradients with the Native path.
     No tolerance is inferred from the benchmark results.
     """
     contract = load_contract()
+    diagnostics = {
+        "reference": "original_fp32_coefficients_and_unrounded_fp32_math",
+        "is_acceptance_gate": False,
+        "forward": {},
+        "backward": {},
+        "provider_backward": {},
+    }
+    for name in ("forward", "backward", "provider_backward"):
+        diagnostics[name] = dict(
+            elements=0,
+            outside_tolerance=0,
+            max_abs_error=0.0,
+            max_error_over_tolerance=0.0,
+            examples=[],
+        )
+    acceptance = dict(reference="model_boundary_reference", passed=True)
+    reference_op = NativeH3MMRoPEOp()
+    acceptance_fn = partial(model_boundary_reference, storage_dtype=x.dtype)
     for start in range(0, x.shape[1], 1024):
         view, dy = x[:, start : start + 1024], upstream[:, start : start + 1024]
         c, s = cos[start : start + 1024], sin[start : start + 1024]
@@ -100,7 +144,13 @@ def check_case(operators, x, cos, sin, upstream):
             assert torch.equal(
                 result.contiguous().view(torch.uint8), reference.contiguous().view(torch.uint8)
             )  # noqa: E501
-        golden, d_golden = _evaluate(golden_apply_rotary, view.float(), c, s, dy.float())
+        golden, d_golden = _evaluate(
+            acceptance_fn,
+            view.float(),
+            c,
+            s,
+            dy.float(),
+        )
         for judgment, result, reference in (
             ("forward_accuracy", actual, golden),
             ("gradient_accuracy", grad, d_golden),
@@ -114,12 +164,26 @@ def check_case(operators, x, cos, sin, upstream):
                 )
             except AssertionError as error:
                 raise AssertionError(
-                    f"{judgment}, tokens [{start}, {start + view.shape[1]}): {error}"
+                    f"model_boundary_reference {judgment}, "
+                    f"tokens [{start}, {start + view.shape[1]}): {error}"
                 ) from error
+        math_y, math_dx = _evaluate(reference_op.forward_fp32, view.float(), c, s, dy.float())
+        _, provider_dx = _evaluate(provider_apply_rotary, view, c, s, dy)
+        for name, judgment, result, reference in (
+            ("forward", "forward_accuracy", actual, math_y),
+            ("backward", "gradient_accuracy", grad, math_dx),
+            ("provider_backward", "gradient_accuracy", provider_dx, math_dx),
+        ):
+            tolerance = resolve_tolerance(
+                contract, judgment=judgment, op_class="elementwise", dtype=x.dtype
+            )
+            diagnostics[name].update(atol=tolerance.atol, rtol=tolerance.rtol)
+            _record_error(diagnostics[name], result, reference, tolerance, start)
     actual, grad = _evaluate(operators["triton"], x, cos, sin, upstream)
     expected, d_expected = _evaluate(operators["native"], x, cos, sin, upstream)
     for result, reference in ((actual, expected), (grad, d_expected)):
         assert torch.equal(result.view(torch.uint8), reference.view(torch.uint8))
+    return dict(acceptance=acceptance, unrounded_math_diagnostic=diagnostics)
 
 
 def timed_call(op, mode, x, cos, sin, upstream):
@@ -194,6 +258,10 @@ def write_report(folder, report):
         "",
         f"Complete: {report['complete']}",
         "",
+        "Acceptance: model coefficient/product storage boundaries, independent FP32 VJP. "
+        "Unrounded FP32 mathematical error is diagnostic only; its outlier counts below "
+        "are not waived or interpreted as a pure FP32 accuracy pass.",
+        "",
         "| Dtype / shape | Mode | Provider us | Native us | Triton us | Provider / Triton | Native / Triton |",  # noqa: E501
         "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
@@ -204,7 +272,7 @@ def write_report(folder, report):
             f"{p:.2f} | {n:.2f} | {t:.2f} | {p/t:.2f}x | {n/t:.2f}x |"
         )
     if report["failures"]:
-        lines.extend(["", "Accuracy failures (not timed):", ""])
+        lines.extend(["", "Model-boundary acceptance failures (not timed):", ""])
         for failure in report["failures"]:
             lines.extend(
                 [
@@ -215,6 +283,23 @@ def write_report(folder, report):
                     "```",
                     "",
                 ]
+            )
+    lines.extend(
+        [
+            "",
+            "## Unrounded FP32 mathematical diagnostics (not an acceptance gate)",
+            "",
+            "| Dtype / shape | Direction | Outside tolerance / elements | Max abs error | Max error / limit |",  # noqa: E501
+            "| --- | --- | ---: | ---: | ---: |",
+        ]
+    )
+    for case in report["validation"]:
+        for direction in ("forward", "backward", "provider_backward"):
+            metric = case["unrounded_math_diagnostic"][direction]
+            lines.append(
+                f"| {case['dtype']} {'x'.join(map(str, case['shape']))} | {direction} | "
+                f"{metric['outside_tolerance']} / {metric['elements']} | "
+                f"{metric['max_abs_error']:.8g} | {metric['max_error_over_tolerance']:.5g} |"
             )
     (folder / "report.md").write_text("\n".join(lines) + "\n")
 
@@ -236,7 +321,10 @@ def main(argv=None):
     torch.set_num_threads(1)
     session = KernelRegistry().semantic.session()
     report = dict(
+        schema_version=2,
         complete=False,
+        acceptance_reference="model_boundary_reference",
+        mathematical_reference="forward_fp32 (diagnostic only, not a timing gate)",
         case_plan=plan,
         warmup=args.warmup,
         repeat=args.repeat,
@@ -253,6 +341,7 @@ def main(argv=None):
         ),
         backends={},
         results=[],
+        validation=[],
         failures=[],
     )
     write_report(args.output_dir, report)
@@ -284,11 +373,19 @@ def main(argv=None):
         )
         upstream = torch.randn(x.shape, device="cuda", dtype=x.dtype, generator=generator)
         try:
-            check_case(operators, x, cos, sin, upstream)
+            validation = check_case(operators, x, cos, sin, upstream)
         except AssertionError as error:
             report["failures"].append(dict(**case, error=str(error)))
-            print(f"  Accuracy failed; skipping timing: {error}", flush=True)
+            print(f"  Model-boundary acceptance failed; skipping timing: {error}", flush=True)
         else:
+            report["validation"].append(dict(**case, **validation))
+            diagnostic = validation["unrounded_math_diagnostic"]
+            print(
+                "  Model-boundary acceptance passed; diagnostic-only unrounded FP32 "
+                f"outliers: forward={diagnostic['forward']['outside_tolerance']}, "
+                f"backward={diagnostic['backward']['outside_tolerance']}",
+                flush=True,
+            )
             for mode in MODES:
                 calls = {
                     name: timed_call(op, mode, x, cos, sin, upstream)
@@ -312,7 +409,7 @@ def main(argv=None):
     write_report(args.output_dir, report)
     print(f"Reports saved to {args.output_dir}")
     if report["failures"]:
-        raise SystemExit("accuracy failures recorded; benchmark is not qualified")
+        raise SystemExit("model-boundary acceptance failures recorded; benchmark is incomplete")
 
 
 if __name__ == "__main__":

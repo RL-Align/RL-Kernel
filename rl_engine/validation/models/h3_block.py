@@ -40,7 +40,9 @@ from typing import Any, Callable
 
 import torch
 
+from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.reference.minimax_h3 import block as gold
+from rl_engine.reference.rope.h3_mm_rope import model_boundary_reference
 from rl_engine.runtime.registry import KernelRegistry
 from rl_engine.validation.models import h3_provider as prov
 from rl_engine.validation.models.h3_cases import H3_BLOCK_LAYOUTS, h3_fl2va_layout, h3_timesteps
@@ -516,6 +518,8 @@ def run_block_case(
         "seq_len": ctx["seq_len"],
         "seed": seed,
         "backends": ops.backends(),
+        "golden_role": "block_mathematical_error_reference",
+        "rope_acceptance_reference": "isolated_model_boundary_reference",
         "nodes": [],
     }
     firsts: dict[str, str | None] = {"first_drift": None, "first_isolated_drift": None}
@@ -544,6 +548,24 @@ def run_block_case(
             "provider_rel_err_vs_golden": rel_err(provider[name], golden[name]),
             "candidate_sha256": digest(chained[name]),
         }
+        if name in ("rope_q", "rope_k"):
+            # Keep the full-block mathematical replay unchanged. RoPE's local
+            # acceptance uses the actual provider input and declared storage.
+            x = provider[node.inputs[0]]
+            reference = model_boundary_reference(x, *ctx["rope"], storage_dtype=x.dtype)
+            tolerance = resolve_tolerance(
+                load_contract(), judgment="forward_accuracy", op_class="elementwise", dtype=x.dtype
+            )
+            error = (isolated[name].float() - reference).abs()
+            outside = error > tolerance.atol + tolerance.rtol * reference.abs()
+            outside = outside | ~torch.isfinite(error)
+            entry["isolated_model_boundary_accuracy"] = {
+                "passed": not bool(outside.any()),
+                "outside_tolerance": int(outside.sum()),
+                "max_abs_error": float(error.max()),
+                "atol": tolerance.atol,
+                "rtol": tolerance.rtol,
+            }
         checks = {
             "first_drift": entry["chained_vs_provider"]["bitwise_equal"],
             "first_isolated_drift": entry["isolated_vs_provider"]["bitwise_equal"],

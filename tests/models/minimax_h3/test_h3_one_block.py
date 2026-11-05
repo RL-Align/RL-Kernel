@@ -130,6 +130,10 @@ def test_stack_rows_dispatch_to_cuda(require_h3_kernels, ops):
 @pytest.mark.parametrize("layout", ["tiny", "small"])
 def test_block_forward(h3_block_weights_cuda, ops, layout):
     report = h3_block.run_block_case(h3_block_weights_cuda, layout=layout, ops=ops)
+    assert report["rope_acceptance_reference"] == "isolated_model_boundary_reference"
+    for entry in report["nodes"]:
+        if entry["node"] in ("rope_q", "rope_k"):
+            assert entry["isolated_model_boundary_accuracy"]["passed"], entry
     nodes = {node.name: node for node in h3_block.NODES}
     for entry in report["nodes"]:
         name = entry["node"]

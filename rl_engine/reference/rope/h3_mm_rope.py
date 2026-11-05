@@ -55,6 +55,53 @@ def _validate_inputs(x: Tensor, cos: Tensor, sin: Tensor) -> None:
             )
 
 
+class _ModelStorage(torch.autograd.Function):
+    """Store a forward value in the model dtype, with an FP32 identity VJP.
+
+    An ordinary ``value.to(dtype).float()`` also casts its incoming gradient to
+    dtype. That would introduce product-gradient rounding absent from this
+    operator's declared backward. Only this storage node has a custom VJP;
+    PyTorch independently differentiates the rotation's multiplies and add.
+    """
+
+    @staticmethod
+    def forward(ctx, value: Tensor, dtype: torch.dtype) -> Tensor:
+        return value.to(dtype).float()
+
+    @staticmethod
+    def backward(ctx, gradient: Tensor):
+        return gradient, None
+
+
+def model_boundary_reference(
+    x: Tensor, cos: Tensor, sin: Tensor, *, storage_dtype: torch.dtype
+) -> Tensor:
+    """FP32 acceptance reference retaining H3 coefficient and product storage.
+
+    ``storage_dtype`` is explicit so FP32 leaves can represent BF16 activations
+    without rounding reference gradients at the leaf. Inputs must already be
+    representable in that dtype. Products are computed in FP32 *before* storage,
+    matching the model's operation order, rather than rounding FP64 products.
+    The final sum/output stays FP32: its conversion is tested against the
+    unchanged elementwise tolerance. Storage has an identity VJP; gradients
+    retain the forward-quantized coefficients and FP32 intermediate arithmetic.
+    This is not the unrounded mathematical reference (``forward_fp32``).
+    """
+    _validate_inputs(x, cos, sin)
+    if storage_dtype not in _SUPPORTED_DTYPES:
+        raise TypeError(f"storage_dtype must be in {_SUPPORTED_DTYPES}, got {storage_dtype}.")
+    with torch.autocast(device_type=x.device.type, enabled=False):
+        values = x.float()
+        c = cos.to(storage_dtype).float()[None, :, None, :]
+        s = sin.to(storage_dtype).float()[None, :, None, :]
+        rotary = values[..., :_ROTARY_DIM]
+        first, second = rotary.chunk(2, dim=-1)
+        rotated = torch.cat((-second, first), dim=-1)
+        direct = _ModelStorage.apply(rotary * c, storage_dtype)
+        cross = _ModelStorage.apply(rotated * s, storage_dtype)
+        return torch.cat((direct + cross, values[..., _ROTARY_DIM:]), dim=-1)
+
+
 class _H3MMRoPENativeFunction(torch.autograd.Function):
     """Preserve H3 forward rounding and use FP32 intermediate input gradients.
 
@@ -121,13 +168,17 @@ class NativeH3MMRoPEOp:
         _validate_inputs(x, cos, sin)
         return _H3MMRoPENativeFunction.apply(x, cos, sin)
 
+    def forward_model_reference(self, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
+        """Acceptance reference with declared model storage and independent VJP."""
+        return model_boundary_reference(x, cos, sin, storage_dtype=x.dtype)
+
     def forward_fp32(self, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
-        """Independent accuracy reference with original FP32 tables and FP32 math.
+        """Mathematical diagnostic with original FP32 tables and FP32 math.
 
         This deliberately omits the model's BF16 coefficient/product rounding.
-        Autograd differentiates this expression for the unified operator checker;
-        it does not reuse the candidate's handwritten backward. Model-path parity
-        is tested separately against ``forward`` and the pinned H3 provider.
+        This is a diagnostic, not the model-boundary acceptance gate. Autograd
+        independently differentiates the expression; no candidate backward is
+        reused. Its name and original arithmetic are retained deliberately.
         """
         _validate_inputs(x, cos, sin)
         # No matmul/TF32 path is used; disable an enclosing autocast context too.

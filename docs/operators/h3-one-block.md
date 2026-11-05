@@ -74,8 +74,13 @@ report entries then become that operator's block-level evidence.
 
 The [partial MM-RoPE candidate](h3-mm-rope.md) preserves the provider's forward cast points.
 Its backward uses the same quantized coefficients with FP32 products and addition, casting
-only the final input gradient. Forward provider parity and independent gradient accuracy
-remain separate checks. The provider and golden paths are unchanged.
+only the final input gradient. The standalone operator uses a model-boundary acceptance
+reference and separately reports unrounded FP32 mathematical error. Block reports add
+`isolated_model_boundary_accuracy` for both RoPE nodes on actual provider inputs.
+The provider and full-block mathematical golden remain unchanged; their relative-error
+checks remain comparative block checks, not RoPE's elementwise acceptance gate. The report
+labels these roles with `golden_role` and `rope_acceptance_reference`. The RoPE reference
+choice is a Draft PR review item, not a claim of maintainer or complete-model approval.
 
 The interim GEMMs use `_triton_gemm_fp32`, one fixed-order FP32 K loop with no split-K, and round
 to BF16 once. They do not use `TritonDetGemmOp.__call__`, whose K tree has BF16 nodes. Measured on

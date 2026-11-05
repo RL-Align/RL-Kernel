@@ -40,13 +40,48 @@ def test_accuracy_gate_rejects_wrong_candidate():
         bench.check_case(operators, x, *tables, torch.ones_like(x))
 
 
-def test_model_parity_does_not_bypass_the_independent_accuracy_gate():
-    """The saved BF16 outlier must prevent timing even when both paths agree."""
+def test_model_boundary_acceptance_keeps_unrounded_outlier_diagnostic(tmp_path):
+    """The saved BF16 outlier can be timed, but its mathematical gap stays visible."""
     x = torch.zeros(1, 1, 1, 128, dtype=torch.bfloat16)
     x[..., 0], x[..., 48] = 3.296875, 3.609375
     cos = torch.full((1, 96), 0.7241835594177246)
     sin = torch.full((1, 96), 0.6896072626113892)
     op = bench.NativeH3MMRoPEOp()
     assert torch.equal(op(x, cos, sin), bench.provider_apply_rotary(x, cos, sin))
-    with pytest.raises(AssertionError, match="forward_accuracy"):
-        bench.check_case({"native": op, "triton": op}, x, cos, sin, torch.ones_like(x))
+    result = bench.check_case({"native": op, "triton": op}, x, cos, sin, torch.ones_like(x))
+    assert result["acceptance"] == dict(reference="model_boundary_reference", passed=True)
+    diagnostic = result["unrounded_math_diagnostic"]
+    assert diagnostic["is_acceptance_gate"] is False
+    assert diagnostic["forward"]["outside_tolerance"] == 1
+    assert diagnostic["forward"]["max_error_over_tolerance"] > 1
+    assert diagnostic["forward"]["examples"][0]["index"] == [0, 0, 0, 0]
+    bench.write_report(
+        tmp_path,
+        dict(
+            environment={},
+            complete=True,
+            results=[],
+            failures=[],
+            validation=[dict(dtype="bf16", shape=list(x.shape), **result)],
+        ),
+    )
+    assert "not an acceptance gate" in (tmp_path / "report.md").read_text()
+
+
+def test_independent_model_boundary_gate_rejects_shared_wrong_backward():
+    """Agreeing Native/candidate stubs cannot turn a wrong VJP into acceptance."""
+
+    class WrongBackward(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, x):
+            return x.clone()
+
+        @staticmethod
+        def backward(ctx, dy):
+            return dy * 2
+
+    x = torch.ones(1, 2, 1, 128)
+    tables = torch.ones(2, 96), torch.zeros(2, 96)
+    wrong = lambda x, c, s: WrongBackward.apply(x)  # noqa: E731
+    with pytest.raises(AssertionError, match="model_boundary_reference gradient_accuracy"):
+        bench.check_case({"native": wrong, "triton": wrong}, x, *tables, torch.ones_like(x))

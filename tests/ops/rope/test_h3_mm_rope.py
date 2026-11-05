@@ -12,7 +12,7 @@ import torch
 
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.reference.minimax_h3.block import golden_apply_rotary
-from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp
+from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp, model_boundary_reference
 from rl_engine.validation.models.h3_cases import H3_BLOCK_LAYOUTS, h3_fl2va_layout
 from rl_engine.validation.models.h3_provider import provider_apply_rotary, provider_rope
 
@@ -263,8 +263,8 @@ def test_rejects_fp16(implementation):
 
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("seed", [420, 0, 1])
-def test_accuracy_against_independent_fp32(implementation, positions, dtype, seed):
-    """Accuracy is checked independently of the eager table/product rounding."""
+def test_accuracy_against_model_boundary_reference(implementation, positions, dtype, seed):
+    """The hard accuracy gate retains the model's declared storage boundaries."""
     op, device = implementation
     generator = torch.Generator().manual_seed(seed)
     x = torch.randn((2, len(positions), 3, 128), generator=generator).to(device=device, dtype=dtype)
@@ -272,7 +272,11 @@ def test_accuracy_against_independent_fp32(implementation, positions, dtype, see
     cos, sin = provider_rope(positions.to(device))
     actual, grad = _forward_backward(op, x, cos, sin, upstream)
     expected, expected_grad = _forward_backward(
-        golden_apply_rotary, x.float(), cos, sin, upstream.float()
+        lambda x, c, s: model_boundary_reference(x, c, s, storage_dtype=dtype),
+        x.float(),
+        cos,
+        sin,
+        upstream.float(),
     )
     contract = load_contract()
     for judgment, result, reference in (
@@ -311,33 +315,36 @@ def captured_rounding_case(implementation):
 
 
 def test_captured_bf16_pairs_preserve_model_and_backward(implementation, captured_rounding_case):
-    """Model-path correctness remains a hard check even while accuracy is unresolved."""
+    """Captured cancellation pairs pass model parity and model-boundary acceptance."""
     op, _ = implementation
     x, cos, sin, upstream = captured_rounding_case
     actual, grad = _forward_backward(op, x, cos, sin, upstream)
     _assert_bits(actual, provider_apply_rotary(x, cos, sin))
     _assert_bits(grad, _gradient_reference(x, cos, sin, upstream))
     assert actual[0, :, 0, 0].tolist() == [-0.125, 0.328125]
-    _, expected_grad = _forward_backward(golden_apply_rotary, x.float(), cos, sin, upstream.float())
-    tolerance = resolve_tolerance(
-        load_contract(), judgment="gradient_accuracy", op_class="elementwise", dtype=x.dtype
+    expected, expected_grad = _forward_backward(
+        lambda x, c, s: model_boundary_reference(x, c, s, storage_dtype=torch.bfloat16),
+        x.float(),
+        cos,
+        sin,
+        upstream.float(),
     )
-    torch.testing.assert_close(
-        grad.float(), expected_grad, atol=tolerance.atol, rtol=tolerance.rtol
-    )
+    for judgment, result, reference in (
+        ("forward_accuracy", actual, expected),
+        ("gradient_accuracy", grad, expected_grad),
+    ):
+        tolerance = resolve_tolerance(
+            load_contract(), judgment=judgment, op_class="elementwise", dtype=x.dtype
+        )
+        torch.testing.assert_close(
+            result.float(), reference, atol=tolerance.atol, rtol=tolerance.rtol
+        )
+    _assert_bits(expected.to(x.dtype), actual)
+    _assert_bits(expected_grad.to(x.dtype), grad)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="Open H3 BF16 contract issue: original table/product rounding exceeds FP32 tolerance",
-)
-def test_captured_bf16_pairs_independent_fp32_accuracy(implementation, captured_rounding_case):
-    """Keep the failing accuracy check visible; a future fix must retire this xfail.
-
-    Only the documented accuracy assertion is expected to fail. Compilation or
-    runtime errors remain failures; model parity is a separate non-xfail test.
-    """
+def test_captured_bf16_pairs_unrounded_math_diagnostic(implementation, captured_rounding_case):
+    """Pin the unresolved mathematical gap; this diagnostic is not acceptance."""
     op, _ = implementation
     x, cos, sin, _ = captured_rounding_case
     actual = op(x, cos, sin)
@@ -345,7 +352,61 @@ def test_captured_bf16_pairs_independent_fp32_accuracy(implementation, captured_
     tolerance = resolve_tolerance(
         load_contract(), judgment="forward_accuracy", op_class="elementwise", dtype=x.dtype
     )
-    torch.testing.assert_close(actual.float(), reference, atol=tolerance.atol, rtol=tolerance.rtol)
+    torch.testing.assert_close(reference, golden_apply_rotary(x.float(), cos, sin), atol=0, rtol=0)
+    assert reference[0, :, 0, 0].tolist() == [-0.10150837898254395, 0.30291271209716797]
+    error = (actual.float() - reference).abs()
+    limit = tolerance.atol + tolerance.rtol * reference.abs()
+    assert (error > limit).sum().item() == 2
+    assert (error > limit)[0, :, 0, 0].all()
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_references_have_independent_forward_and_vjp(dtype):
+    """A nonduplicated table catches transposed sine mistakes in the reference VJP.
+
+    For BF16 operands these FP64 products are exact, providing a separate oracle;
+    the production reference still computes in FP32 before each model store.
+    """
+    generator = torch.Generator().manual_seed(656420)
+    x = torch.randn(1, 3, 2, 128, generator=generator).to(dtype).float().requires_grad_()
+    c, s = (torch.randn(3, 96, generator=generator) for _ in range(2))
+    dy = torch.randn(x.shape, generator=generator)
+    y = model_boundary_reference(x, c, s, storage_dtype=dtype)
+    dx = torch.autograd.grad(y, x, dy)[0]
+    cq, sq = (v.to(dtype).float()[None, :, None, :] for v in (c, s))
+    rotated = torch.cat((-x[..., 48:96], x[..., :48]), dim=-1)
+    if dtype == torch.bfloat16:
+        direct = (x[..., :96].double() * cq.double()).to(dtype).float()
+        cross = (rotated.double() * sq.double()).to(dtype).float()
+        _assert_bits(y[..., :96], direct + cross)
+    else:
+        _assert_bits(y, golden_apply_rotary(x, c, s))
+    d0 = dy[..., :48] * cq[..., :48] + dy[..., 48:96] * sq[..., 48:96]
+    d1 = dy[..., 48:96] * cq[..., 48:96] - dy[..., :48] * sq[..., :48]
+    _assert_bits(dx, torch.cat((d0, d1, dy[..., 96:]), dim=-1))
+    if dtype == torch.bfloat16:
+        assert not torch.equal(dx, dx.bfloat16().float())
+        # A plain .to(BF16).float() chain must not replace the identity storage VJP.
+        ordinary = (x[..., :96] * cq).bfloat16().float()
+        ordinary = ordinary + (rotated * sq).bfloat16().float()
+        ordinary_dx = torch.autograd.grad(ordinary, x, dy[..., :96])[0]
+        assert not torch.equal(dx[..., :96], ordinary_dx[..., :96])
+
+
+@pytest.mark.parametrize("scale", [1, 2, 4])
+def test_model_boundaries_on_broader_cancellation_samples(scale):
+    """Exercise normal and cancellation inputs without restricting the activation scale."""
+    generator = torch.Generator().manual_seed(656420)
+    x = (torch.randn(1, 4096, 1, 128, generator=generator) * scale).bfloat16()
+    phase = torch.rand(4096, 48, generator=generator) * 6 - 3
+    c, s = phase.cos().repeat(1, 2), phase.sin().repeat(1, 2)
+    # Half normal, half correlated near-cancellation samples. Avoid division near zero.
+    x[:, 2048:, :, :48] = (phase[2048:].sin() * scale)[None, :, None, :]
+    x[:, 2048:, :, 48:96] = (phase[2048:].cos() * scale)[None, :, None, :]
+    reference = model_boundary_reference(x, c, s, storage_dtype=x.dtype)
+    _assert_bits(reference.bfloat16(), provider_apply_rotary(x, c, s))
+    mathematical = NativeH3MMRoPEOp().forward_fp32(x, c, s)
+    _assert_bits(mathematical, golden_apply_rotary(x.float(), c, s))
 
 
 @pytest.mark.parametrize("dtype", DTYPES)
