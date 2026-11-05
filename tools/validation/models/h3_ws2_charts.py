@@ -15,7 +15,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 
 def main(evidence: Path, out: Path) -> None:
-    reports = [json.loads(p.read_text()) for p in sorted(evidence.glob("h3_ws2_*.json"))]
+    # h3_parallel_run.py writes <layout dir>/report.json; published evidence keeps one
+    # <layout>.json per layout. Read either layout, and refuse an empty chart.
+    paths = sorted(evidence.glob("*/report.json")) or sorted(evidence.glob("*.json"))
+    loaded = [json.loads(p.read_text()) for p in paths]
+    reports = [r for r in loaded if isinstance(r, dict) and "forward_seconds_per_rank" in r]
+    if not reports:
+        raise SystemExit(f"no WS2 reports under {evidence} (*/report.json or <layout>.json)")
     labels = []
     times = []
     colors = []

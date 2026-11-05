@@ -217,8 +217,11 @@ def column_parallel_linear(
 class SeqShard:
     """This rank's contiguous slice of a packed sequence of ``length`` rows over ``cp`` ranks.
 
-    Slices differ by at most one row (first ``length % cp`` ranks get the extra row), so any
-    length is legal, including ``length < cp`` (some ranks hold nothing).
+    Slices differ by at most one row (first ``length % cp`` ranks get the extra row). For data
+    movement (scatter / gather / all-to-all) any length is legal, including ``length < cp`` (some
+    ranks hold nothing). The compute paths (``seq_sharded_linear``, the parallel block) need a row
+    on every rank and refuse a shorter sequence on every rank alike
+    (``require_rows_on_every_rank``), so no rank is left waiting in a collective.
     """
 
     length: int
@@ -237,6 +240,16 @@ class SeqShard:
     @property
     def hi(self) -> int:
         return self.lo + self.sizes[self.rank]
+
+
+def require_rows_on_every_rank(shard: SeqShard) -> None:
+    """Raise, identically on every rank, when some rank's slice of the sequence is empty."""
+
+    if min(shard.sizes) == 0:
+        raise ValueError(
+            f"{shard.length} rows over cp={shard.cp}: the sequence-sharded compute paths need at "
+            "least one row per rank (data movement alone accepts fewer)"
+        )
 
 
 def coshard(shard: SeqShard, *tensors: torch.Tensor, dim: int = 0) -> list[torch.Tensor]:
@@ -350,6 +363,8 @@ class _SeqLinear(torch.autograd.Function):
 def seq_sharded_linear(x, w, shard: SeqShard, group=None):
     """``x @ W.T`` for this rank's rows; ``dW`` equals the unsharded GEMM (token sweep)."""
 
+    if shard.cp > 1:
+        require_rows_on_every_rank(shard)
     return (
         _SeqLinear.apply(x.contiguous(), w, shard, group)
         if shard.cp > 1

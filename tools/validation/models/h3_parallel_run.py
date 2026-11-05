@@ -60,7 +60,9 @@ def main() -> None:
     weights = load_h3_block_weights("cuda")
     kwargs = dict(sp=args.sp, seq_len=args.seq_len, layout=args.layout)
     result = h3_tp.block_case(weights, grid, backward=True, **kwargs)
-    # timing of the forward alone
+    # forward_s: time of a whole forward-only block_case call. It includes rebuilding the block
+    # context, the operators and the weight shards on every call (kept so the recorded reports
+    # stay comparable); it is not the time of the kernels alone.
     torch.cuda.synchronize()
     dist.barrier()
     begin = time.perf_counter()

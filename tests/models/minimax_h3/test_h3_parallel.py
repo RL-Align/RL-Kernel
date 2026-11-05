@@ -362,3 +362,17 @@ def test_hierarchical_subgroups_are_created_in_one_global_order(monkeypatch, tp,
         monkeypatch.setattr(hier, "dist", _fake_dist(0, world, []))
         with pytest.raises(ValueError, match="group_ranks"):
             hier.HierarchicalCollective(local_size, tuple(tp_ranks[0]))
+
+
+@pytest.mark.parametrize("rank", [0, 1])
+def test_compute_paths_refuse_a_sequence_shorter_than_cp_on_every_rank(rank):
+    """``seq_len < cp`` is fine for data movement but not for the compute paths: every rank
+    (also the one that holds a row) refuses before any GEMM or collective."""
+
+    shard = par.SeqShard(1, 2, rank)
+    with pytest.raises(ValueError, match="at least one row per rank"):
+        par.seq_sharded_linear(torch.ones(shard.hi - shard.lo, 4), torch.ones(3, 4), shard)
+    grid = h3_tp.Grid(1, 2, 0, rank)
+    with pytest.raises(ValueError, match="at least one row per rank"):
+        h3_tp.run_tp_block({}, torch.ones(1, 1, 8), None, torch.zeros(1), (None, None), None, grid)
+    par.require_rows_on_every_rank(par.SeqShard(2, 2, rank))  # one row each: accepted
