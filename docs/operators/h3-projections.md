@@ -102,6 +102,18 @@ digests in a fresh process/cache. Wall timings include synchronization, copies,
 host checks and canonical preparation; ordinary PyTorch BF16 is a performance
 comparator without byte-invariance qualification.
 
+To plot the reports on a CPU with Matplotlib installed, pass the full report
+first so its timings take precedence at overlapping sizes. The plot retains
+accuracy observations from both reports and marks failures without a finite
+ratio separately from unavailable ratios.
+
+```bash
+python benchmarks/operators/gemm/plot_h3_projections.py \
+    --evidence "${H3_EVIDENCE_DIR}/full.json" \
+    --evidence "${H3_EVIDENCE_DIR}/tasks.json" \
+    --output "${H3_EVIDENCE_DIR}/projections.svg"
+```
+
 ## Shared FP32 regression and CI
 
 `tests/ops/gemm/test_det_gemm_fp32.py` exercises actual default
