@@ -23,7 +23,7 @@ Rows: ``h3_runtime_modes``, ``h3_ablation_overlay``, ``diffusers_runtime_adapter
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 
 import torch
@@ -128,29 +128,42 @@ class H3DiffusersAdapter:
             return False
         return True
 
-    @contextmanager
-    def active(self):
-        """Operators bound until the block exits; keep ``backward()`` inside it."""
-
+    def _execution(self, bind: bool):
         from rl_engine.validation.models.h3_full_model import full_model_execution
 
+        return full_model_execution(
+            self.model,
+            candidate=bind,
+            trace=self.trace,
+            ops=self.ops,
+            provider_nodes=tuple(self.overlay.native_nodes),
+            strict_boundaries=bind,
+            native_boundaries=tuple(self.overlay.native_boundaries),
+        )
+
+    @contextmanager
+    def active(self):
+        """Operators bound until the block exits; keep ``backward()`` inside it.
+
+        A fallback is a failure to bind the RL-Kernel graph (e.g. a candidate op without its
+        CUDA implementation): strict raises it; audit reports it in ``fell_back`` and runs the
+        provider instead, like a model without CUDA parameters. An error raised by the caller's
+        own forward or backward inside the block is never a fallback and propagates unchanged.
+        """
+
+        from rl_engine.validation.models.h3_full_model import FullModelTrace
+
         bind = self._bind()
-        try:
-            with full_model_execution(
-                self.model,
-                candidate=bind,
-                trace=self.trace,
-                ops=self.ops,
-                provider_nodes=tuple(self.overlay.native_nodes),
-                strict_boundaries=bind,
-                native_boundaries=tuple(self.overlay.native_boundaries),
-            ):
-                yield self
-        except RuntimeError as exc:
-            if self.policy.fail_on_fallback or not bind:
-                raise
-            self.fell_back = f"{type(exc).__name__}: {exc}"
-            raise
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(self._execution(bind))
+            except (RuntimeError, ValueError) as exc:
+                if self.policy.fail_on_fallback or not bind:
+                    raise
+                self.fell_back = f"{type(exc).__name__}: {exc}"
+                self.trace = FullModelTrace()  # drop what the failed binding recorded
+                stack.enter_context(self._execution(False))
+            yield self
 
     def report(self) -> dict:
         bound = self.policy.bind and self.fell_back is None

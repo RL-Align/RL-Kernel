@@ -6,7 +6,7 @@ RFC #420 integration rows, validated on H100 against the real verl-omni schedule
 
 | Row | Where | What it fixes |
 | --- | --- | --- |
-| `h3_runtime_modes` | `models/minimax_h3/runtime.py` | `RL_KERNEL_MODE` strict / audit / auto / off -> bind the RL-Kernel graph or not; strict raises instead of falling back, audit reports, case id `R/R` or `P/P` |
+| `h3_runtime_modes` | `models/minimax_h3/runtime.py` | `RL_KERNEL_MODE` strict / audit / auto / off -> bind the RL-Kernel graph or not; strict raises instead of falling back; audit reports a failure to bind the graph and runs the provider (an error raised by the step itself is never counted as a fallback); case id `R/R` or `P/P` |
 | `h3_ablation_overlay` | same | `AblationOverlay.parse("node:attention,boundary:token_refiner")` keeps parts on provider arithmetic; the run is labelled `ablation(...)`, never `R/R`; unknown names are rejected |
 | `diffusers_runtime_adapter_h3` | same (`H3DiffusersAdapter`) | binds `MiniMaxH3Transformer3DModel` inside `with adapter.active():` (forward **and** backward, so checkpoint recomputation sees the same operators) and reports bindings |
 | `h3_training_provider` | same (`H3TrainingProvider`) | actor-side `step()` scope + per-sample CPS transition |

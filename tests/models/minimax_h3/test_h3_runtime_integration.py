@@ -79,6 +79,57 @@ def test_adapter_audit_reports_the_fallback():
     assert adapter.report()["label"] == "P/P"
 
 
+def _bindable(monkeypatch, mode, *, binding_fails):
+    """An adapter whose model counts as CUDA-resident, with a stand-in for the full-model
+    binding that records each ``candidate`` request and can refuse the candidate graph."""
+
+    from contextlib import contextmanager
+
+    from rl_engine.validation.models import h3_full_model
+
+    entered = []
+
+    @contextmanager
+    def execution(model, *, candidate, trace, **_):
+        if candidate and binding_fails:
+            raise ValueError("candidate projection fell back from its CUDA implementation")
+        entered.append(candidate)
+        yield trace
+
+    monkeypatch.setattr(h3_full_model, "full_model_execution", execution)
+    adapter = rt.H3DiffusersAdapter(_FakeModel(), mode)
+    monkeypatch.setattr(adapter, "_bind", lambda: True)
+    return adapter, entered
+
+
+@pytest.mark.parametrize("mode", ["strict", "audit"])
+def test_an_error_inside_the_bound_step_is_not_a_fallback(monkeypatch, mode):
+    adapter, entered = _bindable(monkeypatch, mode, binding_fails=False)
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        with adapter.active():
+            raise RuntimeError("CUDA out of memory (raised by the caller's backward)")
+    assert entered == [True] and adapter.fell_back is None
+    assert adapter.report()["case_id"] == "R/R"
+
+
+def test_audit_runs_the_provider_when_the_graph_cannot_bind(monkeypatch):
+    adapter, entered = _bindable(monkeypatch, "audit", binding_fails=True)
+    with adapter.active():
+        ran = True
+    assert ran and entered == [False]
+    assert "fell back from its CUDA implementation" in adapter.fell_back
+    rep = adapter.report()
+    assert (rep["bound"], rep["case_id"], rep["label"]) == (False, "P/P", "P/P")
+
+
+def test_strict_raises_when_the_graph_cannot_bind(monkeypatch):
+    adapter, entered = _bindable(monkeypatch, "strict", binding_fails=True)
+    with pytest.raises(ValueError, match="fell back"):
+        with adapter.active():
+            pass
+    assert entered == [] and adapter.fell_back is None
+
+
 # --- CPS transition -----------------------------------------------------------------------
 
 
