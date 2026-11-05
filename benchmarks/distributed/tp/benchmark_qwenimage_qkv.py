@@ -25,6 +25,12 @@ from rl_engine.backends.cuda.model_specific.qwenimage.tp_qkv_bias_gemm import (
 from rl_engine.backends.extension import _C
 from rl_engine.distributed import create_deterministic_collective
 from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
+from rl_engine.validation.fixtures.qwenimage_qkv import (
+    QKV_WORKLOADS,
+    canonical_qkv_indices,
+    make_qkv_workload,
+    qkv_workload_rows,
+)
 
 
 def _equal_bytes(a, b):
@@ -70,6 +76,115 @@ def _measure(fn, warmup, samples):
     }
 
 
+def _workload_calls(stream, layout, op, parameter_id):
+    x, grad, keys, cuts = qkv_workload_rows(stream, layout)
+    x = x.detach().requires_grad_()
+    weight, bias = stream["weight"], stream["bias"]
+
+    def forward():
+        with torch.no_grad():
+            return tuple(op(x[s:e], weight, bias) for s, e in cuts)
+
+    def forward_backward():
+        with canonical_backward_session() as session:
+            ys = [
+                op(x[s:e], weight, bias, logical_keys=keys[s:e], parameter_id=parameter_id)
+                for s, e in cuts
+            ]
+            grads = torch.autograd.grad(ys, (x, weight, bias), [grad[s:e] for s, e in cuts])
+        session.validate_complete()
+        return tuple(ys), *grads
+
+    return forward, forward_backward, keys
+
+
+def _measure_workloads(rank, world, args, op):
+    results = []
+    dtype = getattr(torch, args.dtype)
+    idx = torch.cat(
+        [
+            torch.arange(
+                q * 3072 + rank * (3072 // world),
+                q * 3072 + (rank + 1) * (3072 // world),
+                device="cuda",
+            )
+            for q in range(3)
+        ]
+    )
+    for workload in args.workloads:
+        fixture = make_qkv_workload(workload, dtype, torch.device("cuda"), args.seed)
+        # Replicate prepared activations and controls before validation or timing.
+        for stream in fixture["streams"].values():
+            for name in ("x", "grad", "keys", "weight", "bias"):
+                dist.broadcast(stream[name], src=0)
+        gold = {}
+        for name, stream in fixture["streams"].items():
+            x, grad, keys, _ = qkv_workload_rows(stream, "batched")
+            order = canonical_qkv_indices(keys)
+            w, b = stream["weight"], stream["bias"]
+            y = _C.qwenimage_det_linear_forward(x, w, b, 0, False)[0][order][:, idx]
+            dx = torch.empty_like(x)
+            for start in range(0, x.shape[0], 128):
+                dx[start : start + 128] = _C.qwenimage_det_linear_backward_input(
+                    grad[start : start + 128].float().contiguous(), w, dtype
+                )
+            dw, db = _C.qwenimage_det_linear_backward_weight(
+                grad[order].float().contiguous(), x[order].contiguous(), dtype, True
+            )
+            gold[name] = y, dx[order], dw[idx], db[idx]
+            local_w, local_b = shard_qkv_parameters(w, b, tp_world=world, tp_rank=rank)
+            stream["weight"] = local_w.detach().requires_grad_()
+            stream["bias"] = local_b.detach().requires_grad_()
+            stream["grad"] = stream["grad"].index_select(-1, idx)
+            del x, grad, keys, order, w, b, y, dx, dw, db, local_w, local_b
+        layouts = [
+            layout
+            for layout in args.layouts
+            if layout != "sequential_cfg" or fixture["metadata"]["cfg_branches"] == 2
+        ]
+        # Check every stream/layout before timing; full parameters and gold are then released.
+        for name, stream in fixture["streams"].items():
+            for layout in layouts:
+                _, fb, keys = _workload_calls(stream, layout, op, name + ".qkv")
+                actual = fb()
+                order = canonical_qkv_indices(keys)
+                actual = torch.cat(actual[0])[order], actual[1][order], *actual[2:]
+                assert all(_equal_bytes(a, b) for a, b in zip(actual, gold[name]))
+                del actual, fb, keys, order, _
+        del gold
+        for name, stream in fixture["streams"].items():
+            for layout in layouts:
+                f, fb, keys = _workload_calls(stream, layout, op, name + ".qkv")
+                active_rows = int((keys[:, 0] >= 0).sum().item())
+                forward = _measure(f, args.warmup, args.samples)
+                backward = _measure(fb, args.warmup, args.samples)
+                results.append(
+                    {
+                        "rank": rank,
+                        "tp": world,
+                        "rows": keys.shape[0],
+                        "active_rows": active_rows,
+                        "dtype": args.dtype,
+                        "workload": workload,
+                        "stream": name,
+                        "layout": layout,
+                        "geometry": fixture["metadata"],
+                        "forward": forward,
+                        "forward_backward": backward,
+                        "effective_rows_per_second": active_rows * 1000 / backward["median_ms"],
+                        "native_reference_bytes_equal": True,
+                    }
+                )
+                if rank == 0:
+                    print(
+                        f"TP{world} {args.dtype} {workload} {name} {layout}: "
+                        f"F+B={backward['median_ms']:.3f} ms",
+                        flush=True,
+                    )
+                del f, fb, keys
+    return results
+
+
 def _worker(rank, world, args, directory):
     torch.set_num_threads(1)
     torch.cuda.set_device(rank)
@@ -87,7 +202,7 @@ def _worker(rank, world, args, directory):
     try:
         dtype = getattr(torch, args.dtype)
         op = QwenImageTPQKVBiasGemmCudaOp(collective)
-        for rows in args.rows:
+        for rows in [] if args.workloads else args.rows:
             generator = torch.Generator(device="cpu").manual_seed(args.seed)
 
             def rand(shape, scale=1):
@@ -167,6 +282,8 @@ def _worker(rank, world, args, directory):
                     f"F+B={fb['median_ms']:.3f} ms",
                     flush=True,
                 )
+        if args.workloads:
+            results = _measure_workloads(rank, world, args, op)
         Path(directory, f"rank-{rank}.json").write_text(json.dumps(results, indent=2))
     finally:
         if collective is not None:
@@ -182,6 +299,13 @@ def main():
     parser.add_argument("--seed", type=int, default=386)
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--samples", type=int, default=10)
+    parser.add_argument("--workloads", nargs="+", choices=list(QKV_WORKLOADS))
+    parser.add_argument(
+        "--layouts",
+        nargs="+",
+        choices=["batched", "sequential_cfg", "requests"],
+        default=["batched", "sequential_cfg"],
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if min(args.rows) < 1 or args.samples < 1 or args.warmup < 0:
@@ -206,7 +330,7 @@ def main():
                 json.loads(Path(directory, f"rank-{rank}.json").read_text())
                 for rank in range(world)
             ]
-        for index, rows in enumerate(args.rows):
+        for index in range(len(ranks[0])):
             per_rank = [r[index] for r in ranks]
             result = dict(per_rank[0])
             result.pop("rank")

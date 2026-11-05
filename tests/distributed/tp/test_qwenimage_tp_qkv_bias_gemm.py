@@ -23,6 +23,13 @@ from rl_engine.reference.model_specific.qwenimage.tp_qkv_bias_gemm import (
     shard_qkv_parameters,
     validate_qkv,
 )
+from rl_engine.validation.fixtures.qwenimage_qkv import (
+    QKV_LAYOUTS,
+    QKV_WORKLOADS,
+    canonical_qkv_indices,
+    make_qkv_workload,
+    qkv_workload_rows,
+)
 
 cuda = pytest.mark.skipif(
     not torch.cuda.is_available() or torch.version.hip is not None,
@@ -344,6 +351,78 @@ def test_inference_no_bias_registry_and_fail_closed(monkeypatch):
         module.QwenImageTPQKVBiasGemmCudaOp()
 
 
+def _check_model_workload(workload, dtype, collective=None, check_cpu=False):
+    fixture = make_qkv_workload(workload, dtype, torch.device("cuda"))
+    if collective is not None:
+        import torch.distributed as dist
+
+        # Fixture preparation is outside QKV: every rank must receive identical inputs.
+        for stream in fixture["streams"].values():
+            for name in ("x", "grad", "keys", "weight", "bias"):
+                dist.broadcast(stream[name], src=0)
+    world = 1 if collective is None else collective.world_size
+    rank = 0 if collective is None else collective.rank
+    idx = indices(world, rank, "cuda")
+    for stream_name, stream in fixture["streams"].items():
+        x, grad, keys, _ = qkv_workload_rows(stream, "batched")
+        order = canonical_qkv_indices(keys)
+        w, b = stream["weight"], stream["bias"]
+        local_w, local_b = shard_qkv_parameters(w, b, tp_world=world, tp_rank=rank)
+        gold_y = _C.qwenimage_det_linear_forward(x, w, b, 0, False)[0][order][:, idx]
+        gold_dx = torch.empty_like(x)
+        for start in range(0, x.shape[0], 128):
+            gold_dx[start : start + 128] = _C.qwenimage_det_linear_backward_input(
+                grad[start : start + 128].float().contiguous(), w, dtype
+            )
+        gold_dx = gold_dx[order]
+        gold_dw, gold_db = _C.qwenimage_det_linear_backward_weight(
+            grad[order].float().contiguous(), x[order].contiguous(), dtype, True
+        )
+        gold = gold_y, gold_dx, gold_dw[idx], gold_db[idx]
+        del gold_dw, gold_db
+        for layout in QKV_LAYOUTS:
+            xx, gg, kk, cuts = qkv_workload_rows(stream, layout)
+            y, (dx, dw, db) = evaluate(
+                xx,
+                local_w,
+                local_b,
+                gg[:, idx],
+                keys=kk,
+                cuts=cuts,
+                collective=collective,
+                parameter_id=stream_name + ".qkv",
+            )
+            active = canonical_qkv_indices(kk)
+            actual = y[active], dx[active], dw, db
+            for value, expected in zip(actual, gold):
+                assert equal_bytes(value, expected), (workload, stream_name, world, layout)
+            if check_cpu and layout == "batched":
+                cpu = [v.detach().cpu().float().requires_grad_() for v in (x[order], w, b)]
+                ref = QwenImageTPQKVBiasGemmReference().forward_fp32(*cpu)
+                grads = torch.autograd.grad(ref, cpu, grad[order].cpu().float())
+                assert_accuracy(actual[0], ref, dtype, "forward_accuracy")
+                for value, expected in zip(actual[1:], grads):
+                    assert_accuracy(value, expected, dtype, "gradient_accuracy")
+                del cpu, ref, grads
+            del y, dx, dw, db, actual
+        fixture["metadata"][stream_name + "_active_rows"] = order.numel()
+    return {
+        **fixture["metadata"],
+        "dtype": str(dtype),
+        "layouts": list(QKV_LAYOUTS),
+        "outputs": ["Y", "dX", "dW", "dbias"],
+        "byte_equal": True,
+        "cpu_accuracy_checked": check_cpu,
+    }
+
+
+@cuda
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("workload", QKV_WORKLOADS)
+def test_model_workloads_accuracy_and_bi(dtype, workload):
+    _check_model_workload(workload, dtype, check_cpu=True)
+
+
 def _real_tp_worker(rank, world, init_method, result_queue):
     import torch.distributed as dist
 
@@ -351,7 +430,7 @@ def _real_tp_worker(rank, world, init_method, result_queue):
 
     torch.set_num_threads(1)
     torch.cuda.set_device(rank)
-    cases = []
+    cases, workloads = [], []
     try:
         dist.init_process_group(
             "nccl",
@@ -440,8 +519,14 @@ def _real_tp_worker(rank, world, init_method, result_queue):
                             )
                         del x, w, b, grad, local_grad
                         dist.barrier()
+            for dtype in (torch.bfloat16, torch.float32):
+                for workload in QKV_WORKLOADS:
+                    workloads.append(_check_model_workload(workload, dtype, collective))
+                    if rank == 0:
+                        print(f"TP{world} {dtype} {workload}: model layouts passed", flush=True)
+                    dist.barrier()
         dist.destroy_process_group()
-        result_queue.put({"ok": True, "rank": rank, "cases": cases})
+        result_queue.put({"ok": True, "rank": rank, "cases": cases, "workloads": workloads})
     except Exception:
         result_queue.put({"ok": False, "rank": rank, "traceback": traceback.format_exc()})
         raise
@@ -467,7 +552,7 @@ def test_real_tp_matches_native_all_gradients(world, tmp_path):
     results = []
     try:
         for _ in processes:
-            result = results_queue.get(timeout=900)
+            result = results_queue.get(timeout=1800)
             results.append(result)
             if not result["ok"]:
                 break

@@ -189,6 +189,50 @@ The qualification environment follows the repository GPU CI installation steps:
 Python 3.11, PyTorch 2.4.1+cu124, Triton 3.0.0 and NCCL 2.20.5. The multi-GPU
 commands use the default NCCL configuration on H20.
 
+### Model request layouts
+
+The shared fixture in `rl_engine/validation/fixtures/qwenimage_qkv.py` derives
+image-token counts from VAE scale 8 and 2x2 latent packing. It constructs seeded
+image input projections and text projections, followed by normalization and
+per-branch modulation, to provide QKV-entry tensors. VAE, text encoder and
+attention execution remain outside these operator checks and timings.
+
+The layout follows pinned
+[Diffusers Qwen-Image](https://github.com/huggingface/diffusers/blob/40f63690da440e8c382ab53e67508835deb1ed2f/src/diffusers/pipelines/qwenimage/pipeline_qwenimage.py):
+the pipeline defaults to 512 text tokens, accepts up to 1024, repeats prompts for
+`num_images_per_prompt`, and executes positive/negative CFG calls separately.
+The fixtures compare those separate calls with equivalent batched operator calls.
+
+| Workload | Resolution | Prompt batch / images per prompt | Positive / negative text lengths | CFG branches |
+| --- | --- | --- | --- | --- |
+| `image-1024-text17` | 1024x1024 | 1 / 1 | 17 / none | 1 |
+| `image-1664x928-text129` | 1664x928 | 1 / 1 | 129 / none | 1 |
+| `image-1328-text512` | 1328x1328 | 1 / 1 | 512 / none | 1 |
+| `batch2-mixed-text` | 1024x1024 | 2 / 1 | 17,512 / none | 1 |
+| `two-images-per-prompt` | 1024x1024 | 1 / 2 | 129 / none | 1 |
+| `batch2-cfg-text1024` | 1328x1328 | 2 / 1 | 512,1024 / 17,129 | 2 |
+
+The largest batched image input is `[27556,3072]`: 2 CFG branches x 2 samples x
+6889 image tokens. The largest padded text input is `[4096,3072]`, with 1682
+active rows across the two branches. Logical keys carry sample, CFG branch and
+token position; negative sample keys identify padding. Image and text weights
+remain separate.
+
+```bash
+PYTHONPATH=. OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 python3.11 \
+  benchmarks/distributed/tp/benchmark_qwenimage_qkv.py \
+  --tp 1 2 4 8 --dtype bfloat16 --seed 386 --warmup 3 --samples 10 \
+  --workloads image-1024-text17 image-1664x928-text129 image-1328-text512 \
+    batch2-mixed-text two-images-per-prompt batch2-cfg-text1024 \
+  --output /tmp/qkv-model-layouts.json
+```
+
+Repeat with `--dtype float32`. Both streams are measured. CFG workloads report
+batched and sequential-branch timing separately. Input construction stays outside
+timing. Throughput counts active logical rows once, including each CFG branch's
+own contribution. Memory includes resident local tensors for both streams and
+the measured call's outputs/gradients; full parameter controls are released first.
+
 ## Tests
 
 ```bash
@@ -217,6 +261,12 @@ checks all six row counts, both dtypes and seeds, both stream parameter sets,
 reverse order, microbatching, padding, repeat execution and inference. Every rank
 compares complete Y/dX/dW/dbias bytes with native TP1, including the communicated
 global dX. With fewer GPUs, only the unavailable TP sizes are skipped.
+
+`test_model_workloads_accuracy_and_bi` checks both streams at each named request
+layout against an independent CPU FP32 reference. The real TP cases additionally
+check the same workloads on every rank. Batched, sequential CFG, per-request,
+microbatch, reversed, extra-padding and repeated calls preserve active Y/dX rows
+and complete dW/dbias bytes in canonical sample/branch/position order.
 
 `implementation_info()` reports configuration;
 backward runtime records only native entries used by that backward call.
