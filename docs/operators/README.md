@@ -46,6 +46,7 @@ Every operator page should include:
 - [MiniMax-H3 Operator Trace](h3-operator-trace.md)
 - [H3 Flash Attention (optional fast backend)](h3-flash-attention.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
+- [MiniMax-H3 Trajectory Artifact](h3-trajectory-artifact.md)
 - [MiniMax-H3 Projection Rows](h3-projection-rows.md)
 - [MiniMax-H3 Token Refiner Block](h3-token-refiner.md)
 - [MiniMax-H3 Trajectory Artifact](h3-trajectory-artifact.md)
