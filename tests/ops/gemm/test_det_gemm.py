@@ -18,7 +18,7 @@ from rl_engine.contracts.numerical import load_contract
 try:
     import triton
 
-    from rl_engine.backends.shared.triton.gemm import deterministic_gemm_triton
+    from rl_engine.backends.shared.triton.gemm import TritonDetGemmOp, deterministic_gemm_triton
     from rl_engine.backends.shared.triton.gemm.det_gemm import (
         _DEFAULT_TREE_LEAF_CONFIG,
         _GFX942_QWEN_FORWARD_LEAF_CONFIGS,
@@ -28,7 +28,11 @@ try:
         _copy_tree_root_kernel,
         _det_gemm_tree_leaf_kernel,
         _det_gemm_tree_reduce_kernel,
-        _det_gemm_tree_reduce_to_output_kernel,
+    )
+    from rl_engine.backends.shared.triton.gemm.det_gemm import (
+        _det_gemm_tree_reduce_to_output_rocm_kernel as _det_gemm_tree_reduce_to_output_kernel,
+    )
+    from rl_engine.backends.shared.triton.gemm.det_gemm import (
         _device_tree_plan,
         _gfx942_qwen_tree_leaf_config,
         _triton_tree_gemm,
@@ -147,7 +151,9 @@ def _special_bf16(shape: tuple[int, ...], *, offset: int = 0) -> torch.Tensor:
     for size in shape:
         elements *= size
     indices = (torch.arange(elements, dtype=torch.int64) + offset) % bits.numel()
-    return bits[indices].view(torch.bfloat16).reshape(shape).to(DEV)
+    # UInt16 advanced indexing is unavailable on some supported PyTorch builds.
+    # A signed view keeps every BF16 bit pattern unchanged while indexing.
+    return bits.view(torch.int16)[indices].view(torch.bfloat16).reshape(shape).to(DEV)
 
 
 _K_TREE_LEAF = 32
@@ -387,6 +393,27 @@ def test_forward_batch_invariance(name, gemm):
     big[0] = row[0]
     outN = gemm(big, b)
     assert torch.equal(out1[0], outN[0]), f"{name}: forward batch-invariance broken"
+
+
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+@pytest.mark.parametrize("dtype", (torch.bfloat16, torch.float32))
+def test_triton_forward_accum_fp32_accuracy_and_row_invariance(dtype):
+    # Exercise the shared full-K entry point with ragged tiles and FP32 output.
+    torch.manual_seed(420)
+    a = (torch.randn(31, 65, device=DEV) * 0.0625).to(dtype)
+    b = (torch.randn(65, 70, device=DEV) * 0.0625).to(dtype)
+    gemm = TritonDetGemmOp().forward_accum_fp32
+
+    actual = gemm(a, b)
+    expected = a.cpu().float() @ b.cpu().float()
+    assert actual.dtype == torch.float32
+    torch.testing.assert_close(actual.cpu(), expected, atol=1e-4, rtol=1e-4)
+
+    permutation = torch.randperm(a.shape[0], device=DEV)
+    permuted = gemm(a[permutation], b)
+    chunked = torch.cat([gemm(a[:9], b), gemm(a[9:], b)])
+    assert torch.equal(permuted.view(torch.int32), actual[permutation].view(torch.int32))
+    assert torch.equal(chunked.view(torch.int32), actual.view(torch.int32))
 
 
 @pytest.mark.parametrize("name,gemm", _BACKENDS)
