@@ -214,6 +214,36 @@ class TestTransition:
         out.prev_sample_mean.sum().backward()
         assert v.grad is not None and torch.isfinite(v.grad).all()
 
+    def test_log_prob_carries_the_policy_gradient(self):
+        """The policy loss differentiates the scored log-prob: the gradient must reach the
+        velocity, equal the formula's ``torch.mean`` autograd and not depend on the batch."""
+
+        pytest.importorskip("triton")
+        tr, x, v, noise = self._case()
+        stored = tr.cps_transition(x, v, 0.75, 0.5, noise=noise).prev_sample
+        weights = torch.tensor([0.5, -1.0, 2.0], device="cuda")  # per-sample advantages
+
+        def grad_of(fn, rows):
+            leaf = v[rows].clone().requires_grad_(True)
+            (fn(x[rows], leaf, stored[rows]) * weights[rows]).sum().backward()
+            return leaf.grad
+
+        def scored(xs, vs, prev):
+            out = tr.cps_transition(xs, vs, 0.75, 0.5, prev_sample=prev)
+            assert out.log_prob.requires_grad
+            return out.log_prob
+
+        def formula(xs, vs, prev):  # the same log-prob with torch.mean, autograd end to end
+            sigma, sigma_prev = torch.tensor(0.75).cuda(), torch.tensor(0.5).cuda()
+            mean = _scheduler_cps(xs, vs, sigma, sigma_prev, torch.zeros_like(xs), 0.8)[1]
+            return (-((prev - mean) ** 2)).mean(dim=tuple(range(1, prev.ndim)))
+
+        batch = grad_of(scored, slice(None))
+        assert torch.isfinite(batch).all() and batch.abs().sum() > 0
+        assert torch.allclose(batch, grad_of(formula, slice(None)), rtol=1e-6, atol=0)
+        for i in range(3):  # each sample's gradient is the bits it gets on its own
+            assert torch.equal(batch[i : i + 1], grad_of(scored, slice(i, i + 1)))
+
     def test_matches_verl_omni_scheduler_when_available(self):
         root = os.environ.get("VERL_OMNI_PATH")
         if not root:

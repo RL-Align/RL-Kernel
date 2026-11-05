@@ -27,7 +27,8 @@ x_prev = mean + std * eps        log_prob = mean over non-batch dims of -(x_prev
 - `eps = step_noise(seed, step, sample_id, modality, shape)`: one generator per sample (SHA-256 of
   the key), so noise never depends on batch order or composition;
 - the log-prob mean is a fixed-order GEMM reduction per sample (the scheduler's `torch.mean` order is
-  shape dependent; ours agrees to FP32 rounding and is batch invariant);
+  shape dependent; ours agrees to FP32 rounding and is batch invariant); it is differentiable, so
+  the policy loss gets its gradient through the log-prob (`grad / K` per element, as `torch.mean`);
 - `noise_level = 0` (non-selected steps) yields `x_prev == mean`, `log_prob == 0`; scoring a stored
   rollout (`prev_sample=`) reproduces the sampling log-prob bitwise.
 
