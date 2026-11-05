@@ -85,6 +85,10 @@ Timing of the forward per rank (ms): TP2 80, TP4 102, TP8 110, TP4xCP2 113, TP4x
 - dW under CP is exact through `seq_sharded_linear` for non-TP linears; the TP x CP block compares
   forward and `dX` (CP shards the token axis of the TP weight gradients).
 - `HierarchicalCollective` assumes ranks are packed node-major and node counts of 1/2/4/8.
+  With several TP groups (CP > 1) it is given every TP group's ranks (`group_ranks`, as
+  `make_grid` does) and every rank creates all their subgroups in one order, as
+  `torch.distributed.new_group` requires; a TP subgroup without that list is refused. The
+  hierarchical path with CP > 1 has a CPU test of the creation order only, no GPU run.
 
 ## Hopper evidence chart
 

@@ -50,7 +50,13 @@ class HierarchicalCollective:
         device: torch.device | str | int | None = None,
         *,
         max_size_bytes: int = 64 << 20,
+        group_ranks: list[list[int]] | None = None,
     ) -> None:
+        """``group`` defaults to the world. ``group_ranks`` lists the global ranks of every group
+        whose collective is built at the same time (e.g. all TP groups of a TP x CP grid, this
+        rank's included); it is required when ``group`` does not span the world.
+        """
+
         if not dist.is_initialized():
             raise RuntimeError("torch.distributed must be initialized before collectives")
         self.group = group if group is not None else dist.group.WORLD
@@ -65,16 +71,31 @@ class HierarchicalCollective:
         if self.num_groups not in _GROUP_COUNTS:
             raise ValueError(f"{self.num_groups} node groups; need 1, 2, 4 or 8")
         self.group_index, self.local_rank = divmod(self.rank, local_size)
-        # Every rank creates every group in the same order (a torch.distributed requirement).
-        ranks = dist.get_process_group_ranks(self.group)  # global rank of each group member
-        local_groups = [
-            dist.new_group(ranks[g * local_size : (g + 1) * local_size])
-            for g in range(self.num_groups)
-        ]
-        cross_groups = [
-            dist.new_group([ranks[g * local_size + r] for g in range(self.num_groups)])
-            for r in range(local_size)
-        ]
+        # ``dist.new_group`` must be entered by every rank of the world, in the same order and
+        # with the same rank lists. A subgroup does not know its sibling groups, so every rank
+        # creates the subgroups of every listed group in one rank-independent order and keeps
+        # its own; a subgroup without the full list is refused rather than left to hang.
+        ranks = list(dist.get_process_group_ranks(self.group))  # global rank of each member
+        everyone = [list(g) for g in group_ranks] if group_ranks is not None else [ranks]
+        if sorted(r for g in everyone for r in g) != list(range(dist.get_world_size())):
+            raise ValueError(
+                "group_ranks must list every group built together, covering each world rank once"
+            )
+        if ranks not in everyone or any(len(g) != self.world_size for g in everyone):
+            raise ValueError("this rank's group must be in group_ranks, all groups the same size")
+        local_groups: list[dist.ProcessGroup] = []
+        cross_groups: list[dist.ProcessGroup] = []
+        for members in everyone:
+            local = [
+                dist.new_group(members[g * local_size : (g + 1) * local_size])
+                for g in range(self.num_groups)
+            ]
+            cross = [
+                dist.new_group([members[g * local_size + r] for g in range(self.num_groups)])
+                for r in range(local_size)
+            ]
+            if members == ranks:
+                local_groups, cross_groups = local, cross
         self._cross = cross_groups[self.local_rank]
         self._local = DeterministicCollective(
             local_groups[self.group_index], device, max_size_bytes=max_size_bytes
