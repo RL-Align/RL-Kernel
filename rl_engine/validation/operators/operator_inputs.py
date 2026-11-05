@@ -35,6 +35,7 @@ def make_operator_inputs(
         "pack": _make_pack_inputs,
         "video_patch_pack_unpack": _make_video_patch_pack_unpack_inputs,
         "video_input_projection_fp32": _make_video_input_projection_fp32_inputs,
+        "video_output_projection_fp32": _make_video_output_projection_fp32_inputs,
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
         "attention": _make_attention_inputs,
@@ -55,6 +56,8 @@ def make_operator_inputs(
         "adaln_projection_3mod": _make_adaln_projection_3mod_inputs,
         "adaln_row_gather": _make_adaln_row_gather_inputs,
         "h3_rmsnorm": _make_h3_rmsnorm_inputs,
+        "adaln_gate_residual": _make_adaln_gate_residual_inputs,
+        "final_adaln_out": _make_final_adaln_out_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -75,6 +78,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
         "pack": f"{batch}x{seq}x{_normalized_dim(args)}",
         "video_input_projection_fp32": f"{batch}x{seq}x96x5376",
+        "video_output_projection_fp32": f"{batch}x{seq}x5376x96",
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
@@ -99,6 +103,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "adaln_row_gather": f"{3 * _h3_num_timesteps(args)}x{6 * _h3_hidden(args)}"
         f"->{batch * seq}",
         "h3_rmsnorm": f"{batch}x{seq}x{_h3_hidden(args)}",
+        "adaln_gate_residual": f"{batch}x{seq}x{_h3_hidden(args)}",
+        "final_adaln_out": f"{batch}x{seq}x{_h3_hidden(args)}",
     }
     try:
         return names[op_name]
@@ -131,6 +137,34 @@ def _make_video_input_projection_fp32_inputs(
         "bias": _floating_tensor((5376,), args, dtype, device, offset=2),
         "logical_keys": keys,
         "parameter_id": "transformer.proj_in",
+    }
+
+
+def _make_video_output_projection_fp32_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build FP32 H3 projection inputs with fixed widths 5376 and 96.
+
+    Logical keys are unique [batch_index, token_index] pairs in the same order
+    as the flattened input rows, with every row active.
+    """
+
+    if dtype != torch.float32:
+        raise TypeError("video output projection validation requires FP32")
+    batch, seq = _batch_seq(args)
+    keys = torch.stack(
+        (
+            torch.arange(batch, device=device).repeat_interleave(seq),
+            torch.arange(seq, device=device).repeat(batch),
+        ),
+        dim=1,
+    )
+    return {
+        "x": _floating_tensor((batch, seq, 5376), args, dtype, device, offset=0),
+        "weight": _floating_tensor((96, 5376), args, dtype, device, offset=1),
+        "bias": _floating_tensor((96,), args, dtype, device, offset=2),
+        "logical_keys": keys,
+        "parameter_id": "transformer.proj_out",
     }
 
 
@@ -520,6 +554,47 @@ def _make_h3_rmsnorm_inputs(
         "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
         "weight": weight.to(dtype),
         "eps": 1e-5,
+    }
+
+
+def _make_adaln_gate_residual_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # gate rows: 3 modality rows for each of --num-timesteps (default --batch) timesteps.
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    rows = 3 * _h3_num_timesteps(args)
+    generator = _generator(args, device, offset=31)
+    return {
+        "residual": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "y": _floating_tensor((batch, seq, hidden), args, dtype, device, 1),
+        "gate": (_floating_tensor((rows, hidden), args, torch.float32, device, 2) * 0.5).to(dtype),
+        "index": torch.randint(0, rows, (seq,), generator=generator, device=device),
+    }
+
+
+def _make_final_adaln_out_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # temb is FP32 by contract; norm_out.linear/norm/x use ``dtype`` (BF16 in H3).
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    num_timesteps = _h3_num_timesteps(args)
+    # Realistic scales (norm weight in [0.5, 1], unit activations): with unscaled
+    # inputs the parameter gradients sum hundreds of rows into values ~1e3, and
+    # their cancelling elements cannot meet a per-element FP32 atol.
+    linear = _floating_tensor((2 * hidden, H3_TIME_EMBED), args, torch.float32, device, 3)
+    norm = 0.5 + 0.5 * torch.sigmoid(_floating_tensor((hidden,), args, torch.float32, device, 4))
+    generator = _generator(args, device, offset=37)
+    return {
+        "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "norm_weight": norm.to(dtype),
+        "temb": _floating_tensor((num_timesteps, H3_TIME_EMBED), args, torch.float32, device, 1),
+        "weight": (linear * H3_TIME_EMBED**-0.5).to(dtype),
+        "bias": (_floating_tensor((2 * hidden,), args, torch.float32, device, 2) * 0.1).to(dtype),
+        "timestep_indices": torch.randint(
+            0, num_timesteps, (seq,), generator=generator, device=device
+        ),
     }
 
 

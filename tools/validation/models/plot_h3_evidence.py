@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Render an RFC #420 operator report (``tools/validation/models/h3_evidence.py``) as a PNG.
+"""Render an RFC #420 operator or WS2 report (``tools/validation/models/h3_evidence.py``,
+``tools/validation/models/h3_ws2_evidence.py``) as a PNG.
 
 Needs only the report JSON and matplotlib (not torch or a GPU), so it can run
 anywhere:
@@ -23,6 +24,7 @@ from typing import Any, Callable
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.patches  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 
 # Fixed series identity across every H3 figure (categorical slots 1-3).
@@ -330,6 +332,20 @@ def plot_gather(report: dict[str, Any]):
         "Whole-chain grads of the FP32 time embedder vs FP64",
         "max abs error / golden max",
     )
+    if not chain:
+        right.text(
+            0.5,
+            0.5,
+            report["accuracy"].get("chain_backward_skipped", "No chain measurements available"),
+            transform=right.transAxes,
+            ha="center",
+            va="center",
+            color=INK,
+            fontsize=9,
+            wrap=True,
+        )
+        right.set_axis_off()
+        return fig
     names = {
         "candidate": ("RL-Kernel, separate ops", THIRD, "o"),
         "candidate_fused": ("RL-Kernel, fused modulation", RL_KERNEL, "D"),
@@ -437,12 +453,360 @@ def plot_rmsnorm(report: dict[str, Any]):
     return fig
 
 
+def _latency_fwd_bwd(ax, perf: list[dict[str, Any]], provider: str) -> None:
+    combined = all(row.get("backward_timing_scope") == "forward_and_backward" for row in perf)
+    backward_label = "fwd+bwd" if combined else "bwd"
+    _style(ax, "Forward and backward time (log, lower is better)", "ms")
+    _bars(
+        ax,
+        [row["case"] for row in perf],
+        [
+            ("CUDA fwd", RL_KERNEL, [row["candidate_us"] / 1e3 for row in perf]),
+            (f"{provider} fwd", PROVIDER, [row["provider_us"] / 1e3 for row in perf]),
+            (
+                f"CUDA {backward_label}",
+                RL_KERNEL,
+                [row["candidate_backward_us"] / 1e3 for row in perf],
+                "////",
+            ),
+            (
+                f"{provider} {backward_label}",
+                PROVIDER,
+                [row["provider_backward_us"] / 1e3 for row in perf],
+                "////",
+            ),
+        ],
+        "{:.2f}",
+        log=True,
+    )
+
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper left", ncol=2)
+
+
+def _backward_errors(ax, backward: dict[str, Any], keys: list[str], note: str) -> None:
+    _style(ax, "Backward vs FP64 golden (log, lower is better)", "max abs error / golden max")
+
+    def label(name: str, mode: str) -> str:
+        return (
+            f"{name} (repeat-bitwise: {'yes' if backward[mode]['repeat_bitwise_equal'] else 'no'})"
+        )
+
+    floor = 1e-9
+    _bars(
+        ax,
+        keys,
+        [
+            (
+                label("RL-Kernel CUDA", "cuda"),
+                RL_KERNEL,
+                [max(backward["cuda"]["rel_error"][k], floor) for k in keys],
+            ),
+            (
+                label("diffusers", "provider"),
+                PROVIDER,
+                [max(backward["provider"]["rel_error"][k], floor) for k in keys],
+            ),
+        ],
+        "{:.1e}",
+        log=True,
+    )
+    for text in ax.texts:
+        if text.get_text() == f"{floor:.1e}":
+            text.set_text("exact")
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper left", ncol=1)
+    ax.set_ylim(floor / 3, 1e4)
+    ax.text(0.98, 0.80, note, transform=ax.transAxes, ha="right", fontsize=8, color=INK)
+
+
+def plot_gate_residual(report: dict[str, Any]):
+    fig, (left, right) = _figure(
+        report, "adaln_gate_residual  (residual + gate_msa[row] * y, H = 5376)"
+    )
+    _latency_fwd_bwd(left, report["perf"], "diffusers")
+    acc = report["accuracy"]
+    ok = all(acc["forward_bitwise_vs_diffusers"].values())
+    _backward_errors(
+        right,
+        acc["backward"],
+        ["d_residual", "d_sublayer", "d_gate"],
+        f"forward bitwise equal to diffusers (bf16/fp16/fp32): {'yes' if ok else 'NO'}",
+    )
+    return fig
+
+
+def plot_final(report: dict[str, Any]):
+    fig, (left, right) = _figure(
+        report, "final_adaln_out  (norm_out: projection + final norm, T = 3)"
+    )
+    _latency_fwd_bwd(left, report["perf"], "diffusers")
+    acc = report["accuracy"]
+    _backward_errors(
+        right,
+        acc["backward"],
+        ["dx", "d_norm_w", "d_temb", "dW", "db"],
+        f"forward equal to diffusers on {100 * acc['equal_to_diffusers_fraction']:.2f}% "
+        "of elements (projection 1-ULP ties)",
+    )
+    return fig
+
+
+TP_TENSORS = (
+    ("table", "table (6 x 3T rows)"),
+    ("d_temb", "d_temb"),
+    ("d_weight_shard", "dW shard"),
+    ("d_bias_shard", "db shard"),
+)
+
+
+def plot_tp_adaln(report: dict[str, Any]):
+    fig, (left, right) = _figure(
+        report, "tp_adaln_3mod  (column-parallel AdaLN projection, 2688 -> 96768, NCCL)"
+    )
+    runs = report["runs"]
+    _equality_grid(
+        left,
+        "Byte-equal to WS1",
+        [(f"TP{run['tp']}", [e for r in run["ranks"] for e in r["equality"]]) for run in runs],
+        TP_TENSORS,
+        "ranks x T",
+    )
+    # Right: slowest rank's time at the largest T; WS1 on one GPU as reference lines.
+    num_t = max(p["num_timesteps"] for p in runs[0]["ranks"][0]["perf"])
+
+    def worst(run, key):
+        perf = [p for r in run["ranks"] for p in r["perf"] if p["num_timesteps"] == num_t]
+        return max(p[key] for p in perf) / 1e3
+
+    tp_runs = [run for run in runs if run["tp"] > 1]
+    _style(right, f"Time per call, T = {num_t} (slowest rank; lower is better)", "ms")
+    if not tp_runs:
+        # A TP1-only report (--worlds 1) has nothing to compare with the single-GPU WS1 call.
+        right.text(
+            0.5,
+            0.5,
+            "no run with TP > 1 in this report",
+            transform=right.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=MUTED,
+        )
+        return fig
+    _bars(
+        right,
+        [f"TP{run['tp']}" for run in tp_runs],
+        [
+            ("TP fwd", RL_KERNEL, [worst(run, "tp_forward_us") for run in tp_runs]),
+            (
+                "TP fwd+bwd",
+                RL_KERNEL,
+                [worst(run, "tp_forward_backward_us") for run in tp_runs],
+                "////",
+            ),
+        ],
+        "{:.2f}",
+        log=True,
+    )
+    for key, label, style in (
+        ("ws1_forward_us", "WS1 fwd", ":"),
+        ("ws1_forward_backward_us", "WS1 fwd+bwd", "--"),
+    ):
+        value = worst(runs[0], key)
+        right.axhline(
+            value,
+            color=PROVIDER,
+            linestyle=style,
+            linewidth=1.4,
+            zorder=1,
+            label=f"{label}, 1 GPU: {value:.2f}",
+        )
+    right.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper left", ncol=2)
+    return fig
+
+
+def _equality_grid(ax, title, rows, tensors, unit) -> None:
+    """One cell per (configuration, tensor): how many checks were byte-equal to WS1."""
+
+    ax.set_facecolor(SURFACE)
+    ax.set_title(f"{title}; checks = {unit}", loc="left", fontsize=11, color=INK, pad=10)
+    for y, (_, checks) in enumerate(rows):
+        for x, (key, _) in enumerate(tensors):
+            ok = sum(bool(e[key]) for e in checks)
+            good = ok == len(checks)
+            ax.add_patch(
+                matplotlib.patches.FancyBboxPatch(
+                    (x + 0.06, y + 0.08),
+                    0.88,
+                    0.84,
+                    boxstyle="round,pad=0,rounding_size=0.06",
+                    facecolor=RL_KERNEL if good else PROVIDER,
+                    edgecolor=SURFACE,
+                    linewidth=2,
+                )
+            )
+            label = f"{'equal' if good else 'DIFF'}\n{ok}/{len(checks)}"
+            ax.text(x + 0.5, y + 0.5, label, ha="center", va="center", fontsize=8, color="white")
+    ax.set_xlim(0, len(tensors))
+    ax.set_ylim(len(rows), 0)
+    ax.set_xticks([i + 0.5 for i in range(len(tensors))], [label for _, label in tensors])
+    ax.set_yticks([i + 0.5 for i in range(len(rows))], [name for name, _ in rows])
+    ax.tick_params(colors=MUTED, labelsize=8, length=0)
+    for side in ax.spines.values():
+        side.set_visible(False)
+
+
+SP_TENSORS = (
+    ("out", "output rows"),
+    ("d_residual", "d_residual"),
+    ("d_y", "d_sublayer"),
+    ("d_weight", "d_norm_w"),
+    ("d_table", "d_table"),
+)
+
+
+def plot_sp_norm(report: dict[str, Any]):
+    fig, axes = plt.subplots(
+        1, 3, figsize=(15, 3.9), facecolor=SURFACE, gridspec_kw={"width_ratios": [1.35, 1, 0.9]}
+    )
+    env = report["environment"]
+    fig.suptitle(
+        "sp_norm_adaln  (sequence-parallel norm2(residual + gate * y) with AdaLN modulation, "
+        "H = 5376, NCCL)",
+        x=0.01,
+        ha="left",
+        fontsize=12,
+        color=INK,
+        fontweight="bold",
+    )
+    fig.text(
+        0.01,
+        0.01,
+        f"{env['gpu']} x {env['gpus']} · torch {env['torch']} · CUDA {env['cuda']} · "
+        f"commit {report['rl_kernel_commit'][:7]} · bf16",
+        fontsize=7,
+        color=MUTED,
+    )
+    runs = report["runs"]
+    _equality_grid(
+        axes[0],
+        "Byte-equal to WS1",
+        [
+            (f"SP{run['sp']}", [c["equal"] for r in run["ranks"] for c in r["cases"]])
+            for run in runs
+        ],
+        SP_TENSORS,
+        "ranks x cases",
+    )
+
+    # Middle: the largest block-layout case, slowest rank.
+    big = max(
+        (c for c in runs[0]["ranks"][0]["cases"] if c["layout"] == "block"),
+        key=lambda c: c["seq"] * c["batch"],
+    )
+
+    def worst(run, key):
+        return (
+            max(
+                c[key]
+                for r in run["ranks"]
+                for c in r["cases"]
+                if (c["seq"], c["batch"], c["layout"]) == (big["seq"], big["batch"], big["layout"])
+            )
+            / 1e3
+        )
+
+    sp_runs = [run for run in runs if run["sp"] > 1]
+    ax = axes[1]
+    _style(ax, f"Region fwd+bwd, S = {big['seq']}, block layout", "ms (slowest rank)")
+    if not sp_runs:
+        ax.text(
+            0.5,
+            0.5,
+            "no run with SP > 1 in this report",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=MUTED,
+        )
+    else:
+        _bars(
+            ax,
+            [f"SP{run['sp']}" for run in sp_runs],
+            [("SP", RL_KERNEL, [worst(run, "sp_forward_backward_us") for run in sp_runs])],
+            "{:.2f}",
+        )
+        ws1 = worst(runs[0], "ws1_forward_backward_us")
+        ax.axhline(
+            ws1,
+            color=PROVIDER,
+            linestyle="--",
+            linewidth=1.4,
+            zorder=1,
+            label=f"WS1, 1 GPU: {ws1:.2f}",
+        )
+        # headroom above the slower of WS1 and the slowest SP bar: a run slower than WS1 must not
+        # be clipped, it is the thing this panel exists to show
+        slowest_sp = max(worst(run, "sp_forward_backward_us") for run in sp_runs)
+        ax.set_ylim(0, max(ws1, slowest_sp) * 1.35)
+        ax.legend(frameon=False, fontsize=8, labelcolor=INK, loc="upper right")
+
+    # Right: what a naive SP reduction would do instead.
+    naive = report["naive_sp"]
+    ax = axes[2]
+    _style(ax, f"Naive SP{naive['sp']} vs WS1 (S = 32768)", "% of elements that differ")
+    # The RL-Kernel bars are 0 only if every recorded SP-vs-WS1 check of these two gradients was
+    # byte-equal (the left panel's flags); otherwise they are left out and the failure is stated.
+    unequal = [
+        label
+        for key, label in (("d_weight", "d_norm_w"), ("d_table", "d_table"))
+        if not all(c["equal"][key] for run in runs for r in run["ranks"] for c in r["cases"])
+    ]
+    series = [
+        ("naive, block", PROVIDER, [100 * naive["block"][k] for k in ("d_weight", "d_table")]),
+        (
+            "naive, interleaved",
+            PROVIDER,
+            [100 * naive["interleaved"][k] for k in ("d_weight", "d_table")],
+            "////",
+        ),
+    ]
+    if not unequal:
+        series.append(("RL-Kernel SP", RL_KERNEL, [0.0, 0.0]))
+    _bars(ax, ["d_norm_w", "d_table"], series, "{:.1f}")
+    if unequal:
+        ax.text(
+            0.5,
+            0.5,
+            f"RL-Kernel SP differs from WS1 in {', '.join(unequal)}\n(see the equality panel)",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=9,
+            color=PROVIDER,
+        )
+    ax.text(
+        0.98,
+        0.62,
+        "naive: each rank's WS1 backward,\nthen a rank-order sum",
+        transform=ax.transAxes,
+        ha="right",
+        fontsize=7,
+        color=MUTED,
+    )
+    return fig
+
+
 PLOTS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "timestep_sinusoid_h3": plot_sinusoid,
     "timestep_mlp_fp32": plot_mlp,
     "adaln_projection_3mod": plot_projection,
     "adaln_row_gather": plot_gather,
     "h3_rmsnorm": plot_rmsnorm,
+    "adaln_gate_residual": plot_gate_residual,
+    "final_adaln_out": plot_final,
+    "tp_adaln_3mod": plot_tp_adaln,
+    "sp_norm_adaln": plot_sp_norm,
 }
 
 

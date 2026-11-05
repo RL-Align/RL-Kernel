@@ -62,6 +62,26 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight", "bias"),
     ),
+    "video_output_projection_fp32": OperatorSpec(
+        name="video_output_projection_fp32",
+        op_class="reduction",
+        gold_path=(
+            "rl_engine.reference.gemm.video_output_projection_fp32."
+            "NativeVideoOutputProjectionFP32Op"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.gemm.video_output_projection_fp32."
+                "NativeVideoOutputProjectionFP32Op"
+            ),
+            "triton": (
+                "rl_engine.backends.shared.triton.gemm.video_output_projection_fp32."
+                "TritonVideoOutputProjectionFP32Op"
+            ),
+        },
+        grad_input_names=("x", "weight", "bias"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
@@ -368,6 +388,34 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "adaln_gate_residual": OperatorSpec(
+        name="adaln_gate_residual",
+        op_class="reduction",  # forward is elementwise; the gate VJP sums positions
+        gold_path="rl_engine.reference.minimax_h3.gate_residual.NativeH3GateResidualOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.minimax_h3.gate_residual.NativeH3GateResidualOp",
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "gate_residual.H3GateResidualCudaOp"
+            ),
+        },
+        grad_input_names=("residual", "y", "gate"),
+    ),
+    "final_adaln_out": OperatorSpec(
+        name="final_adaln_out",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.final_adaln_out.NativeH3FinalAdaLNOutOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.reference.minimax_h3.final_adaln_out.NativeH3FinalAdaLNOutOp"),
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "final_adaln_out.H3FinalAdaLNOutCudaOp"
+            ),
+        },
+        grad_input_names=("x", "norm_weight", "temb", "weight", "bias"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",
@@ -515,7 +563,8 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
             fn=candidate_op,
             backward_context_factory=(
                 _canonical_validation_context
-                if args.op == "video_input_projection_fp32" and candidate_name != "pytorch"
+                if args.op in {"video_input_projection_fp32", "video_output_projection_fp32"}
+                and candidate_name != "pytorch"
                 else None
             ),
         )
