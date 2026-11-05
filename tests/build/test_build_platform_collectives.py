@@ -6,6 +6,7 @@ from __future__ import annotations
 import runpy
 from typing import Any
 
+import pytest
 import setuptools
 import torch
 from torch.utils import cpp_extension
@@ -83,3 +84,15 @@ def test_package_data_real_json_is_not_reinterpreted(tmp_path) -> None:
 
     assert _resolve_package_data_source(source, project_root=tmp_path) == source
     assert "build_py" in get_cmdclass()
+
+
+@pytest.mark.parametrize(
+    "hip,fast_math,enabled", [(None, "0", True), (None, "1", False), ("test", "0", False)]
+)
+def test_adaln_build_registers_native_source_only_for_precise_cuda(
+    monkeypatch, hip, fast_math, enabled
+):
+    monkeypatch.setenv("KERNEL_ALIGN_USE_FAST_MATH", fast_math)
+    extension = _load_extension_config(monkeypatch, hip=hip)
+    assert ("csrc/cuda/norm/adaln_modulation.cu" in extension["sources"]) is enabled
+    assert ("-DRLK_ADALN_CUDA_ENABLED" in extension["extra_compile_args"]["cxx"]) is enabled
