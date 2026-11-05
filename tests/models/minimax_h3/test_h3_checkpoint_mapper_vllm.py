@@ -130,3 +130,9 @@ def test_vllm_adapter_strict_rejects_wrong_dtype_and_empty_models():
     holder.qkv_proj = torch.nn.Linear(8, 8).cuda()  # float32
     with pytest.raises(RuntimeError, match="BF16"):
         install_h3_rollout(holder)
+    biased = torch.nn.Module()  # the patched forward has no bias term: refuse, never drop it
+    biased.fc2 = torch.nn.Linear(8, 8, bias=True).cuda().bfloat16()
+    with pytest.raises(RuntimeError, match="has a bias"):
+        install_h3_rollout(biased)
+    with install_h3_rollout(biased, strict=False) as handle:
+        assert handle.patched == [] and "forward" not in biased.fc2.__dict__

@@ -13,6 +13,10 @@ fixed-order kernels so rollout reads the same bits as the strict training graph:
 * ``out_proj`` / ``fc2``: the canonical 8-unit row-parallel reduction of ``h3-parallel-v1``
   (``tp`` ranks with a deterministic collective, ``tp=1`` alone), one BF16 rounding.
 
+H3's four projections have no bias, and the patched forward computes ``x @ W.T`` and returns
+``(output, None)``. A module that carries a bias is therefore refused in strict mode (and left
+on vLLM-Omni's own forward otherwise) instead of silently losing its bias.
+
 Attention, rotary and norm stay vLLM-Omni's (their rows are separate); the report lists them as
 ``external``. Everything is restored by ``handle.remove()``.
 """
@@ -85,6 +89,13 @@ def install_h3_rollout(
                 raise RuntimeError(
                     f"{name}: strict H3 rollout needs CUDA BF16 weights, got "
                     f"{weight.dtype} on {weight.device}"
+                )
+            continue
+        if getattr(module, "bias", None) is not None:
+            if strict:
+                raise RuntimeError(
+                    f"{name}: has a bias; the strict H3 rollout kernels compute the bias-free H3 "
+                    "projections only"
                 )
             continue
         module.forward = _wrap(module, kind, collective, tp)
