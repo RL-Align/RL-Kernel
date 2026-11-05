@@ -31,6 +31,8 @@ nav:
       - operators/det-gemm.md
       - operators/embedding.md
       - operators/final-logit-softcap.md
+      - operators/batch-invariant-linear.md
+      - operators/mhc.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md

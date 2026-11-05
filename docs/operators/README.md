@@ -33,4 +33,6 @@ Every operator page should include:
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
 - [Final Logit Softcap](final-logit-softcap.md)
+- [Batch-Invariant Linear (ROCm)](batch-invariant-linear.md)
+- [DeepSeek-V4 mHC and Layer End](mhc.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
