@@ -50,7 +50,7 @@ def test_overlay_parse_label_and_validation():
     o = rt.AblationOverlay.parse("node:attention, boundary:token_refiner")
     assert o.native_nodes == {"attention"} and o.native_boundaries == {"token_refiner"}
     assert o.label == "ablation(native: node:attention,boundary:token_refiner)"
-    for bad in ("node:nope", "boundary:proj_in", "layer:x"):
+    for bad in ("node:nope", "boundary:norm_out", "layer:x"):
         with pytest.raises(ValueError):
             rt.AblationOverlay.parse(bad)
 
