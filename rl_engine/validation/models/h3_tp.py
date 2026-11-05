@@ -108,6 +108,7 @@ def run_tp_block(
     tp, w = grid.tp, (lambda name: weights[f"{hb.BLOCK}.{name}"])
     seq = seq_len or hidden.shape[1]
     shard = grid.seq_shard(seq)
+    par.require_rows_on_every_rank(shard)  # every rank refuses alike, before any collective
     h = par.coshard(shard, hidden, dim=1)[0]
     idx = par.coshard(shard, index, dim=0)[0]
     cos, sin = par.coshard(shard, rope[0], rope[1], dim=0)

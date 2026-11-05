@@ -43,7 +43,9 @@ two nodes.
 ## Context parallelism
 
 - `SeqShard`: contiguous row slices differing by at most one row, any length >= 0 (including fewer
-  rows than ranks): `cp_arbitrary_length`.
+  rows than ranks) for the data movement (`scatter_packed` / `gather_packed`, Ulysses all-to-all):
+  `cp_arbitrary_length`. The compute paths (`seq_sharded_linear`, the parallel block) need at
+  least one row per rank; a shorter sequence is refused on every rank alike, before any collective.
 - `coshard`: hidden, AdaLN row index, token tags, rotary tables are cut with one `SeqShard` so the
   metadata follows its rows: `cp_metadata_coshard`.
 - `ulysses_attention`: all-to-all sequence <-> head (ragged split sizes), attention on `H/cp` heads
@@ -74,8 +76,10 @@ any node count and compares against the single-GPU block.
 | TP4 x CP2 | 8 / 2 | IPC tree (TP in node), NCCL all-to-all (CP across) | bitwise | bitwise | not compared (token axis sharded) |
 | TP4 x CP2 + SP | 8 / 2 | same | bitwise | bitwise | not compared |
 
-Timing of the forward per rank (ms): TP2 80, TP4 102, TP8 110, TP4xCP2 113, TP4xCP2+SP 104
-(tiny 264-row case, launch-bound; not a scaling claim).
+Mean time per rank of one forward call (ms), from the `h3-ws2-parallel-h100/*.json` reports: TP2
+33.1, TP4 32.6, TP8 32.4, TP4xCP2 31.5, TP4xCP2+SP 33.3 (tiny 264-row case, launch-bound; not a
+scaling claim). Each call also rebuilds the block context, the operators and the weight shards, so
+this is the time of a whole `block_case(..., backward=False)` call, not of the kernels alone.
 
 ## Limits
 
