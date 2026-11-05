@@ -239,6 +239,11 @@ def get_extensions():
             if adaln_cuda_enabled:
                 cuda_sources.append("csrc/cuda/norm/adaln_modulation.cu")
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            cuda_sources.extend(
+                [
+                    "csrc/cuda/model_specific/qwenimage/det_linear.cu",
+                ]
+            )
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
