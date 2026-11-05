@@ -191,6 +191,54 @@ def test_leftover_temporary_files_are_ignored(tmp_path):
     assert run.saved == 3
 
 
+def _finished_seed(directory, identity=IDENTITY):
+    denoise(directory, resume=False, identity=identity)
+    (directory / "report.json").write_text("{}")
+
+
+def test_a_finished_seed_of_the_same_identity_is_skipped_on_resume(tmp_path):
+    from tools.validation.models.h3_full_generation import finished_seed_is_reusable
+
+    _finished_seed(tmp_path / "a")
+    assert finished_seed_is_reusable(tmp_path / "a", IDENTITY, resume=True)
+    assert not finished_seed_is_reusable(tmp_path / "a", IDENTITY, resume=False)
+    assert not finished_seed_is_reusable(tmp_path / "missing", IDENTITY, resume=True)
+
+
+def test_a_finished_seed_of_another_identity_is_not_silently_reused(tmp_path):
+    from tools.validation.models.h3_full_generation import finished_seed_is_reusable
+
+    _finished_seed(tmp_path / "a")
+    other = dict(IDENTITY, commit="different model code")
+    with pytest.raises(ResumeError, match="different identity"):
+        finished_seed_is_reusable(tmp_path / "a", other, resume=True)
+
+
+def test_a_finished_seed_without_a_run_file_is_not_reused(tmp_path):
+    from tools.validation.models.h3_full_generation import finished_seed_is_reusable
+
+    _finished_seed(tmp_path / "a")
+    (tmp_path / "a" / "run.json").unlink()
+    with pytest.raises(ResumeError, match="no run.json"):
+        finished_seed_is_reusable(tmp_path / "a", IDENTITY, resume=True)
+
+
+def test_saved_steps_without_a_run_file_are_not_adopted(tmp_path):
+    """``run.json`` carries the identity; without it the steps' origin is unknown."""
+
+    with pytest.raises(KeyboardInterrupt):
+        denoise(tmp_path / "a", resume=False, stop_after=3)
+    (tmp_path / "a" / "run.json").unlink()
+    with pytest.raises(ResumeError, match="no run.json"):
+        ResumableRun(StepStore(tmp_path / "a"), IDENTITY, resume=True)
+    assert not (tmp_path / "a" / "run.json").exists()  # nothing was written for the refused run
+
+
+def test_an_empty_existing_directory_can_be_resumed(tmp_path):
+    (tmp_path / "a").mkdir()
+    assert ResumableRun(StepStore(tmp_path / "a"), IDENTITY, resume=True).saved == 0
+
+
 def test_a_run_without_initial_inputs_is_not_resumable(tmp_path):
     with pytest.raises(KeyboardInterrupt):
         denoise(tmp_path / "a", resume=False, stop_after=3)
@@ -382,3 +430,29 @@ def test_adoption_refuses_other_differences_and_dry_run_writes_nothing(repo, tmp
     adopt_identity(tmp_path / "run", identity, old[:8], cwd=repo)
     with pytest.raises(ResumeError, match="already"):
         adopt_identity(tmp_path / "run", identity, old[:8], cwd=repo)
+
+
+def test_the_numerics_the_generation_runner_adds_are_inside_the_identified_model_paths():
+    """QueryChunkAttention and the provider variant context decide the generated numbers, so the
+    files that define them must be covered by MODEL_PATHS (their git trees are in a run's identity).
+    """
+
+    from pathlib import Path
+
+    from rl_engine.validation.models.h3_full_model import (
+        QueryChunkAttention,
+        provider_variant_context,
+    )
+    from tools.validation.models import h3_full_generation, h3_full_model
+
+    root = Path(__file__).resolve().parents[3]
+    for obj in (QueryChunkAttention, provider_variant_context):
+        source = Path(inspect.getsourcefile(inspect.unwrap(obj))).resolve()
+        source = source.relative_to(root).as_posix()
+        assert any(
+            source == path or source.startswith(path + "/") for path in resume_module.MODEL_PATHS
+        ), source
+    # the runners use the same objects, not copies that could drift
+    assert h3_full_generation.QueryChunkAttention is QueryChunkAttention
+    assert h3_full_generation.provider_variant_context is provider_variant_context
+    assert h3_full_model.provider_variant_context is provider_variant_context

@@ -28,12 +28,16 @@ import json
 import shutil
 import sys
 from pathlib import Path
-from tools.validation.models.h3_full_model import digest
+from tools.validation.models.h3_evidence_integrity import digest
 failed, output = map(Path, sys.argv[1:])
 identity = json.loads((failed / "preflight/identity.json").read_text())
 source = Path(identity["extension"])
 assert digest(source) == identity["extension_sha256"]
-shutil.copy2(source, Path("rl_engine") / source.name)
+target = Path("rl_engine") / source.name
+# The failed attempt may have run in this very checkout: then the binary is already in place.
+if not (target.exists() and target.samefile(source)):
+    shutil.copy2(source, target)
+assert digest(target) == identity["extension_sha256"]
 (output / "native-origin.json").write_text(json.dumps(identity, indent=2) + "\n")
 (output / "retry-of.txt").write_text(str(failed) + "\n")
 PY
