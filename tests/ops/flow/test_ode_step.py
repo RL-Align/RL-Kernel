@@ -670,7 +670,9 @@ def test_cuda_native_symbols_fail_closed_on_degenerate_sigma_values() -> None:
     ext = _cuda_ode_step._extension()
     xt_d, v_d = xt.to(device), v.to(device)
     per_row, per_row_next = sigma.to(device), sigma_next.to(device)
-    zero = torch.zeros((), device=device)
+    # Match the per-row layout: the layout guard runs before the value guard, so a
+    # 0-dim zero here would be rejected as a mixed pair and never reach the values.
+    zero = torch.zeros_like(per_row)
     grad = torch.zeros_like(xt_d)
     with pytest.raises(RuntimeError, match="Euler ratio"):
         ext.ode_step_forward(xt_d, v_d, zero, per_row_next)
