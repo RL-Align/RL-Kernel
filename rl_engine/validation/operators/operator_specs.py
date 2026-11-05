@@ -62,6 +62,26 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight", "bias"),
     ),
+    "video_output_projection_fp32": OperatorSpec(
+        name="video_output_projection_fp32",
+        op_class="reduction",
+        gold_path=(
+            "rl_engine.reference.gemm.video_output_projection_fp32."
+            "NativeVideoOutputProjectionFP32Op"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.gemm.video_output_projection_fp32."
+                "NativeVideoOutputProjectionFP32Op"
+            ),
+            "triton": (
+                "rl_engine.backends.shared.triton.gemm.video_output_projection_fp32."
+                "TritonVideoOutputProjectionFP32Op"
+            ),
+        },
+        grad_input_names=("x", "weight", "bias"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
@@ -543,7 +563,8 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
             fn=candidate_op,
             backward_context_factory=(
                 _canonical_validation_context
-                if args.op == "video_input_projection_fp32" and candidate_name != "pytorch"
+                if args.op in {"video_input_projection_fp32", "video_output_projection_fp32"}
+                and candidate_name != "pytorch"
                 else None
             ),
         )

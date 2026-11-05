@@ -23,7 +23,7 @@ def main():
     p.add_argument("--reference-root", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     a = p.parse_args()
-    a.output.mkdir()
+    a.output.mkdir(parents=True)  # still refuses an output that exists
     manifest = Path("examples/models/minimax_h3/reference-manifest.json")
     verify_inventory(a.reference_root, manifest)
     verify_checkpoint(
