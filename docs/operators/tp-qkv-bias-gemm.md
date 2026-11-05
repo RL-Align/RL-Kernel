@@ -2,10 +2,12 @@
 
 ## Summary
 
-`qwenimage_tp_qkv_bias_gemm` implements RFC #386's head-sharded QKV projection.
+`qwenimage_tp_qkv_bias_gemm` implements the head-sharded QKV projection in
+[RFC #386](https://github.com/RL-Align/RL-Kernel/issues/386).
 Call it separately for the image and text streams, which have independent weights.
 The local projection and all gradients reuse the native Linear kernels merged in
-#537. The no-activation entry computes QKV without the AdaLN SiLU operation.
+[#537](https://github.com/RL-Align/RL-Kernel/pull/537). The no-activation entry
+computes QKV without the AdaLN SiLU operation.
 
 ## Entry Point
 
@@ -16,14 +18,48 @@ from rl_engine.backends.cuda.model_specific.qwenimage.tp_qkv_bias_gemm import (
 )
 from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
 
-# TP1: full weights. For TP>1, pass the existing CUDA DeterministicCollective
-# and use shard_qkv_parameters with its world_size and group-local rank.
+# TP1: weight [9216,3072], bias [9216], upstream [M,9216].
 op = QwenImageTPQKVBiasGemmCudaOp(collective=None)
 with canonical_backward_session() as session:
     y = op(x, weight, bias, logical_keys=keys, parameter_id="image.qkv")
     y.backward(upstream)
 session.validate_complete()
 ```
+
+For TP2/4/8, each process uses an initialized TP process group `tp_group` and
+sets its current CUDA device before constructing the collective. The example
+below uses replicated `x` and full parameters on that device. `x` is a leaf
+with `requires_grad=True`; `keys` identifies the same logical rows on every rank.
+The caller supplies `local_upstream` with shape `[M,9216/P]` in local Q/K/V order.
+
+```python
+from rl_engine.distributed import create_deterministic_collective
+
+with create_deterministic_collective(group=tp_group, device=x.device) as collective:
+    local_weight, local_bias = shard_qkv_parameters(
+        weight,
+        bias,
+        tp_world=collective.world_size,
+        tp_rank=collective.rank,
+    )
+    local_weight = local_weight.detach().requires_grad_()
+    if local_bias is not None:
+        local_bias = local_bias.detach().requires_grad_()
+    op = QwenImageTPQKVBiasGemmCudaOp(collective=collective)
+    with canonical_backward_session() as session:
+        local_y = op(
+            x, local_weight, local_bias, logical_keys=keys, parameter_id="image.qkv"
+        )
+        local_y.backward(local_upstream)
+    session.validate_complete()
+```
+
+The caller shards the parameters; the operator receives local weights. Backward
+produces the complete `x.grad` on each rank and local parameter gradients in
+`local_weight.grad` and `local_bias.grad` when bias is present. The collective
+must remain open until all backward calls complete. `shard_qkv_parameters` is a
+setup helper for full weights; callers with correctly packed local weights can
+pass those weights directly.
 
 For inference, call under `torch.no_grad()`; keys and a session are unnecessary.
 For trainable parameters, use a stable parameter ID and logical keys on every
@@ -32,11 +68,17 @@ before backward starts. Use a different parameter ID for each layer and stream.
 
 ## Backends
 
-| Backend | Implementation | Status |
-| --- | --- | --- |
-| CUDA | #537 native Linear, compensated partials and fold | TP1 and real TP2/4/8 qualification on H20 |
-| CPU | Independent PyTorch Linear | Accuracy reference only |
-| ROCm / Ascend / MUSA | No candidate registered | Unsupported |
+| Backend | Wrapper | Native symbol | Status |
+| --- | --- | --- | --- |
+| CUDA | `QwenImageTPQKVBiasGemmCudaOp` | `qwenimage_det_linear_forward`, `qwenimage_det_linear_input_partials`, `qwenimage_det_linear_fold_input_partials`, `qwenimage_det_linear_backward_weight`, `qwenimage_det_linear_backward_bias` | TP1 and real TP2/4/8 qualification on H20 |
+| CPU | `QwenImageTPQKVBiasGemmReference` | PyTorch `F.linear` | Accuracy reference only |
+| ROCm / Ascend / MUSA | None registered | None | Unsupported |
+
+The CUDA wrapper is in
+`rl_engine/backends/cuda/model_specific/qwenimage/tp_qkv_bias_gemm.py`; its native
+symbols are defined in `csrc/cuda/model_specific/qwenimage/det_linear.cu` and
+exported through `rl_engine._C`. The CPU reference is in
+`rl_engine/reference/model_specific/qwenimage/tp_qkv_bias_gemm.py`.
 
 ## Tensor Contract
 
@@ -51,8 +93,9 @@ Each rank owns the same contiguous `24/P` heads in Q, K and V.
 | `logical_keys` | `[M,2]` or `[M,3]` | int64 | Input device; stable logical identity, negative first key marks padding |
 | output | `[M,9216/P]` | Same as x | Local Q/K/V head features |
 
-Inputs share one NVIDIA CUDA device. Noncontiguous or misaligned storage is
-copied through #537's existing `aligned` helper. Full packed weights cannot be
+The CUDA implementation requires NVIDIA SM80 or newer; qualification covers H20
+(SM90). Inputs share one NVIDIA CUDA device. Noncontiguous or misaligned storage is
+copied through [#537]'s existing `aligned` helper. Full packed weights cannot be
 split into P contiguous pieces once: each rank needs a piece of each Q/K/V section.
 
 The collective must describe the same group-local rank and device as the local
@@ -74,13 +117,13 @@ output contracts are unchanged.
 
 ## Accuracy
 
-The arithmetic is the original #537 contract:
+The arithmetic is the original [#537] contract:
 
 1. Forward keeps its dtype-specific FP32 accumulation order. Bias is added once
    before the declared output conversion.
 2. dW/dbias collect valid rows in `CanonicalBackwardSession` key order, then call
-   #537's ascending Neumaier reducers, including dW product residuals.
-3. dX uses #537's compensated FP32 partials over fixed 64-output-channel chunks.
+   [#537]'s ascending Neumaier reducers, including dW product residuals.
+3. dX uses [#537]'s compensated FP32 partials over fixed 64-output-channel chunks.
    TP gathers the partials without arithmetic, restores global `[Q;K;V]` channel
    order, then runs the original ascending Kahan fold and final conversion.
 
@@ -90,10 +133,21 @@ at most 128 rows are processed per call, further bounded by the existing collect
 capacity. This bounds workspace without changing a row's reduction order.
 
 Accuracy compares complete outputs and gradients with an independent CPU FP32
-reference using the repository's `reduction` forward/gradient thresholds. Raw-byte
-checks separately compare topology, row permutation, microbatch, padding and
-repeat results with the original native TP1 computation. Cancellation tests reuse
-the merged #537 parameter-gradient pattern and check against CPU FP64 diagnostics.
+reference using `judgments.forward_accuracy.by_op_class.reduction` and
+`judgments.gradient_accuracy.by_op_class.reduction` from the repository's
+[WS1 numerical contract](https://github.com/RL-Align/RL-Kernel/blob/test-qwenimage/rl_engine/contracts/profiles/precision/ws1.json).
+The tests load these thresholds through `rl_engine.contracts.numerical.load_contract()`.
+
+| Execution dtype | Forward atol / rtol | Gradient atol / rtol |
+| --- | --- | --- |
+| FP32 | `1e-4` / `1e-4` | `1e-4` / `1e-4` |
+| BF16 | `5e-2` / `2e-2` | `1e-1` / `2e-2` |
+
+Accuracy allows error within these tolerances. BI checks require identical raw
+bytes, including dtype and shape: topology, row permutation, microbatch, padding
+and repeat results are compared with the original native TP1 computation.
+Cancellation tests reuse the merged [#537] parameter-gradient pattern and check
+against CPU FP64 diagnostics.
 
 ## Performance Notes
 
@@ -105,7 +159,7 @@ PYTHONPATH=. OMP_NUM_THREADS=4 python3.11 \
   --output /tmp/qkv-benchmark.json
 ```
 
-`native` measures the original #537 manual VJP with canonical parameter collection.
+`native` measures the original [#537] manual VJP with canonical parameter collection.
 `tp1` measures the public adapter's autograd with the same collection. `pytorch`
 is an ordinary Linear/autograd performance reference. The command checks adapter
 bytes against native before timing. JSON includes raw samples, peak additional
@@ -171,7 +225,9 @@ backward runtime records only native entries used by that backward call.
 
 - TP2/4/8 transport qualification covers a single host with CUDA IPC; inter-host
   transport is outside this operator's tested scope.
-- The reused #537 dW reducer is costly for long input sequences. This adapter
+- The reused [#537] dW reducer is costly for long input sequences. This adapter
   preserves its arithmetic rather than substituting the faster vLLM candidate.
 - No SP, CFG-parallel, LoRA-specific integration, or full-model binding is added.
 - CUDA Graph capture and higher-order gradients are not qualified.
+
+[#537]: https://github.com/RL-Align/RL-Kernel/pull/537
