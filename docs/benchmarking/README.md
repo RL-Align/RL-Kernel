@@ -14,6 +14,7 @@ python benchmarks/common/profiler.py --format json --output reports/profile.json
 python benchmarks/operators/sampling/benchmark_sampling.py
 python benchmarks/operators/loss/benchmark_grpo_op.py
 python benchmarks/operators/packing/benchmark_pack.py --smoke
+python -m benchmarks.operators.packing.benchmark_packed_index_copy --help
 python benchmarks/backends/rocm/benchmark_rocm_ffn.py --help
 python tools/benchmarking/run_perf.py
 ```

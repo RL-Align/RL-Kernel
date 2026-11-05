@@ -500,6 +500,17 @@ at::Tensor prefix_shared_attention(
 #endif
 #endif
 
+// H3 packed input construction (NVIDIA CUDA).
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+torch::Tensor packed_index_copy_forward(
+    torch::Tensor text, torch::Tensor video, torch::Tensor audio,
+    torch::Tensor text_indices, torch::Tensor video_indices, torch::Tensor audio_indices,
+    int64_t sequence_length);
+std::vector<torch::Tensor> packed_index_copy_backward(
+    torch::Tensor grad, torch::Tensor text_indices,
+    torch::Tensor video_indices, torch::Tensor audio_indices);
+#endif
+
 // MiniMax-H3 (RFC #420) conditioning-path declarations. CUDA only.
 // Fast-math builds omit the H3 sources (bitwise contract), so gate on the build define.
 #if defined(KERNEL_ALIGN_WITH_H3_KERNELS)
@@ -818,6 +829,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &deterministic_rope_apply_token_major_rocm,
         "Deterministic GPT-NeoX token-major RoPE apply for ROCm");
 #endif
+#endif
+
+    // H3 packed input construction (NVIDIA CUDA).
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("packed_index_copy_forward", &packed_index_copy_forward,
+          "H3 packed index copy forward CUDA");
+    m.def("packed_index_copy_backward", &packed_index_copy_backward,
+          "H3 packed index copy backward CUDA");
 #endif
 
 #if defined(KERNEL_ALIGN_WITH_H3_KERNELS)
