@@ -676,14 +676,19 @@ def _make_h3_attention_inputs(args, dtype, device):
 
 
 def _h3_sigma_pair(rows, args, device):
-    """Per-row (sigma, sigma_next) from the H3 shifted sigma grid.
+    """Per-row (sigma, sigma_next) from a deduplicated descending sigma grid.
 
-    Shifted linspace(1, 0, steps) with consecutive fp32 duplicates removed, so
-    every step satisfies 1 >= sigma > sigma_next >= 0 and the operator's
-    fail-closed validation never fires on legal input.
+    The grid is ``linspace(1, 0, steps)``; consecutive fp32 duplicates are removed
+    first, so every step satisfies 1 >= sigma > sigma_next >= 0 and the operator's
+    fail-closed validation never fires on legal input (and raising ``steps`` cannot
+    collapse a pair to ``sigma == sigma_next``).
     """
     steps = 8
     grid = torch.linspace(1.0, 0.0, steps + 1, dtype=torch.float32, device=device)
+    keep = torch.ones(grid.numel(), dtype=torch.bool, device=device)
+    keep[1:] = grid[1:] < grid[:-1]
+    grid = grid[keep]
+    steps = grid.numel() - 1
     if _arg_str(args, "input_mode", "random") == "constant":
         index = torch.zeros(rows, dtype=torch.long, device=device)
     else:

@@ -145,6 +145,24 @@ void check_sigma_layout(const torch::Tensor& sigma, const torch::Tensor& sigma_n
       "one value per packed row");
 }
 
+void check_sigma_values(const torch::Tensor& sigma, const torch::Tensor& sigma_next) {
+  // The Python wrappers validate the grid before calling in, but the pybind
+  // symbols are exported individually (csrc/bindings/h3_ops.cpp) and can be
+  // reached directly, so the value contract holds here too: a zero sigma makes
+  // r = sigma_next / sigma undefined and would propagate NaN/inf silently.
+  // The predicates are folded on device and read once, so this costs one
+  // device-to-host sync instead of one per predicate.
+  const bool ok =
+      ((sigma > 0) & (sigma_next >= 0) & (sigma_next <= sigma) & at::isfinite(sigma) &
+       at::isfinite(sigma_next))
+          .all()
+          .item<bool>();
+  TORCH_CHECK(
+      ok,
+      "sigma and sigma_next must be finite with sigma > 0 and 0 <= sigma_next <= sigma; "
+      "a zero or non-finite sigma makes the Euler ratio undefined");
+}
+
 struct RowGeometry {
   int64_t rows;
   int64_t width;
@@ -155,14 +173,11 @@ RowGeometry row_geometry(const torch::Tensor& t) {
   return RowGeometry{t.numel() / std::max<int64_t>(width, 1), width};
 }
 
-void check_common(const torch::Tensor& xt, const torch::Tensor& v) {
+void check_xt_tensor(const torch::Tensor& xt) {
+  // The forward entry validates xt through check_common; the backward symbol is
+  // exported on its own, so it has to enforce the same contract itself.
   TORCH_CHECK(xt.is_cuda(), "xt must be a CUDA tensor");
   TORCH_CHECK(xt.is_contiguous(), "xt must be contiguous");
-  TORCH_CHECK(v.is_cuda(), "v must be a CUDA tensor");
-  TORCH_CHECK(v.is_contiguous(), "v must be contiguous");
-  TORCH_CHECK(xt.device() == v.device(), "xt and v must share a device");
-  TORCH_CHECK(xt.sizes() == v.sizes(), "xt and v must share shape");
-  TORCH_CHECK(xt.scalar_type() == v.scalar_type(), "xt and v must share dtype");
   // AT_DISPATCH_FLOATING_TYPES_AND2 also matches double, but the device functions
   // round everything in float and only cast back at the epilogue; a float64 xt
   // would silently return fp32-precision data.  The contract is fp16/bf16/fp32,
@@ -171,6 +186,15 @@ void check_common(const torch::Tensor& xt, const torch::Tensor& v) {
       xt.scalar_type() == at::kFloat || xt.scalar_type() == at::kHalf ||
           xt.scalar_type() == at::kBFloat16,
       "xt must be fp32, fp16 or bf16; float64 is outside the h3_ode_step contract");
+}
+
+void check_common(const torch::Tensor& xt, const torch::Tensor& v) {
+  check_xt_tensor(xt);
+  TORCH_CHECK(v.is_cuda(), "v must be a CUDA tensor");
+  TORCH_CHECK(v.is_contiguous(), "v must be contiguous");
+  TORCH_CHECK(xt.device() == v.device(), "xt and v must share a device");
+  TORCH_CHECK(xt.sizes() == v.sizes(), "xt and v must share shape");
+  TORCH_CHECK(xt.scalar_type() == v.scalar_type(), "xt and v must share dtype");
 }
 
 }  // namespace
@@ -186,6 +210,7 @@ std::vector<torch::Tensor> ode_step_forward_cuda(
   check_sigma(sigma, "sigma", geo.rows, xt);
   check_sigma(sigma_next, "sigma_next", geo.rows, xt);
   check_sigma_layout(sigma, sigma_next);
+  check_sigma_values(sigma, sigma_next);
 
   auto x_next = torch::empty_like(xt);
   auto x0 = torch::empty_like(xt);
@@ -224,6 +249,7 @@ std::vector<torch::Tensor> ode_step_backward_cuda(
     torch::Tensor xt,
     torch::Tensor sigma,
     torch::Tensor sigma_next) {
+  check_xt_tensor(xt);
   TORCH_CHECK(grad_next.is_cuda() && grad_next.is_contiguous(),
               "grad_next must be a contiguous CUDA tensor");
   TORCH_CHECK(grad_x0.is_cuda() && grad_x0.is_contiguous(),
@@ -245,6 +271,7 @@ std::vector<torch::Tensor> ode_step_backward_cuda(
   check_sigma(sigma, "sigma", geo.rows, xt);
   check_sigma(sigma_next, "sigma_next", geo.rows, xt);
   check_sigma_layout(sigma, sigma_next);
+  check_sigma_values(sigma, sigma_next);
 
   auto grad_xt = torch::empty_like(xt);
   auto grad_v = torch::empty_like(xt);

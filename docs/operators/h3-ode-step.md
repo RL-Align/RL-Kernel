@@ -133,9 +133,11 @@ terminal step (`sigma_next == 0`), monotone grid, dtype coverage, non-power-of-t
 channel widths (24 / 32), bitwise Axis-A invariance across batch position, batch
 size, repeated execution and unrelated-row mutation, and fail-closed behaviour for
 `sigma == 0`, `sigma_next > sigma`, non-finite sigma, a mixed scalar/per-row sigma
-pair (both Python wrappers and the raw `_H3_C` symbols), shape/device/dtype
-mismatch (including float64 `xt` and mixed-dtype upstream gradients), bad per-row
-sigma length, empty input and non-contiguous input.
+pair, shape/device/dtype mismatch, bad per-row sigma length, empty input and
+non-contiguous input. The raw `_H3_C.ode_step_forward` / `ode_step_backward`
+symbols are covered for the same fail-closed set (value checks, mixed layouts,
+float64 and non-contiguous `xt`, mixed-dtype upstream gradients), because they are
+exported and can be called without the Python wrappers.
 
 ## Known Limitations
 

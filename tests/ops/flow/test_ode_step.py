@@ -587,3 +587,49 @@ def test_cuda_native_symbols_reject_float64_and_mixed_grad_dtype() -> None:
     grad = torch.zeros_like(xt_d)
     with pytest.raises(RuntimeError, match="dtype"):
         ext.ode_step_backward(grad.half(), grad, xt_d, sigma.to(device), sigma_next.to(device))
+
+
+@_CUDA
+@pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
+def test_cuda_native_backward_validates_xt_itself() -> None:
+    """The raw backward symbol must reject float64 and non-contiguous ``xt``.
+
+    Matching-dtype float64 gradients would pass a gradients-only dtype guard
+    (``AT_DISPATCH_FLOATING_TYPES_AND2`` matches double), and ``empty_like(xt)``
+    keeps the strides of a non-contiguous ``xt`` while the kernel writes linearly.
+    """
+    xt, v, sigma, sigma_next = _inputs(rows=4)
+    device = torch.device("cuda")
+    ext = _cuda_ode_step._extension()
+    per_row, per_row_next = sigma.to(device), sigma_next.to(device)
+
+    xt64 = xt.double().to(device)
+    grad64 = torch.zeros_like(xt64)
+    with pytest.raises(RuntimeError, match="float64"):
+        ext.ode_step_backward(grad64, grad64, xt64, per_row, per_row_next)
+
+    xt_d = xt.to(device)
+    grad = torch.zeros_like(xt_d)
+    xt_non_contiguous = xt_d.t().contiguous().t()
+    assert not xt_non_contiguous.is_contiguous()
+    with pytest.raises(RuntimeError, match="contiguous"):
+        ext.ode_step_backward(grad, grad, xt_non_contiguous, per_row, per_row_next)
+
+
+@_CUDA
+@pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
+def test_cuda_native_symbols_fail_closed_on_degenerate_sigma_values() -> None:
+    """A zero sigma or an increasing step must fail closed at the raw symbol too."""
+    xt, v, sigma, sigma_next = _inputs(rows=4)
+    device = torch.device("cuda")
+    ext = _cuda_ode_step._extension()
+    xt_d, v_d = xt.to(device), v.to(device)
+    per_row, per_row_next = sigma.to(device), sigma_next.to(device)
+    zero = torch.zeros((), device=device)
+    grad = torch.zeros_like(xt_d)
+    with pytest.raises(RuntimeError, match="Euler ratio"):
+        ext.ode_step_forward(xt_d, v_d, zero, per_row_next)
+    with pytest.raises(RuntimeError, match="Euler ratio"):
+        ext.ode_step_forward(xt_d, v_d, per_row, per_row * 2.0)
+    with pytest.raises(RuntimeError, match="Euler ratio"):
+        ext.ode_step_backward(grad, grad, xt_d, zero, per_row_next)
