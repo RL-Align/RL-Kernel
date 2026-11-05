@@ -50,14 +50,19 @@ y = registry.get_op("text_context_projection", device="cuda")(x, weight, bias)
 * `d_input = g @ W` reduces the output axis ascending; `d_weight = g^T x` and `d_bias`
   reduce the token axis (the one cross-token reduction); results are cast once. Every op takes
   an optional `logical_keys` (`[T, 2|3]` int64, a negative first component marks padding):
-  rows are then reduced in ascending key order with padding dropped, so `d_weight` / `d_bias`
-  are bitwise independent of how the caller permutes, pads or splits the rows. Active keys must
-  be unique. Without keys the reduction follows the call order and is only invariant for an
+  rows are then reduced in ascending key order with padding dropped, so within one call
+  `d_weight` / `d_bias` are bitwise independent of how the caller permutes or pads the rows (a
+  call whose rows are all padding gives zero parameter gradients). A batch split over several
+  backward calls is not covered: each call rounds its own partial gradient before autograd
+  accumulates them, and a cross-call canonical accumulator is not part of this row. Active keys
+  must be unique. The PyTorch reference rows accept the same keys (validated the same way;
+  padding rows give no parameter gradient) but keep the provider's reduction order. Without keys the reduction follows the call order and is only invariant for an
   unchanged row order; the backward provenance records which of the two was used. The key
   format follows #562;
 * `h3_qkv_gemm` backward is the fused `[Q; K; V]` backward: `N = 7168` is a multiple of
   `BLOCK_K`, so concatenating the three operands moves no block boundary and the separate and
-  fused layouts have identical gradient bytes.
+  fused layouts have identical gradient bytes. The block graph's `q_proj` / `k_proj` / `v_proj`
+  nodes share one call of this operator, so the block's input gradient is this fused backward.
 
 Consequences, all tested bitwise: a token's output does not depend on the batch size, the
 row position or the other rows; a TP output shard equals the same columns of the full product;
@@ -81,14 +86,15 @@ used when `RL_KERNEL_H3_WEIGHTS` points at them.
 
 ## Performance (H100 SXM, torch 2.13, forward, provider = cuBLAS with TF32 off)
 
-Evidence: `tools/validation/models/h3_projection_bench.py`.
+Evidence: `reports/experiments/h3-projection-rows-h100/bench.json` from
+`tools/validation/models/h3_projection_bench.py` (forward only).
 
 | Row | T = 64 | T = 1024 | T = 4096 |
 | --- | --- | --- | --- |
-| `audio_input_projection_fp32` | x2.6 | x2.4 | x2.1 |
-| `audio_output_projection_fp32` | x11.9 | x9.4 | x3.5 |
-| `text_context_projection` | x2.8 | x2.1 | x1.4 |
-| `h3_qkv_gemm` (3 projections) | x1.7 | x1.4 | x1.4 |
+| `audio_input_projection_fp32` | x4.25 | x2.44 | x2.18 |
+| `audio_output_projection_fp32` | x12.33 | x9.85 | x3.53 |
+| `text_context_projection` | x2.18 | x1.84 | x1.45 |
+| `h3_qkv_gemm` (3 projections) | x1.72 | x1.43 | x1.33 |
 
 Ratios are candidate time over provider time. `audio_output_projection_fp32` is 0.55 ms flat: with
 `N = 32` the grid has only `T / 64` programs and one sequential FP32 chain over 5376, so it
@@ -112,8 +118,9 @@ determinism; fused vs separate QKV forward and backward bitwise; registry dispat
 ## Hopper evidence (H100)
 
 These outputs and figures are not part of this diff; they are on the fork's `pr_assets` branch (links in the PR description).
-`reports/experiments/h3-projection-rows-h100/bench.json` (from `tools/validation/models/h3_projection_bench.py`) and the chart below record
-forward time and relative error vs an FP64 `F.linear`, per row and token count, for the RL-Kernel operator and the cuBLAS provider.
-The fixed-order kernels are 1.3x to 4.3x slower than cuBLAS on the BF16 rows; `audio_output_projection_fp32` (FP32, K=5376, ieee
+`reports/experiments/h3-projection-rows-h100/bench.json` (from `tools/validation/models/h3_projection_bench.py`) and the chart in the PR description record
+forward time and relative error vs an FP64 `F.linear`, per row and token count, for the RL-Kernel operator and the cuBLAS provider
+(the Performance table above). The fixed-order kernels are 1.3x to 2.2x slower than cuBLAS on the BF16 rows and 2.2x to 4.3x on
+`audio_input_projection_fp32`; `audio_output_projection_fp32` (FP32, K=5376, ieee
 precision, 64x64x32 tile) is the slowest (3.5x to 12x) and is the first candidate for a per-row tile sweep. Strict mode forbids
 split-K, so this is the cost of the fixed reduction order.

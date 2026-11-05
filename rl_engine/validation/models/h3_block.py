@@ -183,19 +183,48 @@ def _row_keys(x: torch.Tensor) -> torch.Tensor:
     return torch.stack([rows, positions], dim=1)
 
 
+QKV_WEIGHTS = ("attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight")
+
+
+def fused_qkv(
+    ctx: dict[str, Any], x: torch.Tensor, weights: tuple[torch.Tensor, ...], ops: Any
+) -> Any:
+    """``(q, k, v)`` of one combined ``h3_qkv_gemm`` call, shared by the three projection nodes.
+
+    The first node to run on ``x`` makes the call (``ops.qkv(x2d, wq, wk, wv)``, with the rows'
+    logical keys); the others read its outputs. The cache is keyed on the identity of ``x`` and
+    of the three weights, so a copied ``ctx`` (new weights or inputs) never reads another run's
+    outputs.
+    """
+
+    key = (x, *weights)
+    cache = ctx.setdefault("_fused_qkv", {})
+    cached = cache.get("key")
+    if cached is None or any(a is not b for a, b in zip(cached, key, strict=True)):
+        flat = x.reshape(-1, x.shape[-1])
+        cache.update(key=key, outputs=ops.qkv(flat, *weights, logical_keys=_row_keys(x)))
+    return cache["outputs"]
+
+
 def _qkv_node(name: str, weight: str) -> Node:
-    """Q, K or V projection: the ``h3_qkv_gemm`` row (fixed-order Triton GEMM, BF16)."""
+    """Q, K or V projection: the ``h3_qkv_gemm`` row (fixed-order Triton GEMM, BF16).
+
+    The three nodes share one call of the row's combined operator, so the input gradient is the
+    fused ``[Q; K; V]`` backward (FP32 over all three, one rounding) the row promises, not three
+    separately rounded gradients added by autograd. The forward bytes are those of each
+    projection alone.
+    """
+
+    index = QKV_WEIGHTS.index(weight)
 
     def candidate(ops, ctx, x):
-        flat = x.reshape(-1, x.shape[-1])
-        return ops.qkv.project(flat, _w(ctx, weight), logical_keys=_row_keys(x)).view(
-            *x.shape[:-1], -1
-        )
+        weights = tuple(_w(ctx, w) for w in QKV_WEIGHTS)
+        return fused_qkv(ctx, x, weights, ops)[index].view(*x.shape[:-1], -1)
 
     return Node(
         name=name,
         inputs=("norm1",),
-        binding=Binding("h3_qkv_gemm", "row", "H3QKVGemmCudaOp.project"),
+        binding=Binding("h3_qkv_gemm", "row", "H3QKVGemmCudaOp.forward"),
         candidate=candidate,
         provider=lambda ctx, x: prov.provider_linear(x, _w(ctx, weight)),
         golden=lambda ctx, x: gold.golden_linear(x, _w(ctx, weight)),

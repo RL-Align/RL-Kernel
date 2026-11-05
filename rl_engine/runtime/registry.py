@@ -890,21 +890,17 @@ class KernelRegistry:
                     OpBackend.PYTORCH_H3_TIMESTEP_MLP,
                 ],
                 "audio_input_projection_fp32": [
-                    OpBackend.CUDA_H3_AUDIO_INPUT_PROJECTION,
-                    OpBackend.PYTORCH_H3_AUDIO_INPUT_PROJECTION,
-                ],
+                    OpBackend.CUDA_H3_AUDIO_INPUT_PROJECTION
+                ],  # strict row: no cuBLAS reference behind it
                 "audio_output_projection_fp32": [
-                    OpBackend.CUDA_H3_AUDIO_OUTPUT_PROJECTION,
-                    OpBackend.PYTORCH_H3_AUDIO_OUTPUT_PROJECTION,
-                ],
+                    OpBackend.CUDA_H3_AUDIO_OUTPUT_PROJECTION
+                ],  # strict row: no cuBLAS reference behind it
                 "text_context_projection": [
-                    OpBackend.CUDA_H3_TEXT_CONTEXT_PROJECTION,
-                    OpBackend.PYTORCH_H3_TEXT_CONTEXT_PROJECTION,
-                ],
+                    OpBackend.CUDA_H3_TEXT_CONTEXT_PROJECTION
+                ],  # strict row: no cuBLAS reference behind it
                 "h3_qkv_gemm": [
-                    OpBackend.CUDA_H3_QKV_GEMM,
-                    OpBackend.PYTORCH_H3_QKV_GEMM,
-                ],
+                    OpBackend.CUDA_H3_QKV_GEMM
+                ],  # strict row: no cuBLAS reference behind it
                 "adaln_projection_3mod": [
                     OpBackend.CUDA_H3_ADALN_PROJECTION,
                     OpBackend.PYTORCH_H3_ADALN_PROJECTION,

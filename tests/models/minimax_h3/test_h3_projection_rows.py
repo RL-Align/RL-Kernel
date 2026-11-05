@@ -550,3 +550,53 @@ def test_logical_keys_are_validated():
         op(x, w, b, logical_keys=torch.zeros(2, 2, device="cuda", dtype=torch.int32))
     with pytest.raises(ValueError, match="shape"):
         op(x, w, b, logical_keys=torch.zeros(3, 2, device="cuda", dtype=torch.int64))
+
+
+def test_cuda_dispatch_fails_closed_without_triton(monkeypatch):
+    """No cuBLAS reference behind the strict rows: a CUDA request without Triton raises."""
+
+    from rl_engine.backends.cuda.model_specific.minimax_h3 import projection as cu
+    from rl_engine.runtime.registry import KernelRegistry
+
+    monkeypatch.setattr(cu.gemm, "available", lambda: False)
+    registry = KernelRegistry()
+    for row in ref.SPECS:
+        with pytest.raises(RuntimeError, match="No functional backend"):
+            registry.get_op(row, device="cuda")
+
+
+def test_reference_rows_take_the_cuda_signature_and_key_contract():
+    """The CPU reference accepts ``logical_keys`` (validated like the CUDA rows) and gives
+    padding rows no parameter gradient; the reference Q/K/V has ``project``."""
+
+    torch.manual_seed(0)
+    op = ref.NativeH3AudioInputProjectionOp()
+    x = torch.randn(6, 32)
+    w = (torch.randn(5376, 32) / 8).requires_grad_(True)
+    b = torch.randn(5376).requires_grad_(True)
+    keys = torch.stack([torch.arange(6), torch.zeros(6, dtype=torch.int64)], dim=1)
+    keys[[1, 4], 0] = -1  # padding
+    out = op(x, w, b, logical_keys=keys)
+    assert torch.equal(out, F.linear(x, w, b))
+    gw, gb = torch.autograd.grad(out.sum(), (w, b))
+    active = keys[:, 0] >= 0
+    rw, rb = torch.autograd.grad(F.linear(x[active], w, b).sum(), (w, b))
+    assert torch.allclose(gw, rw, rtol=1e-6, atol=1e-6) and torch.allclose(gb, rb)
+    with pytest.raises(ValueError, match="unique"):
+        op(x, w, b, logical_keys=torch.zeros(6, 2, dtype=torch.int64))
+    qkv = ref.NativeH3QKVGemmOp()
+    xb, wq = torch.randn(3, 5376).bfloat16(), (torch.randn(128, 5376) / 70).bfloat16()
+    assert torch.equal(qkv.project(xb, wq, logical_keys=keys[:3]), F.linear(xb, wq))
+    assert torch.equal(qkv(xb, wq, wq, wq, logical_keys=keys[:3])[1], F.linear(xb, wq))
+
+
+@requires_cuda
+def test_an_all_padding_call_gives_zero_parameter_gradients():
+    cu = _cuda_ops()
+    op = cu.H3AudioInputProjectionCudaOp()
+    x = torch.randn(4, 32, device="cuda")
+    w = torch.randn(5376, 32, device="cuda", requires_grad=True)
+    b = torch.randn(5376, device="cuda", requires_grad=True)
+    keys = torch.full((4, 2), -1, dtype=torch.int64, device="cuda")
+    gw, gb = torch.autograd.grad(op(x, w, b, logical_keys=keys).sum(), (w, b))
+    assert torch.count_nonzero(gw) == 0 and torch.count_nonzero(gb) == 0

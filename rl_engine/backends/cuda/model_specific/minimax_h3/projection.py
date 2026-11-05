@@ -17,9 +17,11 @@ split-K / stream-K / atomics / autotuning, one rounding at the store. So
 FP32 rows use ``input_precision="ieee"`` (no TF32); BF16 rows use the tensor-core dot.
 ``d_input`` reduces the output axis ascending. ``d_weight`` / ``d_bias`` reduce the token axis:
 with ``logical_keys`` (``[T, 2|3]`` int64, a negative first component marks padding) the rows
-are first put in ascending key order and padding is dropped, so the parameter gradients are
-bitwise independent of how the caller permutes, pads or splits the rows; without keys they
-reduce in call order, which is only invariant for an unchanged row order. Nothing falls back
+are first put in ascending key order and padding is dropped, so within one call the parameter
+gradients are bitwise independent of how the caller permutes or pads the rows (all padding gives
+zero); separate backward calls round their own partial gradients, so a split batch is not
+covered. Without keys they reduce in call order, which is only invariant for an unchanged row
+order. Nothing falls back
 to cuBLAS: a missing Triton or an unsupported dtype/shape raises. (An earlier warp-per-column
 GEMV kernel, ``h3-det-linear-v1``, is exact too but 50-250x slower than cuBLAS at thousands of
 tokens, so it is not used here.)
@@ -47,39 +49,7 @@ def _require_triton() -> None:
         )
 
 
-def canonical_row_order(logical_keys: torch.Tensor | None, x: torch.Tensor) -> torch.Tensor | None:
-    """Row indices of the active rows in ascending logical-key order.
-
-    ``None`` without keys, and also when the rows already are the active rows in canonical order
-    (the reduction then runs in place and gives the same bytes).
-
-    Active keys must be unique, otherwise the order of two equal keys would depend on the call.
-    """
-
-    if logical_keys is None:
-        return None
-    if not isinstance(logical_keys, torch.Tensor):
-        raise TypeError("logical_keys must be a torch.Tensor")
-    rows = x.shape[0]
-    if logical_keys.dtype != torch.int64 or logical_keys.device != x.device:
-        raise ValueError("logical_keys must be int64 on the projection device")
-    if (
-        logical_keys.ndim != 2
-        or logical_keys.shape[0] != rows
-        or logical_keys.shape[1] not in (2, 3)
-    ):
-        raise ValueError(f"logical_keys must have shape [{rows}, 2] or [{rows}, 3]")
-    active = (logical_keys[:, 0] >= 0).nonzero().flatten()
-    keys = logical_keys[active]
-    if torch.unique(keys, dim=0).shape[0] != keys.shape[0]:
-        raise ValueError("active logical keys must be unique")
-    order = torch.arange(keys.shape[0], device=x.device)
-    for column in reversed(range(keys.shape[1])):  # stable passes, least significant key first
-        order = order[torch.argsort(keys[order, column], stable=True)]
-    order = active[order]
-    if order.numel() == rows and torch.equal(order, torch.arange(rows, device=x.device)):
-        return None  # already in canonical order: reduce in place, no gather of x and g
-    return order
+canonical_row_order = ref.canonical_row_order  # shared with the reference rows
 
 
 def _keyed(logical_keys, x, *params):
@@ -91,6 +61,9 @@ def _keyed(logical_keys, x, *params):
 
 
 def _weight_grads(grad_out, x, order, with_bias):
+    if order is not None and order.numel() == 0:  # every row is padding: no contribution
+        dweight = grad_out.new_zeros(grad_out.shape[1], x.shape[1])
+        return dweight, grad_out.new_zeros(grad_out.shape[1]) if with_bias else None
     if order is not None:
         grad_out, x = grad_out[order].contiguous(), x[order].contiguous()
     return gemm.linear_backward_weight(grad_out, x, with_bias=with_bias)

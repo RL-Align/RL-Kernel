@@ -142,3 +142,31 @@ def test_block_backward(h3_block_weights_cuda, ops):
     assert report["leaves"]["hidden"]["batch_row_bitwise_equal"]
     assert report["first_grad_repeat_drift"] is None
     assert report["first_grad_batch_drift"] is None
+
+
+def test_qkv_nodes_share_one_combined_row_call():
+    """``q_proj`` / ``k_proj`` / ``v_proj`` call the ``h3_qkv_gemm`` row once, so the block's
+    input gradient is the row's fused backward; a copied context recomputes."""
+
+    calls = []
+
+    class _Ops:
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            calls.append(logical_keys.shape)
+            return tuple(flat @ w.t() for w in (wq, wk, wv))
+
+    nodes = {n.name: n for n in h3_block.NODES}
+    weights = {f"{h3_block.BLOCK}.{w}": torch.randn(4, 6) for w in h3_block.QKV_WEIGHTS}
+    ctx = {"weights": weights}
+    x = torch.randn(1, 3, 6)
+    outs = [nodes[n].candidate(_Ops, ctx, x) for n in ("q_proj", "k_proj", "v_proj")]
+    assert len(calls) == 1 and calls[0] == (3, 2)
+    for out, w in zip(outs, h3_block.QKV_WEIGHTS):
+        assert torch.equal(
+            out, (x.reshape(3, 6) @ weights[f"{h3_block.BLOCK}.{w}"].t()).view(1, 3, 4)
+        )
+    other = {**ctx, "weights": {k: v.clone() for k, v in weights.items()}}
+    nodes["k_proj"].candidate(_Ops, other, x)
+    nodes["q_proj"].candidate(_Ops, ctx, torch.randn(1, 3, 6))
+    assert len(calls) == 3
