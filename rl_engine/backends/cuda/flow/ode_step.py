@@ -39,6 +39,7 @@ def _row_count(tensor: Tensor) -> int:
 
 
 def _extension() -> ModuleType:
+    """Return the strict H3 DSO or raise: there is no silent fallback."""
     if _C is None or any(not hasattr(_C, name) for name in _REQUIRED):
         raise RuntimeError(
             "H3 CUDA extension unavailable; rebuild RL-Kernel with RL_KERNEL_H3_STRICT=1 "
@@ -48,14 +49,18 @@ def _extension() -> ModuleType:
 
 
 def _as_sigma(value: Any, xt: Tensor, rows: int, name: str) -> Tensor:
-    """Return contiguous fp32 sigma as a 0-dim scalar or one value per row."""
+    """Return contiguous fp32 sigma as a 0-dim scalar or one value per row.
+
+    Schedule tensors are detached: they are not differentiable inputs, and the
+    kernel exposes gradients only for ``xt`` and ``v``.
+    """
     if not isinstance(value, Tensor):
         value = torch.as_tensor(value, dtype=torch.float32, device=xt.device)
     if value.device != xt.device:
         raise ValueError(f"{name} must be on xt's device, got {value.device} and {xt.device}.")
     if not value.is_floating_point():
         raise TypeError(f"{name} must be floating point, got {value.dtype}.")
-    value = value.to(dtype=torch.float32).contiguous()
+    value = value.detach().to(dtype=torch.float32).contiguous()
     if value.numel() == 1:
         return value.reshape(())
     if value.numel() == rows:
@@ -67,6 +72,7 @@ def _as_sigma(value: Any, xt: Tensor, rows: int, name: str) -> Tensor:
 
 
 def _check_sigma_values(sigma: Tensor, sigma_next: Tensor) -> None:
+    """Reject sigma geometry the pinned H3 shifted grid can never produce."""
     if not torch.isfinite(sigma).all() or not torch.isfinite(sigma_next).all():
         raise ValueError("sigma and sigma_next must be finite.")
     if bool((sigma <= 0).any()):
@@ -80,8 +86,11 @@ def _check_sigma_values(sigma: Tensor, sigma_next: Tensor) -> None:
 
 
 class _H3OdeStepCudaFunction(torch.autograd.Function):
+    """Autograd bridge around the two ``rl_engine._H3_C`` symbols."""
+
     @staticmethod
     def forward(ctx, xt, v, sigma, sigma_next):  # type: ignore[override]
+        """Launch the native forward and save ``xt`` and the sigma pair."""
         xt = xt.contiguous()
         v = v.contiguous()
         out = _extension().ode_step_forward(xt, v, sigma, sigma_next)
@@ -90,6 +99,7 @@ class _H3OdeStepCudaFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_next, grad_x0):  # type: ignore[override]
+        """Run the native backward; only ``xt`` and ``v`` receive gradients."""
         xt, sigma, sigma_next = ctx.saved_tensors
         needs_xt, needs_v = ctx.needs_input_grad[0], ctx.needs_input_grad[1]
         if not (needs_xt or needs_v):
@@ -110,24 +120,29 @@ class H3OdeStepCUDAOp:
     op_class = "elementwise"
 
     def __init__(self) -> None:
+        """Fail at construction when the strict H3 extension is missing."""
         _extension()
         logger.info("Successfully linked to precompiled _H3_C.ode_step_forward kernel.")
 
     def __call__(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Alias for :meth:`forward` so the op can be invoked like a function."""
         return self.forward(xt, v, sigma, sigma_next)
 
     def forward(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Return ``(x_next, x0)`` in the input dtype via the native kernel."""
         s, sn = self._prepare(xt, v, sigma, sigma_next)
         return _H3OdeStepCudaFunction.apply(xt.contiguous(), v.contiguous(), s, sn)
 
     def forward_fp32(
         self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any
     ) -> tuple[Tensor, Tensor]:
+        """Gold-path entry point: dispatch the native kernel on FP32 copies."""
         s, sn = self._prepare(xt, v, sigma, sigma_next)
         return _H3OdeStepCudaFunction.apply(xt.float().contiguous(), v.float().contiguous(), s, sn)
 
     @staticmethod
     def _prepare(xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Validate the tensors and normalise both sigma arguments."""
         for name, tensor in (("xt", xt), ("v", v)):
             if tensor.device.type != "cuda":
                 raise RuntimeError(f"{name} must be a CUDA tensor, got {tensor.device}.")

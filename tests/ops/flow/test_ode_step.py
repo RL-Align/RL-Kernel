@@ -53,6 +53,7 @@ def _sigma_pair(
 
 
 def _inputs(rows: int = 8, channels: int = _VIDEO_CHANNELS, *, seed: int = 0):
+    """Build a seeded ``(xt, v, sigma, sigma_next)`` case."""
     generator = torch.Generator().manual_seed(seed)
     xt = torch.randn(rows, channels, dtype=torch.float32, generator=generator)
     v = torch.randn(rows, channels, dtype=torch.float32, generator=generator)
@@ -66,6 +67,7 @@ def _inputs(rows: int = 8, channels: int = _VIDEO_CHANNELS, *, seed: int = 0):
 
 
 def test_gold_uses_declared_expression_order() -> None:
+    """The gold path must evaluate the declared expression order bit for bit."""
     xt, v, sigma, sigma_next = _inputs()
     op = NativeH3OdeStepOp()
     x_next, x0 = op.forward_fp32(xt, v, sigma, sigma_next)
@@ -124,6 +126,7 @@ def test_terminal_step_has_zero_ratio() -> None:
 
 
 def test_scalar_sigma_path() -> None:
+    """A scalar ``(sigma, sigma_next)`` pair produces both outputs."""
     xt, v, _, _ = _inputs(rows=4)
     x_next, x0 = NativeH3OdeStepOp().forward_fp32(xt, v, 1.0, 0.5)
     assert x_next.shape == xt.shape and x0.shape == xt.shape
@@ -170,6 +173,7 @@ def test_fail_closed_on_3d_sigma_layout_mismatch() -> None:
 
 
 def test_shifted_grid_is_monotone() -> None:
+    """Every sampled step satisfies ``1 >= sigma > sigma_next >= 0``."""
     sigma, sigma_next = _sigma_pair(32)
     assert bool((sigma > sigma_next).all())
     assert bool((sigma_next >= 0).all())
@@ -182,6 +186,7 @@ def test_shifted_grid_is_monotone() -> None:
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
 def test_forward_casts_at_epilogue(dtype: torch.dtype) -> None:
+    """Fp16/bf16 inputs round once, at the epilogue cast."""
     xt, v, sigma, sigma_next = _inputs()
     x_next, x0 = NativeH3OdeStepOp().forward(xt.to(dtype), v.to(dtype), sigma, sigma_next)
     assert x_next.dtype == dtype and x0.dtype == dtype
@@ -189,6 +194,7 @@ def test_forward_casts_at_epilogue(dtype: torch.dtype) -> None:
 
 @pytest.mark.parametrize("channels", [_VIDEO_CHANNELS, _AUDIO_CHANNELS])
 def test_non_power_of_two_channels(channels: int) -> None:
+    """The operator accepts the 24/32 latent channel widths."""
     xt, v, sigma, sigma_next = _inputs(rows=3, channels=channels)
     x_next, _ = NativeH3OdeStepOp().forward_fp32(xt, v, sigma, sigma_next)
     assert x_next.shape == (3, channels)
@@ -200,6 +206,7 @@ def test_non_power_of_two_channels(channels: int) -> None:
 
 
 def test_batch_position_invariance() -> None:
+    """A row's bytes do not depend on its position in the batch."""
     xt, v, sigma, sigma_next = _inputs(rows=8)
     op = NativeH3OdeStepOp()
     full, _ = op.forward_fp32(xt, v, sigma, sigma_next)
@@ -212,6 +219,7 @@ def test_batch_position_invariance() -> None:
 
 
 def test_batch_size_invariance() -> None:
+    """A row's bytes do not depend on how many rows share the call."""
     xt, v, sigma, sigma_next = _inputs(rows=16)
     op = NativeH3OdeStepOp()
     full, _ = op.forward_fp32(xt, v, sigma, sigma_next)
@@ -221,6 +229,7 @@ def test_batch_size_invariance() -> None:
 
 
 def test_unrelated_row_mutation_does_not_change_a_row() -> None:
+    """Writing other rows leaves this row bitwise untouched."""
     xt, v, sigma, sigma_next = _inputs(rows=4)
     op = NativeH3OdeStepOp()
     before, _ = op.forward_fp32(xt, v, sigma, sigma_next)
@@ -233,6 +242,7 @@ def test_unrelated_row_mutation_does_not_change_a_row() -> None:
 
 
 def test_repeated_execution_is_bitwise_stable() -> None:
+    """Repeated calls on the same inputs return identical bytes."""
     xt, v, sigma, sigma_next = _inputs()
     op = NativeH3OdeStepOp()
     first = op.forward_fp32(xt, v, sigma, sigma_next)
@@ -246,12 +256,14 @@ def test_repeated_execution_is_bitwise_stable() -> None:
 
 
 def test_fail_closed_on_zero_sigma() -> None:
+    """``sigma == 0`` is rejected: the Euler ratio would be undefined."""
     xt, v, _, _ = _inputs(rows=2)
     with pytest.raises(ValueError, match="strictly positive"):
         NativeH3OdeStepOp().forward_fp32(xt, v, torch.zeros(2, 1), torch.zeros(2, 1))
 
 
 def test_fail_closed_on_increasing_sigma() -> None:
+    """An increasing step is rejected: the H3 grid is monotone."""
     xt, v, _, _ = _inputs(rows=2)
     with pytest.raises(ValueError, match="monotonically decreasing"):
         NativeH3OdeStepOp().forward_fp32(xt, v, torch.full((2, 1), 0.25), torch.full((2, 1), 0.75))
@@ -259,18 +271,21 @@ def test_fail_closed_on_increasing_sigma() -> None:
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
 def test_fail_closed_on_non_finite_sigma(bad: float) -> None:
+    """NaN/inf sigma is rejected before any arithmetic."""
     xt, v, _, _ = _inputs(rows=2)
     with pytest.raises(ValueError, match="finite"):
         NativeH3OdeStepOp().forward_fp32(xt, v, torch.full((2, 1), bad), torch.full((2, 1), 0.5))
 
 
 def test_fail_closed_on_shape_mismatch() -> None:
+    """``xt`` and ``v`` with different shapes are rejected."""
     xt, _, sigma, sigma_next = _inputs(rows=2)
     with pytest.raises(ValueError, match="share a shape"):
         NativeH3OdeStepOp().forward_fp32(xt, torch.randn(3, xt.shape[1]), sigma, sigma_next)
 
 
 def test_fail_closed_on_unsupported_dtype() -> None:
+    """float64 is outside the contract and is rejected."""
     xt, v, sigma, sigma_next = _inputs(rows=2)
     with pytest.raises(TypeError, match="dtype"):
         NativeH3OdeStepOp().forward_fp32(
@@ -279,6 +294,7 @@ def test_fail_closed_on_unsupported_dtype() -> None:
 
 
 def test_fail_closed_on_bad_per_row_sigma_length() -> None:
+    """A per-row sigma that cannot cover the rows is rejected."""
     xt, v, _, _ = _inputs(rows=4)
     with pytest.raises(ValueError, match="one value per packed row"):
         NativeH3OdeStepOp().forward_fp32(xt, v, torch.full((3, 1), 0.5), torch.full((3, 1), 0.25))
@@ -300,6 +316,7 @@ def test_fail_closed_on_mixed_sigma_layout() -> None:
 
 
 def test_empty_input_is_legal() -> None:
+    """A zero-row input is a no-op, not an error."""
     xt = torch.empty(0, _VIDEO_CHANNELS)
     v = torch.empty(0, _VIDEO_CHANNELS)
     x_next, x0 = NativeH3OdeStepOp().forward_fp32(xt, v, 1.0, 0.5)
@@ -307,11 +324,30 @@ def test_empty_input_is_legal() -> None:
 
 
 def test_non_contiguous_input() -> None:
+    """A non-contiguous ``xt`` matches its contiguous copy."""
     xt, v, sigma, sigma_next = _inputs(rows=6, channels=_VIDEO_CHANNELS)
     xt_t = xt.t().contiguous().t()  # same values, non-contiguous layout
     x_next, _ = NativeH3OdeStepOp().forward_fp32(xt_t, v, sigma, sigma_next)
     ref, _ = NativeH3OdeStepOp().forward_fp32(xt.contiguous(), v, sigma, sigma_next)
     assert torch.equal(x_next, ref)
+
+
+def test_reference_does_not_expose_schedule_gradients() -> None:
+    """``sigma`` / ``sigma_next`` are scheduler scalars, not differentiable inputs.
+
+    The contract exposes gradients only for ``xt`` and ``v``, and both GPU backends
+    honour that; the reference detaches the schedule tensors so the gradient
+    behaviour cannot depend on which backend is selected.
+    """
+    xt, v, sigma, sigma_next = _inputs(rows=4)
+    xt = xt.clone().requires_grad_(True)
+    v = v.clone().requires_grad_(True)
+    sigma = sigma.clone().requires_grad_(True)
+    sigma_next = sigma_next.clone().requires_grad_(True)
+    x_next, x0 = NativeH3OdeStepOp().forward_fp32(xt, v, sigma, sigma_next)
+    torch.autograd.backward([x_next, x0], [torch.ones_like(x_next), torch.ones_like(x0)])
+    assert xt.grad is not None and v.grad is not None
+    assert sigma.grad is None and sigma_next.grad is None
 
 
 # --------------------------------------------------------------------------- #
@@ -355,6 +391,7 @@ def test_gold_gradients_match_closed_form() -> None:
 @pytest.mark.skipif(not _HAS_TRITON, reason="Triton candidate unavailable")
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_triton_matches_gold(dtype: torch.dtype) -> None:
+    """The Triton candidate matches the gold path within the contract."""
     from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 
     xt, v, sigma, sigma_next = _inputs(rows=8, channels=_AUDIO_CHANNELS)
@@ -385,6 +422,7 @@ def test_triton_matches_gold(dtype: torch.dtype) -> None:
 @_CUDA
 @pytest.mark.skipif(not _HAS_TRITON, reason="Triton candidate unavailable")
 def test_triton_batch_position_invariance_bitwise() -> None:
+    """Triton output is bitwise invariant to batch position."""
     xt, v, sigma, sigma_next = _inputs(rows=8)
     device = torch.device("cuda")
     op = H3OdeStepTritonOp()
@@ -411,6 +449,7 @@ def test_triton_batch_position_invariance_bitwise() -> None:
 @_CUDA
 @pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
 def test_cuda_fp32_is_bitwise_equal_to_gold() -> None:
+    """CUDA FP32 must equal the reference bit for bit."""
     xt, v, sigma, sigma_next = _inputs(rows=64, channels=_AUDIO_CHANNELS)
     device = torch.device("cuda")
     gold_next, gold_x0 = NativeH3OdeStepOp().forward_fp32(xt, v, sigma, sigma_next)
@@ -429,6 +468,7 @@ def test_cuda_fp32_is_bitwise_equal_to_gold() -> None:
 @pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
 def test_cuda_matches_gold_within_contract(dtype: torch.dtype) -> None:
+    """CUDA fp16/bf16 stays within the shared tolerance."""
     from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 
     xt, v, sigma, sigma_next = _inputs(rows=16, channels=_VIDEO_CHANNELS)
@@ -452,6 +492,7 @@ def test_cuda_matches_gold_within_contract(dtype: torch.dtype) -> None:
 @_CUDA
 @pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
 def test_cuda_batch_position_invariance_bitwise() -> None:
+    """CUDA output is bitwise invariant to batch position."""
     xt, v, sigma, sigma_next = _inputs(rows=8)
     device = torch.device("cuda")
     op = H3OdeStepCUDAOp()
@@ -482,6 +523,7 @@ def test_cuda_gradients_match_gold() -> None:
     g_x0 = torch.randn(xt.shape, device=device)
 
     def run(op):
+        """Run one forward/backward pair and return both outputs and gradients."""
         x = xt.clone().to(device).requires_grad_(True)
         vv = v.clone().to(device).requires_grad_(True)
         xn, x0 = op(x, vv, sigma.to(device), sigma_next.to(device))
@@ -501,6 +543,7 @@ def test_cuda_gradients_match_gold() -> None:
 @_CUDA
 @pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
 def test_cuda_fail_closed_on_zero_sigma() -> None:
+    """The CUDA wrapper rejects ``sigma == 0`` before dispatch."""
     xt, v, _, _ = _inputs(rows=4)
     device = torch.device("cuda")
     with pytest.raises(ValueError, match="strictly positive"):
@@ -515,6 +558,7 @@ def test_cuda_fail_closed_on_zero_sigma() -> None:
 @_CUDA
 @pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
 def test_cuda_accepts_scalar_and_per_row_sigma() -> None:
+    """Both matching sigma layouts are accepted by the CUDA wrapper."""
     xt, v, sigma, sigma_next = _inputs(rows=6)
     device = torch.device("cuda")
     op = H3OdeStepCUDAOp()
@@ -541,6 +585,7 @@ def test_triton_fail_closed_on_mixed_sigma_layout() -> None:
 @_CUDA
 @pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
 def test_cuda_fail_closed_on_mixed_sigma_layout() -> None:
+    """The CUDA wrapper rejects a mixed sigma layout."""
     xt, v, sigma, sigma_next = _inputs(rows=4)
     device = torch.device("cuda")
     op = H3OdeStepCUDAOp()

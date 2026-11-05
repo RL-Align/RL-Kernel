@@ -27,14 +27,18 @@ def _row_count(tensor: Tensor) -> int:
 
 
 def _as_sigma(value: Any, xt: Tensor, rows: int, name: str) -> tuple[Tensor, bool]:
-    """Return ``(sigma, per_row)``; ``per_row`` selects the kernel branch."""
+    """Return ``(sigma, per_row)``; ``per_row`` selects the kernel branch.
+
+    Schedule tensors are detached: they are not differentiable inputs, and the
+    kernels expose gradients only for ``xt`` and ``v``.
+    """
     if not isinstance(value, Tensor):
         value = torch.as_tensor(value, dtype=torch.float32, device=xt.device)
     if value.device != xt.device:
         raise ValueError(f"{name} must be on xt's device, got {value.device} and {xt.device}.")
     if not value.is_floating_point():
         raise TypeError(f"{name} must be floating point, got {value.dtype}.")
-    value = value.to(dtype=torch.float32).contiguous()
+    value = value.detach().to(dtype=torch.float32).contiguous()
     if value.numel() == 1:
         return value.reshape(()), False
     if value.numel() == rows:
@@ -46,6 +50,7 @@ def _as_sigma(value: Any, xt: Tensor, rows: int, name: str) -> tuple[Tensor, boo
 
 
 def _check_sigma_values(sigma: Tensor, sigma_next: Tensor) -> None:
+    """Reject sigma geometry the pinned H3 shifted grid can never produce."""
     if not torch.isfinite(sigma).all() or not torch.isfinite(sigma_next).all():
         raise ValueError("sigma and sigma_next must be finite.")
     if bool((sigma <= 0).any()):
@@ -71,6 +76,7 @@ def _ode_step_fwd_kernel(
     ROW_SIGMA: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
+    """Element-wise forward: ``x0 = xt + sigma * v`` and the declared FP32 blend."""
     pid = tl.program_id(0)
     offs = pid * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n_elements
@@ -103,6 +109,7 @@ def _ode_step_bwd_kernel(
     ROW_SIGMA: tl.constexpr,
     BLOCK: tl.constexpr,
 ):
+    """Element-wise backward: return the gradient pair for ``xt`` and ``v``."""
     pid = tl.program_id(0)
     offs = pid * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n_elements
@@ -133,6 +140,7 @@ def _launch(
     sigma: Tensor,
     sigma_next: Tensor,
 ) -> None:
+    """Launch one kernel over the flattened tensor with FP fusion disabled."""
     n = a.numel()
     if n == 0:
         return
@@ -153,8 +161,11 @@ def _launch(
 
 
 class _H3OdeStepFunction(torch.autograd.Function):
+    """Autograd bridge around the Triton forward/backward kernels."""
+
     @staticmethod
     def forward(ctx, xt, v, sigma, sigma_next):  # type: ignore[override]
+        """Allocate both outputs, launch the forward kernel and save its inputs."""
         x_next = torch.empty_like(xt)
         x0 = torch.empty_like(xt)
         _launch(_ode_step_fwd_kernel, x_next, x0, xt, v, sigma, sigma_next)
@@ -163,6 +174,7 @@ class _H3OdeStepFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_next, grad_x0):  # type: ignore[override]
+        """Launch the backward kernel; only ``xt`` and ``v`` receive gradients."""
         xt, sigma, sigma_next = ctx.saved_tensors
         needs_xt, needs_v = ctx.needs_input_grad[0], ctx.needs_input_grad[1]
         if not (needs_xt or needs_v):
@@ -191,20 +203,24 @@ class H3OdeStepTritonOp:
     op_class = "elementwise"
 
     def __call__(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Alias for :meth:`forward` so the op can be invoked like a function."""
         return self.forward(xt, v, sigma, sigma_next)
 
     def forward(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Return ``(x_next, x0)`` in the input dtype via the Triton kernels."""
         s, sn = self._prepare(xt, v, sigma, sigma_next)
         return _H3OdeStepFunction.apply(xt.contiguous(), v.contiguous(), s, sn)
 
     def forward_fp32(
         self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any
     ) -> tuple[Tensor, Tensor]:
+        """Gold-path entry point: run the kernels on FP32 copies."""
         s, sn = self._prepare(xt, v, sigma, sigma_next)
         return _H3OdeStepFunction.apply(xt.float().contiguous(), v.float().contiguous(), s, sn)
 
     @staticmethod
     def _prepare(xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Validate the tensors and normalise both sigma arguments."""
         for name, tensor in (("xt", xt), ("v", v)):
             if tensor.device.type not in _GPU_TYPES:
                 raise RuntimeError(f"{name} must be a GPU tensor, got {tensor.device}.")

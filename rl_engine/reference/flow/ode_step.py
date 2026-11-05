@@ -32,7 +32,9 @@ def _as_sigma(value: Any, reference: Tensor, name: str) -> Tensor:
     """Return contiguous fp32 sigma as a 0-dim scalar or ``[..., 1]`` per row.
 
     A bare ``[R]`` must not survive: it broadcasts against the channel axis of
-    ``[R, C]``, which is silently wrong whenever ``R == C``.
+    ``[R, C]``, which is silently wrong whenever ``R == C``.  Schedule tensors are
+    detached: ``sigma`` / ``sigma_next`` are not differentiable inputs here, and
+    both GPU backends expose gradients only for ``xt`` and ``v``.
     """
     if not isinstance(value, Tensor):
         value = torch.as_tensor(value, dtype=torch.float32, device=reference.device)
@@ -42,7 +44,7 @@ def _as_sigma(value: Any, reference: Tensor, name: str) -> Tensor:
         )
     if not value.is_floating_point():
         raise TypeError(f"{name} must be floating point, got {value.dtype}.")
-    value = value.to(dtype=torch.float32).contiguous()
+    value = value.detach().to(dtype=torch.float32).contiguous()
     if value.numel() == 1:
         return value.reshape(())
     if value.numel() == _row_count(reference):
@@ -51,6 +53,7 @@ def _as_sigma(value: Any, reference: Tensor, name: str) -> Tensor:
 
 
 def _check_xt_v(xt: Tensor, v: Tensor) -> None:
+    """Validate dtype, device and shape of the ``(xt, v)`` input pair."""
     for name, tensor in (("xt", xt), ("v", v)):
         if tensor.dtype not in _SUPPORTED_DTYPES:
             raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {tensor.dtype}.")
@@ -104,6 +107,7 @@ def _check_sigma_values(sigma: Tensor, sigma_next: Tensor) -> None:
 def _ode_step_fp32(
     xt: Tensor, v: Tensor, sigma: Tensor, sigma_next: Tensor
 ) -> tuple[Tensor, Tensor]:
+    """Evaluate the declared FP32 program; this is the gold expression order."""
     r = sigma_next / sigma
     x0 = xt + sigma * v
     return r * xt + (1.0 - r) * x0, x0
@@ -115,9 +119,11 @@ class NativeH3OdeStepOp:
     op_class = "elementwise"
 
     def __call__(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Alias for :meth:`forward` so the op can be invoked like a function."""
         return self.forward(xt, v, sigma, sigma_next)
 
     def forward(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Return ``(x_next, x0)`` in the input dtype, computed in FP32."""
         s, sn = self._prepare(xt, v, sigma, sigma_next)
         x_next, x0 = _ode_step_fp32(xt.float(), v.float(), s, sn)
         return x_next.to(xt.dtype), x0.to(xt.dtype)
@@ -131,6 +137,7 @@ class NativeH3OdeStepOp:
 
     @staticmethod
     def _prepare(xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
+        """Validate the inputs and normalise both sigma arguments."""
         _check_xt_v(xt, v)
         s = _as_sigma(sigma, xt, "sigma")
         sn = _as_sigma(sigma_next, xt, "sigma_next")

@@ -698,9 +698,12 @@ def _h3_sigma_pair(rows, args, device):
 
 
 def _make_h3_ode_step_inputs(args, dtype, device):
-    # For this operator the generic CLI shape flags mean: ``--batch`` is the packed
-    # row count and ``--seq`` is the latent channel width (24 video / 32 audio), so
-    # the generated case is the documented ``[R, C]`` per-packed-row layout.
+    """Build the ``[R, C]`` packed-row case for the H3 Euler step.
+
+    For this operator the generic CLI shape flags mean: ``--batch`` is the packed
+    row count and ``--seq`` is the latent channel width (24 video / 32 audio), so
+    the generated case is the documented ``[R, C]`` per-packed-row layout.
+    """
     rows, channels = _batch_seq(args)
     sigma, sigma_next = _h3_sigma_pair(rows, args, device)
     return {
