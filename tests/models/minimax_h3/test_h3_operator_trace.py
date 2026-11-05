@@ -61,9 +61,12 @@ def test_an_unreported_accumulator_or_split_policy_is_not_filled_in_from_the_con
     trace = ot.OperatorTrace()
     call = trace.record_node("transformer_blocks.3.q_proj", status="row", backend="b")
     assert (call.accumulator, call.split_policy) == (ot.NOT_OBSERVED, ot.NOT_OBSERVED)
+    assert call.fallback is None  # only an explicit report can claim "no fallback"
+    assert ot.OperatorCall("proj_in", "video_input_projection_fp32", "row", "b").fallback is None
     problems = trace.violations(paths=["transformer_blocks.3.q_proj"])
     assert any("accumulator not observed" in p for p in problems), problems
     assert any("split policy not observed" in p for p in problems), problems
+    assert any("fallback not observed" in p for p in problems), problems
     with pytest.raises(ValueError, match="not strict"):
         trace.assert_strict(paths=["transformer_blocks.3.q_proj"])
     # checking the bindings alone is possible, but only by asking for it
@@ -152,6 +155,15 @@ def test_roundtrip_and_tamper_detection() -> None:
     trace = _run(ot.OperatorTrace(metadata={"run": "x"}))
     again = ot.OperatorTrace.loads(trace.dumps())
     assert again.digest == trace.digest and again.calls == trace.calls
+    # an unobserved fallback survives serialisation as None, distinct from a reported False
+    unobserved = ot.OperatorTrace()
+    unobserved.record_node("proj_in", status="row", backend="b")
+    [call] = ot.OperatorTrace.loads(unobserved.dumps()).calls
+    assert call.fallback is None
+    assert ot.OperatorTrace.loads(_run(ot.OperatorTrace()).dumps()).calls[0].fallback is False
+    raw = unobserved.to_dict()
+    del raw["calls"][0]["fallback"]  # a trace written without the field reads as not observed
+    assert ot.OperatorCall.from_dict(raw["calls"][0]).fallback is None
     raw = trace.to_dict()
     raw["calls"][5]["backend"] = "edited"
     with pytest.raises(ValueError, match="trace_sha256"):
