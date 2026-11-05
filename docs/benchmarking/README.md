@@ -11,6 +11,7 @@ Current benchmark entry points:
 python tools/benchmarking/run_profile_suite.py --smoke
 python tools/benchmarking/run_profile_suite.py --output reports/profile.csv
 python benchmarks/common/profiler.py --format json --output reports/profile.json
+python benchmarks/operators/norm/benchmark_fused_add_rmsnorm.py
 python benchmarks/operators/sampling/benchmark_sampling.py
 python benchmarks/operators/loss/benchmark_grpo_op.py
 python benchmarks/operators/packing/benchmark_pack.py --smoke
@@ -73,6 +74,13 @@ python tools/benchmarking/run_profile_suite.py \
 
 When adding a new operator, document the benchmark command on the operator page and keep
 the tested shapes close to the target RL workload.
+
+## Device-local ordered reductions
+
+The [ordered reduction comparison](../architecture/ordered-reduction.md#performance-comparison)
+measures public embedded Triton and optional shared Gluon helpers against ordinary
+`torch.sum` and native `tl.sum`. See the [H100 results](ordered-reduction-h100.md)
+for measured gains, remaining overhead and the Graph timing methodology.
 
 ## Adding Workloads
 
