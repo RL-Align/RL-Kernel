@@ -445,6 +445,10 @@ OP_SPECS = {
         op_class="elementwise",
         gold_path="rl_engine.reference.flow.ode_step.NativeH3OdeStepOp",
         gold_method="forward_fp32",
+        # ``pytorch`` is the declared reference candidate, as in the other
+        # reference-backed specs: the harness calls it through ``forward`` (public
+        # entry, dtype cast and validation) while the gold uses ``forward_fp32``,
+        # so the comparison covers that path rather than discriminating numerics.
         candidate_paths={
             "pytorch": "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp",
             "triton": ("rl_engine.backends.shared.triton.flow.ode_step.H3OdeStepTritonOp"),

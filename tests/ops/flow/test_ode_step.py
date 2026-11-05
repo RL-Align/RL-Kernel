@@ -258,7 +258,7 @@ def test_repeated_execution_is_bitwise_stable() -> None:
 def test_fail_closed_on_zero_sigma() -> None:
     """``sigma == 0`` is rejected: the Euler ratio would be undefined."""
     xt, v, _, _ = _inputs(rows=2)
-    with pytest.raises(ValueError, match="strictly positive"):
+    with pytest.raises(ValueError, match="sigma > 0"):
         NativeH3OdeStepOp().forward_fp32(xt, v, torch.zeros(2, 1), torch.zeros(2, 1))
 
 
@@ -546,7 +546,7 @@ def test_cuda_fail_closed_on_zero_sigma() -> None:
     """The CUDA wrapper rejects ``sigma == 0`` before dispatch."""
     xt, v, _, _ = _inputs(rows=4)
     device = torch.device("cuda")
-    with pytest.raises(ValueError, match="strictly positive"):
+    with pytest.raises(ValueError, match="sigma > 0"):
         H3OdeStepCUDAOp().forward(
             xt.to(device),
             v.to(device),

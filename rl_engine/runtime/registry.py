@@ -485,10 +485,11 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             semantic_op="h3_ode_step",
             backend_id="rlkernel.pytorch.h3_ode_step.euler_fp32.v1",
             supported_targets=frozenset({"rollout", "training"}),
-            # Portable reference: no device kernel, so CPU and every GPU platform
-            # that runs PyTorch can resolve it (the PR registers a ``pytorch``
-            # candidate in OP_SPECS and this descriptor is its semantic entry).
-            supported_devices=frozenset({"cpu", "cuda", "rocm"}),
+            # The reference is the CPU/NPU path only: the GPU profiles keep the
+            # strict CUDA/Triton candidates and deliberately declare no reference
+            # fallback ("no silent fallback" in the operator page), so advertising
+            # CPU-only here keeps the declared capability resolvable.
+            supported_devices=frozenset({"cpu"}),
             supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
             supported_topologies={
                 "rollout": {

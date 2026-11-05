@@ -49,7 +49,10 @@ def _as_sigma(value: Any, reference: Tensor, name: str) -> Tensor:
         return value.reshape(())
     if value.numel() == _row_count(reference):
         return value.reshape(*reference.shape[:-1], 1)
-    return value
+    raise ValueError(
+        f"{name} must be a scalar or one value per packed row ({_row_count(reference)}), got "
+        f"numel={value.numel()}. Refusing to broadcast implicitly."
+    )
 
 
 def _check_xt_v(xt: Tensor, v: Tensor) -> None:
@@ -63,17 +66,6 @@ def _check_xt_v(xt: Tensor, v: Tensor) -> None:
         raise ValueError(
             f"xt and v must share a shape, got {tuple(xt.shape)} and {tuple(v.shape)}."
         )
-
-
-def _check_sigma_shape(sigma: Tensor, sigma_next: Tensor, xt: Tensor) -> None:
-    """Reject anything that is not a scalar or one value per packed row."""
-    rows = _row_count(xt)
-    for name, tensor in (("sigma", sigma), ("sigma_next", sigma_next)):
-        if tensor.numel() not in (1, rows):
-            raise ValueError(
-                f"{name} must be a scalar or one value per packed row ({rows}), got "
-                f"numel={tensor.numel()}. Refusing to broadcast implicitly."
-            )
 
 
 def _check_sigma_layout(sigma: Tensor, sigma_next: Tensor) -> None:
@@ -91,16 +83,22 @@ def _check_sigma_layout(sigma: Tensor, sigma_next: Tensor) -> None:
 
 
 def _check_sigma_values(sigma: Tensor, sigma_next: Tensor) -> None:
-    """Reject geometry the pinned H3 shifted grid can never produce."""
-    if not torch.isfinite(sigma).all() or not torch.isfinite(sigma_next).all():
-        raise ValueError("sigma and sigma_next must be finite.")
-    if bool((sigma <= 0).any()):
-        raise ValueError("sigma must be strictly positive; 0 terminates the grid.")
-    if bool((sigma_next < 0).any()):
-        raise ValueError("sigma_next must be non-negative.")
-    if bool((sigma_next > sigma).any()):
+    """Reject geometry the pinned H3 shifted grid can never produce.
+
+    One folded predicate keeps this identical to the CUDA and Triton wrappers, so a
+    caller sees the same rejection whichever backend resolves.
+    """
+    ok = (
+        torch.isfinite(sigma)
+        & torch.isfinite(sigma_next)
+        & (sigma > 0)
+        & (sigma_next >= 0)
+        & (sigma_next <= sigma)
+    ).all()
+    if not bool(ok):
         raise ValueError(
-            "sigma_next must not exceed sigma; the H3 grid is monotonically decreasing."
+            "sigma and sigma_next must be finite, with sigma > 0 and "
+            "0 <= sigma_next <= sigma; the H3 grid is monotonically decreasing."
         )
 
 
@@ -142,6 +140,5 @@ class NativeH3OdeStepOp:
         s = _as_sigma(sigma, xt, "sigma")
         sn = _as_sigma(sigma_next, xt, "sigma_next")
         _check_sigma_layout(s, sn)
-        _check_sigma_shape(s, sn, xt)
         _check_sigma_values(s, sn)
         return s, sn

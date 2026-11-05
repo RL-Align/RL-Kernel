@@ -195,7 +195,7 @@ def test_h3_ode_step_semantic_catalog_covers_the_reference():
     reference = registry.semantic.backend_descriptor(
         "h3_ode_step", "rlkernel.pytorch.h3_ode_step.euler_fp32.v1"
     )
-    assert reference.supported_devices == frozenset({"cpu", "cuda", "rocm"})
+    assert reference.supported_devices == frozenset({"cpu"})
     assert reference.supported_dtypes == frozenset({"float32", "float16", "bfloat16"})
     assert (
         reference.implementation_reference == "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp"

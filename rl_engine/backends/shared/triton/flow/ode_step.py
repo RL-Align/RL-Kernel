@@ -50,16 +50,23 @@ def _as_sigma(value: Any, xt: Tensor, rows: int, name: str) -> tuple[Tensor, boo
 
 
 def _check_sigma_values(sigma: Tensor, sigma_next: Tensor) -> None:
-    """Reject sigma geometry the pinned H3 shifted grid can never produce."""
-    if not torch.isfinite(sigma).all() or not torch.isfinite(sigma_next).all():
-        raise ValueError("sigma and sigma_next must be finite.")
-    if bool((sigma <= 0).any()):
-        raise ValueError("sigma must be strictly positive; 0 terminates the grid.")
-    if bool((sigma_next < 0).any()):
-        raise ValueError("sigma_next must be non-negative.")
-    if bool((sigma_next > sigma).any()):
+    """Reject sigma geometry the pinned H3 shifted grid can never produce.
+
+    The predicates are folded on device and read once, so a per-step call costs a
+    single host sync instead of one per condition (the operator runs inside the
+    per-step flow loop).
+    """
+    ok = (
+        torch.isfinite(sigma)
+        & torch.isfinite(sigma_next)
+        & (sigma > 0)
+        & (sigma_next >= 0)
+        & (sigma_next <= sigma)
+    ).all()
+    if not bool(ok):
         raise ValueError(
-            "sigma_next must not exceed sigma; the H3 grid is monotonically decreasing."
+            "sigma and sigma_next must be finite, with sigma > 0 and "
+            "0 <= sigma_next <= sigma; the H3 grid is monotonically decreasing."
         )
 
 
