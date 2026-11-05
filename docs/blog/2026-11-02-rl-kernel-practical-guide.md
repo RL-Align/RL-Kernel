@@ -1,290 +1,244 @@
 # RL-Kernel Train–Rollout Consistency: A Practical Guide
 
-RL-Kernel helps training and rollout agree on the numbers they compute. This
-guide walks through a small Qwen3-8B experiment with **vime for training and
-vLLM for rollout**. You will prepare the inputs, preview a command, run three
-steps, and read the validation result.
+In RL post-training, one engine generates responses and another trains on them.
+Both assign probabilities to the generated tokens. **Before the weights change,
+the same tokens should receive the same scores under the same policy.** Different
+execution paths can break that agreement, even when the model weights match.
 
-The guide covers environment configuration, execution, validation and a native
-baseline comparison. **Each step includes commands and the result to check.**
+RL-Kernel aligns these computations across training and rollout. This guide
+explains why that matters, then runs a short Qwen3-8B consistency check with
+**vime, vLLM and Megatron-LM** on NVIDIA H100 or AMD MI300X.
 
-## What are we checking?
+## Why exact consistency matters in post-training
 
-During rollout, the model generates an answer and records a log probability
-for each generated token. During training, the model computes those scores
-again for the same tokens, using the corresponding model weights.
+Rollout records a log probability, or **LogP**, for each generated token.
+Training independently recomputes LogP for those tokens. Differences between the
+two can enter policy ratios and KL-related measurements. They can make the policy
+appear to have changed before an optimizer update and, if large enough, alter
+which tokens reach a clipping threshold.
 
-We want the two sets of scores to match exactly. RL-Kernel's consistency mode
-uses its numerical paths on both sides. Training recomputes the scores; it
-does not simply copy the rollout scores.
+**Bitwise train–rollout consistency** means the independently computed LogP
+values have identical bits at the declared comparison point. The comparison must
+use the same weights, tokens, positions, masks and probability definition,
+including any temperature or sampling transformations. Training does not simply
+reuse rollout's stored scores.
 
-In this guide, a passing check means the training and rollout log probabilities
-agree for the tested run on that machine. It does not mean that NVIDIA and AMD
-produce identical outputs to each other, or that every model and parallel
-configuration has been validated.
+This gives post-training developers:
 
-## Before you start
+- **A cleaner learning signal.** Remove execution-induced score differences from
+  the comparison between rollout and training at the same policy version.
+- **A clear debugging target.** Zero mismatch provides a concrete check when
+  changing kernels, engine versions or supported parallel configurations.
+- **A controlled basis for optimization.** Compare faster implementations against
+  an explicit numerical requirement while measuring end-to-end cost separately.
 
-Choose **one** hardware path:
+Batch invariance (BI) asks whether changing a batch changes a computation's
+result. It is one part of this problem. Post-training also needs agreement across
+**two engines and execution phases**, with aligned policy versions and token
+state. BI inside one engine alone does not establish that agreement.
 
-| | NVIDIA path | AMD path |
+Exact scores remove one source of numerical mismatch. They do not by themselves
+guarantee higher rewards, faster convergence or identical training trajectories.
+Those outcomes need separate experiments. This guide checks training against
+rollout **within each tested platform**; it does not compare NVIDIA outputs with
+AMD outputs. See the [technical explanation and published results](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md)
+for the comparison boundaries and evidence.
+
+## Requirements
+
+Start inside a **prepared GPU environment**. Installing RL-Kernel alone does not
+install the complete training stack. Reserve all eight GPUs for this experiment.
+
+| | NVIDIA | AMD |
 |---|---|---|
-| Reference hardware | One node with 8 × H100 80 GB | One node with 8 × MI300X, gfx942 |
+| Reference hardware | 8 × H100 80 GB, one node | 8 × MI300X, one node |
 | Model | Qwen/Qwen3-8B | Qwen/Qwen3-8B |
-| Starting environment | A compatible vime CUDA environment | A compatible vime ROCm environment with the companion patches |
-| First run | Three training/rollout steps | Three training/rollout steps |
-| Ray startup | Start Ray before running | The launcher manages its own Ray instance |
+| Training and rollout | vime, Megatron-LM and vLLM | Patched vime, Megatron-LM and vLLM |
+| Environment setup | [CUDA requirements](../usage/qwen3-vime-consistency.md#supported-reference-configuration) | [ROCm requirements](../usage/qwen3-vime-consistency.md#rocm-mi300x-and-gfx942) and [companion builds](https://github.com/RL-Align/RL-Kernel/blob/main/rl_engine/integrations/orchestrators/vime/patches/rocm_attention/README.md) |
 
-**This guide starts inside a prepared GPU environment.** Installing
-RL-Kernel alone does not install the full training stack. A laptop, a CPU-only
-installation, or an arbitrary vLLM image is not enough for this experiment.
+Use Bash and keep the following commands in the same shell. Put model files,
+datasets, checkpoints and outputs on a data disk. Container users must use paths
+visible inside the container.
 
-For CUDA, the bundled profile checks Python 3.11.15, PyTorch 2.9.1, vLLM 0.16.0,
-Ray 2.57.0, and Transformer Engine 2.18.0. See the
-[CUDA environment requirements](../usage/qwen3-vime-consistency.md#supported-reference-configuration).
-For ROCm, use the
-[MI300X setup and companion source instructions](../usage/qwen3-vime-consistency.md#rocm-mi300x-and-gfx942).
-The recorded ROCm stack uses Python 3.12 and PyTorch 2.12 / ROCm 7.14;
-the patched vime, Megatron and vLLM sources are part of that setup.
-
-Reserve all eight GPUs for the run. Keep model files, converted checkpoints,
-datasets and output on a data disk with enough free space. Complete downloads
-and builds before starting the experiment.
-
-## 1. Get RL-Kernel and choose your paths
-
-Run the commands in Bash, inside your GPU environment. If it is a container,
-the paths below must be visible **inside that container**.
+## 1. Install RL-Kernel
 
 ```bash
 git clone https://github.com/RL-Align/RL-Kernel.git
 cd RL-Kernel
 
-# Change these two paths for your machine.
-export RLK_DEMO_WORKSPACE=/data/rlk-demo
-export RLK_DEMO_MODEL=/data/models/Qwen3-8B
-mkdir -p "$RLK_DEMO_WORKSPACE"
-
-# Use the Python environment that already contains your training stack.
 RL_KERNEL_REQUIRE_EXT=1 python -m pip install --no-deps --no-build-isolation -e .
 python -c "import rl_engine._C as C; print(C.__file__)"
 git rev-parse HEAD
 ```
 
-The import should print the compiled extension's location. Save the Git
-revision with your results so that you know which source version you used.
-For build prerequisites, see [Installation](../getting_started/installation.md).
+The import should print the compiled extension path. Record the Git revision
+with your results. Build prerequisites are in the [installation guide](../getting_started/installation.md).
 
-RLK\_DEMO\_MODEL must contain the Hugging Face model files, including the
-weights, configuration and tokenizer. If you do not already have them, download
-them once using huggingface\_hub from your environment:
+Set two local paths. The model directory must contain the Hugging Face weights,
+configuration and tokenizer.
+
+```bash
+export RLK_WORKSPACE=/data/rlk-guide
+export RLK_MODEL=/data/models/Qwen3-8B
+mkdir -p "$RLK_WORKSPACE"
+```
+
+If the model is not already available, download it once using huggingface\_hub:
 
 ```bash
 python - <<'PY'
 import os
 from huggingface_hub import snapshot_download
-
-snapshot_download("Qwen/Qwen3-8B", local_dir=os.environ["RLK_DEMO_MODEL"])
+snapshot_download("Qwen/Qwen3-8B", local_dir=os.environ["RLK_MODEL"])
 PY
 ```
 
-## 2. Save your machine configuration once
+## 2. Configure your environment
 
-A **profile** is a small JSON file holding your backend and local paths.
-Saving it as .rlk-profile.json lets ./rlk find the right environment without
-editing a training script. This file is ignored by Git.
-
-Choose the tab for your hardware. The snippets create a new local profile and
-refuse to overwrite an existing one. If you already have a working profile,
-keep it and skip profile creation. RLK\_REPRO\_PROFILE, when set, selects a
-different file; unset it below to use this checkout's local profile.
+Choose one backend. For ROCm, the source paths must point to the **patched and
+built** companion checkouts described above. The vLLM changes include compiled
+code; changing a Python path alone is insufficient.
 
 === "NVIDIA H100 / CUDA"
 
-    From the RL-Kernel directory, in the same shell as step 1:
-
     ```bash
-    unset RLK_REPRO_PROFILE
-    python - <<'PY'
-    import json
-    import os
-    import sys
-    from pathlib import Path
-
-    source = Path("configs/integrations/orchestrators/vime/dense/qwen3-8b-tp4-cp2.json")
-    profile = json.loads(source.read_text())
-    workspace = Path(os.environ["RLK_DEMO_WORKSPACE"]).resolve()
-    profile["paths"].update({
-        "workspace": str(workspace),
-        "rl_kernel_root": str(Path.cwd()),
-        "python": sys.executable,
-        "model_root": str(Path(os.environ["RLK_DEMO_MODEL"]).resolve()),
-        "output_root": str(workspace / "runs"),
-    })
-    with Path(".rlk-profile.json").open("x") as handle:
-        json.dump(profile, handle, indent=2)
-    PY
-
-    ./rlk prepare --download-data --convert-checkpoint
+    export RLK_BACKEND=cuda
+    export RLK_PROFILE_TEMPLATE=configs/integrations/orchestrators/vime/dense/qwen3-8b-tp4-cp2.json
     ```
 
-    prepare checks out the pinned vime and Megatron revisions, prepares
-    DAPO-Math-17k prompts, and converts the local model to the Megatron checkpoint
-    format. It does not create a Python environment or download the model.
-    Use a new workspace; existing companion checkouts must be clean because
-    preparation selects the profile's source revisions.
-
-    Next, start Ray on your reserved node. The reference command allocates
-    **200 GB** for the object store; reduce that value if necessary for your
-    host RAM and /dev/shm. Reuse a suitable Ray head you already own instead
-    of starting a second one.
+=== "AMD MI300X / ROCm"
 
     ```bash
-    ray start --head \
-      --include-dashboard=true \
-      --dashboard-host=127.0.0.1 \
-      --dashboard-port=8265 \
-      --num-gpus=8 \
-      --object-store-memory=200000000000
+    export RLK_BACKEND=rocm
+    export RLK_PROFILE_TEMPLATE=configs/integrations/orchestrators/vime/rocm_attention/mi300x-qwen3-8b.json
+    export RLK_VIME=/data/rocm-repro/vime
+    export RLK_MEGATRON=/data/rocm-repro/Megatron-LM
+    export RLK_VLLM=/data/rocm-repro/vllm
+    ```
+
+Create .rlk-profile.json once. It records your interpreter and local paths so the
+launcher can reuse them. **If you already have this file, check its paths and
+skip the Python block.** The block refuses to overwrite an existing profile.
+Unset RLK\_REPRO\_PROFILE to select this checkout's local file.
+
+```bash
+unset RLK_REPRO_PROFILE
+python - <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+profile = json.loads(Path(os.environ["RLK_PROFILE_TEMPLATE"]).read_text())
+workspace = Path(os.environ["RLK_WORKSPACE"]).resolve()
+profile["paths"].update({
+    "workspace": str(workspace),
+    "rl_kernel_root": str(Path.cwd()),
+    "python": sys.executable,
+    "model_root": str(Path(os.environ["RLK_MODEL"]).resolve()),
+    "output_root": str(workspace / "runs"),
+})
+if os.environ["RLK_BACKEND"] == "rocm":
+    profile["paths"].update({
+        "vime_root": str(Path(os.environ["RLK_VIME"]).resolve()),
+        "megatron_root": str(Path(os.environ["RLK_MEGATRON"]).resolve()),
+        "vllm_root": str(Path(os.environ["RLK_VLLM"]).resolve()),
+        "ref_load": str(workspace / "checkpoints/Qwen3-8B_torch_dist"),
+        "prompt_data": str(workspace / "data/dapo-math-17k.vime.jsonl"),
+    })
+with Path(".rlk-profile.json").open("x") as handle:
+    json.dump(profile, handle, indent=2)
+PY
+```
+
+Finish preparation for the same backend:
+
+=== "NVIDIA H100 / CUDA"
+
+    ```bash
+    ./rlk prepare --download-data --convert-checkpoint
+
+    ray start --head --num-gpus=8 \
+      --include-dashboard=true --dashboard-host=127.0.0.1 \
+      --dashboard-port=8265 --object-store-memory=200000000000
 
     ./rlk doctor --mode consistency
     ```
 
-    Continue only when the final line says Doctor: PASS. If Transformer
-    Engine or CUDA Python is installed outside this environment, configure
-    the extra paths described in the
-    [setup guide](../usage/qwen3-vime-consistency.md#prepare-once).
+    prepare selects the pinned vime/Megatron sources, prepares the data and
+    converts the model. Use a new workspace or clean companion checkouts.
+    It does not install the full Python stack or download model weights.
+
+    The Ray command reserves 200 GB for its object store. Adjust this for host
+    RAM and /dev/shm, or reuse a suitable Ray head you own. Continue when doctor
+    reports **Doctor: PASS**. Extra runtime paths are covered in the
+    [CUDA setup guide](../usage/qwen3-vime-consistency.md#prepare-once).
 
 === "AMD MI300X / ROCm"
 
-    First finish the [ROCm companion setup](https://github.com/RL-Align/RL-Kernel/blob/main/rl_engine/integrations/orchestrators/vime/patches/rocm_attention/README.md).
-    This is required even if an unmodified vLLM installation already runs
-    inference. The patches cover vime, Megatron and vLLM; the vLLM base patch
-    changes compiled code, so a Python path change alone is not sufficient.
-
-    Use your patched, built companion checkouts below. The vLLM instructions
-    include a public source reconstruction path; do not try to fetch the
-    historical local build commit from upstream.
-
     ```bash
-    # Change these to your prepared companion source directories.
-    export RLK_DEMO_VIME=/data/rocm-repro/vime
-    export RLK_DEMO_MEGATRON=/data/rocm-repro/Megatron-LM
-    export RLK_DEMO_VLLM=/data/rocm-repro/vllm
-
-    unset RLK_REPRO_PROFILE
-    python - <<'PY'
-    import json
-    import os
-    import sys
-    from pathlib import Path
-
-    source = Path("configs/integrations/orchestrators/vime/rocm_attention/mi300x-qwen3-8b.json")
-    profile = json.loads(source.read_text())
-    workspace = Path(os.environ["RLK_DEMO_WORKSPACE"]).resolve()
-    profile["paths"].update({
-        "workspace": str(workspace),
-        "rl_kernel_root": str(Path.cwd()),
-        "python": sys.executable,
-        "vime_root": str(Path(os.environ["RLK_DEMO_VIME"]).resolve()),
-        "megatron_root": str(Path(os.environ["RLK_DEMO_MEGATRON"]).resolve()),
-        "vllm_root": str(Path(os.environ["RLK_DEMO_VLLM"]).resolve()),
-        "model_root": str(Path(os.environ["RLK_DEMO_MODEL"]).resolve()),
-        "ref_load": str(workspace / "checkpoints/Qwen3-8B_torch_dist"),
-        "prompt_data": str(workspace / "data/dapo-math-17k.vime.jsonl"),
-        "output_root": str(workspace / "runs"),
-    })
-    with Path(".rlk-profile.json").open("x") as handle:
-        json.dump(profile, handle, indent=2)
-    PY
-    ```
-
-    Prepare the data and reference checkpoint once. If you already have these
-    files, set prompt\_data and ref\_load in your local profile to their
-    existing locations and skip this block.
-
-    ```bash
-    mkdir -p "$RLK_DEMO_WORKSPACE/data" "$RLK_DEMO_WORKSPACE/checkpoints"
+    mkdir -p "$RLK_WORKSPACE/data" "$RLK_WORKSPACE/checkpoints"
     python rl_engine/integrations/orchestrators/vime/experiments/dense/prepare_dapo_data.py \
       --download \
-      --source "$RLK_DEMO_WORKSPACE/data/dapo-math-17k.parquet" \
-      --output "$RLK_DEMO_WORKSPACE/data/dapo-math-17k.vime.jsonl"
+      --source "$RLK_WORKSPACE/data/dapo-math-17k.parquet" \
+      --output "$RLK_WORKSPACE/data/dapo-math-17k.vime.jsonl"
 
-    # Run this conversion once, with a new destination directory.
     (
       set -euo pipefail
-      source "$RLK_DEMO_VIME/scripts/models/qwen3-8B.sh"
-      PYTHONPATH="$RLK_DEMO_MEGATRON${PYTHONPATH:+:$PYTHONPATH}" \
-        python "$RLK_DEMO_VIME/tools/convert_hf_to_torch_dist.py" \
-          "${MODEL_ARGS[@]}" \
-          --hf-checkpoint "$RLK_DEMO_MODEL" \
-          --save "$RLK_DEMO_WORKSPACE/checkpoints/Qwen3-8B_torch_dist"
+      source "$RLK_VIME/scripts/models/qwen3-8B.sh"
+      PYTHONPATH="$RLK_MEGATRON${PYTHONPATH:+:$PYTHONPATH}" \
+        python "$RLK_VIME/tools/convert_hf_to_torch_dist.py" \
+          "${MODEL_ARGS[@]}" --hf-checkpoint "$RLK_MODEL" \
+          --save "$RLK_WORKSPACE/checkpoints/Qwen3-8B_torch_dist"
     )
     ```
 
-    Do not run the CUDA prepare or doctor commands with this ROCm profile.
-    The ROCm runner checks its inputs when starting and manages its own Ray
-    instance. It refuses to stop an unrelated Ray cluster. Keep the profile's
-    Ray ports available, or choose free ones in its defaults section.
+    Run conversion once, with a new destination. If the data and checkpoint
+    already exist, set prompt\_data and ref\_load in your profile to those
+    locations and skip this block.
 
-## 3. Preview the command
+    ROCm validates inputs during run and manages its own Ray instance. Keep
+    the profile's Ray ports free. The CUDA prepare and doctor commands do not
+    support this ROCm profile.
 
-Both hardware paths now use the same command. Run it from the RL-Kernel
-directory:
+## 3. Preview and run
 
-```bash
-./rlk plan --mode consistency \
-  --tp 4 --rollout-tp 4 --temperature 0.7 --top-p 0.95 \
-  --lr 5e-7 --kl-coef 0.01 \
-  --max-response-len 6912 --max-tokens-per-gpu 4096 --steps 3
-```
-
-plan prints JSON containing paths and runner\_command. Check that the
-Python executable, model, companion repositories and output folder are yours.
-**It does not launch a GPU job or prove that the environment is ready.**
-
-You only need a few settings for this first run:
-
-| Setting | Plain-language meaning |
-|---|---|
-| --mode consistency | Use RL-Kernel's consistency path. |
-| --tp 4 | Split training model computation across four GPUs per TP group. Training CP is inferred as 2 on this eight-GPU setup. |
-| --rollout-tp 4 | Use four GPUs per rollout engine; rollout CP stays at 1. |
-| --temperature 0.7 --top-p 0.95 | Choose the sampling settings used to generate answers. |
-| --steps 3 | Run three training/rollout steps instead of the default 200. |
-| --max-response-len 6912 | Limit the number of generated tokens per answer. |
-| --max-tokens-per-gpu 4096 | Set the training dynamic-batching token budget per GPU. |
-| --lr 5e-7 --kl-coef 0.01 | Set the learning rate and reference-policy KL coefficient. Keep these fixed for the guide. |
-
-The training and rollout workers share the node over the workflow; these
-settings do not request sixteen GPUs. Leave the topology unchanged for your
-first check.
-
-## 4. Run three steps
-
-Replace plan with run. Give this attempt a unique name so its output is
-easy to find:
+Define the experiment settings once. The Bash array keeps the same settings
+for the consistency run and native comparison.
 
 ```bash
-export RLK_DEMO_RUN_ID="first-consistency-$(date -u +%Y%m%dT%H%M%SZ)"
+RUN_ARGS=(
+  --tp 4 --rollout-tp 4
+  --temperature 0.7 --top-p 0.95
+  --lr 5e-7 --kl-coef 0.01
+  --max-response-len 6912 --max-tokens-per-gpu 4096
+)
 
-./rlk run --mode consistency \
-  --tp 4 --rollout-tp 4 --temperature 0.7 --top-p 0.95 \
-  --lr 5e-7 --kl-coef 0.01 \
-  --max-response-len 6912 --max-tokens-per-gpu 4096 --steps 3 \
-  --run-id "$RLK_DEMO_RUN_ID"
+./rlk plan --mode consistency "${RUN_ARGS[@]}" --steps 3
 ```
 
-The command waits for completion and performs validation. Model loading,
-compilation and warmup can take time. A three-step run limits the experiment
-size, but its total duration depends on the environment and generated answers. On ROCm, detailed progress is written to
-the run's arms/r-r/launcher.log, so the main terminal may be quiet.
+Check the resolved paths and runner\_command in the printed JSON. plan does
+not start a GPU job. These settings use training TP4/CP2 and rollout TP4/CP1
+on the same eight-GPU node. Keep the topology fixed for the first check.
 
-## 5. Read the result
+Run three steps with a unique output name:
 
-The profiles above put outputs under workspace/runs/&lt;run-id&gt;. Use this
-snippet to find the current run and print its report. It reads your local
-profile, so it also works if you chose a different output folder there:
+```bash
+export RLK_RUN_ID="consistency-$(date -u +%Y%m%dT%H%M%SZ)"
+./rlk plan --mode consistency "${RUN_ARGS[@]}" --steps 3 --run-id "$RLK_RUN_ID" \
+  > "$RLK_WORKSPACE/$RLK_RUN_ID.plan.json"
+./rlk run --mode consistency "${RUN_ARGS[@]}" --steps 3 --run-id "$RLK_RUN_ID"
+```
+
+run waits for completion and validates the results. Model loading, compilation
+and warmup can take time. On ROCm, watch arms/r-r/launcher.log in the run directory
+for progress if the main terminal is quiet.
+
+## 4. Check the result
+
+Read the report from the output location resolved in the saved plan. This also
+handles existing profiles that use a default output directory. Keep the same
+profile and environment between plan and run.
 
 ```bash
 python - <<'PY'
@@ -292,98 +246,82 @@ import json
 import os
 from pathlib import Path
 
-profile = json.loads(Path(".rlk-profile.json").read_text())
-run_dir = Path(profile["paths"]["output_root"]) / os.environ["RLK_DEMO_RUN_ID"]
-backend = profile["requirements"]["backend"]
-filename = "single-arm-summary.json" if backend == "rocm" else "run-validation.json"
-report_path = run_dir / filename
+run_id = os.environ["RLK_RUN_ID"]
+plan = json.loads((Path(os.environ["RLK_WORKSPACE"]) / f"{run_id}.plan.json").read_text())
+run_dir = Path(plan["paths"]["output_root"]) / run_id
+reports = [run_dir / name for name in ("run-validation.json", "single-arm-summary.json")
+           if (run_dir / name).is_file()]
+if len(reports) != 1:
+    raise SystemExit(f"Expected one validation report in {run_dir}; check the run log.")
+report = json.loads(reports[0].read_text())
 print(f"Run directory: {run_dir}")
-report = json.loads(report_path.read_text())
 print(json.dumps(report, indent=2))
 if report.get("passed") is not True:
     raise SystemExit("Validation failed: inspect the report and run log.")
 PY
 ```
 
-The report must have **"passed": true**. A finished training process alone
-is not a passing consistency check.
+**The top-level passed field must be true.** A completed training process or
+one zero-looking metric is insufficient. Review the complete validation report.
 
-| Backend | What to inspect | Where to find details |
+| Backend | Consistency evidence | Report and log |
 |---|---|---|
-| CUDA | Top-level passed; runtime\_scalar\_logprob.bitwise\_zero should be true. Review the other validation sections too. | run-validation.json and run.log |
-| ROCm | Top-level passed; metrics.bitwise\_equal should be true, metrics.bitwise\_mismatch\_count should be 0, and frozen\_sources\_match should be true. | single-arm-summary.json, arms/r-r/validation.json, and arms/r-r/launcher.log |
+| CUDA | runtime\_scalar\_logprob.bitwise\_zero is true | run-validation.json; run.log |
+| ROCm | metrics.bitwise\_equal is true; metrics.bitwise\_mismatch\_count is 0; frozen\_sources\_match is true | single-arm-summary.json; arms/r-r/validation.json; arms/r-r/launcher.log |
 
-The validation also checks evidence such as executed operators, compared
-samples and source records. Read the full report if anything fails; do not
-select only a zero-looking metric. The CUDA runtime scalar check and the ROCm
-raw-byte check have different evidence formats, so keep the original reports.
+The reports also check execution evidence and source records. CUDA and ROCm use
+different evidence formats, so retain the original reports and the machine profile.
 
-## 6. Try the native comparison, then a longer run
+## 5. Compare with native execution
 
-After the consistency run succeeds, run the native baseline **sequentially**
-on the same node. Change only the mode and run name:
+After the consistency run finishes, run the native baseline sequentially on the
+same node. Keep the settings fixed and change the mode and output name:
 
 ```bash
-./rlk run --mode native \
-  --tp 4 --rollout-tp 4 --temperature 0.7 --top-p 0.95 \
-  --lr 5e-7 --kl-coef 0.01 \
-  --max-response-len 6912 --max-tokens-per-gpu 4096 --steps 3 \
-  --run-id "first-native-$(date -u +%Y%m%dT%H%M%SZ)"
+./rlk run --mode native "${RUN_ARGS[@]}" --steps 3 \
+  --run-id "native-$(date -u +%Y%m%dT%H%M%SZ)"
 ```
 
-Native mode uses vime's native operators. Its validator can pass while
-training and rollout scores differ: zero mismatch is the requirement for
-**consistency mode**, not a requirement imposed on the native baseline.
-On ROCm, the native log is under arms/p-p/launcher.log.
+Native mode uses vime's native operators. Its validator can pass even when
+training and rollout scores differ; zero mismatch is a consistency-mode
+requirement. The ROCm native log is arms/p-p/launcher.log.
 
-Do not treat this short pair as a performance benchmark. Warmup and generated
-answer lengths affect timing, and the two modes can generate different
-trajectories. The [ROCm performance report](../usage/rocm-sparse-performance.md)
-separates current three-step evidence from historical 200-step results and
-records the native execution-record limitation.
+A short pair is useful for checking the workflow. It is not a performance
+benchmark: warmup, response lengths and generated trajectories affect timing.
+See the [ROCm performance report](../usage/rocm-sparse-performance.md) for measured
+results, historical 200-step evidence and the native execution-record limitation.
 
-When you are ready for a longer consistency run:
+For a longer consistency run, reuse the same settings:
 
 ```bash
-./rlk run --mode consistency \
-  --tp 4 --rollout-tp 4 --temperature 0.7 --top-p 0.95 \
-  --lr 5e-7 --kl-coef 0.01 \
-  --max-response-len 6912 --max-tokens-per-gpu 4096 --steps 200
+./rlk run --mode consistency "${RUN_ARGS[@]}" --steps 200
 ```
 
-This creates a new run directory automatically. It is a longer validation
-attempt, not a guarantee that your machine reproduces a published timing.
+## Troubleshooting
 
-## If something goes wrong
-
-| What you see | What to do next |
+| Symptom | Next step |
 |---|---|
-| Extension import or build fails | Check that the active Python, PyTorch and CUDA/ROCm toolchain match. Follow the installation guide and rebuild. |
-| Profile creation says the file exists | Keep your existing profile, inspect its paths, and skip the creation block. |
-| plan shows another machine's paths | Check .rlk-profile.json and whether RLK\_REPRO\_PROFILE selects another file. |
-| CUDA Doctor: FAIL | Fix the named path, version or Ray connection check before launching. |
-| ROCm reports missing companion integration | Check all three patched companion sources and their installed builds, including the compiled vLLM base change. |
-| ROCm finds an unrelated Ray cluster | Coordinate use of the node; do not stop another user's job. |
-| Output directory already exists | Generate a new run name. Outputs are not overwritten. |
-| No final report yet | Check the backend-specific run log. The job may still be running or may have failed before validation. |
-| Validation says passed: false | Read the errors and nested checks. Keep the log, profile and source revisions when reporting the problem. |
+| Extension import or build fails | Check that Python, PyTorch and the CUDA/ROCm toolchain match the installation requirements. |
+| Profile already exists or plan shows the wrong paths | Inspect .rlk-profile.json and RLK\_REPRO\_PROFILE. Keep a working profile rather than overwriting it. |
+| CUDA doctor fails | Fix the named path, version or Ray connection before launching. |
+| ROCm companion checks fail | Check the patched vime, Megatron and vLLM sources and their installed builds. |
+| ROCm finds an unrelated Ray cluster | Coordinate use of the node. Do not stop another user's job. |
+| Output directory already exists | Choose a new run ID. |
+| Report is missing or passed is false | Inspect the backend's run log and all report errors. Keep the profile and source revisions when reporting the issue. |
 
-The ROCm profile currently supports plan and run, with validation included
-in run. prepare, doctor, validate, report and the weight-update
-verify workflow are CUDA-only. For the first ROCm run, keep rollout CP at 1,
-temperature positive and top-k disabled (-1, the default). See the
-[support audit](../usage/cuda-rocm-consistency-audit.md) before changing these
-settings.
+ROCm supports plan and run with validation inside run. prepare, doctor, validate,
+report and the weight-update verify workflow are CUDA-only. For the initial ROCm
+check, keep rollout CP at 1, temperature positive and top-k disabled. See the
+[CUDA/ROCm support audit](../usage/cuda-rocm-consistency-audit.md) before changing
+these settings.
 
-## Learn more and contribute
+## Next steps and contributions
 
-- [Project results: Qwen3-8B training and rollout consistency](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md)
+A useful first contribution is to reproduce this run and report the exact
+hardware, source revisions and validation result. Documentation improvements and
+small reproducible failures also help the project.
+
+- [Contribution guide](../contributing/contributor-guide.md)
 - [Detailed setup and supported configurations](../usage/qwen3-vime-consistency.md)
-- [Current H100 validation results](../usage/h100-matrix-validation.md)
-- [Current ROCm performance and validation scope](../usage/rocm-sparse-performance.md)
-- [DSV4 Flash MoE roadmap — work in progress](2026-08-09-dsv4-flash-moe-consistency-roadmap.md)
-- [Contributing to RL-Kernel](../contributing/contributor-guide.md)
-
-The command-first structure of this guide takes inspiration from the
-[vLLM MoRIIOConnector usage guide](https://docs.vllm.ai/en/latest/features/moriio_connector_usage/).
-MoRIIOConnector is a separate feature; it is not required for this guide.
+- [H100 validation results](../usage/h100-matrix-validation.md)
+- [DSV4 Flash MoE roadmap](2026-08-09-dsv4-flash-moe-consistency-roadmap.md)
