@@ -8,14 +8,19 @@ with the pinned checkpoint (`MiniMaxAI/MiniMax-H3@42ed227`, all 14 shards, sha25
 
 - `tools/validation/models/h3_full_transformer.py`: the full 33B forward and backward on a
   packed input through the RL-Kernel block graph (50 real blocks) **and** the boundary rows
-  (`audio_input_projection_fp32`, `audio_output_projection_fp32`, `text_context_projection`,
-  `token_refiner_block`); `proj_in`, `proj_out`, `time_embedder`, `norm_out` stay on the
-  provider and the report says so (`boundary_bindings`).
+  (`video_input_projection_fp32`, `video_output_projection_fp32`, `audio_input_projection_fp32`,
+  `audio_output_projection_fp32`, `text_context_projection`, `token_refiner_block`);
+  `time_embedder` and `norm_out` stay on the provider and the report says so
+  (`boundary_bindings`).
 - `tools/validation/models/h3_dual_trajectory.py`: a 4-step flow-matching Euler sampler
   (video + audio, FP32 latents) run in two layouts - the request alone, and as row 1 of a
   batch of 2 - sealed with the trajectory artifact and compared with `drift_report`.
 
 ## Result (H100, `reports/experiments/h3-full-transformer-h100/`)
+
+The numbers below were measured before `proj_in`/`proj_out` were bound to the merged video
+projection rows (#562, #646); the "diagnostic" row used the `h3_projection` GEMM instead. A
+rerun of both tools with the bound rows replaces them and has not been done yet.
 
 | Check | Provider | RL-Kernel |
 | --- | --- | --- |
@@ -28,9 +33,8 @@ with the pinned checkpoint (`MiniMaxAI/MiniMax-H3@42ed227`, all 14 shards, sha25
 Reading: the candidate stays inside the spread of independent provider kernel choices
 (`provider_variants_vs_provider`). The residual strict drift is entirely the provider's
 video `proj_in`/`proj_out` (cuBLAS FP32, row-count dependent); binding them to the same
-fixed-order GEMM makes the full 33B sampler bitwise layout-invariant. Those two rows belong
-to another contributor, so the diagnostic binding is labelled in the artifact metadata
-(`diagnostic_video_projections`) and is not claimed as a row.
+fixed-order GEMM makes the full 33B sampler bitwise layout-invariant. The harness now binds
+those two modules to `video_input_projection_fp32` / `video_output_projection_fp32`.
 
 ## Limits
 
@@ -49,7 +53,6 @@ Three seeds of the single-vs-batched Euler control (`reports/experiments/h3-full
 (`full_transformer.json`).
 
 * provider: the two paths differ at every step (max abs 0.25-0.54 on step 0).
-* RL-Kernel strict: the first difference is 4.3e-6 to 4.8e-6 and comes from the video `proj_in`/`proj_out`, which are another contributor's rows and
-  are not bound here; the difference then grows through the sampler on some seeds.
-* strict with the video projections bound only as a diagnostic (`--diag-video-projections`): bitwise equal at every step on all three seeds.
+* RL-Kernel strict: the first difference is 4.3e-6 to 4.8e-6 and comes from the video `proj_in`/`proj_out`, which were provider arithmetic in that run; the difference then grows through the sampler on some seeds.
+* strict with the video projections on the `h3_projection` GEMM (the removed `--diag-video-projections` diagnostic): bitwise equal at every step on all three seeds.
 * the wall-time panel includes warm-up; steady-state step times are a follow-up.

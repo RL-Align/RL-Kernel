@@ -2,8 +2,8 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """Instrument the full pinned H3 provider with the actual RL-Kernel block graph.
 
-Input/output projections and both text-refiner layers retain provider arithmetic.
-Each of the 50 distinct blocks executes the existing candidate graph with its own
+Without ``strict_boundaries`` the projections and both text-refiner layers retain provider
+arithmetic. Each of the 50 distinct blocks executes the existing candidate graph with its own
 parameters. No weights are copied from block zero. This is integration evidence,
 not qualification of the reference/interim bindings as final RFC kernels.
 """
@@ -74,6 +74,7 @@ class FullModelTrace:
         self.capture = False
         self.actual_backends = {}
         self.candidate = False
+        self.provider_nodes: tuple[str, ...] = ()  # diagnostic hybrids only
         self.candidate_calls = Counter()
         self.forward_order = []
         self.backward_order = []
@@ -115,6 +116,7 @@ class FullModelTrace:
                 "proj_in",
                 "audio_proj_in",
                 "context_embedder",
+                "time_proj",
                 "token_refiner",
                 "time_embedder",
                 "norm_out",
@@ -124,7 +126,12 @@ class FullModelTrace:
         )
         missing = [name for name in required if not self.calls[name]]
         if backward:
-            missing += [name + ".backward" for name in required if not self.backward_calls[name]]
+            # ``time_proj`` has no parameters and its input carries no gradient: forward only.
+            missing += [
+                name + ".backward"
+                for name in required
+                if name != "time_proj" and not self.backward_calls[name]
+            ]
         if missing:
             raise ValueError(f"incomplete full-model execution: {missing}")
         if self.candidate:
@@ -154,6 +161,9 @@ class FullModelTrace:
                 "strict rows + provider" if self.boundary_bindings else "provider/reference"
             ),
             boundary_bindings=self.boundary_bindings,
+            # not empty only for a diagnostic hybrid, whose nodes ran the provider replay: such a
+            # trace is localisation evidence, never a candidate result
+            diagnostic_provider_nodes=list(self.provider_nodes),
             full_transformer_blocks=50,
             refiner_layers=2,
         )
@@ -168,21 +178,22 @@ def require_candidate_cuda(ops):
 
 
 # Boundary modules bound to RL-Kernel rows by ``strict_boundaries``; the others keep provider
-# arithmetic and are reported as such (``proj_in``/``proj_out`` belong to the video-projection
-# rows claimed by another contributor; ``time_embedder``/``norm_out`` have their own rows
+# arithmetic and are reported as such (``time_embedder``/``norm_out`` have their own rows
 # but are not part of this binding yet).
 STRICT_BOUNDARY_ROWS = {
+    "proj_in": "video_input_projection_fp32",
+    "proj_out": "video_output_projection_fp32",
     "audio_proj_in": "audio_input_projection_fp32",
     "audio_proj_out": "audio_output_projection_fp32",
     "context_embedder": "text_context_projection",
     "token_refiner": "token_refiner_block",
 }
-PROVIDER_BOUNDARIES = ("proj_in", "proj_out", "time_embedder", "norm_out")
+PROVIDER_BOUNDARIES = ("time_embedder", "norm_out")
 
 
 @contextmanager
 def _strict_boundaries(model, trace, ops, native=frozenset()):
-    """Rebind the audio projections, the text projection and the whole token refiner to rows."""
+    """Rebind the video and audio projections, the text projection and the token refiner to rows."""
 
     from rl_engine.runtime.registry import KernelRegistry
     from rl_engine.validation.models import h3_refiner
@@ -197,10 +208,12 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
 
     def project(name):
         module, op = getattr(model, name), row_ops[name]
+        # the projection-row ops expose ``forward``; the video rows are callables
+        call = getattr(op, "forward", op)
 
         def forward(x):
             flat = x.reshape(-1, x.shape[-1])
-            out = op.forward(flat, module.weight, module.bias)
+            out = call(flat, module.weight, module.bias)
             return out.view(*x.shape[:-1], out.shape[-1])
 
         originals.append((module, module.forward))
@@ -267,6 +280,7 @@ def full_model_execution(
     boundaries = validate_full_structure(model)
     originals, handles = [], []
     trace.candidate = candidate
+    trace.provider_nodes = tuple(sorted(provider_nodes))
     if strict_boundaries and not candidate:
         raise ValueError("strict_boundaries applies to candidate execution only")
     unknown_boundaries = set(native_boundaries) - set(STRICT_BOUNDARY_ROWS)
@@ -342,3 +356,58 @@ def full_model_execution(
             block.forward = original
         if boundary_context is not None:
             boundary_context.__exit__(None, None, None)
+
+
+# --- Numerics shared with the generation runner --------------------------------------------------
+# They live here, not in ``tools/``, because this module is part of the model paths whose git trees
+# identify a generation run (``h3_generation_resume.MODEL_PATHS``): a change to either of them
+# changes the generated numbers and must invalidate saved steps and the numerical gate.
+
+# Provider passes that change only which kernels compute the same diffusers graph, to
+# measure how much an independent BF16 provider's errors move on their own. Each forces
+# one choice; an unavailable kernel raises instead of falling back.
+PROVIDER_VARIANTS = ("default", "sdpa-flash", "sdpa-efficient", "sdpa-cudnn", "blas-cublaslt")
+
+
+@contextmanager
+def provider_variant_context(variant: str):
+    """Force one SDPA backend, or the cuBLASLt BLAS library, inside the ``with`` body only.
+
+    The BLAS choice is process-global, so it is put back on exit (also on an exception): code that
+    runs after the block, such as the VAE decode or the next seed, keeps the default library.
+    """
+
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    backends = {
+        "sdpa-flash": SDPBackend.FLASH_ATTENTION,
+        "sdpa-efficient": SDPBackend.EFFICIENT_ATTENTION,
+        "sdpa-cudnn": SDPBackend.CUDNN_ATTENTION,
+    }
+    if variant == "blas-cublaslt":
+        previous = torch.backends.cuda.preferred_blas_library()
+        torch.backends.cuda.preferred_blas_library("cublaslt")
+        try:
+            yield
+        finally:
+            torch.backends.cuda.preferred_blas_library(previous)
+    elif variant in backends:
+        with sdpa_kernel([backends[variant]]):
+            yield
+    else:
+        yield
+
+
+class QueryChunkAttention:
+    """Bound attention workspace; every query still attends to every key."""
+
+    def __init__(self, op, chunk):
+        self.op, self.chunk = op, chunk
+
+    def __call__(self, q, k, v, **kwargs):
+        if torch.is_grad_enabled():
+            raise ValueError("generation query chunking is inference only")
+        return torch.cat(
+            [self.op(part.contiguous(), k, v, **kwargs) for part in q.split(self.chunk, dim=2)],
+            dim=2,
+        )

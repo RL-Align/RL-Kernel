@@ -29,9 +29,10 @@ trace.digest; trace.dumps(); ot.OperatorTrace.loads(text)
 ot.first_difference(a, b)          # first call where two traces disagree
 ```
 
-`block_observer(trace, block_index=0)` (`stage="token_refiner"` for the 14-node refiner block) plugs into `h3_block.run_graph` through the existing
-`ctx["node_observer"]` hook. It records each node with the binding `h3_block.NODES` declares,
-so the one-block replay and the full-model replay emit a trace without any change in arithmetic.
+`block_observer(trace, block_index=0)` (`stage="token_refiner"` for the 14-node refiner
+block) plugs into `h3_block.run_graph` through the existing `ctx["node_observer"]` hook.
+It records each node with the binding `h3_block.NODES` declares, so the one-block replay
+and the full-model replay emit a trace without any change in arithmetic.
 
 ## What `violations` Reports
 

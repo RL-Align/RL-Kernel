@@ -352,6 +352,35 @@ def test_inference_mode_index_is_planned_every_time_and_runs_both_ops():
     assert torch.equal(first.local_index, torch.tensor(values, device="cuda"))
 
 
+@requires_cuda
+def test_tables_with_overlapping_rows_are_copied_like_the_ws1_ops():
+    """An expanded table (row stride 0) is accepted, as by the WS1 ops, and gives the same bytes."""
+
+    _require_ext()
+    from rl_engine.backends.cuda.model_specific.minimax_h3.sp_norm_adaln import H3SPNormAdaLNCudaOp
+
+    collective = SimpleNamespace(rank=0, world_size=1, all_gather=lambda x: x)
+    seq, hidden, rows = 4, 16, 2
+    gen = torch.Generator(device="cuda").manual_seed(1)
+
+    def bf16(*shape):
+        return torch.randn(*shape, device="cuda", generator=gen).bfloat16()
+
+    x, residual, y = bf16(1, seq, hidden), bf16(1, seq, hidden), bf16(1, seq, hidden)
+    weight = bf16(hidden)
+    shift_row, scale_row, gate_row = bf16(1, hidden), bf16(1, hidden), bf16(1, hidden)
+    index = torch.tensor([0, 1, 0, 1], device="cuda")
+    op = H3SPNormAdaLNCudaOp(collective, seq, 1)
+
+    shift, scale, gate = (t.expand(rows, hidden) for t in (shift_row, scale_row, gate_row))
+    assert shift.stride(0) == 0
+    got_norm = op.norm_modulated(x, weight, shift, scale, index)
+    got_gate = op.gate_residual(residual, y, gate, index)
+    dense = [t.contiguous() for t in (shift, scale, gate)]
+    assert torch.equal(got_norm, op.norm_modulated(x, weight, dense[0], dense[1], index))
+    assert torch.equal(got_gate, op.gate_residual(residual, y, dense[2], index))
+
+
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two CUDA devices")
 def test_plain_norm_uses_activation_device_and_separate_cache():
     _require_ext()

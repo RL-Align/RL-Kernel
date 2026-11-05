@@ -35,6 +35,7 @@ def make_operator_inputs(
         "pack": _make_pack_inputs,
         "video_patch_pack_unpack": _make_video_patch_pack_unpack_inputs,
         "video_input_projection_fp32": _make_video_input_projection_fp32_inputs,
+        "video_output_projection_fp32": _make_video_output_projection_fp32_inputs,
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
         "attention": _make_attention_inputs,
@@ -77,6 +78,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
         "pack": f"{batch}x{seq}x{_normalized_dim(args)}",
         "video_input_projection_fp32": f"{batch}x{seq}x96x5376",
+        "video_output_projection_fp32": f"{batch}x{seq}x5376x96",
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
@@ -135,6 +137,34 @@ def _make_video_input_projection_fp32_inputs(
         "bias": _floating_tensor((5376,), args, dtype, device, offset=2),
         "logical_keys": keys,
         "parameter_id": "transformer.proj_in",
+    }
+
+
+def _make_video_output_projection_fp32_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build FP32 H3 projection inputs with fixed widths 5376 and 96.
+
+    Logical keys are unique [batch_index, token_index] pairs in the same order
+    as the flattened input rows, with every row active.
+    """
+
+    if dtype != torch.float32:
+        raise TypeError("video output projection validation requires FP32")
+    batch, seq = _batch_seq(args)
+    keys = torch.stack(
+        (
+            torch.arange(batch, device=device).repeat_interleave(seq),
+            torch.arange(seq, device=device).repeat(batch),
+        ),
+        dim=1,
+    )
+    return {
+        "x": _floating_tensor((batch, seq, 5376), args, dtype, device, offset=0),
+        "weight": _floating_tensor((96, 5376), args, dtype, device, offset=1),
+        "bias": _floating_tensor((96,), args, dtype, device, offset=2),
+        "logical_keys": keys,
+        "parameter_id": "transformer.proj_out",
     }
 
 

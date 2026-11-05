@@ -787,11 +787,12 @@ if _TRITON_AVAILABLE:
         # One program walks the whole K or one declared fixed-width chunk.
         # The K order does not depend on output rows or their placement.
         pid_m, pid_n = tl.program_id(0), tl.program_id(1)
-        offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-        offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        # Strided tensors can exceed 2**31 elements. Widen before strides.
+        offs_m = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+        offs_n = (pid_n * BLOCK_N + tl.arange(0, BLOCK_N)).to(tl.int64)
         chunk = tl.program_id(2) if CHUNK_K else 0
         start_k = chunk * CHUNK_K
-        offs_k = start_k + tl.arange(0, BLOCK_K)
+        offs_k = (start_k + tl.arange(0, BLOCK_K)).to(tl.int64)
         a_ptrs = a_ptr + (offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak)
         b_ptrs = b_ptr + (offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn)
         acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
@@ -878,7 +879,7 @@ def _triton_chunked_gemm_fp32(
     *,
     tile: tuple[int, int, int] = (_BLOCK_M, _BLOCK_N, 4),
 ) -> torch.Tensor:
-    """Compute FP32 input or weight gradients with fixed 128-term K chunks.
+    """Compute an FP32 matrix product with fixed 128-term K chunks.
 
     Merge the partials in one grid. Split independent output rows when needed
     to keep the partial-result workspace within its element budget.
@@ -887,6 +888,11 @@ def _triton_chunked_gemm_fp32(
     m_size, k_size = a.shape
     n_size = b.shape[1]
     chunks = triton.cdiv(k_size, _FP32_CHUNK_K)
+    padded_chunks = triton.next_power_of_2(chunks)
+    merge_block_c = 64
+    if padded_chunks * merge_block_c > tl.TRITON_MAX_TENSOR_NUMEL:
+        max_k = (tl.TRITON_MAX_TENSOR_NUMEL // merge_block_c) * _FP32_CHUNK_K
+        raise ValueError(f"FP32 chunk GEMM supports K <= {max_k}; got K={k_size}")
     rows_per_chunk = _MAX_TREE_WORKSPACE_ELEMENTS // (chunks * n_size)
     if rows_per_chunk < 1:
         raise RuntimeError("FP32 chunk GEMM exceeds the workspace budget for one row")
@@ -927,13 +933,13 @@ def _triton_chunked_gemm_fp32(
         enable_fp_fusion=False,
         num_warps=num_warps,
     )
-    _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, 64),)](
+    _det_gemm_fp32_chunk_merge_kernel[(triton.cdiv(m_size * n_size, merge_block_c),)](
         partial,
         output,
         m_size * n_size,
         CHUNKS=chunks,
-        PADDED_CHUNKS=triton.next_power_of_2(chunks),
-        BLOCK_C=64,
+        PADDED_CHUNKS=padded_chunks,
+        BLOCK_C=merge_block_c,
         enable_fp_fusion=False,
         num_warps=4,
     )
