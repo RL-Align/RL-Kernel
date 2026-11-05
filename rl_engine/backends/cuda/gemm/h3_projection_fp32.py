@@ -6,7 +6,7 @@ import hashlib
 
 import torch
 
-_BINARY_HASHES = {}
+_BINARY_HASHES: dict[str, str] = {}
 
 
 class FixedFP32Backend:
