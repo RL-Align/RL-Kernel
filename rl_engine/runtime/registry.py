@@ -111,6 +111,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_VIDEO_PATCH_PACK_UNPACK = (
         "rl_engine.reference.packing.video_patch_pack_unpack.NativeVideoPatchPackUnpackOp"
     )
+    PYTORCH_NATIVE_PACKED_INDEX_COPY = (
+        "rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp"
+    )
+    CUDA_PACKED_INDEX_COPY = (
+        "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp"
+    )
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
@@ -847,6 +853,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [OpBackend.CUDA_PACKED_INDEX_COPY],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "video_input_projection_fp32": [OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32],
@@ -952,6 +959,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
@@ -1007,6 +1015,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
@@ -1055,6 +1064,7 @@ class KernelRegistry:
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [OpBackend.PYTORCH_NATIVE_PACKED_INDEX_COPY],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
@@ -1134,6 +1144,7 @@ class KernelRegistry:
             OpBackend.ASCEND_SILU,
             OpBackend.PYTORCH_NATIVE_SILU,
         ]
+        self._priority_map["npu"]["packed_index_copy"] = []
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,
         ]
