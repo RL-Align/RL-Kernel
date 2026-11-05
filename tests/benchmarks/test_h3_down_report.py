@@ -30,13 +30,13 @@ def test_report_rejects_ambiguous_native_and_candidate_results():
         "native_forward": {"median_ms": 1.0},
         "candidate_forward": {"median_ms": 2.0},
     }
-    with pytest.raises(ValueError, match="duplicate benchmark after native key mapping"):
-        report.normalize_benchmarks(benchmarks)
+    with pytest.raises(ValueError, match="mixes native and candidate benchmark results"):
+        report.benchmark_prefix(benchmarks)
 
 
 def test_report_identifies_missing_benchmarks():
     with pytest.raises(ValueError, match="candidate_forward_backward"):
-        report.normalize_benchmarks(
+        report.benchmark_prefix(
             {
                 "candidate_forward": {"median_ms": 2.0},
                 "torch_bf16_forward": {"median_ms": 1.0},
@@ -90,15 +90,29 @@ def test_measured_failure_keeps_error_ratio_and_missing_checks_are_unavailable()
 
 
 @pytest.mark.parametrize(
-    ("backend", "prefix"),
+    ("backend", "prefix", "label"),
     [
-        ("rlkernel.h3_ffn_down.triton.fp32_tiles.v1", "candidate"),
-        ("rlkernel.h3_ffn_down.sm90.midtree.v1", "native"),
-        (None, "candidate"),
+        (
+            "rlkernel.h3_ffn_down.triton.fp32_tiles.v1",
+            "candidate",
+            "Candidate (rlkernel.h3_ffn_down.triton.fp32_tiles.v1)",
+        ),
+        (
+            "rlkernel.h3_ffn_down.sm90.midtree.v1",
+            "native",
+            "Legacy native comparator (rlkernel.h3_ffn_down.sm90.midtree.v1)",
+        ),
+        (
+            "rlkernel.h3_ffn_down.sm90.midtree.v1",
+            "candidate",
+            "Legacy native comparator (rlkernel.h3_ffn_down.sm90.midtree.v1)",
+        ),
+        (None, "native", "Legacy native comparator"),
+        (None, "candidate", "Candidate"),
     ],
 )
 def test_report_preserves_backend_identity_in_table_and_plot(
-    tmp_path, monkeypatch, backend, prefix
+    tmp_path, monkeypatch, backend, prefix, label
 ):
     case = {
         "input_family": "random",
@@ -130,7 +144,6 @@ def test_report_preserves_backend_identity_in_table_and_plot(
     monkeypatch.setattr(plt.Figure, "savefig", inspect_figure)
     report.main()
 
-    label = f"Candidate ({backend})" if backend else "Candidate"
     summary = (output / "summary.md").read_text()
     assert f"| {label} fwd ms |" in summary
     assert "| random | 33 | 0 | 0 | 2.0000 | 1.0000 |" in summary

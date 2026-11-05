@@ -285,7 +285,8 @@ def run_case(x, w, dy, label, repeats, *, compare_vllm=False, backend=H3_DOWN_BA
     case["benchmarks"]["candidate_dx"] = timed(
         lambda: extension.det_gemm_fwd(dy.contiguous(), w.contiguous()), repeats
     )
-    case["benchmarks"]["candidate_dw_canonical_order"] = timed(
+    # Time the reducer in physical row order, outside the canonical session.
+    case["benchmarks"]["candidate_dw_reducer_only"] = timed(
         lambda: _weight_gradient(extension, x, dy), repeats
     )
     case["benchmarks"]["candidate_forward_backward"] = timed(

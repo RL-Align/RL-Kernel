@@ -25,7 +25,9 @@ are normalized by copies. The adapter passes transposed weight/gradient views
 using explicit operand strides; storage layout does not change logical K order.
 The historical forward/dX/dW matrix includes this path. Weight-gradient rows
 are sorted by logical identity and padded to the next multiple of 32 rows before
-a single reduction.
+a single reduction. At 32767 active BF16 rows, padding allocates 1232 MiB
+for the two temporary buffers in addition to the input rows and gradients.
+The current revision has no measured peak memory for this path.
 The 32768-row limit also applies to the cumulative active rows for one parameter
 across a backward session.
 
@@ -270,14 +272,16 @@ Focused checks on 2026-10-30 with torch 2.6.0+cpu and Triton 3.2.0:
 and tooling suites. Lint and formatting passed. CPU binding uses a synthetic
 launcher and does not compile or execute a Triton kernel.
 
-The shared GEMM and canonical reducer changed in the later upstream merge;
-the 2026-10-10 H100 results do not qualify these current dependencies.
-The 2026-10-31 execution above covers the updated device path and its
-full-width forward/dX/dW cases. Its scope remains operator-level qualification.
+The 2026-10-31 H100 execution covers the shared GEMM and canonical reducer
+at `92c98f0`, including full-width forward, dX and dW cases. The current shared
+GEMM uses widened 64-bit offsets, and the canonical session directly copies
+ordered rows from qualifying multi-use CUDA inputs. That execution did not
+exercise the current kernel build or the newer multi-use copy path.
 
-Timing tables and chart legends now identify the recorded backend when available;
-reports without that field retain the generic candidate label. The report and
-runbook checks passed **16 report/tooling tests** on 2026-10-30, including
+Timing tables and chart legends identify the recorded backend when available.
+Legacy native timings have a separate label even when the report predates the
+backend field. The earlier report and runbook checks passed **16 report/tooling
+tests** on 2026-10-30, including
 four CPU simulations of failure priority and evidence-directory output. Lint,
 formatting and Bash syntax checks passed. The earlier compatibility results
 above are retained as a separate execution. No GPU execution was repeated during
@@ -285,11 +289,13 @@ those 2026-10-30 report/runbook checks.
 
 ## Reproduction and remaining qualification
 
-The runbook records the checked-out commit and working-tree patch before the
-GPU preflight, preserves GPU-test, validation and plotting logs, always prints
-the evidence directory after plotting, and returns failures in that priority
-order. Its source patch captures tracked edits only; retain any executed untracked
-sources separately. Native comparisons also require matching build records;
+The runbook requires a new or empty evidence directory. Set `H3_RESULT_DIR`
+to choose one. It records the checked-out commit and working-tree patch before
+the GPU preflight and preserves GPU-test, validation and plotting logs. It
+plots only when the current run produces a report. After validation, the runbook
+prints the evidence directory and returns the first failure in GPU-test,
+validation and plotting order. The source patch captures tracked edits only.
+Retain any executed untracked sources separately. Native comparisons also require matching build records;
 runtime provenance records the loaded binary hash but does not verify build flags.
 
 Use a dedicated non-MIG H100 80GB and a CUDA 12.4 development environment.
@@ -309,6 +315,12 @@ python tools/validation/operators/validate_h3_ffn_down.py --seed 420 --repeats 5
   --families random,swiglu_like,cancellation \
   --fixture ${FIXTURE_ROOT}/h3-down-fixture.pt --output /tmp/h3-down-full.json
 ```
+
+The `candidate_dw_reducer_only` timing includes the isolated weight-gradient
+reducer and its padding and copies. It omits canonical row preparation and
+session overhead, which are included in `candidate_forward_backward`.
+Historical reports retain the earlier `candidate_dw_canonical_order` key for
+the same isolated measurement.
 
 The default needs Triton, not the native extension. `H3_BUILD_NATIVE=1` optionally
 builds the legacy comparison with fast math disabled; the runbook requires nvcc 12.4.

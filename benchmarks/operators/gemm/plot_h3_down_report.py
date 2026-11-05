@@ -10,24 +10,23 @@ import math
 from pathlib import Path
 
 
-def normalize_benchmarks(benchmarks):
-    """Map historical native keys without losing an existing candidate result."""
-    normalized = {}
-    for key, value in benchmarks.items():
-        target = "candidate_" + key[len("native_") :] if key.startswith("native_") else key
-        if target in normalized:
-            raise ValueError(f"duplicate benchmark after native key mapping: {target}")
-        normalized[target] = value
+def benchmark_prefix(benchmarks):
+    """Identify a single timing series while preserving the report's original keys."""
+    native = any(key.startswith("native_") for key in benchmarks)
+    candidate = any(key.startswith("candidate_") for key in benchmarks)
+    if native and candidate:
+        raise ValueError("report case mixes native and candidate benchmark results")
+    prefix = "native" if native else "candidate"
     required = (
-        "candidate_forward",
+        f"{prefix}_forward",
         "torch_bf16_forward",
-        "candidate_forward_backward",
+        f"{prefix}_forward_backward",
         "torch_bf16_forward_backward",
     )
-    missing = [key for key in required if key not in normalized]
+    missing = [key for key in required if key not in benchmarks]
     if missing:
         raise ValueError(f"report case lacks benchmark results: {', '.join(missing)}")
-    return normalized
+    return prefix
 
 
 def plot_reference_accuracy(axis, cases):
@@ -79,11 +78,19 @@ def main():
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
     cases = report["cases"]
+    prefixes = {benchmark_prefix(case["benchmarks"]) for case in cases}
+    if len(prefixes) > 1:
+        raise ValueError("report mixes native and candidate benchmark cases")
+    prefix = next(iter(prefixes), "candidate")
     backend = report.get("backend")
-    backend_label = f"Candidate ({backend})" if backend else "Candidate"
-    # Render earlier native-midtree reports alongside the versioned FP32 candidate.
-    for case in cases:
-        case["benchmarks"] = normalize_benchmarks(case["benchmarks"])
+    # New validator reports use candidate keys even for the explicit native comparator.
+    if prefix == "native" or backend == "rlkernel.h3_ffn_down.sm90.midtree.v1":
+        backend_label = "Legacy native comparator"
+    else:
+        backend_label = "Candidate"
+    if backend:
+        backend_label += f" ({backend})"
+    forward_key = f"{prefix}_forward"
     lines = [
         "# H3 down projection GPU evidence",
         "",
@@ -107,7 +114,7 @@ def main():
         lines.append(
             f"| {case['input_family']} | {case['rows']} | "
             f"{sum(row['passed'] for row in case['checks'])} | {len(case['checks'])} | "
-            f"{bench['candidate_forward']['median_ms']:.4f} | "
+            f"{bench[forward_key]['median_ms']:.4f} | "
             f"{bench['torch_bf16_forward']['median_ms']:.4f} |"
         )
     lines += ["", "Remaining acceptance:", ""]
@@ -158,9 +165,9 @@ def main():
         fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
         counts = [case["rows"] for case in subset]
         for key, label in (
-            ("candidate_forward", f"{backend_label} forward"),
+            (forward_key, f"{backend_label} forward"),
             ("torch_bf16_forward", "torch BF16 forward"),
-            ("candidate_forward_backward", f"{backend_label} forward+backward"),
+            (f"{prefix}_forward_backward", f"{backend_label} forward+backward"),
             ("torch_bf16_forward_backward", "torch BF16 forward+backward"),
         ):
             axes[0].plot(

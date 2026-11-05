@@ -8,8 +8,14 @@ cd "$repo_dir"
 mode="${1:-smoke}"
 case "$mode" in smoke|full) ;; *) echo 'Usage: bash ci/scripts/run_h3_down_h100.sh [smoke|full]' >&2; exit 2 ;; esac
 result_dir="${H3_RESULT_DIR:-$repo_dir/artifacts/h3-down/$(date -u +%Y%m%dT%H%M%SZ)}"
-mkdir -p "$result_dir"
-git rev-parse HEAD > "$result_dir/commit.txt"
+mkdir -p -- "$result_dir"
+existing_evidence="$(find -H -- "$result_dir" -mindepth 1 -maxdepth 1 -print -quit)"
+if [[ -n "$existing_evidence" ]]; then
+    echo "Evidence directory is not empty: $result_dir" >&2
+    exit 2
+fi
+# A concurrent run that also sees the empty directory cannot overwrite the claim.
+(set -o noclobber; git rev-parse HEAD > "$result_dir/commit.txt")
 git status --short > "$result_dir/git-status.txt"
 git diff HEAD > "$result_dir/source.patch"
 export KERNEL_ALIGN_USE_FAST_MATH=0
@@ -77,8 +83,13 @@ python tools/validation/operators/validate_h3_ffn_down.py "${args[@]}" 2>&1 | te
 validation_pipeline_status=("${PIPESTATUS[@]}")
 validation_status=${validation_pipeline_status[0]}
 if [[ "$validation_status" -eq 0 ]]; then validation_status=${validation_pipeline_status[1]}; fi
-python benchmarks/operators/gemm/plot_h3_down_report.py "$result_dir/report.json" --output-dir "$result_dir" 2>&1 | tee "$result_dir/plot.log"
-plot_status=$?
+if [[ -s "$result_dir/report.json" ]]; then
+    python benchmarks/operators/gemm/plot_h3_down_report.py "$result_dir/report.json" --output-dir "$result_dir" 2>&1 | tee "$result_dir/plot.log"
+    plot_status=$?
+else
+    echo "Validation produced no report; skipped plotting." | tee "$result_dir/plot.log"
+    plot_status=1
+fi
 set -e
 echo "Evidence directory: $result_dir"
 if [[ "$gpu_test_status" -ne 0 ]]; then exit "$gpu_test_status"; fi

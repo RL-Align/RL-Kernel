@@ -16,16 +16,17 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.parametrize(
-    ("gpu_status", "validation_status", "plot_status", "tee_failure", "expected"),
+    ("gpu_status", "validation_status", "write_report", "plot_status", "tee_failure", "expected"),
     [
-        (17, 23, 29, "", 17),
-        (0, 23, 29, "", 23),
-        (0, 0, 29, "", 29),
-        (0, 0, 0, "", 0),
-        (0, 0, 0, "gpu-tests.txt", 31),
-        (0, 0, 0, "validation.log", 31),
-        (17, 0, 0, "gpu-tests.txt", 17),
-        (0, 23, 0, "validation.log", 23),
+        (17, 23, False, 29, "", 17),
+        (0, 23, True, 29, "", 23),
+        (0, 0, True, 29, "", 29),
+        (0, 0, True, 0, "", 0),
+        (0, 0, True, 0, "gpu-tests.txt", 31),
+        (0, 0, True, 0, "validation.log", 31),
+        (17, 0, True, 0, "gpu-tests.txt", 17),
+        (0, 23, False, 0, "validation.log", 23),
+        (0, 0, False, 0, "", 1),
     ],
     ids=[
         "gpu-failure",
@@ -36,10 +37,18 @@ ROOT = Path(__file__).resolve().parents[3]
         "validation-log-failure",
         "gpu-and-log-failure",
         "validation-and-log-failure",
+        "validation-without-report",
     ],
 )
 def test_runbook_preserves_failure_priority_and_evidence_directory(
-    tmp_path, monkeypatch, gpu_status, validation_status, plot_status, tee_failure, expected
+    tmp_path,
+    monkeypatch,
+    gpu_status,
+    validation_status,
+    write_report,
+    plot_status,
+    tee_failure,
+    expected,
 ):
     commands = tmp_path / "commands"
     commands.mkdir()
@@ -74,8 +83,8 @@ elif args[:2] == ["-m", "pytest"]:
 elif args[0] == "tools/validation/operators/validate_h3_ffn_down.py":
     print("simulated validation result")
     status = int(os.environ["H3_TEST_VALIDATION_STATUS"])
-    if not status:
-        Path(os.environ["H3_RESULT_DIR"], "report.json").write_text("{}")
+    if os.environ["H3_TEST_WRITE_REPORT"] == "1":
+        Path(args[args.index("--output") + 1]).write_text("{}")
     sys.exit(status)
 elif args[0] == "benchmarks/operators/gemm/plot_h3_down_report.py":
     print("simulated plot result")
@@ -89,12 +98,14 @@ else:
         path.write_text(stub)
         path.chmod(0o755)
     result_dir = tmp_path / "evidence"
+    result_dir.mkdir()
     for name, value in {
         "PATH": str(commands) + os.pathsep + os.environ["PATH"],
         "H3_RESULT_DIR": str(result_dir),
         "H3_BUILD_NATIVE": "0",
         "H3_TEST_GPU_STATUS": str(gpu_status),
         "H3_TEST_VALIDATION_STATUS": str(validation_status),
+        "H3_TEST_WRITE_REPORT": str(int(write_report)),
         "H3_TEST_PLOT_STATUS": str(plot_status),
         "H3_TEST_TEE_FAILURE": tee_failure,
     }.items():
@@ -110,9 +121,38 @@ else:
     assert (result_dir / "commit.txt").read_text().strip() == "simulated git"
     assert "simulated GPU test result" in (result_dir / "gpu-tests.txt").read_text()
     assert "simulated validation result" in (result_dir / "validation.log").read_text()
-    assert "simulated plot result" in (result_dir / "plot.log").read_text()
-    if validation_status:
-        assert not (result_dir / "report.json").exists()
+    plot_log = (result_dir / "plot.log").read_text()
+    assert (result_dir / "report.json").is_file() == write_report
+    if write_report:
+        assert "simulated plot result" in plot_log
+    else:
+        assert "Validation produced no report; skipped plotting." in plot_log
+        assert "simulated plot result" not in result.stdout
+
+
+@pytest.mark.parametrize("via_symlink", [False, True])
+def test_runbook_refuses_to_overwrite_prior_evidence(tmp_path, monkeypatch, via_symlink):
+    result_dir = tmp_path / "evidence"
+    result_dir.mkdir()
+    (result_dir / "report.json").write_text("prior report")
+    (result_dir / "validation.log").write_text("prior validation")
+    configured_dir = result_dir
+    if via_symlink:
+        configured_dir = tmp_path / "linked-evidence"
+        configured_dir.symlink_to(result_dir, target_is_directory=True)
+    monkeypatch.setenv("H3_RESULT_DIR", str(configured_dir))
+    result = subprocess.run(
+        ["bash", str(ROOT / "ci/scripts/run_h3_down_h100.sh"), "smoke"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert f"Evidence directory is not empty: {configured_dir}" in result.stderr
+    assert {path.name: path.read_text() for path in result_dir.iterdir()} == {
+        "report.json": "prior report",
+        "validation.log": "prior validation",
+    }
 
 
 def test_gpu_validator_refuses_cpu_and_preserves_error_evidence(tmp_path, monkeypatch):
