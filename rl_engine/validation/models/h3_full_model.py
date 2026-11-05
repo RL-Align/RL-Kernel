@@ -2,8 +2,8 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """Instrument the full pinned H3 provider with the actual RL-Kernel block graph.
 
-Input/output projections and both text-refiner layers retain provider arithmetic.
-Each of the 50 distinct blocks executes the existing candidate graph with its own
+Without ``strict_boundaries`` the projections and both text-refiner layers retain provider
+arithmetic. Each of the 50 distinct blocks executes the existing candidate graph with its own
 parameters. No weights are copied from block zero. This is integration evidence,
 not qualification of the reference/interim bindings as final RFC kernels.
 """
@@ -80,6 +80,7 @@ class FullModelTrace:
         self.backward_order = []
         self.execution_order = []
         self._events = set()
+        self.boundary_bindings = {}
 
     def record_event(self, name):
         if name not in self._events:
@@ -156,7 +157,10 @@ class FullModelTrace:
                 )
                 for n in h3_block.NODES
             },
-            boundary_binding="provider/reference",
+            boundary_binding=(
+                "strict rows + provider" if self.boundary_bindings else "provider/reference"
+            ),
+            boundary_bindings=self.boundary_bindings,
             # not empty only for a diagnostic hybrid, whose nodes ran the provider replay: such a
             # trace is localisation evidence, never a candidate result
             diagnostic_provider_nodes=list(self.provider_nodes),
@@ -173,9 +177,96 @@ def require_candidate_cuda(ops):
     return backends
 
 
+# Boundary modules bound to RL-Kernel rows by ``strict_boundaries``; the others keep provider
+# arithmetic and are reported as such (``time_embedder``/``norm_out`` have their own rows
+# but are not part of this binding yet).
+STRICT_BOUNDARY_ROWS = {
+    "proj_in": "video_input_projection_fp32",
+    "proj_out": "video_output_projection_fp32",
+    "audio_proj_in": "audio_input_projection_fp32",
+    "audio_proj_out": "audio_output_projection_fp32",
+    "context_embedder": "text_context_projection",
+    "token_refiner": "token_refiner_block",
+}
+PROVIDER_BOUNDARIES = ("time_embedder", "norm_out")
+
+
+@contextmanager
+def _strict_boundaries(model, trace, ops, native=frozenset()):
+    """Rebind the video and audio projections, the text projection and the token refiner to rows."""
+
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models import h3_refiner
+
+    registry = KernelRegistry()
+    row_ops = {
+        name: registry.get_op(row, device="cuda")
+        for name, row in STRICT_BOUNDARY_ROWS.items()
+        if name != "token_refiner" and name not in native
+    }
+    originals = []
+
+    def project(name):
+        module, op = getattr(model, name), row_ops[name]
+        # the projection-row ops expose ``forward``; the video rows are callables
+        call = getattr(op, "forward", op)
+
+        def forward(x):
+            flat = x.reshape(-1, x.shape[-1])
+            out = call(flat, module.weight, module.bias)
+            return out.view(*x.shape[:-1], out.shape[-1])
+
+        originals.append((module, module.forward))
+        module.forward = forward
+
+    for name in row_ops:
+        project(name)
+
+    refiner = model.token_refiner
+    params = dict(model.named_parameters())
+
+    def refine(hidden):
+        if hidden.dim() != 3:
+            raise ValueError("token refiner expects (batch, tokens, hidden)")
+        return h3_refiner.run_refiner(
+            "candidate",
+            params,
+            hidden,
+            ops,
+            num_blocks=len(refiner.refiner_blocks),
+            on_block=lambda b, h: trace.observe(f"refiner.{b}", h),
+            observer_factory=lambda b: (
+                lambda node, _b=b: trace.candidate_calls.update([f"refiner.{_b}.{node}"])
+            ),
+        )
+
+    if "token_refiner" not in native:
+        originals.append((refiner, refiner.forward))
+        refiner.forward = refine
+    trace.boundary_bindings = {
+        **{
+            n: dict(row=r, status="provider" if n in native else "row")
+            for n, r in STRICT_BOUNDARY_ROWS.items()
+        },
+        **{n: dict(row=None, status="provider") for n in PROVIDER_BOUNDARIES},
+    }
+    try:
+        yield
+    finally:
+        for module, _original in originals:
+            module.__dict__.pop("forward", None)  # back to the class method
+
+
 @contextmanager
 def full_model_execution(
-    model, *, candidate: bool, trace: FullModelTrace, ops=None, provider_nodes=()
+    model,
+    *,
+    candidate: bool,
+    trace: FullModelTrace,
+    ops=None,
+    provider_nodes=(),
+    strict_boundaries: bool = False,
+    native_boundaries=(),
 ):
     """Temporarily bind each real block, preserving module parameters and restoring on error.
 
@@ -190,11 +281,23 @@ def full_model_execution(
     originals, handles = [], []
     trace.candidate = candidate
     trace.provider_nodes = tuple(sorted(provider_nodes))
+    if strict_boundaries and not candidate:
+        raise ValueError("strict_boundaries applies to candidate execution only")
+    unknown_boundaries = set(native_boundaries) - set(STRICT_BOUNDARY_ROWS)
+    if unknown_boundaries:
+        raise ValueError(f"unknown boundary modules: {sorted(unknown_boundaries)}")
     if candidate:
         ops = ops or h3_block.CandidateOps()
         if hasattr(ops, "backends"):
             trace.actual_backends = require_candidate_cuda(ops)
+    boundary_context = (
+        _strict_boundaries(model, trace, ops, frozenset(native_boundaries))
+        if strict_boundaries
+        else None
+    )
     try:
+        if boundary_context is not None:
+            boundary_context.__enter__()
         for i, block in enumerate(model.transformer_blocks):
             if candidate:
                 original = block.forward
@@ -251,6 +354,8 @@ def full_model_execution(
             handle.remove()
         for block, original in originals:
             block.forward = original
+        if boundary_context is not None:
+            boundary_context.__exit__(None, None, None)
 
 
 # --- Numerics shared with the generation runner --------------------------------------------------
