@@ -30,6 +30,7 @@ def make_operator_inputs(
 ) -> dict[str, Any]:
     """Build operator keyword inputs on the requested device from CLI shape and seed options."""
     builders = {
+        "packed_index_select": _make_packed_index_select_inputs,
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
@@ -73,6 +74,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
+        "packed_index_select": f"{batch}x{seq}x{_arg_int(args, 'n_dim', 96)}",
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
@@ -110,6 +112,20 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         return names[op_name]
     except KeyError as exc:
         raise ValueError(f"unsupported operator shape: {op_name}") from exc
+
+
+def _make_packed_index_select_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """H3 output-width rows, including repeated indices to exercise the VJP."""
+    batch, seq = _batch_seq(args)
+    width = _arg_int(args, "n_dim", 96)
+    # Reverse destinations and repeat each twice; no shared batch reduction.
+    index = torch.arange((seq + 1) // 2, device=device).flip(0).repeat_interleave(2)[:seq]
+    return {
+        "x": _floating_tensor((batch, seq, width), args, dtype, device, offset=0),
+        "index": index,
+    }
 
 
 def _make_video_input_projection_fp32_inputs(

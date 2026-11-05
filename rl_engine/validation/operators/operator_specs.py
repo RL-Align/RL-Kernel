@@ -33,6 +33,22 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "packed_index_select": OperatorSpec(
+        name="packed_index_select",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.packed_index_select.NativePackedIndexSelectOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.minimax_h3.packed_index_select.NativePackedIndexSelectOp"
+            ),
+            "triton": (
+                "rl_engine.backends.shared.triton.embedding.packed_index_select."
+                "TritonPackedIndexSelectOp"
+            ),
+        },
+        grad_input_names=("x",),
+    ),
     "h3_full_attention": OperatorSpec(
         name="h3_full_attention",
         op_class="attention",

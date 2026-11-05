@@ -82,6 +82,10 @@ jobs:
             tests/models/minimax_h3/test_h3_full_ensemble_rule.py \
             tests/models/minimax_h3/test_h3_generation_resume.py
 
+      - name: Run H3 packed selection reference (CPU-safe)
+        run: |
+          python -m pytest -q tests/models/minimax_h3/test_packed_index_select.py -k TestReference
+
       - name: Run Mocked Hardware Discovery Tests
         run: |
           python -m pytest tests/runtime/test_dispatch.py -v
