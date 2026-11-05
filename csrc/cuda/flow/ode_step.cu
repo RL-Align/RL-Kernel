@@ -133,6 +133,18 @@ void check_sigma(const torch::Tensor& sigma, const char* name,
       "separate sigma grids.");
 }
 
+void check_sigma_layout(const torch::Tensor& sigma, const torch::Tensor& sigma_next) {
+  // Both kernels take a single broadcast flag derived from sigma and apply it to
+  // both tensors.  A mixed pair (per-row sigma with a scalar sigma_next, or the
+  // reverse) would either index a one-element buffer by row -- an out-of-bounds
+  // read -- or silently collapse a per-row schedule to its first value.  Reject
+  // the mixed pair instead of picking a branch for it.
+  TORCH_CHECK(
+      (sigma.numel() == 1) == (sigma_next.numel() == 1),
+      "sigma and sigma_next must use the same layout: both scalar or both exactly "
+      "one value per packed row");
+}
+
 struct RowGeometry {
   int64_t rows;
   int64_t width;
@@ -151,6 +163,14 @@ void check_common(const torch::Tensor& xt, const torch::Tensor& v) {
   TORCH_CHECK(xt.device() == v.device(), "xt and v must share a device");
   TORCH_CHECK(xt.sizes() == v.sizes(), "xt and v must share shape");
   TORCH_CHECK(xt.scalar_type() == v.scalar_type(), "xt and v must share dtype");
+  // AT_DISPATCH_FLOATING_TYPES_AND2 also matches double, but the device functions
+  // round everything in float and only cast back at the epilogue; a float64 xt
+  // would silently return fp32-precision data.  The contract is fp16/bf16/fp32,
+  // matching NativeH3OdeStepOp, which rejects float64.
+  TORCH_CHECK(
+      xt.scalar_type() == at::kFloat || xt.scalar_type() == at::kHalf ||
+          xt.scalar_type() == at::kBFloat16,
+      "xt must be fp32, fp16 or bf16; float64 is outside the h3_ode_step contract");
 }
 
 }  // namespace
@@ -165,6 +185,7 @@ std::vector<torch::Tensor> ode_step_forward_cuda(
   const RowGeometry geo = row_geometry(xt);
   check_sigma(sigma, "sigma", geo.rows, xt);
   check_sigma(sigma_next, "sigma_next", geo.rows, xt);
+  check_sigma_layout(sigma, sigma_next);
 
   auto x_next = torch::empty_like(xt);
   auto x0 = torch::empty_like(xt);
@@ -214,10 +235,16 @@ std::vector<torch::Tensor> ode_step_backward_cuda(
               "upstream gradients must share xt's device");
   TORCH_CHECK(grad_next.sizes() == xt.sizes() && grad_x0.sizes() == xt.sizes(),
               "upstream gradients must share xt's shape");
+  // The dispatch below reads both gradients through xt's scalar_t, so a gradient
+  // of another dtype would be reinterpreted rather than cast.
+  TORCH_CHECK(grad_next.scalar_type() == xt.scalar_type() &&
+                  grad_x0.scalar_type() == xt.scalar_type(),
+              "upstream gradients must share xt's dtype");
   const at::cuda::OptionalCUDAGuard device_guard(device_of(xt));
   const RowGeometry geo = row_geometry(xt);
   check_sigma(sigma, "sigma", geo.rows, xt);
   check_sigma(sigma_next, "sigma_next", geo.rows, xt);
+  check_sigma_layout(sigma, sigma_next);
 
   auto grad_xt = torch::empty_like(xt);
   auto grad_v = torch::empty_like(xt);

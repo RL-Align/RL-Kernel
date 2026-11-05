@@ -447,9 +447,7 @@ OP_SPECS = {
         gold_method="forward_fp32",
         candidate_paths={
             "pytorch": "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp",
-            "triton": (
-                "rl_engine.backends.shared.triton.flow.ode_step.H3OdeStepTritonOp"
-            ),
+            "triton": ("rl_engine.backends.shared.triton.flow.ode_step.H3OdeStepTritonOp"),
             "cuda": "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp",
             "cuda-sm90": "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp",
         },

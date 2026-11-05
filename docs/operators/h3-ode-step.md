@@ -24,10 +24,10 @@ implicitly.
 ## Entry Point
 
 ```python
-from rl_engine.kernels.ops.pytorch.flow.ode_step import NativeH3OdeStepOp
-from rl_engine.kernels.ops.triton.flow.ode_step import TritonH3OdeStepOp
+from rl_engine.reference.flow.ode_step import NativeH3OdeStepOp
+from rl_engine.backends.shared.triton.flow.ode_step import H3OdeStepTritonOp
 
-x_next, x0 = TritonH3OdeStepOp().forward(xt, v, sigma, sigma_next)
+x_next, x0 = H3OdeStepTritonOp().forward(xt, v, sigma, sigma_next)
 ```
 
 `forward` returns results in the input dtype; `forward_fp32` returns FP32 results
@@ -37,9 +37,9 @@ and is the reference path consumed by the gtest gold.
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| CUDA | `CudaH3OdeStepOp` | `_C.ode_step_forward` / `_C.ode_step_backward` | supported (sm_90 validated) |
-| CUDA (portable) | `TritonH3OdeStepOp` | Triton JIT | supported |
-| ROCm | `TritonH3OdeStepOp` | Triton JIT | supported |
+| CUDA | `H3OdeStepCUDAOp` | `rl_engine._H3_C.ode_step_forward` / `ode_step_backward` | supported (sm_90 validated) |
+| CUDA (portable) | `H3OdeStepTritonOp` | Triton JIT | supported |
+| ROCm | `H3OdeStepTritonOp` | Triton JIT | supported |
 | PyTorch fallback | `NativeH3OdeStepOp` | n/a | reference |
 
 ## Tensor Contract
@@ -48,8 +48,14 @@ and is the reference path consumed by the gtest gold.
 | --- | --- | --- | --- |
 | `xt` | `[R, C]` or `[B, S, C]` | fp32 / bf16 / fp16 | current latent; `R` is the flattened packed-row count |
 | `v` | same as `xt` | same as `xt` | model-predicted velocity, data-ward sign |
-| `sigma` | scalar, `[R]`, or `[R, 1]` | fp32 | broadcastable; **must be > 0** |
+| `sigma` | scalar, `[R]`, or `[R, 1]` | fp32 | **must be > 0** |
 | `sigma_next` | same as `sigma` | fp32 | `0 <= sigma_next <= sigma` |
+
+`sigma` and `sigma_next` must use the **same layout**: either both scalar or both one
+value per packed row. The CUDA and Triton kernels select their `ROW_SIGMA` branch
+from `sigma` and apply it to both operands, so a mixed pair would either index a
+one-element `sigma_next` by row (out-of-bounds read) or collapse a per-row schedule
+to its first value. All three backends fail closed on the mismatch.
 
 Outputs (tuple): `x_next`, and the intermediate `x0`, both shaped like `xt`.
 
@@ -68,7 +74,8 @@ native CUDA kernel via `--candidate cuda`, or the portable Triton kernel via
 `--candidate triton`. Both select a scalar-sigma or per-row-sigma branch on
 shape, never by value. A sigma whose size is neither the scalar nor exactly
 one-per-row raises instead of broadcasting, because implicit broadcast is how two
-modality grids get silently merged.
+modality grids get silently merged; so does a `sigma` / `sigma_next` pair whose
+layouts differ, because the kernels carry a single branch flag for both.
 
 There is no silent fallback: the strict path fails closed on unsupported geometry
 (RFC #420 section 4, rule 9), and each candidate declares itself in `OP_SPECS`
@@ -87,7 +94,9 @@ rather than aliasing another backend.
 * `r = sigma_next / sigma` uses a correctly-rounded FP32 divide. In the CUDA
   kernel every step goes through `__fdiv_rn` / `__fmul_rn` / `__fadd_rn`, because
   nvcc contracts `a * b + c` into an FMA by default and that would fuse two
-  roundings into one.
+  roundings into one. The Triton launcher passes `enable_fp_fusion=False` for the
+  same reason: Triton 3.0 defaults to enabled fusion, which is allowed to contract
+  the same expressions.
 * Measured on H20 (sm_90): the CUDA forward and backward are **byte-for-byte
   equal** to the PyTorch FP32 reference; BF16 and FP16 match within the shared
   contract tolerances.
@@ -116,15 +125,17 @@ the PyTorch reference path; Triton measured 1.13x and 1.14x.
 ## Tests
 
 ```bash
-python -m pytest tests/test_h3_ode_step.py -v
+python -m pytest tests/ops/flow/test_ode_step.py -v
 ```
 
 Coverage: declared-expression regression (including the H13 non-equality probe),
 terminal step (`sigma_next == 0`), monotone grid, dtype coverage, non-power-of-two
 channel widths (24 / 32), bitwise Axis-A invariance across batch position, batch
 size, repeated execution and unrelated-row mutation, and fail-closed behaviour for
-`sigma == 0`, `sigma_next > sigma`, non-finite sigma, shape/device mismatch,
-unsupported dtype, bad per-row sigma length, empty input and non-contiguous input.
+`sigma == 0`, `sigma_next > sigma`, non-finite sigma, a mixed scalar/per-row sigma
+pair (both Python wrappers and the raw `_H3_C` symbols), shape/device/dtype
+mismatch (including float64 `xt` and mixed-dtype upstream gradients), bad per-row
+sigma length, empty input and non-contiguous input.
 
 ## Known Limitations
 
@@ -137,8 +148,9 @@ unsupported dtype, bad per-row sigma length, empty input and non-contiguous inpu
 * `scripts/check_forward_invariance.py` and `scripts/check_gradient_invariance.py`
   do not accept this operator yet: their `--op` choices are a curated list of the
   existing chain ops. Invariance evidence for `h3_ode_step` therefore comes from
-  `tests/test_h3_ode_step.py`. Extending those CLIs to enumerate new operators
-  (`rl_engine/kernels/gtest/gradient_adapters.py`) is separate follow-up work.
+  `tests/ops/flow/test_ode_step.py`. Extending those CLIs to enumerate new
+  operators (`rl_engine/validation/operators/gradient_adapters.py`) is separate
+  follow-up work.
 * The `eta = 0` deterministic ODE gives no transition log-probability. Any
   stochastic sampler logprob is a separate contract (Phase C
   `stochastic_transition_contract`) and must not be derived from this operator.

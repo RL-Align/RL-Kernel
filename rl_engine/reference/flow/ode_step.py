@@ -73,6 +73,20 @@ def _check_sigma_shape(sigma: Tensor, sigma_next: Tensor, xt: Tensor) -> None:
             )
 
 
+def _check_sigma_layout(sigma: Tensor, sigma_next: Tensor) -> None:
+    """Reject a scalar/per-row mix before it can be broadcast silently.
+
+    The Triton and CUDA kernels select one ``ROW_SIGMA`` branch from ``sigma`` and
+    apply it to both operands, so the reference must not accept an input pair the
+    candidates cannot represent.
+    """
+    if sigma.dim() != sigma_next.dim():
+        raise ValueError(
+            "sigma and sigma_next must use the same layout: both scalar or both "
+            "one value per packed row."
+        )
+
+
 def _check_sigma_values(sigma: Tensor, sigma_next: Tensor) -> None:
     """Reject geometry the pinned H3 shifted grid can never produce."""
     if not torch.isfinite(sigma).all() or not torch.isfinite(sigma_next).all():
@@ -120,6 +134,7 @@ class NativeH3OdeStepOp:
         _check_xt_v(xt, v)
         s = _as_sigma(sigma, xt, "sigma")
         sn = _as_sigma(sigma_next, xt, "sigma_next")
+        _check_sigma_layout(s, sn)
         _check_sigma_shape(s, sn, xt)
         _check_sigma_values(s, sn)
         return s, sn

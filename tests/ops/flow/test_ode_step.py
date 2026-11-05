@@ -22,11 +22,16 @@ except Exception:  # pragma: no cover - import guard
     H3OdeStepTritonOp = None  # type: ignore[assignment]
     _HAS_TRITON = False
 
-try:  # Native CUDA candidate needs the compiled _C extension.
+try:  # Native CUDA candidate needs the compiled _H3_C extension *and* its symbols.
+    from rl_engine.backends.cuda.flow import ode_step as _cuda_ode_step
     from rl_engine.backends.cuda.flow.ode_step import H3OdeStepCUDAOp
 
+    # Importing the wrapper always succeeds; only ``_extension()`` proves that the
+    # strict H3 DSO was built with this install (and that we are on CUDA, not ROCm).
+    _cuda_ode_step._extension()
     _HAS_CUDA_OP = True
-except Exception:  # pragma: no cover - import guard
+except Exception:  # pragma: no cover - import/extension guard
+    _cuda_ode_step = None  # type: ignore[assignment]
     H3OdeStepCUDAOp = None  # type: ignore[assignment]
     _HAS_CUDA_OP = False
 
@@ -279,6 +284,21 @@ def test_fail_closed_on_bad_per_row_sigma_length() -> None:
         NativeH3OdeStepOp().forward_fp32(xt, v, torch.full((3, 1), 0.5), torch.full((3, 1), 0.25))
 
 
+def test_fail_closed_on_mixed_sigma_layout() -> None:
+    """A scalar/per-row mix is rejected instead of being broadcast per backend.
+
+    The Triton and CUDA kernels derive one ``ROW_SIGMA`` flag from ``sigma`` and
+    apply it to both operands, so the gold path must not accept a pair the
+    candidates cannot represent (previously an out-of-bounds read on CUDA/Triton).
+    """
+    xt, v, sigma, _ = _inputs(rows=4)
+    op = NativeH3OdeStepOp()
+    with pytest.raises(ValueError, match="same layout"):
+        op.forward_fp32(xt, v, 1.0, sigma)
+    with pytest.raises(ValueError, match="same layout"):
+        op.forward_fp32(xt, v, sigma, 0.0)
+
+
 def test_empty_input_is_legal() -> None:
     xt = torch.empty(0, _VIDEO_CHANNELS)
     v = torch.empty(0, _VIDEO_CHANNELS)
@@ -503,3 +523,67 @@ def test_cuda_accepts_scalar_and_per_row_sigma() -> None:
     per_row = op.forward_fp32(xt.to(device), v.to(device), sigma.to(device), sigma_next.to(device))
     assert per_row[0].shape == xt.shape
     assert not torch.equal(scalar[0].cpu(), per_row[0].cpu())
+
+
+@_CUDA
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton candidate unavailable")
+def test_triton_fail_closed_on_mixed_sigma_layout() -> None:
+    """A per-row sigma with a scalar sigma_next must not reach the kernel."""
+    xt, v, sigma, sigma_next = _inputs(rows=4)
+    device = torch.device("cuda")
+    op = H3OdeStepTritonOp()
+    with pytest.raises(ValueError, match="same layout"):
+        op.forward(xt.to(device), v.to(device), 1.0, sigma_next.to(device))
+    with pytest.raises(ValueError, match="same layout"):
+        op.forward(xt.to(device), v.to(device), sigma.to(device), 0.0)
+
+
+@_CUDA
+@pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
+def test_cuda_fail_closed_on_mixed_sigma_layout() -> None:
+    xt, v, sigma, sigma_next = _inputs(rows=4)
+    device = torch.device("cuda")
+    op = H3OdeStepCUDAOp()
+    with pytest.raises(ValueError, match="same layout"):
+        op.forward(xt.to(device), v.to(device), 1.0, sigma_next.to(device))
+    with pytest.raises(ValueError, match="same layout"):
+        op.forward(xt.to(device), v.to(device), sigma.to(device), 0.0)
+
+
+@_CUDA
+@pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
+def test_cuda_native_symbols_fail_closed_on_mixed_sigma_layout() -> None:
+    """``_H3_C.ode_step_*`` are exported pybind symbols, so they check as well."""
+    xt, v, sigma, sigma_next = _inputs(rows=4)
+    device = torch.device("cuda")
+    ext = _cuda_ode_step._extension()
+    xt_d, v_d = xt.to(device), v.to(device)
+    per_row, per_row_next = sigma.to(device), sigma_next.to(device)
+    scalar = torch.tensor(1.0, device=device)
+    grad = torch.zeros_like(xt_d)
+    with pytest.raises(RuntimeError, match="same layout"):
+        ext.ode_step_forward(xt_d, v_d, per_row, scalar)
+    with pytest.raises(RuntimeError, match="same layout"):
+        ext.ode_step_forward(xt_d, v_d, scalar, per_row_next)
+    with pytest.raises(RuntimeError, match="same layout"):
+        ext.ode_step_backward(grad, grad, xt_d, per_row, scalar)
+
+
+@_CUDA
+@pytest.mark.skipif(not _HAS_CUDA_OP, reason="native CUDA candidate unavailable")
+def test_cuda_native_symbols_reject_float64_and_mixed_grad_dtype() -> None:
+    """The raw symbols keep the wrapper contract: no float64, no mixed gradients."""
+    xt, v, sigma, sigma_next = _inputs(rows=4)
+    device = torch.device("cuda")
+    ext = _cuda_ode_step._extension()
+    with pytest.raises(RuntimeError, match="float64"):
+        ext.ode_step_forward(
+            xt.double().to(device),
+            v.double().to(device),
+            sigma.to(device),
+            sigma_next.to(device),
+        )
+    xt_d = xt.to(device)
+    grad = torch.zeros_like(xt_d)
+    with pytest.raises(RuntimeError, match="dtype"):
+        ext.ode_step_backward(grad.half(), grad, xt_d, sigma.to(device), sigma_next.to(device))

@@ -148,6 +148,7 @@ def _launch(
         a.shape[-1] if a.dim() >= 1 else 1,
         ROW_SIGMA=sigma.dim() > 0,
         BLOCK=_BLOCK,
+        enable_fp_fusion=False,
     )
 
 
@@ -216,7 +217,15 @@ class H3OdeStepTritonOp:
                 f"xt and v must share a shape, got {tuple(xt.shape)} and {tuple(v.shape)}."
             )
         rows = _row_count(xt)
-        s, _ = _as_sigma(sigma, xt, rows, "sigma")
-        sn, _ = _as_sigma(sigma_next, xt, rows, "sigma_next")
+        s, s_per_row = _as_sigma(sigma, xt, rows, "sigma")
+        sn, sn_per_row = _as_sigma(sigma_next, xt, rows, "sigma_next")
+        # ``ROW_SIGMA`` is a single kernel flag applied to both operands, so a
+        # mixed pair would index the scalar side by row (out of bounds) or ignore
+        # the per-row schedule of the other side.  Fail closed on the mismatch.
+        if s_per_row != sn_per_row:
+            raise ValueError(
+                "sigma and sigma_next must use the same layout: both scalar or both "
+                "one value per packed row."
+            )
         _check_sigma_values(s, sn)
         return s, sn

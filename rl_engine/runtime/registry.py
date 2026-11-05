@@ -79,6 +79,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_H3_FULL_ATTENTION = "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp"
     # Deterministic rectified-flow Euler step (RFC #420 h3_ode_step).
     CUDA_H3_ODE_STEP = "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp"
+    PYTORCH_H3_ODE_STEP = "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp"
     TRITON_H3_ODE_STEP = "rl_engine.backends.shared.triton.flow.ode_step.H3OdeStepTritonOp"
     CUDA_DETERMINISTIC_ATTENTION = (
         "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
@@ -429,9 +430,12 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             supported_devices=frozenset({"cuda"}),
             supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
             supported_topologies={
-                "world_size": (1,),
-                "tensor_parallel_size": (1,),
-                "context_parallel_size": (1,),
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
             },
             determinism_or_alignment_properties={
                 "deterministic": True,
@@ -446,9 +450,7 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             lifecycle=OperatorLifecycle.REQUEST,
             implementation_class_or_factory=OpBackend.CUDA_H3_ODE_STEP.value,
             fallback_policy=OperatorFallbackPolicy.ERROR,
-            version_or_build_fingerprint=(
-                "h3-euler-fp32-v1; binary profile checked at invocation"
-            ),
+            version_or_build_fingerprint=("h3-euler-fp32-v1; binary profile checked at invocation"),
         ),
         OperatorBackendDescriptor(
             semantic_op="h3_ode_step",
@@ -457,14 +459,18 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             supported_devices=frozenset({"cuda", "rocm"}),
             supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
             supported_topologies={
-                "world_size": (1,),
-                "tensor_parallel_size": (1,),
-                "context_parallel_size": (1,),
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
             },
             determinism_or_alignment_properties={
                 "deterministic": True,
                 "batch_invariant": True,
                 "strict_observable": True,
+                "arithmetic_profile": "h3-triton-strict-v1",
                 "accumulator_dtype": "float32",
                 "epilogue_cast": "storage_dtype",
                 "reduction": "none",
@@ -1115,6 +1121,7 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "h3_ode_step": [OpBackend.PYTORCH_H3_ODE_STEP],
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],

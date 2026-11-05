@@ -113,14 +113,10 @@ class H3OdeStepCUDAOp:
         _extension()
         logger.info("Successfully linked to precompiled _H3_C.ode_step_forward kernel.")
 
-    def __call__(
-        self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any
-    ) -> tuple[Tensor, Tensor]:
+    def __call__(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
         return self.forward(xt, v, sigma, sigma_next)
 
-    def forward(
-        self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any
-    ) -> tuple[Tensor, Tensor]:
+    def forward(self, xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
         s, sn = self._prepare(xt, v, sigma, sigma_next)
         return _H3OdeStepCudaFunction.apply(xt.contiguous(), v.contiguous(), s, sn)
 
@@ -131,9 +127,7 @@ class H3OdeStepCUDAOp:
         return _H3OdeStepCudaFunction.apply(xt.float().contiguous(), v.float().contiguous(), s, sn)
 
     @staticmethod
-    def _prepare(
-        xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any
-    ) -> tuple[Tensor, Tensor]:
+    def _prepare(xt: Tensor, v: Tensor, sigma: Any, sigma_next: Any) -> tuple[Tensor, Tensor]:
         for name, tensor in (("xt", xt), ("v", v)):
             if tensor.device.type != "cuda":
                 raise RuntimeError(f"{name} must be a CUDA tensor, got {tensor.device}.")
@@ -148,5 +142,12 @@ class H3OdeStepCUDAOp:
         rows = _row_count(xt)
         s = _as_sigma(sigma, xt, rows, "sigma")
         sn = _as_sigma(sigma_next, xt, rows, "sigma_next")
+        # The kernel takes one broadcast flag derived from sigma and applies it to
+        # both tensors, so a mixed pair would read a scalar sigma_next by row.
+        if s.dim() != sn.dim():
+            raise ValueError(
+                "sigma and sigma_next must use the same layout: both scalar or both "
+                "one value per packed row."
+            )
         _check_sigma_values(s, sn)
         return s, sn
