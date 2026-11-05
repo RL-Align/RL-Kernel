@@ -145,6 +145,13 @@ jobs:
             tests/test_megatron_training_gradient_ranks.py \
             tests/test_megatron_training_pairing.py
 
+      - name: Run P7 T02 Sampling and M10 Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -rs \
+            tests/validation/sampling_params/test_sampling_gate.py \
+            tests/validation/m10/test_m10_precheck.py \
+            tests/validation/m10/test_m10_score.py
+
   docs:
     runs-on: ubuntu-latest
     steps:
