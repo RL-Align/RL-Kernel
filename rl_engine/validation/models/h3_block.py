@@ -366,10 +366,12 @@ def make_block_context(
         latent_height=spec["latent_height"],
         latent_width=spec["latent_width"],
         num_audio_latents=spec["num_audio_latents"],
+        device=weights["time_embedder.linear_1.weight"].device,
     )
     seq_len = packed["position_ids"].shape[0]
-    timestep = h3_timesteps(NUM_TIMESTEPS, seed=seed)
     w = weights
+    device = w["time_embedder.linear_1.weight"].device  # every tensor of the context lives here
+    timestep = h3_timesteps(NUM_TIMESTEPS, seed=seed, device=device)
     with torch.no_grad():
         features = prov.provider_time_proj(timestep)
         temb = prov.provider_time_embedder(
@@ -383,7 +385,7 @@ def make_block_context(
         torch.randn((1, seq_len, HIDDEN), generator=torch.Generator().manual_seed(seed + 2 + b))
         for b in range(batch)
     ]
-    hidden = torch.cat(rows).to(torch.bfloat16).cuda()
+    hidden = torch.cat(rows).to(torch.bfloat16).to(device)
     return {
         "layout": layout,
         "seq_len": seq_len,
@@ -632,7 +634,8 @@ def permutation_probe(
     keys in packed order, so a different key order may round differently.
     """
 
-    perm = torch.randperm(ctx["seq_len"], generator=torch.Generator().manual_seed(seed + 7)).cuda()
+    perm = torch.randperm(ctx["seq_len"], generator=torch.Generator().manual_seed(seed + 7))
+    perm = perm.to(ctx["hidden"].device)
     permuted = {
         **ctx,
         "hidden": ctx["hidden"][:, perm],
@@ -720,8 +723,9 @@ def run_block_backward(
     generator = torch.Generator().manual_seed(seed + 11)
     up_row0 = torch.randn((1, ctx["seq_len"], HIDDEN), generator=generator)
     up_row1 = torch.randn((1, ctx["seq_len"], HIDDEN), generator=generator)
-    upstream = up_row0.bfloat16().cuda()
-    upstream2 = torch.cat([up_row0, up_row1]).bfloat16().cuda()
+    device = ctx["hidden"].device
+    upstream = up_row0.bfloat16().to(device)
+    upstream2 = torch.cat([up_row0, up_row1]).bfloat16().to(device)
 
     golden, _ = _backward("golden", ctx, None, upstream)
     provider, _ = _backward("provider", ctx, None, upstream)

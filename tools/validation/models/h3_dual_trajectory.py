@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from contextlib import contextmanager
 from pathlib import Path
 
 import torch
@@ -29,37 +28,6 @@ from rl_engine.validation.models.h3_full_model import FullModelTrace, full_model
 from tools.validation.models.h3_full_model import packed_inputs
 
 SIGMAS = (1.0, 0.75, 0.5, 0.25, 0.0)
-
-
-@contextmanager
-def diagnostic_video_projections(model, enabled):
-    """DIAGNOSTIC ONLY: run ``proj_in``/``proj_out`` through the fixed-order Triton GEMM.
-
-    The video projection rows belong to another contributor; this binding exists only to
-    attribute the remaining single-vs-batched drift and is labelled in the artifact metadata.
-    """
-
-    if not enabled:
-        yield
-        return
-    from rl_engine.backends.shared.triton.gemm import h3_projection as g
-
-    saved = []
-    for name in ("proj_in", "proj_out"):
-        module = getattr(model, name)
-
-        def forward(x, module=module):
-            flat = x.reshape(-1, x.shape[-1])
-            out = g.linear_forward(flat.contiguous(), module.weight, module.bias)
-            return out.view(*x.shape[:-1], out.shape[-1])
-
-        saved.append(module)
-        module.forward = forward
-    try:
-        yield
-    finally:
-        for module in saved:
-            module.__dict__.pop("forward", None)
 
 
 def sample(
@@ -73,7 +41,6 @@ def sample(
     label,
     keep_tensors,
     seed,
-    diag_video=False,
 ):
     video, audio = noise["video"].clone(), noise["audio"].clone()
     other = {
@@ -91,14 +58,12 @@ def sample(
             "candidate": candidate,
             "strict_boundaries": strict_boundaries,
             "sampler": "euler-ode",
-            "diagnostic_video_projections": diag_video,
         },
         keep_tensors=keep_tensors,
     )
     trace = FullModelTrace()
     with (
         torch.no_grad(),
-        diagnostic_video_projections(model, diag_video),
         full_model_execution(
             model, candidate=candidate, trace=trace, strict_boundaries=strict_boundaries
         ),
@@ -137,11 +102,6 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=420539)
-    parser.add_argument(
-        "--diag-video-projections",
-        action="store_true",
-        help="diagnostic: bind proj_in/proj_out to the fixed-order GEMM (strict arm only)",
-    )
     parser.add_argument("--strict-only", action="store_true")
     args = parser.parse_args()
     from diffusers import MiniMaxH3Transformer3DModel
@@ -184,7 +144,6 @@ def main() -> None:
                 label=f"{name}-{layout}",
                 keep_tensors=True,
                 seed=args.seed,
-                diag_video=args.diag_video_projections and candidate,
             )
             recs[layout] = (rec, time.perf_counter() - t0)
         paths = {}
