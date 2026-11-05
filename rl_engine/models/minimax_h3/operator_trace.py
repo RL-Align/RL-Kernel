@@ -15,7 +15,8 @@ The trace is checked, not just stored:
 * ``coverage`` -- every graph node ran exactly ``forwards`` times, nothing outside the graph ran;
 * ``violations`` / ``assert_strict`` -- fail-closed gate: non-row bindings, fallbacks,
   requested != actual backend, a reduction row without an FP32 accumulator, any split
-  policy other than ``none``, and missing/extra nodes are all reported;
+  policy other than ``none``, an accumulator or split policy nobody observed, and
+  missing/extra nodes are all reported;
 * ``digest`` -- stable hash of the semantic content, so two runs (or two ranks) can be
   compared; ``first_difference`` names the first call at which two traces disagree.
 
@@ -45,6 +46,9 @@ STATUS_REFERENCE = "reference"  # provider replay; contributes no RL-Kernel evid
 STATUSES = (STATUS_ROW, STATUS_INTERIM, STATUS_REFERENCE)
 
 SPLIT_NONE = "none"  # no split-K / stream-K / atomics: one fixed reduction order
+# ``accumulator`` and ``split_policy`` are what the operator reported; "" means nobody did,
+# and the strict gate reports it instead of assuming the row contract was met.
+NOT_OBSERVED = ""
 
 # Rows whose arithmetic reduces over a dimension and so must accumulate in FP32.
 # Everything else is element-wise or pure data movement ("none").
@@ -89,11 +93,11 @@ class OperatorCall:
     implementation: str = ""  # concrete class/function reference
     instance_fingerprint: str = ""  # OperatorInstanceProvenance.instance_fingerprint, if known
     dtype: str = ""  # output dtype
-    accumulator: str = ""  # fp32 | none | other
-    split_policy: str = SPLIT_NONE
+    accumulator: str = NOT_OBSERVED  # fp32 | none | other, as the operator reported it
+    split_policy: str = NOT_OBSERVED  # none | split_k | ..., as the operator reported it
     topology: Mapping[str, Any] = field(default_factory=dict)  # e.g. {"tp": 4, "cp": 2, "sp": True}
     shapes: tuple[tuple[int, ...], ...] = ()  # input shapes, when known
-    fallback: bool = False  # True if any fallback path was taken
+    fallback: bool | None = False  # True if any fallback path was taken; None: not observed
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -154,12 +158,15 @@ class OperatorTrace:
         return call
 
     def record_node(self, path: str, **fields_: Any) -> OperatorCall:
-        """Record by path; the row is taken from the graph."""
+        """Record by path; the row is taken from the graph.
+
+        ``accumulator`` and ``split_policy`` are recorded only if given: they are never filled
+        in from the row contract, so an unobserved value fails ``violations``.
+        """
 
         node = self._by_path.get(path)
         if node is None:
             raise ValueError(f"{path!r} is not a node of the H3 graph")
-        fields_.setdefault("accumulator", expected_accumulator(node.row))
         return self.record(OperatorCall(path=path, row=node.row, **fields_))
 
     def merge(self, other: OperatorTrace) -> None:
@@ -199,8 +206,14 @@ class OperatorTrace:
         paths: Iterable[str] | None = None,
         allowed_statuses: Iterable[str] = (STATUS_ROW,),
         require_coverage: bool = True,
+        require_observed: bool = True,
     ) -> list[str]:
-        """Every reason this trace is not strict evidence; empty means it is."""
+        """Every reason this trace is not strict evidence; empty means it is.
+
+        ``require_observed=False`` drops the "not observed" findings (accumulator, split policy,
+        fallback), for checking the bindings of a trace whose operators do not report them;
+        such a trace is still not strict evidence.
+        """
 
         allowed = set(allowed_statuses)
         problems: list[str] = []
@@ -210,16 +223,25 @@ class OperatorTrace:
                 problems.append(
                     f"{where}: bound as {call.status!r} ({call.backend}); allowed {sorted(allowed)}"
                 )
-            if call.fallback:
+            if call.fallback is None:
+                if require_observed:
+                    problems.append(f"{where}: fallback not observed")
+            elif call.fallback:
                 problems.append(f"{where}: a fallback path was taken")
             if call.requested_backend and call.requested_backend != call.backend:
                 problems.append(
                     f"{where}: requested {call.requested_backend!r} but {call.backend!r} ran"
                 )
-            if call.split_policy != SPLIT_NONE:
+            if call.split_policy == NOT_OBSERVED:
+                if require_observed:
+                    problems.append(f"{where}: split policy not observed")
+            elif call.split_policy != SPLIT_NONE:
                 problems.append(f"{where}: split policy {call.split_policy!r} is not 'none'")
             want = expected_accumulator(call.row)
-            if call.accumulator != want:
+            if call.accumulator == NOT_OBSERVED:
+                if require_observed:
+                    problems.append(f"{where}: accumulator not observed, contract needs {want!r}")
+            elif call.accumulator != want:
                 problems.append(
                     f"{where}: accumulator {call.accumulator!r}, strict contract needs {want!r}"
                 )
@@ -323,8 +345,8 @@ def trace_call_from_resolution(
     provenance: Any | None = None,
     status: str = STATUS_ROW,
     dtype: str | None = None,
-    accumulator: str | None = None,
-    split_policy: str = SPLIT_NONE,
+    accumulator: str = NOT_OBSERVED,
+    split_policy: str = NOT_OBSERVED,
     shapes: Iterable[Iterable[int]] = (),
     row: str | None = None,
     graph: Sequence[fp.GraphNode] | None = None,
@@ -333,8 +355,9 @@ def trace_call_from_resolution(
 
     ``backend`` is the resolved concrete backend, ``requested_backend`` what the caller
     asked for, the fingerprint is the session's ``instance_fingerprint``, and a
-    non-empty ``fallback_attempts`` marks the call as a fallback. Unresolved
-    resolutions raise: there is nothing that ran.
+    non-empty ``fallback_attempts`` marks the call as a fallback. ``accumulator`` and
+    ``split_policy`` are not part of a resolution: pass what the operator reported, or they
+    stay unobserved. Unresolved resolutions raise: there is nothing that ran.
     """
 
     trace = resolution.trace
@@ -356,7 +379,7 @@ def trace_call_from_resolution(
         ),
         instance_fingerprint=provenance.instance_fingerprint if provenance is not None else "",
         dtype=dtype or resolution.requirements.dtype,
-        accumulator=accumulator if accumulator is not None else expected_accumulator(graph_row),
+        accumulator=accumulator,
         split_policy=split_policy,
         topology=dict(resolution.requirements.topology),
         shapes=tuple(tuple(shape) for shape in shapes),
@@ -395,6 +418,11 @@ def block_observer(
     to a ``Binding`` (status, backend); by default it is taken from the stage's ``NODES`` so
     the trace states exactly how every node is bound today. Node order and row ownership are
     verified by ``record``.
+
+    The hook only learns the node name, so the accumulator, split policy and fallback state
+    are recorded as not observed rather than copied from the contract: ``violations`` reports
+    them until the operators report their own (``require_observed=False`` checks the
+    bindings alone).
     """
 
     if stage not in ("transformer_blocks", "token_refiner"):
@@ -420,6 +448,7 @@ def block_observer(
             backend=binding.backend,
             dtype=dtype,
             topology=dict(topology or {}),
+            fallback=None,
         )
 
     return observe

@@ -10,6 +10,8 @@
     # fail-closed gate: exit 1 and list every violation
     python tools/validation/models/h3_operator_trace.py verify trace.json [--allow row interim]
     python tools/validation/models/h3_operator_trace.py verify trace.json --block 0
+    # bindings only: accept accumulator / split policy / fallback that nobody observed
+    python tools/validation/models/h3_operator_trace.py verify trace.json --allow-unobserved
 
     # first call at which two traces disagree
     python tools/validation/models/h3_operator_trace.py diff a.json b.json
@@ -59,6 +61,11 @@ def main() -> int:
     verify.add_argument(
         "--block", type=int, default=None, help="expect only this transformer block"
     )
+    verify.add_argument(
+        "--allow-unobserved",
+        action="store_true",
+        help="do not report an accumulator, split policy or fallback state nobody observed",
+    )
     diff = sub.add_parser("diff")
     diff.add_argument("lhs", type=Path)
     diff.add_argument("rhs", type=Path)
@@ -76,13 +83,16 @@ def main() -> int:
         if args.block is not None:
             prefix = f"transformer_blocks.{args.block}."
             paths = [node.path for node in fp.build_graph() if node.path.startswith(prefix)]
-        problems = trace.violations(paths=paths, allowed_statuses=args.allow)
+        problems = trace.violations(
+            paths=paths, allowed_statuses=args.allow, require_observed=not args.allow_unobserved
+        )
         if problems:
             print(f"{len(problems)} violation(s):", file=sys.stderr)
             for problem in problems[:60]:
                 print("  " + problem, file=sys.stderr)
             return 1
-        print(f"ok: {len(trace.calls)} calls, digest {trace.digest}")
+        unobserved = " (unobserved accumulator/split/fallback allowed)" * args.allow_unobserved
+        print(f"ok: {len(trace.calls)} calls, digest {trace.digest}{unobserved}")
         return 0
     lhs = ot.OperatorTrace.loads(args.lhs.read_text())
     rhs = ot.OperatorTrace.loads(args.rhs.read_text())
