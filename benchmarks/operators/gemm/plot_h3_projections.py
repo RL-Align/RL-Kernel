@@ -14,14 +14,32 @@ _TIMING_SERIES = {f"{prefix}_{phase}" for prefix, _ in _TIMING_BACKENDS for phas
 
 def _load_reports(evidence):
     """Accept a validator report or a historical full/tasks evidence bundle."""
+    if not isinstance(evidence, dict):
+        raise ValueError("expected a validator report or a full/tasks evidence bundle")
     if "cases" in evidence:
-        return [evidence]
-    artifacts = evidence.get("artifacts", {})
-    return [artifacts[name]["content"] for name in ("full.json", "tasks.json") if name in artifacts]
+        reports = [evidence]
+    else:
+        artifacts = evidence.get("artifacts")
+        if not isinstance(artifacts, dict):
+            raise ValueError("expected a validator report or a full/tasks evidence bundle")
+        reports = []
+        for name in ("full.json", "tasks.json"):
+            if name in artifacts:
+                artifact = artifacts[name]
+                if not isinstance(artifact, dict) or not isinstance(artifact.get("content"), dict):
+                    raise ValueError(f"{name} artifact must contain a report object")
+                reports.append(artifact["content"])
+        if not reports:
+            raise ValueError("bundle contains no full.json or tasks.json reports")
+    for report in reports:
+        cases = report.get("cases")
+        if not isinstance(cases, list) or not all(isinstance(case, dict) for case in cases):
+            raise ValueError("report cases must be an array of objects")
+    return reports
 
 
-def _timing_provenance(report, timed_cases):
-    """Return recorded comparison fields, or None for incomplete provenance."""
+def _recorded_provenance(report, *fields):
+    """Return comparable source, software, hardware and report-specific fields."""
     try:
         provenance = report["provenance"]
         if provenance["working_tree_clean"] is not True or not provenance["source_hashes"]:
@@ -35,13 +53,24 @@ def _timing_provenance(report, timed_cases):
                 "torch",
                 "cuda",
                 "seed",
-                "repeats",
+                *fields,
             )
         )
         device = tuple(
             report["hardware"][field]
             for field in ("gpu_model", "architecture", "device_count_used", "memory_bytes")
         )
+    except (KeyError, TypeError):
+        return None
+    if any(value is None or value == "" for value in source + device):
+        return None
+    return source, device
+
+
+def _timing_provenance(report, timed_cases):
+    """Return the recorded timing fields, including the executed Triton version."""
+    recorded = _recorded_provenance(report, "repeats")
+    try:
         versions = {
             trace["forward_launch"]["triton_version"]
             for case in timed_cases
@@ -50,13 +79,46 @@ def _timing_provenance(report, timed_cases):
     except (KeyError, TypeError):
         return None
     if (
-        any(value is None or value == "" for value in source + device)
+        recorded is None
         or not all(case["execution_traces"] for case in timed_cases)
         or len(versions) != 1
         or not all(versions)
     ):
         return None
-    return source, device, versions
+    return recorded, versions
+
+
+def _accuracy_notes(reports):
+    """Identify missing or mixed provenance and tolerances across accuracy reports."""
+    sources = [report for report in reports if report["cases"]]
+    if len(sources) < 2:
+        return []
+    signatures = [
+        _recorded_provenance(report, "checkpoint_revision", "contract_sha256", "method")
+        for report in sources
+    ]
+    known = [signature for signature in signatures if signature is not None]
+    incomplete = len(known) != len(signatures)
+    tolerances = {}
+    for report in sources:
+        for case in report["cases"]:
+            for check in case["checks"]:
+                if check["transform"] == "fp32_reference":
+                    tolerance = check.get("tolerance")
+                    if not isinstance(tolerance, dict) or not tolerance:
+                        incomplete = True
+                    else:
+                        tolerances.setdefault(check["tensor"], set()).add(
+                            json.dumps(tolerance, sort_keys=True)
+                        )
+    notes = []
+    if incomplete:
+        notes.append("Accuracy provenance or tolerance records are incomplete.")
+    if any(signature != known[0] for signature in known[1:]) or any(
+        len(values) > 1 for values in tolerances.values()
+    ):
+        notes.append("Accuracy provenance or tolerances differ across the plotted cases.")
+    return notes
 
 
 def _load_cases(reports):
@@ -77,9 +139,10 @@ def _load_cases(reports):
                     selected.append(case)
         if selected:
             contributors.append((report, selected))
-    if len(contributors) > 1:
-        signatures = [_timing_provenance(report, selected) for report, selected in contributors]
-        if any(signature is None for signature in signatures):
+    signatures = [_timing_provenance(report, selected) for report, selected in contributors]
+    timing_unverified = any(signature is None for signature in signatures)
+    if len(signatures) > 1:
+        if timing_unverified:
             raise ValueError(
                 "combined timings lack complete provenance. Render reports separately."
             )
@@ -87,7 +150,7 @@ def _load_cases(reports):
             raise ValueError(
                 "combined timings have different provenance. Render reports separately."
             )
-    return cases, random_timing
+    return cases, random_timing, timing_unverified
 
 
 def _accuracy_series(cases, tensor):
@@ -131,16 +194,14 @@ def main():
     reports = []
     sources = []
     for path in args.evidence:
-        raw = path.read_bytes()
-        loaded = _load_reports(json.loads(raw))
-        if not loaded:
-            parser.error(
-                f"{path.name}: expected a validator report or a full/tasks evidence bundle"
-            )
-        reports.extend(loaded)
+        try:
+            raw = path.read_bytes()
+            reports.extend(_load_reports(json.loads(raw)))
+        except (OSError, ValueError) as error:
+            parser.error(f"{path.name}: {error}")
         sources.append(f"{path.name} (SHA256 {hashlib.sha256(raw).hexdigest()})")
     try:
-        all_cases, random_timing = _load_cases(reports)
+        all_cases, random_timing, timing_unverified = _load_cases(reports)
     except ValueError as error:
         parser.error(str(error))
     if not all_cases:
@@ -173,7 +234,7 @@ def main():
                 accuracy.plot(sizes, values, marker=".", label=tensor)
         for sizes, height, marker, label in (
             (failed, 0.12, "rv", "Failed accuracy check without a finite ratio"),
-            (unavailable, 0.04, "kx", "Unavailable accuracy ratio"),
+            (unavailable, 0.04, "kx", "Some cases lack an accuracy ratio"),
         ):
             if sizes:
                 accuracy.plot(
@@ -198,7 +259,7 @@ def main():
                     if series in case.get("benchmarks", {})
                 ]
                 if samples:
-                    rows, values = zip(*samples)
+                    rows, values = zip(*samples, strict=True)
                     axis.plot(rows, values, marker=".", label=label)
             if not axis.has_data():
                 axis.text(0.5, 0.5, "No random timings", ha="center", transform=axis.transAxes)
@@ -212,14 +273,22 @@ def main():
             ax.grid(alpha=0.2)
             if ax.has_data():
                 ax.legend(fontsize=8)
-    title = (
-        "H3 projection measurements\n"
-        "Accuracy covers the supplied families and fixtures. Timings use random inputs.\n"
-        "Candidate timings include validation and copies. PyTorch BF16 is a timing comparator."
-    )
+    notes = _accuracy_notes(reports)
+    if timing_unverified:
+        notes.append("Timing provenance is incomplete. These timings are unverified.")
     if any(report.get("status") in {"failed", "error", "running"} for report in reports):
-        title += "\nSome reports are failed or incomplete."
-    fig.suptitle(title, fontsize=12)
+        notes.append("Some reports are failed or incomplete.")
+    fig.suptitle(
+        "\n".join(
+            (
+                "H3 projection measurements",
+                "Accuracy ratios use each report's tolerance. Timings use random inputs.",
+                "Candidate includes validation and copies. PyTorch BF16 is a timing comparator.",
+                *notes,
+            )
+        ),
+        fontsize=12,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(
         args.output,
@@ -227,7 +296,9 @@ def main():
             "Date": None,
             "Description": "Input evidence: "
             + ", ".join(sources)
-            + ". All accuracy cases retained. First report preferred for duplicate timings.",
+            + ". Accuracy ratios use each report's tolerance."
+            + " First report preferred for duplicate timings."
+            + "".join(f" {note}" for note in notes),
         },
     )
     if args.output.suffix.lower() == ".svg":
