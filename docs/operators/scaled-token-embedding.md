@@ -84,8 +84,9 @@ kernel multiplies the gathered row in fp32 before the cast, and the sorted-segme
 reducer multiplies each row in fp32 before adding it. The reducer launches with
 `enable_fp_fusion=False`, so the fp32 multiply and add round separately. The fused kernel
 is then bitwise equal to scaling the rows in PyTorch and running the unscaled reducer,
-for every dtype. With `scale = 1.0` both kernels reproduce the previous plain embedding
-bit for bit.
+for every dtype. At `scale = 1.0` a compile-time flag removes the multiply from both
+kernels, so the plain embedding is not scaled at all. An fp32 multiply by `1.0` is not a
+no-op on the GPU: it replaces NaN payloads with the canonical NaN.
 
 Padding rows are **not** masked in backward (no `padding_idx`): vLLM's and Megatron's
 `VocabParallelEmbedding` do not mask either, and the training path for Gemma 4 is
@@ -115,8 +116,8 @@ invariance belong to the canonical wrapper, which this operator does not yet plu
 ## Tests
 
 ```bash
-python -m pytest tests/gemma/test_scaled_token_embedding.py -v -rs
-python -m pytest tests/gemma/test_scaled_token_embedding_benchmark.py -v
+python -m pytest tests/ops/embedding/test_scaled_token_embedding.py -v -rs
+python -m pytest tests/benchmarks/test_scaled_token_embedding_benchmark.py -v
 python -m pytest tests/ops/embedding -q
 python -m pytest tests/runtime/test_dispatch.py -q
 python tools/validation/operators/check_operator.py --op scaled_token_embedding \
@@ -134,12 +135,12 @@ smoke test (`262144 x 5376`, skipped without ~4 GB of free GPU memory).
 
 ```bash
 # Quick execution check before the complete run.
-python benchmarks/benchmark_scaled_token_embedding.py \
+python benchmarks/operators/embedding/benchmark_scaled_token_embedding.py \
   --tokens 1 2048 --dtypes bf16 --warmup 3 --repeat 5 \
   --output-dir ../scaled-embedding-results/smoke
 
 # FP16, BF16 and FP32; 1, 2048 and 32768 tokens; unique, duplicate and pad-flood ids.
-python benchmarks/benchmark_scaled_token_embedding.py \
+python benchmarks/operators/embedding/benchmark_scaled_token_embedding.py \
   --output-dir ../scaled-embedding-results/run-1
 ```
 
@@ -175,5 +176,5 @@ gate. Keep generated reports outside the checkout.
 - `rl_engine/runtime/registry.py`
 - `rl_engine/validation/operators/operator_specs.py`
 - `rl_engine/validation/operators/operator_inputs.py`
-- `tests/gemma/test_scaled_token_embedding.py`
-- `benchmarks/benchmark_scaled_token_embedding.py`
+- `tests/ops/embedding/test_scaled_token_embedding.py`
+- `benchmarks/operators/embedding/benchmark_scaled_token_embedding.py`

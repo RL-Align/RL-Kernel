@@ -205,10 +205,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
     # Gemma embedding lookup scaled by sqrt(hidden) rounded to the weight dtype (#415)
     TRITON_SCALED_TOKEN_EMBEDDING = (
-        "rl_engine.kernels.ops.triton.linear.scaled_embedding.TritonScaledTokenEmbeddingOp"
+        "rl_engine.backends.shared.triton.embedding.scaled_embedding.TritonScaledTokenEmbeddingOp"
     )
     PYTORCH_NATIVE_SCALED_TOKEN_EMBEDDING = (
-        "rl_engine.kernels.ops.pytorch.linear.scaled_embedding.NativeScaledTokenEmbeddingOp"
+        "rl_engine.reference.embedding.scaled_embedding.NativeScaledTokenEmbeddingOp"
     )
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"

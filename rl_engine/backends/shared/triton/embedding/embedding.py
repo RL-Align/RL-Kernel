@@ -3,8 +3,8 @@
 
 """Deterministic Triton embedding with an atomic-free sorted-segment backward.
 
-An optional fp32 ``scale`` serves the Gemma scaled embedding; ``1.0`` leaves every result
-bitwise unchanged.
+An optional fp32 ``scale`` serves the Gemma scaled embedding. ``1.0`` compiles the multiply
+out, so the plain embedding keeps the loaded bits, NaN payloads included.
 """
 
 from __future__ import annotations
@@ -127,6 +127,7 @@ def _embedding_grad_weight(
         scale,
         hidden=hidden,
         block_h=_BACKWARD_BLOCK_H,
+        apply_scale=scale != 1.0,
         num_warps=4,
         # No FMA: the multiply and the add round separately, so fp32 matches
         # ``rows * scale`` in PyTorch followed by this reducer with scale 1.0.
@@ -145,6 +146,7 @@ def _embedding_fwd(
     scale,
     hidden: tl.constexpr,
     block_h: tl.constexpr,
+    apply_scale: tl.constexpr,
 ):
     row = tl.program_id(0)
     offs = tl.arange(0, block_h)
@@ -155,10 +157,11 @@ def _embedding_fwd(
         mask=valid_token & (offs < hidden),
         other=0.0,
     )
-    # The fp32 product is exact for bf16/fp16 rows, so the cast back is the only
-    # rounding, the same single rounding PyTorch applies to ``bf16 * bf16``.
-    scaled = values.to(tl.float32) * scale
-    tl.store(out + row * hidden + offs, scaled.to(out.dtype.element_ty), mask=offs < hidden)
+    if apply_scale:
+        # The fp32 product is exact for bf16/fp16 rows, so the cast back is the only
+        # rounding, the same single rounding PyTorch applies to ``bf16 * bf16``.
+        values = (values.to(tl.float32) * scale).to(out.dtype.element_ty)
+    tl.store(out + row * hidden + offs, values, mask=offs < hidden)
 
 
 @triton.jit
@@ -171,6 +174,7 @@ def _embedding_bwd(
     scale,
     hidden: tl.constexpr,
     block_h: tl.constexpr,
+    apply_scale: tl.constexpr,
 ):
     sorted_position = tl.program_id(0)
     column_block = tl.program_id(1)
@@ -195,7 +199,9 @@ def _embedding_bwd(
             mask=continuing & (columns < hidden),
             other=0.0,
         ).to(tl.float32)
-        accumulator += values * scale
+        if apply_scale:
+            values = values * scale
+        accumulator += values
         row += 1
 
     tl.store(
@@ -229,6 +235,7 @@ class _TritonEmbeddingFunction(torch.autograd.Function):
                 scale,
                 hidden=hidden,
                 block_h=triton.next_power_of_2(hidden),
+                apply_scale=scale != 1.0,
             )
         ctx.save_for_backward(ids)
         ctx.scale = scale

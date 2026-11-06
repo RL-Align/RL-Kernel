@@ -17,7 +17,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -27,7 +27,7 @@ from benchmarks.common.cli import (  # noqa: E402
     positive_int,
     run_and_save_report,
 )
-from benchmarks.profiler import GPUTargetInfo, PerformanceProfiler  # noqa: E402
+from benchmarks.common.profiler import GPUTargetInfo, PerformanceProfiler  # noqa: E402
 from rl_engine.contracts.numerical import tolerance_contract_fingerprint  # noqa: E402
 
 DTYPES = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}

@@ -15,7 +15,7 @@ python benchmarks/operators/sampling/benchmark_sampling.py
 python benchmarks/operators/loss/benchmark_grpo_op.py
 python benchmarks/operators/packing/benchmark_pack.py --smoke
 python benchmarks/benchmark_final_logit_softcap.py --output-dir reports/final-logit-softcap
-python benchmarks/benchmark_scaled_token_embedding.py --output-dir reports/scaled-token-embedding
+python benchmarks/operators/embedding/benchmark_scaled_token_embedding.py --output-dir reports/scaled-token-embedding
 python benchmarks/backends/rocm/benchmark_rocm_ffn.py --help
 python tools/benchmarking/run_perf.py
 ```

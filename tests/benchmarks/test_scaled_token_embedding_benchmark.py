@@ -5,7 +5,7 @@
 import pytest
 import torch
 
-from benchmarks.benchmark_scaled_token_embedding import (
+from benchmarks.operators.embedding.benchmark_scaled_token_embedding import (
     PAD_ID,
     HFScaledEmbedding,
     _make_workload,

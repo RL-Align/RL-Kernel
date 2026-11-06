@@ -5,7 +5,10 @@
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import platform
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,12 +19,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from benchmarks.common.cli import (  # noqa: E402
-    command_output,
-    measure,
-    positive_int,
-    run_and_save_report,
-)
 from benchmarks.profiler import GPUTargetInfo, PerformanceProfiler  # noqa: E402
 from rl_engine.kernels.gtest.tolerance import (  # noqa: E402
     load_contract,
@@ -45,6 +42,13 @@ def _shape(value: str) -> tuple[int, ...]:
         raise argparse.ArgumentTypeError(
             "shapes must contain positive dimensions, e.g. 1x16x262144"
         ) from exc
+
+
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return number
 
 
 def _make_workload(op, x, grad_y, mode):
@@ -108,6 +112,33 @@ def _check_accuracy(native, candidate, x, grad_y):
     return errors
 
 
+def _measure(profiler, fn):
+    # The existing profiler warms up before recording per-invocation accelerator
+    # events (torch.cuda.Event, which is a HIP event on ROCm).
+    # fn returns None so a previous invocation's output cannot remain live.
+    _, median_ms, std_ms = profiler._time_kernel(fn)
+    if not math.isfinite(median_ms) or median_ms <= 0:
+        raise RuntimeError(f"invalid accelerator-event latency: {median_ms}")
+    # Measure one additional invocation. Persistent inputs and the retained
+    # backward graph are in the baseline, not in this incremental allocation.
+    profiler._sync()
+    baseline = torch.cuda.memory_allocated(profiler.device)
+    torch.cuda.reset_peak_memory_stats(profiler.device)
+    fn()
+    profiler._sync()
+    peak = torch.cuda.max_memory_allocated(profiler.device) - baseline
+    return {"median_ms": median_ms, "std_ms": std_ms, "peak_extra_mib": peak / 1024**2}
+
+
+def _command_output(command):
+    try:
+        return subprocess.check_output(
+            command, cwd=REPO_ROOT, text=True, stderr=subprocess.DEVNULL, timeout=10
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def _environment(device, args, triton_version, block_size, target: GPUTargetInfo):
     """Fingerprint the run on the active accelerator.
 
@@ -120,8 +151,8 @@ def _environment(device, args, triton_version, block_size, target: GPUTargetInfo
     is_rocm = target.backend == "rocm"
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "git_commit": command_output(["git", "rev-parse", "HEAD"]),
-        "git_tracked_changes": command_output(
+        "git_commit": _command_output(["git", "rev-parse", "HEAD"]),
+        "git_tracked_changes": _command_output(
             ["git", "status", "--porcelain", "--untracked-files=no"]
         ),
         "python": platform.python_version(),
@@ -134,7 +165,7 @@ def _environment(device, args, triton_version, block_size, target: GPUTargetInfo
         "gpu": props.name,
         "architecture": target.architecture,
         "compute_capability": None if is_rocm else list(torch.cuda.get_device_capability(device)),
-        "gpu_name_driver": command_output(
+        "gpu_name_driver": _command_output(
             ["rocm-smi", "--showproductname", "--showdriverversion"]
             if is_rocm
             else ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"]
@@ -201,8 +232,8 @@ def build_arg_parser():
     parser.add_argument(
         "--shapes", nargs="+", type=_shape, default=list(map(_shape, DEFAULT_SHAPES))
     )
-    parser.add_argument("--warmup", type=positive_int, default=10)
-    parser.add_argument("--repeat", type=positive_int, default=50)
+    parser.add_argument("--warmup", type=_positive_int, default=10)
+    parser.add_argument("--repeat", type=_positive_int, default=50)
     parser.add_argument("--seed", type=int, default=415)
     parser.add_argument("--output-dir", type=Path, default=Path("reports/final-logit-softcap"))
     return parser
@@ -245,7 +276,7 @@ def run_benchmark(args):
                     measurements = {}
                     for name, op in (("native", native), ("triton", candidate)):
                         fn = _make_workload(op, x, grad_y, mode)
-                        measurements[name] = measure(profiler, fn)
+                        measurements[name] = _measure(profiler, fn)
                         del fn  # Release the retained graph before measuring the next backend.
                     row = {
                         "dtype": dtype_name,
@@ -264,7 +295,16 @@ def run_benchmark(args):
 
 
 def main():
-    run_and_save_report(build_arg_parser(), run_benchmark, _markdown)
+    args = build_arg_parser().parse_args()
+    report = run_benchmark(args)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "results.json").write_text(
+        json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    markdown = _markdown(report)
+    (args.output_dir / "report.md").write_text(markdown, encoding="utf-8")
+    print(markdown)
+    print(f"Reports saved to {args.output_dir}")
 
 
 if __name__ == "__main__":

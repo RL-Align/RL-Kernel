@@ -170,17 +170,14 @@ OP_SPECS = {
     "scaled_token_embedding": OperatorSpec(
         name="scaled_token_embedding",
         op_class="elementwise",
-        gold_path=(
-            "rl_engine.kernels.ops.pytorch.linear.scaled_embedding.NativeScaledTokenEmbeddingOp"
-        ),
+        gold_path="rl_engine.reference.embedding.scaled_embedding.NativeScaledTokenEmbeddingOp",
         gold_method="forward_fp32",
         candidate_paths={
             "pytorch": (
-                "rl_engine.kernels.ops.pytorch.linear.scaled_embedding."
-                "NativeScaledTokenEmbeddingOp"
+                "rl_engine.reference.embedding.scaled_embedding.NativeScaledTokenEmbeddingOp"
             ),
             "triton": (
-                "rl_engine.kernels.ops.triton.linear.scaled_embedding."
+                "rl_engine.backends.shared.triton.embedding.scaled_embedding."
                 "TritonScaledTokenEmbeddingOp"
             ),
         },
