@@ -129,7 +129,13 @@ def run_case(x, w, dy, label, repeats, *, kind):
     rows = x.shape[0]
     keys = logical_keys(rows, x.device)
     op = H3ProjectionOp(kind)
-    case = {"rows": rows, "input_family": label, "checks": [], "benchmarks": {}}
+    case = {
+        "rows": rows,
+        "input_family": label,
+        "checks": [],
+        "inapplicable_transforms": [],
+        "benchmarks": {},
+    }
     canonical, traces = training_projection(op, x, w, dy, keys)
     case["execution_traces"] = traces
     case["output_digests"] = {
@@ -161,10 +167,12 @@ def run_case(x, w, dy, label, repeats, *, kind):
     add_checks(case, layout, canonical, "strided_input_and_weight")
     del layout, layout_x, layout_w
     pad = 17
-    padded_x = torch.cat((x, torch.ones(pad, input_dim, device=x.device, dtype=x.dtype)))
-    padded_dy = torch.cat((dy, torch.zeros(pad, output_dim, device=x.device, dtype=dy.dtype)))
-    padded_keys = torch.cat((keys, torch.full((pad, 2), -1, device=x.device, dtype=torch.int64)))
     if rows + pad <= H3_MAX_ROWS:
+        padded_x = torch.cat((x, torch.ones(pad, input_dim, device=x.device, dtype=x.dtype)))
+        padded_dy = torch.cat((dy, torch.zeros(pad, output_dim, device=x.device, dtype=dy.dtype)))
+        padded_keys = torch.cat(
+            (keys, torch.full((pad, 2), -1, device=x.device, dtype=torch.int64))
+        )
         padded, _ = training_projection(op, padded_x, w, padded_dy, padded_keys)
         add_checks(
             case,
@@ -172,8 +180,14 @@ def run_case(x, w, dy, label, repeats, *, kind):
             canonical,
             "inactive_padding",
         )
-        del padded
-    del padded_x, padded_dy, padded_keys
+        del padded, padded_x, padded_dy, padded_keys
+    else:
+        case["inapplicable_transforms"].append(
+            {
+                "transform": "inactive_padding",
+                "reason": f"adding {pad} rows would exceed the row limit of {H3_MAX_ROWS}",
+            }
+        )
     if rows % 2 == 0:
         batched, _ = training_projection(
             op,
@@ -193,6 +207,10 @@ def run_case(x, w, dy, label, repeats, *, kind):
             "batch2_reshape",
         )
         del batched
+    else:
+        case["inapplicable_transforms"].append(
+            {"transform": "batch2_reshape", "reason": "batch size two requires an even row count"}
+        )
     # Compare only row-local tensors when the effective logical row set changes.
     one = row_local(op, x[:1], w, dy[:1])
     mutated_x, mutated_dy = x.clone(), dy.clone()

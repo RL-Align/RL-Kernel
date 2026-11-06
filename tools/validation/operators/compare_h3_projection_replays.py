@@ -51,12 +51,41 @@ def main():
     parser.add_argument("replay", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    raw = [p.read_bytes() for p in (args.original, args.replay)]
-    result = compare(*(json.loads(data) for data in raw))
-    result["report_sha256"] = [hashlib.sha256(data).hexdigest() for data in raw]
+    sources = (("original", args.original), ("replay", args.replay))
+    output = args.output.resolve()
+    for _, path in sources:
+        try:
+            same_file = output.samefile(path)
+        except OSError:
+            same_file = output == path.resolve()
+        if same_file:
+            parser.error("--output must differ from both input reports")
+
+    reports, report_sha256, errors = [], [], []
+    for label, path in sources:
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            report_sha256.append(None)
+            errors.append(f"could not read {label} report: {exc.strerror or type(exc).__name__}")
+            continue
+        report_sha256.append(hashlib.sha256(raw).hexdigest())
+        try:
+            reports.append(json.loads(raw))
+        except ValueError as exc:
+            errors.append(f"invalid {label} report JSON: {exc}")
+
+    if errors:
+        result = {"status": "error", "error": "\n".join(errors), "checks": []}
+    else:
+        try:
+            result = compare(*reports)
+        except (ValueError, KeyError, TypeError) as exc:
+            result = {"status": "error", "error": str(exc), "checks": []}
+    result["report_sha256"] = report_sha256
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
-    return 0 if result["status"] == "passed" else 1
+    return {"passed": 0, "failed": 1, "error": 2}[result["status"]]
 
 
 if __name__ == "__main__":
