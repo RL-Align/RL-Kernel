@@ -43,6 +43,7 @@ nav:
         - operators/h3-final-adaln-out.md
         - operators/h3-tp-adaln-3mod.md
         - operators/h3-sp-norm-adaln.md
+        - operators/h3-projections.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
