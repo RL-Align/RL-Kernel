@@ -170,31 +170,48 @@ def test_failed_forward_does_not_leave_pending_rows(cpu_orchestration, kind, fai
     assert len(cpu_orchestration.weight_reduction_inputs) == 1
 
 
-def test_forward_rechecks_keys_after_reentrant_registration(cpu_orchestration, kind):
+@pytest.mark.parametrize("duplicate", [True, False], ids=["duplicate", "disjoint"])
+def test_forward_rechecks_keys_after_reentrant_registration(cpu_orchestration, kind, duplicate):
     x = torch.ones(1, 4, dtype=torch.bfloat16)
     w = torch.ones(3, 4, dtype=torch.bfloat16).requires_grad_(True)
     keys = logical_keys(1, "cpu")
     op = down.H3ProjectionOp(kind)
-    inner_outputs = []
+    inner_calls = []
+    inner_keys = keys if duplicate else keys + 1
 
     def identity(value):
         return value
 
     def pack(value):
-        if not inner_outputs:
+        if not inner_calls:
+            outer_trace = op.last_execution
             with torch.enable_grad(), torch.autograd.graph.saved_tensors_hooks(identity, identity):
-                inner_outputs.append(op(x, w, logical_keys=keys))
+                inner = op(x, w, logical_keys=inner_keys)
+            inner_calls.append((inner, outer_trace, op.last_execution))
         return value
 
     with canonical_backward_session() as session:
+        outer = None
+        expectation = (
+            pytest.raises(ValueError, match="active logical keys must be unique")
+            if duplicate
+            else nullcontext()
+        )
         with torch.autograd.graph.saved_tensors_hooks(pack, identity):
-            with pytest.raises(ValueError, match="active logical keys must be unique"):
-                op(x, w, logical_keys=keys)
-        (inner,) = inner_outputs
-        inner.backward(torch.ones_like(inner))
+            with expectation:
+                outer = op(x, w, logical_keys=keys)
+        ((inner, outer_trace, inner_trace),) = inner_calls
+        assert outer_trace is not inner_trace
+        if duplicate:
+            outputs = (inner,)
+        else:
+            assert outer is not None
+            assert op.last_execution is outer_trace
+            outputs = (inner, outer)
+        torch.autograd.backward(outputs, tuple(torch.ones_like(output) for output in outputs))
         session.validate_complete()
 
-    assert raw_equal(w.grad, torch.ones_like(w))
+    assert raw_equal(w.grad, torch.full_like(w, len(outputs)))
 
 
 def test_keys_are_snapshotted_and_incomplete_backward_is_detected(cpu_orchestration, kind):

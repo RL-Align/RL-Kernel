@@ -265,6 +265,8 @@ class H3ProjectionOp:
         if use is not None:
             # Only returned outputs can provide a backward contribution.
             _commit_rows(use, weight, keys)
+        # A saved-tensor hook can complete a nested call on the same instance.
+        self.last_execution = trace
         return result
 
 
