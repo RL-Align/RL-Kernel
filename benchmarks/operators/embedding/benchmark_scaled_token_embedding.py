@@ -254,7 +254,7 @@ def run_benchmark(args):
                     ).to(dtype)
                     check_forward_bitwise(baseline, candidate, token_ids, weight)
                     for mode in args.modes:
-                        if mode == "forward" and pattern != ID_PATTERNS[0]:
+                        if mode == "forward" and pattern != args.patterns[0]:
                             # Forward cost does not depend on repeats; time it once.
                             continue
                         measurements = {}

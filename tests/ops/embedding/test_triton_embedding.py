@@ -32,10 +32,12 @@ class _FakeForwardKernel:
             block_h: int,
             apply_scale: bool,
         ) -> None:
-            del vocab_size, block_h, apply_scale
+            del vocab_size, block_h
+            # These fakes only stand in for the plain embedding, which must not scale.
+            assert scale == 1.0 and apply_scale is False
             assert n_tokens == ids.numel()
             assert hidden == weight.size(1)
-            out.copy_((weight.index_select(0, ids).float() * scale).to(out.dtype))
+            out.copy_(weight.index_select(0, ids))
 
         return launch
 
@@ -61,7 +63,8 @@ class _FakeBackwardKernel:
             num_warps: int,
             enable_fp_fusion: bool,
         ) -> None:
-            del block_h, apply_scale, num_warps, enable_fp_fusion
+            del block_h, num_warps, enable_fp_fusion
+            assert scale == 1.0 and apply_scale is False
             assert n_tokens == sorted_ids.numel()
             assert hidden == sorted_grad_rows.size(1)
             for position in range(n_tokens):
@@ -73,7 +76,7 @@ class _FakeBackwardKernel:
                 accumulator = torch.zeros(hidden, dtype=torch.float32)
                 row = position
                 while row < n_tokens and int(sorted_ids[row]) == token:
-                    accumulator = accumulator + sorted_grad_rows[row].float() * scale
+                    accumulator = accumulator + sorted_grad_rows[row].float()
                     row += 1
                 grad_weight[token].copy_(accumulator.to(grad_weight.dtype))
 

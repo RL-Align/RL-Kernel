@@ -45,15 +45,19 @@ def test_workload_reuses_inputs_without_accumulating_gradients(mode):
     grad_out = torch.ones(3, 3)
     baseline = HFScaledEmbedding(torch.tensor(2.0))
     calls = []
+    tables = []
 
     def observed(ids, table):
         calls.append(torch.is_grad_enabled())
+        tables.append(table)
         return baseline(ids, table)
 
     fn = _make_workload(observed, token_ids, weight, grad_out, mode)
     assert fn() is None and fn() is None
     assert calls == ([False, False] if mode == "forward" else [True])
     assert weight.grad is None and not weight.requires_grad
+    # The backward workload differentiates its own leaf, so check the table it was given.
+    assert all(table.grad is None for table in tables)
 
 
 def test_backward_gap_averages_over_touched_rows_only():
@@ -84,6 +88,19 @@ def test_forward_gate_rejects_an_unrounded_scale():
     check_forward_bitwise(baseline, baseline, token_ids, weight)
     with pytest.raises(RuntimeError, match="not bitwise equal"):
         check_forward_bitwise(baseline, unrounded, token_ids, weight)
+
+
+def test_forward_is_timed_when_unique_ids_are_not_selected():
+    if not torch.cuda.is_available():
+        pytest.skip("A CUDA or ROCm GPU is required")
+    args = build_arg_parser().parse_args(
+        "--patterns duplicate pad_flood --modes forward --dtypes bf16 --tokens 64 "
+        "--vocab 1024 --hidden 64 --warmup 1 --repeat 2".split()
+    )
+
+    results = run_benchmark(args)["results"]
+
+    assert [(row["mode"], row["ids"]) for row in results] == [("forward", "any")]
 
 
 def test_benchmark_rejects_cpu_instead_of_timing_fallback():
