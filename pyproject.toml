@@ -34,7 +34,7 @@ cuda = ["flashinfer-python>=0.6.0,<0.7", "nvidia-ml-py"]
 rocm = ["aiter"]
 vllm = ["vllm>=0.6.0"]
 drift-viewer = ["Pillow>=10", "PySide6>=6.6"]
-dev = ["pytest", "black", "isort", "ruff", "mypy", "pre-commit"]
+dev = ["pytest", "black", "isort", "ruff", "mypy", "pre-commit", "matplotlib"]
 
 [tool.setuptools.packages.find]
 where = ["."]

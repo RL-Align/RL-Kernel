@@ -35,6 +35,10 @@ constexpr int64_t kSequenceHeaderBytes = 4 * sizeof(uint64_t);
 // larger transfers, where replacing cudaMemcpyAsync with a one-block copy
 // would reduce bandwidth and hurt overlap.
 constexpr int64_t kSingleBlockFastPathMaxBytes = 256 * 1024;
+// A one-block all-gather copies the whole gathered output from peer memory, so
+// its cost grows with the output while the multi-block path stays near its
+// launch floor. On B200 (2 and 8 ranks) the two cross at about a 64 KiB output.
+constexpr int64_t kAllGatherSingleBlockMaxBytes = 64 * 1024;
 // The trace's hot grid=64 collectives are dominated by asymmetric remote
 // reads. Reduce medium payloads once on logical rank 0 and distribute the
 // canonical result, while leaving true large transfers on the established
@@ -602,6 +606,68 @@ __global__ void deterministic_reduce_scatter_fast_kernel(
   }
 }
 
+// True when the output pointer, the per-rank byte count and every peer payload pointer
+// are all multiples of 16 bytes. Shared by the host grid sizing in all_gather() and the
+// device copy in copy_rank_ordered(), so both agree on the flat uint4 path over all peers.
+__host__ __device__ __forceinline__ bool can_vectorize_all_gather_copy(
+    const PeerPointers& peers,
+    int world_size,
+    const void* output,
+    int64_t input_bytes) {
+  uintptr_t alignment =
+      reinterpret_cast<uintptr_t>(output) | static_cast<uintptr_t>(input_bytes);
+  for (int peer = 0; peer < world_size; ++peer) {
+    alignment |= reinterpret_cast<uintptr_t>(peers.values[peer]);
+  }
+  return (alignment & 15u) == 0u;
+}
+
+// The all-gather payload copy: output[peer * input_bytes + i] = peer's byte i,
+// in rank order. When the output, the size and every peer payload are 16-byte
+// aligned, one flat index over all peers' 16-byte vectors keeps every thread
+// busy across peers; otherwise each peer is copied in turn, with aligned spans
+// as vectors and a byte-wise tail. Pure data movement, so the result is
+// byte-identical to a byte-by-byte copy.
+__device__ __forceinline__ void copy_rank_ordered(
+    const PeerPointers& peers,
+    int world_size,
+    uint8_t* output,
+    int64_t input_bytes,
+    int64_t thread_index,
+    int64_t stride) {
+  if (can_vectorize_all_gather_copy(peers, world_size, output, input_bytes)) {
+    const int64_t peer_vectors = input_bytes / static_cast<int64_t>(sizeof(uint4));
+    auto* destination = reinterpret_cast<uint4*>(output);
+    for (int64_t index = thread_index; index < peer_vectors * world_size; index += stride) {
+      const int64_t peer = index / peer_vectors;
+      const auto* source = static_cast<const uint4*>(peers.values[peer]);
+      destination[index] = source[index - peer * peer_vectors];
+    }
+    return;
+  }
+  for (int peer = 0; peer < world_size; ++peer) {
+    const auto* source = static_cast<const uint8_t*>(peers.values[peer]);
+    uint8_t* destination = output + static_cast<int64_t>(peer) * input_bytes;
+    int64_t vector_bytes = 0;
+    if (((reinterpret_cast<uintptr_t>(source) |
+          reinterpret_cast<uintptr_t>(destination)) & 15u) == 0u) {
+      const int64_t vector_count = input_bytes / static_cast<int64_t>(sizeof(uint4));
+      const auto* source_vectors = reinterpret_cast<const uint4*>(source);
+      auto* destination_vectors = reinterpret_cast<uint4*>(destination);
+      for (int64_t index = thread_index; index < vector_count; index += stride) {
+        destination_vectors[index] = source_vectors[index];
+      }
+      vector_bytes = vector_count * static_cast<int64_t>(sizeof(uint4));
+    }
+    for (int64_t index = vector_bytes + thread_index; index < input_bytes; index += stride) {
+      destination[index] = source[index];
+    }
+  }
+}
+
+// One-block all-gather for fast-staged inputs: thread 0 waits until every peer's stage
+// sequence reaches this rank's, the block copies all payloads into output in rank order,
+// then thread 0 publishes this rank's done sequence.
 __global__ void deterministic_all_gather_fast_kernel(
     PeerPointers peers,
     int world_size,
@@ -614,12 +680,7 @@ __global__ void deterministic_all_gather_fast_kernel(
   }
   __syncthreads();
 
-  const int64_t output_bytes = input_bytes * world_size;
-  for (int64_t index = threadIdx.x; index < output_bytes; index += blockDim.x) {
-    const int peer = static_cast<int>(index / input_bytes);
-    const int64_t peer_offset = index - static_cast<int64_t>(peer) * input_bytes;
-    output[index] = static_cast<const uint8_t*>(peers.values[peer])[peer_offset];
-  }
+  copy_rank_ordered(peers, world_size, output, input_bytes, threadIdx.x, blockDim.x);
   __syncthreads();
 
   if (threadIdx.x == 0) {
@@ -930,6 +991,9 @@ void launch_all_reduce_fused_fast(
   }
 }
 
+// One-block stage + gather: wait for every peer's done sequence, copy input into this
+// rank's IPC payload and advance its stage sequence, wait for every peer to stage, copy
+// all payloads into output in rank order, then publish this rank's done sequence.
 __global__ void deterministic_all_gather_fused_fast_kernel(
     PeerPointers peers,
     int world_size,
@@ -978,12 +1042,7 @@ __global__ void deterministic_all_gather_fused_fast_kernel(
   }
   __syncthreads();
 
-  const int64_t output_bytes = input_bytes * world_size;
-  for (int64_t index = threadIdx.x; index < output_bytes; index += blockDim.x) {
-    const int peer = static_cast<int>(index / input_bytes);
-    const int64_t peer_offset = index - static_cast<int64_t>(peer) * input_bytes;
-    output[index] = static_cast<const uint8_t*>(peers.values[peer])[peer_offset];
-  }
+  copy_rank_ordered(peers, world_size, output, input_bytes, threadIdx.x, blockDim.x);
   __syncthreads();
 
   if (threadIdx.x == 0) {
@@ -992,6 +1051,7 @@ __global__ void deterministic_all_gather_fused_fast_kernel(
   }
 }
 
+// Launch deterministic_all_gather_fused_fast_kernel as one block of kThreads on stream.
 void launch_all_gather_fused_fast(
     const PeerPointers& peers,
     uint64_t* local_stage_sequence,
@@ -1137,20 +1197,21 @@ void launch_reduce_scatter_fast(
   }
 }
 
+// Multi-block rank-ordered all-gather copy over a grid-stride loop. Does no
+// synchronization: the caller waits for every peer's stage before the launch and
+// publishes the done sequence after it.
 __global__ void deterministic_all_gather_kernel(
     PeerPointers peers,
     uint8_t* output,
     int64_t input_bytes,
     int64_t world_size) {
-  const int64_t output_bytes = input_bytes * world_size;
-  const int64_t thread_index =
-      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
-  for (int64_t index = thread_index; index < output_bytes; index += stride) {
-    const int peer = static_cast<int>(index / input_bytes);
-    const int64_t peer_offset = index - static_cast<int64_t>(peer) * input_bytes;
-    output[index] = static_cast<const uint8_t*>(peers.values[peer])[peer_offset];
-  }
+  copy_rank_ordered(
+      peers,
+      static_cast<int>(world_size),
+      output,
+      input_bytes,
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x,
+      static_cast<int64_t>(gridDim.x) * blockDim.x);
 }
 
 class DeterministicCollectiveState {
@@ -1633,6 +1694,9 @@ class DeterministicCollectiveState {
     all_reduce(output, stream, /*allow_owner_path=*/false);
   }
 
+  // Stage input and gather every rank's copy into output in rank order. Outputs up to
+  // kAllGatherSingleBlockMaxBytes use the one-launch fused kernel; larger outputs fall
+  // back to stage() followed by all_gather().
   void all_gather_fused(
       torch::Tensor& input,
       torch::Tensor& output,
@@ -1650,7 +1714,7 @@ class DeterministicCollectiveState {
         output_bytes == input_bytes * world_size_,
         "all-gather output size must contain one input per rank");
 
-    if (output_bytes > kSingleBlockFastPathMaxBytes) {
+    if (output_bytes > kAllGatherSingleBlockMaxBytes) {
       stage(input, stream);
       all_gather(output, stream);
       return;
@@ -1669,6 +1733,9 @@ class DeterministicCollectiveState {
     AT_CUDA_CHECK(cudaGetLastError());
   }
 
+  // Gather several tensors under one stage/done sequence: inputs are packed into this
+  // rank's IPC payload at 16-byte-aligned offsets, then each output receives every rank's
+  // copy in rank order through cudaMemcpyAsync.
   void all_gather_many(
       const std::vector<torch::Tensor>& inputs,
       const std::vector<torch::Tensor>& outputs,
@@ -1853,6 +1920,10 @@ class DeterministicCollectiveState {
     publish_done(stream);
   }
 
+  // Gather every rank's staged input into output in rank order. Fast-staged inputs with
+  // output <= kAllGatherSingleBlockMaxBytes use the one-block kernel; otherwise the grid
+  // is sized from 16-byte vectors when the copy can vectorize, else from bytes, capped at
+  // kMaxBlocks.
   void all_gather(torch::Tensor& output, cudaStream_t stream) {
     check_tensor(output, "output");
     TORCH_CHECK(has_staged_input_, "stage() must be called before all_gather()");
@@ -1865,7 +1936,7 @@ class DeterministicCollectiveState {
         "all-gather output must contain one staged input per rank");
 
     const int64_t output_bytes = output.numel() * output.element_size();
-    if (staged_fast_path_ && output_bytes <= kSingleBlockFastPathMaxBytes) {
+    if (staged_fast_path_ && output_bytes <= kAllGatherSingleBlockMaxBytes) {
       deterministic_all_gather_fast_kernel<<<1, kThreads, 0, stream>>>(
           peers_,
           world_size_,
@@ -1883,9 +1954,13 @@ class DeterministicCollectiveState {
       publish_done(stream);
       return;
     }
+    const int64_t work_items = can_vectorize_all_gather_copy(
+        peers_, world_size_, output.data_ptr(), staged_bytes_)
+        ? output_bytes / static_cast<int64_t>(sizeof(uint4))
+        : output_bytes;
     const int blocks = static_cast<int>(std::min<int64_t>(
         kMaxBlocks,
-        (output_bytes + kThreads - 1) / kThreads));
+        (work_items + kThreads - 1) / kThreads));
     deterministic_all_gather_kernel<<<blocks, kThreads, 0, stream>>>(
         peers_,
         static_cast<uint8_t*>(output.data_ptr()),
@@ -2090,6 +2165,7 @@ void deterministic_collective_all_reduce_fused(
   state_from_handle(handle)->all_reduce_fused(input, output, stream);
 }
 
+// Run the fused stage + all-gather for handle on the current stream of input's device.
 void deterministic_collective_all_gather_fused(
     int64_t handle,
     torch::Tensor& input,
@@ -2099,6 +2175,7 @@ void deterministic_collective_all_gather_fused(
   state_from_handle(handle)->all_gather_fused(input, output, stream);
 }
 
+// Run all_gather_many for handle on the current stream of the first input's device.
 void deterministic_collective_all_gather_many(
     int64_t handle,
     std::vector<torch::Tensor> inputs,
@@ -2115,6 +2192,8 @@ void deterministic_collective_reduce_scatter(int64_t handle, torch::Tensor& outp
   state_from_handle(handle)->reduce_scatter(output, stream);
 }
 
+// Gather every rank's previously staged input into output on the current stream of
+// output's device.
 void deterministic_collective_all_gather(int64_t handle, torch::Tensor& output) {
   const c10::cuda::CUDAGuard device_guard(output.device());
   auto stream = c10::cuda::getCurrentCUDAStream().stream();
