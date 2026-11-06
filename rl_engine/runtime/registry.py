@@ -120,6 +120,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.backends.cuda.model_specific.qwenimage."
         "tp_qkv_bias_gemm.QwenImageTPQKVBiasGemmCudaOp"
     )
+    CUDA_QWENIMAGE_TP_ATTN_OUT_BIAS_GEMM = (
+        "rl_engine.backends.cuda.model_specific.qwenimage."
+        "tp_attn_out_bias_gemm.QwenImageTPAttnOutBiasGemmCudaOp"
+    )
+    PYTORCH_QWENIMAGE_TP_ATTN_OUT_BIAS_GEMM = (
+        "rl_engine.reference.model_specific.qwenimage."
+        "tp_attn_out_bias_gemm.QwenImageTPAttnOutBiasGemmReference"
+    )
     PYTORCH_QWENIMAGE_TP_QKV_BIAS_GEMM = (
         "rl_engine.reference.model_specific.qwenimage."
         "tp_qkv_bias_gemm.QwenImageTPQKVBiasGemmReference"
@@ -818,6 +826,14 @@ class KernelRegistry:
         ]
         self._priority_map["cpu"]["qwenimage_tp_qkv_bias_gemm"] = [
             OpBackend.PYTORCH_QWENIMAGE_TP_QKV_BIAS_GEMM
+        ]
+        for platform in ("rocm", "npu", "musa"):
+            self._priority_map[platform]["qwenimage_tp_attn_out_bias_gemm"] = []
+        self._priority_map["cuda"]["qwenimage_tp_attn_out_bias_gemm"] = [
+            OpBackend.CUDA_QWENIMAGE_TP_ATTN_OUT_BIAS_GEMM
+        ]
+        self._priority_map["cpu"]["qwenimage_tp_attn_out_bias_gemm"] = [
+            OpBackend.PYTORCH_QWENIMAGE_TP_ATTN_OUT_BIAS_GEMM
         ]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
