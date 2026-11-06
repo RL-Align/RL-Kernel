@@ -30,6 +30,7 @@ nav:
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
+      - operators/scaled-token-embedding.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
