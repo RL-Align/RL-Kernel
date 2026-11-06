@@ -113,6 +113,7 @@ def test_canonical_chunk_permutation_and_padding_orchestration(cpu_orchestration
     permuted, _ = training_projection(op, x[order], w, dy[order], keys[order])
     assert raw_equal(canonical[2], permuted[2])
     torch.testing.assert_close(permuted[0], canonical[0][order], atol=0, rtol=0)
+    torch.testing.assert_close(permuted[1], canonical[1][order], atol=0, rtol=0)
     padded_x = torch.cat((x, torch.ones(2, 4).bfloat16()))
     padded_dy = torch.cat((dy, torch.zeros(2, 3).bfloat16()))
     padded_keys = torch.cat((keys, torch.full((2, 2), -1, dtype=torch.int64)))
