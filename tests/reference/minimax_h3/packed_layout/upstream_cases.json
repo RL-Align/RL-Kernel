@@ -1,0 +1,3433 @@
+{
+  "format": "h3-packed-layout-upstream.v1",
+  "checkpoint_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+  "upstream": {
+    "repo": "huggingface/diffusers",
+    "commit": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
+    "file": "src/diffusers/modular_pipelines/minimax_h3/before_denoise.py",
+    "sha256": "530b007c1d689c3ee1fc1690527f5253522d2da6b44dd326bec99faaf9f72fff",
+    "git_blob_sha1": "c670467a93075ae841c7b7cdd250ceb6fa85eda9",
+    "url": "https://github.com/huggingface/diffusers/blob/f53d552036a0d1bd5570782a39cd40cfabf112bc/src/diffusers/modular_pipelines/minimax_h3/before_denoise.py",
+    "methods": [
+      "MiniMaxH3PrepareLayoutStep.build_packed_sequence",
+      "MiniMaxH3Ref2VAPrepareLayoutStep.build_ref2va_packed_sequence",
+      "MiniMaxH3SetTimestepsStep.build_row_timesteps"
+    ],
+    "helpers": [
+      "_spatial_position_grid",
+      "_temporal_position_grid",
+      "_frame_position_grid",
+      "_fill_audio_positions"
+    ],
+    "constants": [
+      "_ROPE_FRAME_RESCALE",
+      "_ROPE_FRAMES_PER_LATENT",
+      "_ROPE_SPATIAL_SCALE"
+    ],
+    "execution": "Original AST bodies; staticmethod binding removed; annotations postponed.",
+    "reference_inputs": "kind/has_audio attributes and shape-only latent tensors; no encoder run."
+  },
+  "generator": "tests/reference/minimax_h3/packed_layout/make_upstream_fixtures.py",
+  "environment": {
+    "python": "3.14.3",
+    "system": "Windows",
+    "machine": "AMD64",
+    "torch": "2.13.0+cpu",
+    "numpy": "2.4.6",
+    "device": "cpu"
+  },
+  "scope": "Low-level preparation metadata only; no complete pipeline, model, or H-C3 qualification.",
+  "cases": [
+    {
+      "case_id": "fl2va_none",
+      "task_family": "FL2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "keyframe_anchors": []
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 21,
+        "num_condition_video_rows": 0,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              21,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f0000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000008400000000000000000780949a070c40cc000000000000010400000000000000000780949a070c40cc000000000000014400000000000000000780949a070c40cc000000000000008400000000000000000110b035c2f88364000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000110b035c2f8836400000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f883640abaaaaaaaaaa1240044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa1240044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa1240044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa12400000000000003040780949a070c40cc0abaaaaaaaaaa12400000000000003040e2e9f947a1ef2240abaaaaaaaaaa12400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              21
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              12
+            ],
+            "values": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              6
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "data_le_hex": "0000803e0000003f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              21
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "fl2va_first",
+      "task_family": "FL2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "keyframe_anchors": [
+          "first"
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 27,
+        "num_condition_video_rows": 6,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              27,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f88364000000000000008400000000000000000780949a070c40cc000000000000010400000000000000000780949a070c40cc000000000000014400000000000000000780949a070c40cc000000000000008400000000000000000110b035c2f88364000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000110b035c2f8836400000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f883640abaaaaaaaaaa1240044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa1240044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa1240044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa12400000000000003040780949a070c40cc0abaaaaaaaaaa12400000000000003040e2e9f947a1ef2240abaaaaaaaaaa12400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              27
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              18
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              6
+            ],
+            "values": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              3
+            ],
+            "data_le_hex": "0000803e0000003f0000803f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              27
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "fl2va_last",
+      "task_family": "FL2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "keyframe_anchors": [
+          "last"
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 27,
+        "num_condition_video_rows": 6,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              27,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000000000000000000000005655555555552340044fcf3f0a7d0740780949a070c40cc05655555555552340044fcf3f0a7d0740e2e9f947a1ef22405655555555552340044fcf3f0a7d0740110b035c2f88364056555555555523400000000000003040780949a070c40cc056555555555523400000000000003040e2e9f947a1ef224056555555555523400000000000003040110b035c2f88364000000000000008400000000000000000780949a070c40cc000000000000010400000000000000000780949a070c40cc000000000000014400000000000000000780949a070c40cc000000000000008400000000000000000110b035c2f88364000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000110b035c2f8836400000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f883640abaaaaaaaaaa1240044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa1240044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa1240044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa12400000000000003040780949a070c40cc0abaaaaaaaaaa12400000000000003040e2e9f947a1ef2240abaaaaaaaaaa12400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              27
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              18
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              6
+            ],
+            "values": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              3
+            ],
+            "data_le_hex": "0000803e0000003f0000803f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              27
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "fl2va_first_last",
+      "task_family": "FL2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "keyframe_anchors": [
+          "first",
+          "last"
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 33,
+        "num_condition_video_rows": 12,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              33,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f8836405655555555552340044fcf3f0a7d0740780949a070c40cc05655555555552340044fcf3f0a7d0740e2e9f947a1ef22405655555555552340044fcf3f0a7d0740110b035c2f88364056555555555523400000000000003040780949a070c40cc056555555555523400000000000003040e2e9f947a1ef224056555555555523400000000000003040110b035c2f88364000000000000008400000000000000000780949a070c40cc000000000000010400000000000000000780949a070c40cc000000000000014400000000000000000780949a070c40cc000000000000008400000000000000000110b035c2f88364000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000110b035c2f8836400000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f883640abaaaaaaaaaa1240044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa1240044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa1240044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa12400000000000003040780949a070c40cc0abaaaaaaaaaa12400000000000003040e2e9f947a1ef2240abaaaaaaaaaa12400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              33
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              24
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31,
+              32
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              6
+            ],
+            "values": [
+              15,
+              16,
+              17,
+              18,
+              19,
+              20
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              3
+            ],
+            "data_le_hex": "0000803e0000003f0000803f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              33
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "fl2va_text_visual_tag",
+      "task_family": "FL2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          0,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "keyframe_anchors": [
+          "first"
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 27,
+        "num_condition_video_rows": 6,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              27,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f88364000000000000008400000000000000000780949a070c40cc000000000000010400000000000000000780949a070c40cc000000000000014400000000000000000780949a070c40cc000000000000008400000000000000000110b035c2f88364000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000110b035c2f8836400000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f883640abaaaaaaaaaa1240044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa1240044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa1240044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa12400000000000003040780949a070c40cc0abaaaaaaaaaa12400000000000003040e2e9f947a1ef2240abaaaaaaaaaa12400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              27
+            ],
+            "values": [
+              1,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              18
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              6
+            ],
+            "values": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              3
+            ],
+            "data_le_hex": "0000803e0000003f0000803f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              27
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "fl2va_last_16_frames",
+      "task_family": "FL2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 16,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "keyframe_anchors": [
+          "last"
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 111,
+        "num_condition_video_rows": 6,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              111,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000005640044fcf3f0a7d0740780949a070c40cc00000000000005640044fcf3f0a7d0740e2e9f947a1ef22400000000000005640044fcf3f0a7d0740110b035c2f88364000000000000056400000000000003040780949a070c40cc000000000000056400000000000003040e2e9f947a1ef224000000000000056400000000000003040110b035c2f88364000000000000008400000000000000000780949a070c40cc000000000000010400000000000000000780949a070c40cc000000000000014400000000000000000780949a070c40cc000000000000008400000000000000000110b035c2f88364000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000110b035c2f8836400000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f883640abaaaaaaaaaa1240044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa1240044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa1240044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa12400000000000003040780949a070c40cc0abaaaaaaaaaa12400000000000003040e2e9f947a1ef2240abaaaaaaaaaa12400000000000003040110b035c2f883640abaaaaaaaaaa2640044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa2640044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa2640044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa26400000000000003040780949a070c40cc0abaaaaaaaaaa26400000000000003040e2e9f947a1ef2240abaaaaaaaaaa26400000000000003040110b035c2f8836400000000000003240044fcf3f0a7d0740780949a070c40cc00000000000003240044fcf3f0a7d0740e2e9f947a1ef22400000000000003240044fcf3f0a7d0740110b035c2f88364000000000000032400000000000003040780949a070c40cc000000000000032400000000000003040e2e9f947a1ef224000000000000032400000000000003040110b035c2f883640abaaaaaaaaaa3840044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa3840044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa3840044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa38400000000000003040780949a070c40cc0abaaaaaaaaaa38400000000000003040e2e9f947a1ef2240abaaaaaaaaaa38400000000000003040110b035c2f8836405655555555553f40044fcf3f0a7d0740780949a070c40cc05655555555553f40044fcf3f0a7d0740e2e9f947a1ef22405655555555553f40044fcf3f0a7d0740110b035c2f8836405655555555553f400000000000003040780949a070c40cc05655555555553f400000000000003040e2e9f947a1ef22405655555555553f400000000000003040110b035c2f8836400000000000804040044fcf3f0a7d0740780949a070c40cc00000000000804040044fcf3f0a7d0740e2e9f947a1ef22400000000000804040044fcf3f0a7d0740110b035c2f88364000000000008040400000000000003040780949a070c40cc000000000008040400000000000003040e2e9f947a1ef224000000000008040400000000000003040110b035c2f8836405655555555d54340044fcf3f0a7d0740780949a070c40cc05655555555d54340044fcf3f0a7d0740e2e9f947a1ef22405655555555d54340044fcf3f0a7d0740110b035c2f8836405655555555d543400000000000003040780949a070c40cc05655555555d543400000000000003040e2e9f947a1ef22405655555555d543400000000000003040110b035c2f883640abaaaaaaaa2a4740044fcf3f0a7d0740780949a070c40cc0abaaaaaaaa2a4740044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaa2a4740044fcf3f0a7d0740110b035c2f883640abaaaaaaaa2a47400000000000003040780949a070c40cc0abaaaaaaaa2a47400000000000003040e2e9f947a1ef2240abaaaaaaaa2a47400000000000003040110b035c2f8836400000000000804a40044fcf3f0a7d0740780949a070c40cc00000000000804a40044fcf3f0a7d0740e2e9f947a1ef22400000000000804a40044fcf3f0a7d0740110b035c2f8836400000000000804a400000000000003040780949a070c40cc00000000000804a400000000000003040e2e9f947a1ef22400000000000804a400000000000003040110b035c2f8836405555555555d54d40044fcf3f0a7d0740780949a070c40cc05555555555d54d40044fcf3f0a7d0740e2e9f947a1ef22405555555555d54d40044fcf3f0a7d0740110b035c2f8836405555555555d54d400000000000003040780949a070c40cc05555555555d54d400000000000003040e2e9f947a1ef22405555555555d54d400000000000003040110b035c2f883640aaaaaaaaaaaa4e40044fcf3f0a7d0740780949a070c40cc0aaaaaaaaaaaa4e40044fcf3f0a7d0740e2e9f947a1ef2240aaaaaaaaaaaa4e40044fcf3f0a7d0740110b035c2f883640aaaaaaaaaaaa4e400000000000003040780949a070c40cc0aaaaaaaaaaaa4e400000000000003040e2e9f947a1ef2240aaaaaaaaaaaa4e400000000000003040110b035c2f8836400000000000005140044fcf3f0a7d0740780949a070c40cc00000000000005140044fcf3f0a7d0740e2e9f947a1ef22400000000000005140044fcf3f0a7d0740110b035c2f88364000000000000051400000000000003040780949a070c40cc000000000000051400000000000003040e2e9f947a1ef224000000000000051400000000000003040110b035c2f883640abaaaaaaaaaa5240044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa5240044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa5240044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa52400000000000003040780949a070c40cc0abaaaaaaaaaa52400000000000003040e2e9f947a1ef2240abaaaaaaaaaa52400000000000003040110b035c2f8836405655555555555440044fcf3f0a7d0740780949a070c40cc05655555555555440044fcf3f0a7d0740e2e9f947a1ef22405655555555555440044fcf3f0a7d0740110b035c2f88364056555555555554400000000000003040780949a070c40cc056555555555554400000000000003040e2e9f947a1ef224056555555555554400000000000003040110b035c2f8836400100000000005640044fcf3f0a7d0740780949a070c40cc00100000000005640044fcf3f0a7d0740e2e9f947a1ef22400100000000005640044fcf3f0a7d0740110b035c2f88364001000000000056400000000000003040780949a070c40cc001000000000056400000000000003040e2e9f947a1ef224001000000000056400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              111
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              102
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31,
+              32,
+              33,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42,
+              43,
+              44,
+              45,
+              46,
+              47,
+              48,
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              60,
+              61,
+              62,
+              63,
+              64,
+              65,
+              66,
+              67,
+              68,
+              69,
+              70,
+              71,
+              72,
+              73,
+              74,
+              75,
+              76,
+              77,
+              78,
+              79,
+              80,
+              81,
+              82,
+              83,
+              84,
+              85,
+              86,
+              87,
+              88,
+              89,
+              90,
+              91,
+              92,
+              93,
+              94,
+              95,
+              96,
+              97,
+              98,
+              99,
+              100,
+              101,
+              102,
+              103,
+              104,
+              105,
+              106,
+              107,
+              108,
+              109,
+              110
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              6
+            ],
+            "values": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              3
+            ],
+            "data_le_hex": "0000803e0000003f0000803f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              111
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "fl2va_same_timestep",
+      "task_family": "FL2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "keyframe_anchors": []
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.5,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 0.5,
+        "condition_audio_timestep": 0.5
+      },
+      "expected": {
+        "sequence_length": 21,
+        "num_condition_video_rows": 0,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              21,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f0000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000008400000000000000000780949a070c40cc000000000000010400000000000000000780949a070c40cc000000000000014400000000000000000780949a070c40cc000000000000008400000000000000000110b035c2f88364000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000110b035c2f8836400000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f883640abaaaaaaaaaa1240044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa1240044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa1240044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa12400000000000003040780949a070c40cc0abaaaaaaaaaa12400000000000003040e2e9f947a1ef2240abaaaaaaaaaa12400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              21
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              12
+            ],
+            "values": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              6
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              1
+            ],
+            "data_le_hex": "0000003f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              21
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "fl2va_block_tiny",
+      "task_family": "FL2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 16,
+        "latent_width": 24,
+        "num_audio_latents": 20,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "keyframe_anchors": []
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 264,
+        "num_condition_video_rows": 0,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              264,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000840000000000000000000000000000000000000000000001040000000000000000000000000000000000000000000001440000000000000000000000000000000000000000000001840000000000000000000000000000000000000000000001c40000000000000000000000000000000000000000000002040000000000000000000000000000000000000000000002240000000000000000000000000000000000000000000002440000000000000000000000000000000000000000000002640000000000000000000000000000000000000000000002840000000000000000000000000000000000000000000002a40000000000000000000000000000000000000000000002c40000000000000000000000000000000000000000000002e40000000000000000000000000000000000000000000003040000000000000000000000000000000000000000000003140000000000000000000000000000000000000000000003240000000000000000000000000000000000000000000003340000000000000000000000000000000000000000000003440000000000000000000000000000000000000000000003540000000000000000000000000000000000000000000003640000000000000000000000000000000000000000000003740000000000000000000000000000000000000000000003840000000000000000000000000000000000000000000003940000000000000000000000000000000000000000000003a40000000000000000000000000000000000000000000003b40000000000000000000000000000000000000000000003c40000000000000000000000000000000000000000000003d40000000000000000000000000000000000000000000003e40000000000000000000000000000000000000000000003f400000000000000000000000000000000000000000000040400000000000000000780949a070c40cc000000000008040400000000000000000780949a070c40cc000000000000041400000000000000000780949a070c40cc000000000008041400000000000000000780949a070c40cc000000000000042400000000000000000780949a070c40cc000000000008042400000000000000000780949a070c40cc000000000000043400000000000000000780949a070c40cc000000000008043400000000000000000780949a070c40cc000000000000044400000000000000000780949a070c40cc000000000008044400000000000000000780949a070c40cc000000000000045400000000000000000780949a070c40cc000000000008045400000000000000000780949a070c40cc000000000000046400000000000000000780949a070c40cc000000000008046400000000000000000780949a070c40cc000000000000047400000000000000000780949a070c40cc000000000008047400000000000000000780949a070c40cc000000000000048400000000000000000780949a070c40cc000000000008048400000000000000000780949a070c40cc000000000000049400000000000000000780949a070c40cc000000000008049400000000000000000780949a070c40cc000000000000040400000000000000000d4cd03333b2a404000000000008040400000000000000000d4cd03333b2a404000000000000041400000000000000000d4cd03333b2a404000000000008041400000000000000000d4cd03333b2a404000000000000042400000000000000000d4cd03333b2a404000000000008042400000000000000000d4cd03333b2a404000000000000043400000000000000000d4cd03333b2a404000000000008043400000000000000000d4cd03333b2a404000000000000044400000000000000000d4cd03333b2a404000000000008044400000000000000000d4cd03333b2a404000000000000045400000000000000000d4cd03333b2a404000000000008045400000000000000000d4cd03333b2a404000000000000046400000000000000000d4cd03333b2a404000000000008046400000000000000000d4cd03333b2a404000000000000047400000000000000000d4cd03333b2a404000000000008047400000000000000000d4cd03333b2a404000000000000048400000000000000000d4cd03333b2a404000000000008048400000000000000000d4cd03333b2a404000000000000049400000000000000000d4cd03333b2a404000000000008049400000000000000000d4cd03333b2a40400000000000004040044fcf3f0a7d0740780949a070c40cc00000000000004040044fcf3f0a7d0740c0e9e681991dd5bf0000000000004040044fcf3f0a7d0740084fcf3f0a7d07400000000000004040044fcf3f0a7d0740a4bdedd7e3ce18400000000000004040044fcf3f0a7d0740e2e9f947a1ef22400000000000004040044fcf3f0a7d0740f2f4fca3d07729400000000000004040044fcf3f0a7d074001000000000030400000000000004040044fcf3f0a7d0740898501ae174433400000000000004040044fcf3f0a7d0740110b035c2f8836400000000000004040044fcf3f0a7d07409990040a47cc39400000000000004040044fcf3f0a7d0740211606b85e103d400000000000004040044fcf3f0a7d0740d4cd03333b2a40400000000000004040a2bdedd7e3ce1840780949a070c40cc00000000000004040a2bdedd7e3ce1840c0e9e681991dd5bf0000000000004040a2bdedd7e3ce1840084fcf3f0a7d07400000000000004040a2bdedd7e3ce1840a4bdedd7e3ce18400000000000004040a2bdedd7e3ce1840e2e9f947a1ef22400000000000004040a2bdedd7e3ce1840f2f4fca3d07729400000000000004040a2bdedd7e3ce184001000000000030400000000000004040a2bdedd7e3ce1840898501ae174433400000000000004040a2bdedd7e3ce1840110b035c2f8836400000000000004040a2bdedd7e3ce18409990040a47cc39400000000000004040a2bdedd7e3ce1840211606b85e103d400000000000004040a2bdedd7e3ce1840d4cd03333b2a40400000000000004040e1e9f947a1ef2240780949a070c40cc00000000000004040e1e9f947a1ef2240c0e9e681991dd5bf0000000000004040e1e9f947a1ef2240084fcf3f0a7d07400000000000004040e1e9f947a1ef2240a4bdedd7e3ce18400000000000004040e1e9f947a1ef2240e2e9f947a1ef22400000000000004040e1e9f947a1ef2240f2f4fca3d07729400000000000004040e1e9f947a1ef224001000000000030400000000000004040e1e9f947a1ef2240898501ae174433400000000000004040e1e9f947a1ef2240110b035c2f8836400000000000004040e1e9f947a1ef22409990040a47cc39400000000000004040e1e9f947a1ef2240211606b85e103d400000000000004040e1e9f947a1ef2240d4cd03333b2a40400000000000004040f1f4fca3d0772940780949a070c40cc00000000000004040f1f4fca3d0772940c0e9e681991dd5bf0000000000004040f1f4fca3d0772940084fcf3f0a7d07400000000000004040f1f4fca3d0772940a4bdedd7e3ce18400000000000004040f1f4fca3d0772940e2e9f947a1ef22400000000000004040f1f4fca3d0772940f2f4fca3d07729400000000000004040f1f4fca3d077294001000000000030400000000000004040f1f4fca3d0772940898501ae174433400000000000004040f1f4fca3d0772940110b035c2f8836400000000000004040f1f4fca3d07729409990040a47cc39400000000000004040f1f4fca3d0772940211606b85e103d400000000000004040f1f4fca3d0772940d4cd03333b2a404000000000000040400000000000003040780949a070c40cc000000000000040400000000000003040c0e9e681991dd5bf00000000000040400000000000003040084fcf3f0a7d074000000000000040400000000000003040a4bdedd7e3ce184000000000000040400000000000003040e2e9f947a1ef224000000000000040400000000000003040f2f4fca3d077294000000000000040400000000000003040010000000000304000000000000040400000000000003040898501ae1744334000000000000040400000000000003040110b035c2f883640000000000000404000000000000030409990040a47cc394000000000000040400000000000003040211606b85e103d4000000000000040400000000000003040d4cd03333b2a40400000000000004040888501ae17443340780949a070c40cc00000000000004040888501ae17443340c0e9e681991dd5bf0000000000004040888501ae17443340084fcf3f0a7d07400000000000004040888501ae17443340a4bdedd7e3ce18400000000000004040888501ae17443340e2e9f947a1ef22400000000000004040888501ae17443340f2f4fca3d07729400000000000004040888501ae1744334001000000000030400000000000004040888501ae17443340898501ae174433400000000000004040888501ae17443340110b035c2f8836400000000000004040888501ae174433409990040a47cc39400000000000004040888501ae17443340211606b85e103d400000000000004040888501ae17443340d4cd03333b2a40400000000000004040100b035c2f883640780949a070c40cc00000000000004040100b035c2f883640c0e9e681991dd5bf0000000000004040100b035c2f883640084fcf3f0a7d07400000000000004040100b035c2f883640a4bdedd7e3ce18400000000000004040100b035c2f883640e2e9f947a1ef22400000000000004040100b035c2f883640f2f4fca3d07729400000000000004040100b035c2f88364001000000000030400000000000004040100b035c2f883640898501ae174433400000000000004040100b035c2f883640110b035c2f8836400000000000004040100b035c2f8836409990040a47cc39400000000000004040100b035c2f883640211606b85e103d400000000000004040100b035c2f883640d4cd03333b2a404000000000000040409890040a47cc3940780949a070c40cc000000000000040409890040a47cc3940c0e9e681991dd5bf00000000000040409890040a47cc3940084fcf3f0a7d074000000000000040409890040a47cc3940a4bdedd7e3ce184000000000000040409890040a47cc3940e2e9f947a1ef224000000000000040409890040a47cc3940f2f4fca3d077294000000000000040409890040a47cc3940010000000000304000000000000040409890040a47cc3940898501ae1744334000000000000040409890040a47cc3940110b035c2f88364000000000000040409890040a47cc39409990040a47cc394000000000000040409890040a47cc3940211606b85e103d4000000000000040409890040a47cc3940d4cd03333b2a40405555555555d54040044fcf3f0a7d0740780949a070c40cc05555555555d54040044fcf3f0a7d0740c0e9e681991dd5bf5555555555d54040044fcf3f0a7d0740084fcf3f0a7d07405555555555d54040044fcf3f0a7d0740a4bdedd7e3ce18405555555555d54040044fcf3f0a7d0740e2e9f947a1ef22405555555555d54040044fcf3f0a7d0740f2f4fca3d07729405555555555d54040044fcf3f0a7d074001000000000030405555555555d54040044fcf3f0a7d0740898501ae174433405555555555d54040044fcf3f0a7d0740110b035c2f8836405555555555d54040044fcf3f0a7d07409990040a47cc39405555555555d54040044fcf3f0a7d0740211606b85e103d405555555555d54040044fcf3f0a7d0740d4cd03333b2a40405555555555d54040a2bdedd7e3ce1840780949a070c40cc05555555555d54040a2bdedd7e3ce1840c0e9e681991dd5bf5555555555d54040a2bdedd7e3ce1840084fcf3f0a7d07405555555555d54040a2bdedd7e3ce1840a4bdedd7e3ce18405555555555d54040a2bdedd7e3ce1840e2e9f947a1ef22405555555555d54040a2bdedd7e3ce1840f2f4fca3d07729405555555555d54040a2bdedd7e3ce184001000000000030405555555555d54040a2bdedd7e3ce1840898501ae174433405555555555d54040a2bdedd7e3ce1840110b035c2f8836405555555555d54040a2bdedd7e3ce18409990040a47cc39405555555555d54040a2bdedd7e3ce1840211606b85e103d405555555555d54040a2bdedd7e3ce1840d4cd03333b2a40405555555555d54040e1e9f947a1ef2240780949a070c40cc05555555555d54040e1e9f947a1ef2240c0e9e681991dd5bf5555555555d54040e1e9f947a1ef2240084fcf3f0a7d07405555555555d54040e1e9f947a1ef2240a4bdedd7e3ce18405555555555d54040e1e9f947a1ef2240e2e9f947a1ef22405555555555d54040e1e9f947a1ef2240f2f4fca3d07729405555555555d54040e1e9f947a1ef224001000000000030405555555555d54040e1e9f947a1ef2240898501ae174433405555555555d54040e1e9f947a1ef2240110b035c2f8836405555555555d54040e1e9f947a1ef22409990040a47cc39405555555555d54040e1e9f947a1ef2240211606b85e103d405555555555d54040e1e9f947a1ef2240d4cd03333b2a40405555555555d54040f1f4fca3d0772940780949a070c40cc05555555555d54040f1f4fca3d0772940c0e9e681991dd5bf5555555555d54040f1f4fca3d0772940084fcf3f0a7d07405555555555d54040f1f4fca3d0772940a4bdedd7e3ce18405555555555d54040f1f4fca3d0772940e2e9f947a1ef22405555555555d54040f1f4fca3d0772940f2f4fca3d07729405555555555d54040f1f4fca3d077294001000000000030405555555555d54040f1f4fca3d0772940898501ae174433405555555555d54040f1f4fca3d0772940110b035c2f8836405555555555d54040f1f4fca3d07729409990040a47cc39405555555555d54040f1f4fca3d0772940211606b85e103d405555555555d54040f1f4fca3d0772940d4cd03333b2a40405555555555d540400000000000003040780949a070c40cc05555555555d540400000000000003040c0e9e681991dd5bf5555555555d540400000000000003040084fcf3f0a7d07405555555555d540400000000000003040a4bdedd7e3ce18405555555555d540400000000000003040e2e9f947a1ef22405555555555d540400000000000003040f2f4fca3d07729405555555555d54040000000000000304001000000000030405555555555d540400000000000003040898501ae174433405555555555d540400000000000003040110b035c2f8836405555555555d5404000000000000030409990040a47cc39405555555555d540400000000000003040211606b85e103d405555555555d540400000000000003040d4cd03333b2a40405555555555d54040888501ae17443340780949a070c40cc05555555555d54040888501ae17443340c0e9e681991dd5bf5555555555d54040888501ae17443340084fcf3f0a7d07405555555555d54040888501ae17443340a4bdedd7e3ce18405555555555d54040888501ae17443340e2e9f947a1ef22405555555555d54040888501ae17443340f2f4fca3d07729405555555555d54040888501ae1744334001000000000030405555555555d54040888501ae17443340898501ae174433405555555555d54040888501ae17443340110b035c2f8836405555555555d54040888501ae174433409990040a47cc39405555555555d54040888501ae17443340211606b85e103d405555555555d54040888501ae17443340d4cd03333b2a40405555555555d54040100b035c2f883640780949a070c40cc05555555555d54040100b035c2f883640c0e9e681991dd5bf5555555555d54040100b035c2f883640084fcf3f0a7d07405555555555d54040100b035c2f883640a4bdedd7e3ce18405555555555d54040100b035c2f883640e2e9f947a1ef22405555555555d54040100b035c2f883640f2f4fca3d07729405555555555d54040100b035c2f88364001000000000030405555555555d54040100b035c2f883640898501ae174433405555555555d54040100b035c2f883640110b035c2f8836405555555555d54040100b035c2f8836409990040a47cc39405555555555d54040100b035c2f883640211606b85e103d405555555555d54040100b035c2f883640d4cd03333b2a40405555555555d540409890040a47cc3940780949a070c40cc05555555555d540409890040a47cc3940c0e9e681991dd5bf5555555555d540409890040a47cc3940084fcf3f0a7d07405555555555d540409890040a47cc3940a4bdedd7e3ce18405555555555d540409890040a47cc3940e2e9f947a1ef22405555555555d540409890040a47cc3940f2f4fca3d07729405555555555d540409890040a47cc394001000000000030405555555555d540409890040a47cc3940898501ae174433405555555555d540409890040a47cc3940110b035c2f8836405555555555d540409890040a47cc39409990040a47cc39405555555555d540409890040a47cc3940211606b85e103d405555555555d540409890040a47cc3940d4cd03333b2a4040"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              264
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              192
+            ],
+            "values": [
+              72,
+              73,
+              74,
+              75,
+              76,
+              77,
+              78,
+              79,
+              80,
+              81,
+              82,
+              83,
+              84,
+              85,
+              86,
+              87,
+              88,
+              89,
+              90,
+              91,
+              92,
+              93,
+              94,
+              95,
+              96,
+              97,
+              98,
+              99,
+              100,
+              101,
+              102,
+              103,
+              104,
+              105,
+              106,
+              107,
+              108,
+              109,
+              110,
+              111,
+              112,
+              113,
+              114,
+              115,
+              116,
+              117,
+              118,
+              119,
+              120,
+              121,
+              122,
+              123,
+              124,
+              125,
+              126,
+              127,
+              128,
+              129,
+              130,
+              131,
+              132,
+              133,
+              134,
+              135,
+              136,
+              137,
+              138,
+              139,
+              140,
+              141,
+              142,
+              143,
+              144,
+              145,
+              146,
+              147,
+              148,
+              149,
+              150,
+              151,
+              152,
+              153,
+              154,
+              155,
+              156,
+              157,
+              158,
+              159,
+              160,
+              161,
+              162,
+              163,
+              164,
+              165,
+              166,
+              167,
+              168,
+              169,
+              170,
+              171,
+              172,
+              173,
+              174,
+              175,
+              176,
+              177,
+              178,
+              179,
+              180,
+              181,
+              182,
+              183,
+              184,
+              185,
+              186,
+              187,
+              188,
+              189,
+              190,
+              191,
+              192,
+              193,
+              194,
+              195,
+              196,
+              197,
+              198,
+              199,
+              200,
+              201,
+              202,
+              203,
+              204,
+              205,
+              206,
+              207,
+              208,
+              209,
+              210,
+              211,
+              212,
+              213,
+              214,
+              215,
+              216,
+              217,
+              218,
+              219,
+              220,
+              221,
+              222,
+              223,
+              224,
+              225,
+              226,
+              227,
+              228,
+              229,
+              230,
+              231,
+              232,
+              233,
+              234,
+              235,
+              236,
+              237,
+              238,
+              239,
+              240,
+              241,
+              242,
+              243,
+              244,
+              245,
+              246,
+              247,
+              248,
+              249,
+              250,
+              251,
+              252,
+              253,
+              254,
+              255,
+              256,
+              257,
+              258,
+              259,
+              260,
+              261,
+              262,
+              263
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              40
+            ],
+            "values": [
+              32,
+              33,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42,
+              43,
+              44,
+              45,
+              46,
+              47,
+              48,
+              49,
+              50,
+              51,
+              52,
+              53,
+              54,
+              55,
+              56,
+              57,
+              58,
+              59,
+              60,
+              61,
+              62,
+              63,
+              64,
+              65,
+              66,
+              67,
+              68,
+              69,
+              70,
+              71
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              32
+            ],
+            "values": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "data_le_hex": "0000803e0000003f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              264
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "ref2va_image",
+      "task_family": "Ref2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          0,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "references": [
+          {
+            "kind": "image",
+            "latent_shape": [
+              1,
+              24,
+              1,
+              4,
+              6
+            ]
+          }
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 27,
+        "num_condition_video_rows": 6,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              27,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f88364000000000000010400000000000000000780949a070c40cc000000000000014400000000000000000780949a070c40cc000000000000018400000000000000000780949a070c40cc000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000110b035c2f88364000000000000018400000000000000000110b035c2f8836400000000000001040044fcf3f0a7d0740780949a070c40cc00000000000001040044fcf3f0a7d0740e2e9f947a1ef22400000000000001040044fcf3f0a7d0740110b035c2f88364000000000000010400000000000003040780949a070c40cc000000000000010400000000000003040e2e9f947a1ef224000000000000010400000000000003040110b035c2f883640abaaaaaaaaaa1640044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa1640044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa1640044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa16400000000000003040780949a070c40cc0abaaaaaaaaaa16400000000000003040e2e9f947a1ef2240abaaaaaaaaaa16400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              27
+            ],
+            "values": [
+              1,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              18
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              6
+            ],
+            "values": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              3
+            ],
+            "data_le_hex": "0000803e0000003f0000803f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              27
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "ref2va_audio",
+      "task_family": "Ref2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "references": [
+          {
+            "kind": "audio",
+            "audio_rows_shape": [
+              4,
+              32
+            ]
+          }
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 25,
+        "num_condition_video_rows": 0,
+        "num_condition_audio_rows": 4,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              25,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f0000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000008400000000000000000780949a070c40cc000000000000010400000000000000000780949a070c40cc000000000000008400000000000000000110b035c2f88364000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000780949a070c40cc000000000000018400000000000000000780949a070c40cc00000000000001c400000000000000000780949a070c40cc000000000000014400000000000000000110b035c2f88364000000000000018400000000000000000110b035c2f8836400000000000001c400000000000000000110b035c2f8836400000000000001440044fcf3f0a7d0740780949a070c40cc00000000000001440044fcf3f0a7d0740e2e9f947a1ef22400000000000001440044fcf3f0a7d0740110b035c2f88364000000000000014400000000000003040780949a070c40cc000000000000014400000000000003040e2e9f947a1ef224000000000000014400000000000003040110b035c2f883640abaaaaaaaaaa1a40044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa1a40044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa1a40044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa1a400000000000003040780949a070c40cc0abaaaaaaaaaa1a400000000000003040e2e9f947a1ef2240abaaaaaaaaaa1a400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              25
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              12
+            ],
+            "values": [
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              10
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              3
+            ],
+            "data_le_hex": "0000803e0000003f0000403f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              25
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "ref2va_silent_video",
+      "task_family": "Ref2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "references": [
+          {
+            "kind": "video",
+            "has_audio": false,
+            "latent_shape": [
+              1,
+              24,
+              2,
+              2,
+              4
+            ]
+          }
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 25,
+        "num_condition_video_rows": 4,
+        "num_condition_audio_rows": 0,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              25,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f00000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000084068880133c3be124030effc9979821ac0000000000000084068880133c3be12400000000000003040abaaaaaaaaaa124068880133c3be124030effc9979821ac0abaaaaaaaaaa124068880133c3be12400000000000003040abaaaaaaaaaa26400000000000000000780949a070c40cc0abaaaaaaaaaa28400000000000000000780949a070c40cc0abaaaaaaaaaa2a400000000000000000780949a070c40cc0abaaaaaaaaaa26400000000000000000110b035c2f883640abaaaaaaaaaa28400000000000000000110b035c2f883640abaaaaaaaaaa2a400000000000000000110b035c2f883640abaaaaaaaaaa2640044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa2640044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa2640044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa26400000000000003040780949a070c40cc0abaaaaaaaaaa26400000000000003040e2e9f947a1ef2240abaaaaaaaaaa26400000000000003040110b035c2f8836400000000000002a40044fcf3f0a7d0740780949a070c40cc00000000000002a40044fcf3f0a7d0740e2e9f947a1ef22400000000000002a40044fcf3f0a7d0740110b035c2f8836400000000000002a400000000000003040780949a070c40cc00000000000002a400000000000003040e2e9f947a1ef22400000000000002a400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              25
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              16
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              6
+            ],
+            "values": [
+              7,
+              8,
+              9,
+              10,
+              11,
+              12
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              3
+            ],
+            "data_le_hex": "0000803e0000003f0000803f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              25
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "ref2va_video_audio",
+      "task_family": "Ref2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          1,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "references": [
+          {
+            "kind": "video",
+            "has_audio": true,
+            "latent_shape": [
+              1,
+              24,
+              3,
+              2,
+              4
+            ],
+            "audio_rows_shape": [
+              6,
+              32
+            ]
+          }
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 33,
+        "num_condition_video_rows": 6,
+        "num_condition_audio_rows": 6,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              33,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000840000000000000000030effc9979821ac00000000000001040000000000000000030effc9979821ac00000000000001440000000000000000030effc9979821ac0000000000000084000000000000000000000000000003040000000000000104000000000000000000000000000003040000000000000144000000000000000000000000000003040000000000000084068880133c3be124030effc9979821ac0000000000000084068880133c3be12400000000000003040abaaaaaaaaaa124068880133c3be124030effc9979821ac0abaaaaaaaaaa124068880133c3be12400000000000003040abaaaaaaaaaa264068880133c3be124030effc9979821ac0abaaaaaaaaaa264068880133c3be1240000000000000304000000000000032400000000000000000780949a070c40cc000000000000033400000000000000000780949a070c40cc000000000000034400000000000000000780949a070c40cc000000000000032400000000000000000110b035c2f88364000000000000033400000000000000000110b035c2f88364000000000000034400000000000000000110b035c2f8836400000000000003240044fcf3f0a7d0740780949a070c40cc00000000000003240044fcf3f0a7d0740e2e9f947a1ef22400000000000003240044fcf3f0a7d0740110b035c2f88364000000000000032400000000000003040780949a070c40cc000000000000032400000000000003040e2e9f947a1ef224000000000000032400000000000003040110b035c2f883640abaaaaaaaaaa3340044fcf3f0a7d0740780949a070c40cc0abaaaaaaaaaa3340044fcf3f0a7d0740e2e9f947a1ef2240abaaaaaaaaaa3340044fcf3f0a7d0740110b035c2f883640abaaaaaaaaaa33400000000000003040780949a070c40cc0abaaaaaaaaaa33400000000000003040e2e9f947a1ef2240abaaaaaaaaaa33400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              33
+            ],
+            "values": [
+              1,
+              1,
+              1,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              18
+            ],
+            "values": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31,
+              32
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              12
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              4
+            ],
+            "data_le_hex": "0000803e0000003f0000403f0000803f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              33
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              3,
+              3,
+              3,
+              3,
+              3,
+              3,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case_id": "ref2va_mixed",
+      "task_family": "Ref2VA",
+      "layout_inputs": {
+        "text_token_tags": [
+          1,
+          0,
+          1
+        ],
+        "num_latent_frames": 2,
+        "latent_height": 4,
+        "latent_width": 6,
+        "num_audio_latents": 3,
+        "patch_size": [
+          1,
+          2,
+          2
+        ],
+        "audio_channels": 2,
+        "audio_tag": 2,
+        "video_tag": 0,
+        "references": [
+          {
+            "kind": "image",
+            "latent_shape": [
+              1,
+              24,
+              1,
+              4,
+              6
+            ]
+          },
+          {
+            "kind": "audio",
+            "audio_rows_shape": [
+              4,
+              32
+            ]
+          },
+          {
+            "kind": "video",
+            "has_audio": true,
+            "latent_shape": [
+              1,
+              24,
+              3,
+              2,
+              4
+            ],
+            "audio_rows_shape": [
+              6,
+              32
+            ]
+          },
+          {
+            "kind": "video",
+            "has_audio": false,
+            "latent_shape": [
+              1,
+              24,
+              2,
+              2,
+              4
+            ]
+          }
+        ]
+      },
+      "timestep_inputs": {
+        "video_timestep": 0.25,
+        "audio_timestep": 0.5,
+        "condition_video_timestep": 1.0,
+        "condition_audio_timestep": 0.75
+      },
+      "expected": {
+        "sequence_length": 47,
+        "num_condition_video_rows": 16,
+        "num_condition_audio_rows": 10,
+        "fields": {
+          "position_ids": {
+            "dtype": "float64",
+            "shape": [
+              47,
+              3
+            ],
+            "data_le_hex": "000000000000000000000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000840044fcf3f0a7d0740780949a070c40cc00000000000000840044fcf3f0a7d0740e2e9f947a1ef22400000000000000840044fcf3f0a7d0740110b035c2f88364000000000000008400000000000003040780949a070c40cc000000000000008400000000000003040e2e9f947a1ef224000000000000008400000000000003040110b035c2f88364000000000000010400000000000000000780949a070c40cc000000000000014400000000000000000780949a070c40cc000000000000010400000000000000000110b035c2f88364000000000000014400000000000000000110b035c2f8836400000000000001840000000000000000030effc9979821ac00000000000001c40000000000000000030effc9979821ac00000000000002040000000000000000030effc9979821ac00000000000001840000000000000000000000000000030400000000000001c4000000000000000000000000000003040000000000000204000000000000000000000000000003040000000000000184068880133c3be124030effc9979821ac0000000000000184068880133c3be12400000000000003040abaaaaaaaaaa1e4068880133c3be124030effc9979821ac0abaaaaaaaaaa1e4068880133c3be12400000000000003040abaaaaaaaaaa2c4068880133c3be124030effc9979821ac0abaaaaaaaaaa2c4068880133c3be12400000000000003040000000000000354068880133c3be124030effc9979821ac0000000000000354068880133c3be12400000000000003040abaaaaaaaaaa364068880133c3be124030effc9979821ac0abaaaaaaaaaa364068880133c3be124000000000000030405655555555553d400000000000000000780949a070c40cc05655555555553e400000000000000000780949a070c40cc05655555555553f400000000000000000780949a070c40cc05655555555553d400000000000000000110b035c2f8836405655555555553e400000000000000000110b035c2f8836405655555555553f400000000000000000110b035c2f8836405655555555553d40044fcf3f0a7d0740780949a070c40cc05655555555553d40044fcf3f0a7d0740e2e9f947a1ef22405655555555553d40044fcf3f0a7d0740110b035c2f8836405655555555553d400000000000003040780949a070c40cc05655555555553d400000000000003040e2e9f947a1ef22405655555555553d400000000000003040110b035c2f8836400100000000003f40044fcf3f0a7d0740780949a070c40cc00100000000003f40044fcf3f0a7d0740e2e9f947a1ef22400100000000003f40044fcf3f0a7d0740110b035c2f8836400100000000003f400000000000003040780949a070c40cc00100000000003f400000000000003040e2e9f947a1ef22400100000000003f400000000000003040110b035c2f883640"
+          },
+          "token_tags": {
+            "dtype": "int64",
+            "shape": [
+              47
+            ],
+            "values": [
+              1,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "video_indices": {
+            "dtype": "int64",
+            "shape": [
+              28
+            ],
+            "values": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              41,
+              42,
+              43,
+              44,
+              45,
+              46
+            ]
+          },
+          "audio_indices": {
+            "dtype": "int64",
+            "shape": [
+              16
+            ],
+            "values": [
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              29,
+              30,
+              31,
+              32,
+              33,
+              34
+            ]
+          },
+          "text_indices": {
+            "dtype": "int64",
+            "shape": [
+              3
+            ],
+            "values": [
+              0,
+              1,
+              2
+            ]
+          },
+          "timestep": {
+            "dtype": "float32",
+            "shape": [
+              4
+            ],
+            "data_le_hex": "0000803e0000003f0000403f0000803f"
+          },
+          "timestep_indices": {
+            "dtype": "int64",
+            "shape": [
+              47
+            ],
+            "values": [
+              0,
+              0,
+              0,
+              3,
+              3,
+              3,
+              3,
+              3,
+              3,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              2,
+              3,
+              3,
+              3,
+              3,
+              3,
+              3,
+              3,
+              3,
+              3,
+              3,
+              1,
+              1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

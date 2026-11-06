@@ -93,10 +93,27 @@ def test_unimplemented_models_do_not_register_backends():
     from rl_engine.runtime.registry import kernel_registry
 
     before = dict(vars(kernel_registry))
-    for name in ("deepseek_v4", "gemma", "minimax_h3"):
+    for name in ("deepseek_v4", "gemma"):
         module = importlib.import_module(f"rl_engine.models.{name}")
         assert not any(not key.startswith("_") for key in vars(module))
+    h3 = importlib.import_module("rl_engine.models.minimax_h3")
+    metadata = importlib.import_module("rl_engine.models.minimax_h3.packed_layout")
+    assert {key for key in vars(h3) if not key.startswith("_")} == {"packed_layout"}
+    assert h3.packed_layout is metadata
     assert vars(kernel_registry) == before
+
+
+def test_h3_layout_import_does_not_register_backends_in_a_fresh_process():
+    script = (
+        "from rl_engine.runtime.registry import kernel_registry\n"
+        "before = repr(vars(kernel_registry))\n"
+        "from rl_engine.models.minimax_h3.packed_layout import H3PackedLayout\n"
+        "assert repr(vars(kernel_registry)) == before\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=45
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(
