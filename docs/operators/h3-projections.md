@@ -105,7 +105,9 @@ comparator without byte-invariance qualification.
 To plot the reports on a CPU with Matplotlib installed, pass the full report
 first so its timings take precedence at overlapping sizes. The plot retains
 accuracy observations from both reports and marks failures without a finite
-ratio separately from unavailable ratios.
+ratio separately from unavailable ratios. Render reports separately if their
+timing provenance is incomplete or differs in source, hardware, software,
+seed, or repeat count.
 
 ```bash
 python benchmarks/operators/gemm/plot_h3_projections.py \

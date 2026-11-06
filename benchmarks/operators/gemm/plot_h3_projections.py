@@ -7,6 +7,10 @@ import json
 import math
 from pathlib import Path
 
+_TIMING_PHASES = ("forward", "forward_backward")
+_TIMING_BACKENDS = (("candidate", "Candidate"), ("torch_bf16", "PyTorch BF16"))
+_TIMING_SERIES = {f"{prefix}_{phase}" for prefix, _ in _TIMING_BACKENDS for phase in _TIMING_PHASES}
+
 
 def _load_reports(evidence):
     """Accept a validator report or a historical full/tasks evidence bundle."""
@@ -16,16 +20,73 @@ def _load_reports(evidence):
     return [artifacts[name]["content"] for name in ("full.json", "tasks.json") if name in artifacts]
 
 
+def _timing_provenance(report, timed_cases):
+    """Return recorded comparison fields, or None for incomplete provenance."""
+    try:
+        provenance = report["provenance"]
+        if provenance["working_tree_clean"] is not True or not provenance["source_hashes"]:
+            return None
+        source = tuple(
+            provenance[field]
+            for field in (
+                "source_revision",
+                "source_hashes",
+                "python",
+                "torch",
+                "cuda",
+                "seed",
+                "repeats",
+            )
+        )
+        device = tuple(
+            report["hardware"][field]
+            for field in ("gpu_model", "architecture", "device_count_used", "memory_bytes")
+        )
+        versions = {
+            trace["forward_launch"]["triton_version"]
+            for case in timed_cases
+            for trace in case["execution_traces"]
+        }
+    except (KeyError, TypeError):
+        return None
+    if (
+        any(value is None or value == "" for value in source + device)
+        or not all(case["execution_traces"] for case in timed_cases)
+        or len(versions) != 1
+        or not all(versions)
+    ):
+        return None
+    return source, device, versions
+
+
 def _load_cases(reports):
     """Keep all accuracy cases and prefer the first report for duplicate timings."""
     cases = []
     random_timing = {}
+    contributors = []
     for report in reports:
+        selected = []
         for case in report["cases"]:
             cases.append(case)
-            if case["input_family"] == "random":
+            if case["input_family"] == "random" and _TIMING_SERIES.intersection(
+                case.get("benchmarks", {})
+            ):
                 timings = random_timing.setdefault(case["semantic_op"], {})
-                timings.setdefault(case["rows"], case)
+                if case["rows"] not in timings:
+                    timings[case["rows"]] = case
+                    selected.append(case)
+        if selected:
+            contributors.append((report, selected))
+    if len(contributors) > 1:
+        signatures = [_timing_provenance(report, selected) for report, selected in contributors]
+        if any(signature is None for signature in signatures):
+            raise ValueError(
+                "combined timings lack complete provenance. Render reports separately."
+            )
+        if any(signature != signatures[0] for signature in signatures[1:]):
+            raise ValueError(
+                "combined timings have different provenance. Render reports separately."
+            )
     return cases, random_timing
 
 
@@ -78,7 +139,10 @@ def main():
             )
         reports.extend(loaded)
         sources.append(f"{path.name} (SHA256 {hashlib.sha256(raw).hexdigest()})")
-    all_cases, random_timing = _load_cases(reports)
+    try:
+        all_cases, random_timing = _load_cases(reports)
+    except ValueError as error:
+        parser.error(str(error))
     if not all_cases:
         parser.error("evidence has no completed cases")
 
@@ -124,12 +188,9 @@ def main():
         accuracy.set_ylim(bottom=0)
         timings = random_timing.get(kind, {})
         random_cases = [timings[size] for size in sorted(timings)]
-        for col, phase in enumerate(("forward", "forward_backward"), 1):
+        for col, phase in enumerate(_TIMING_PHASES, 1):
             axis = axes[row, col]
-            for prefix, label in (
-                ("candidate", "Candidate"),
-                ("torch_bf16", "PyTorch BF16"),
-            ):
+            for prefix, label in _TIMING_BACKENDS:
                 series = f"{prefix}_{phase}"
                 samples = [
                     (case["rows"], case["benchmarks"][series]["median_ms"])
