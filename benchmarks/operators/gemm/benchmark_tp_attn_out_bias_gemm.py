@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Seeded single-GPU attention output timing: PyTorch, WS1 and TP1."""
+"""Seeded single-GPU attention output timing: PyTorch and fixed-order TP1."""
 
 import argparse
 import hashlib
@@ -70,17 +70,15 @@ def measure(fn, warmup, samples, distributed=False):
     }
 
 
-def native_fb(x, weight, bias, grad, keys):
-    """WS1 native arithmetic with the same canonical collection as TP1."""
-    y = _C.attn_out_bias_gemm_cuda_forward(
-        x.float().contiguous(),
-        weight.float().contiguous(),
-        bias.float().contiguous(),
-        x.dtype == torch.bfloat16,
-    )
-    dx = _C.attn_out_tree_gemm_cuda(grad.float().contiguous(), weight.t().float().contiguous()).to(
-        x.dtype
-    )
+def single_gpu_fb(x, weight, bias, grad, keys):
+    """Direct single-GPU arithmetic with the same canonical collection as TP1."""
+    y = (
+        _C.qwenimage_attn_out_tree_gemm(x.float().contiguous(), weight.float().contiguous())
+        + bias.float()
+    ).to(x.dtype)
+    dx = _C.qwenimage_attn_out_tree_gemm(
+        grad.float().contiguous(), weight.t().float().contiguous()
+    ).to(x.dtype)
     with canonical_backward_session() as session:
         ws, bs = session.register("attn_out.weight", keys), session.register("attn_out.bias", keys)
         dw = session.submit_linear(
@@ -88,7 +86,7 @@ def native_fb(x, weight, bias, grad, keys):
             ws,
             x,
             grad,
-            lambda rows, grads: _C.attn_out_dw_left_fold_cuda(
+            lambda rows, grads: _C.qwenimage_attn_out_weight_grad(
                 grads.float().contiguous(), rows.float().contiguous()
             ).to(weight.dtype),
         )
@@ -136,7 +134,7 @@ def main():
     op = QwenImageTPAttnOutBiasGemmCudaOp()
     root = Path(__file__).resolve().parents[3]
     sources = [
-        "csrc/cuda/gemm/attn_out_bias_gemm.cu",
+        "csrc/cuda/model_specific/qwenimage/attn_out.cu",
         "rl_engine/backends/cuda/model_specific/qwenimage/tp_attn_out_bias_gemm.py",
         "rl_engine/ops/autograd/canonical_backward.py",
     ]
@@ -153,7 +151,7 @@ def main():
             name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in sources
         },
         "scope": (
-            "Single GPU. WS1 and TP1 include canonical parameter collection; "
+            "Single GPU. TP1 includes canonical parameter collection; "
             "PyTorch is the ordinary performance control."
         ),
         "results": [],
@@ -187,19 +185,12 @@ def main():
             y = F.linear(x, weight, bias)
             return y, *torch.autograd.grad(y, (x, weight, bias), grad)
 
-        gold, actual = native_fb(x, weight, bias, grad, keys), tp_fb()
+        gold, actual = single_gpu_fb(x, weight, bias, grad, keys), tp_fb()
         actual = torch.cat(actual[0]), *actual[1:]
         assert all(equal_bytes(a, b) for a, b in zip(actual, gold))
         del gold, actual
         for backend, forward, fb in [
             ("pytorch", lambda: F.linear(x, weight, bias), torch_fb),
-            (
-                "ws1",
-                lambda: _C.attn_out_bias_gemm_cuda_forward(
-                    x.float(), weight.float(), bias.float(), dtype == torch.bfloat16
-                ),
-                lambda: native_fb(x, weight, bias, grad, keys),
-            ),
             ("tp1", tp_f, tp_fb),
         ]:
             with torch.no_grad():

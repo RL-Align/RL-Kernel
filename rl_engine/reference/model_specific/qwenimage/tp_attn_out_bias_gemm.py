@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Qwen-Image row-parallel output geometry and WS1 CPU tree reference."""
+"""Qwen-Image row-parallel output geometry and independent CPU arithmetic."""
 
 from __future__ import annotations
 
 import torch
 
-from rl_engine.reference.gemm.attn_out_bias_gemm import NativeAttnOutBiasGemmOp
 from rl_engine.reference.model_specific.qwenimage.adaln_mod_projection import HIDDEN
 from rl_engine.reference.model_specific.qwenimage.tp_qkv_bias_gemm import TP_SIZES
 
@@ -41,33 +40,70 @@ def shard_attn_out_parameters(weight, bias, *, tp_world, tp_rank):
     return weight[:, tp_rank * width : (tp_rank + 1) * width].contiguous(), bias
 
 
-class QwenImageTPAttnOutBiasGemmReference:
-    """Full CPU WS1 tree reference; GPU strict execution uses native kernels.
+def tree_gemm_fp32(a, b):
+    """CPU gold: 32 ascending FMA steps per leaf, midpoint merges in FP32."""
+    if a.device.type != "cpu" or b.device.type != "cpu":
+        raise ValueError("attention output reference requires CPU tensors")
+    a, b = a.float(), b.float()
 
-    The CPU restriction avoids PyTorch 2.4 CUDA addcmul, which fails the WS1
-    FMA oracle in the qualified CI environment. The CPU primitive is checked
-    independently against libm fmaf.
+    def subtree(begin, end):
+        if end - begin == 1:
+            acc = torch.zeros((a.shape[0], b.shape[0]), dtype=torch.float32)
+            for index in range(begin * 32, min((begin + 1) * 32, a.shape[1])):
+                acc = torch.addcmul(acc, a[:, index, None], b[None, :, index])
+            return acc
+        middle = (begin + end) // 2
+        return subtree(begin, middle) + subtree(middle, end)
+
+    return subtree(0, (a.shape[1] + 31) // 32)
+
+
+class _Reference(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, weight, bias):
+        ctx.save_for_backward(x, weight)
+        ctx.has_bias = bias is not None
+        result = tree_gemm_fp32(x, weight)
+        if bias is not None:
+            result = result + bias.float()
+        return result.to(x.dtype)
+
+    @staticmethod
+    def backward(ctx, grad):
+        from rl_engine.ops.autograd.vjp_fp32 import row_local_bias_fp32
+
+        x, weight = ctx.saved_tensors
+        g, rows = grad.float(), x.float()
+        dx = tree_gemm_fp32(g, weight.t()).to(x.dtype)
+        dw = torch.zeros_like(weight, dtype=torch.float32)
+        for row in range(x.shape[0]):
+            dw = torch.addcmul(dw, g[row, :, None], rows[row, None, :])
+        db = row_local_bias_fp32(g).to(x.dtype) if ctx.has_bias else None
+        return dx, dw.to(weight.dtype), db
+
+
+class QwenImageTPAttnOutBiasGemmReference:
+    """Full single-GPU contract evaluated on CPU, without CUDA implementation calls.
+
+    CPU addcmul is separately checked against the scalar libm fmaf oracle.
+    The explicit tree and row fold specify the FP32 rounding sequence.
     """
 
     op_class = "reduction"
     kernel_id = "pytorch.cpu.qwenimage.tp_attn_out_bias_gemm.reference"
 
-    def __init__(self):
-        self.reference = NativeAttnOutBiasGemmOp()
-
     def forward(self, x, weight, bias=None):
         validate_attn_out(x, weight, bias)
         if x.device.type != "cpu":
             raise ValueError("attention output reference requires CPU tensors")
-        return self.reference(x, weight, bias=bias)
+        return _Reference.apply(x, weight, bias)
 
     __call__ = forward
 
     def forward_fp32(self, x, weight, bias=None):
         validate_attn_out(x, weight, bias)
-        if x.device.type != "cpu":
-            raise ValueError("attention output reference requires CPU tensors")
-        return self.reference.forward_fp32(x, weight, bias=bias)
+        result = tree_gemm_fp32(x, weight)
+        return result if bias is None else result + bias.float()
 
 
 __all__ = [

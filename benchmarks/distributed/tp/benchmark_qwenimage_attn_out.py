@@ -18,7 +18,7 @@ import triton
 from benchmarks.operators.gemm.benchmark_tp_attn_out_bias_gemm import (
     equal_bytes,
     measure,
-    native_fb,
+    single_gpu_fb,
     tp_calls,
 )
 from rl_engine.backends.cuda.model_specific.qwenimage.tp_attn_out_bias_gemm import (
@@ -61,7 +61,7 @@ def worker(rank, args, directory):
             gold = {}
             for name, stream in fixture["streams"].items():
                 x, grad, keys, _ = attn_out_workload_rows(stream, "batched")
-                expected = native_fb(x, stream["weight"], stream["bias"], grad, keys)
+                expected = single_gpu_fb(x, stream["weight"], stream["bias"], grad, keys)
                 order = canonical_attn_out_indices(keys)
                 gold[name] = (
                     expected[0][order],
@@ -119,7 +119,7 @@ def worker(rank, args, directory):
                             "forward": forward,
                             "forward_backward": total,
                             "effective_rows_per_second": active * 1000 / total["median_ms"],
-                            "ws1_reference_bytes_equal": True,
+                            "tp1_reference_bytes_equal": True,
                         }
                     )
                     if rank == 0:
@@ -160,7 +160,7 @@ def main():
         parser.error(f"requires {args.tp} NVIDIA GPUs")
     root = Path(__file__).resolve().parents[3]
     sources = [
-        "csrc/cuda/gemm/attn_out_bias_gemm.cu",
+        "csrc/cuda/model_specific/qwenimage/attn_out.cu",
         "rl_engine/backends/cuda/model_specific/qwenimage/tp_attn_out_bias_gemm.py",
         "rl_engine/distributed/algorithms/collectives.py",
         "rl_engine/validation/fixtures/qwenimage_attn_out.py",

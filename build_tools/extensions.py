@@ -239,7 +239,7 @@ def get_extensions():
             cuda_sources.extend(
                 [
                     "csrc/cuda/model_specific/qwenimage/det_linear.cu",
-                    "csrc/cuda/gemm/attn_out_bias_gemm.cu",
+                    "csrc/cuda/model_specific/qwenimage/attn_out.cu",
                 ]
             )
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).

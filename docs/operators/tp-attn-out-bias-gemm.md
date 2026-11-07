@@ -8,11 +8,10 @@ Call it separately for image `attn.to_out[0]` and text `attn.to_add_out`; their
 weights are independent. Each rank owns contiguous whole-head input channels
 and the matching weight columns. The complete output and bias are replicated.
 
-The local GEMM and weight-gradient kernels reuse
-[#459](https://github.com/RL-Align/RL-Kernel/pull/459), pinned at
-`4859b9e466e2e91dd63ffc1bc27b1a6e36510a4f`. That WS1 PR is an explicit
-dependency. Its CUDA source and CPU tree reference are included
-unchanged in a separate dependency commit while it remains unmerged.
+The local GEMM and weight-gradient kernels are implemented here with shared-memory
+SIMT tiles. The single-GPU path and TP paths share one explicit FP32 arithmetic
+contract. The CPU reference evaluates that contract independently. No unmerged
+WS1 implementation is required.
 
 ## Entry Point
 
@@ -70,7 +69,7 @@ parameter ID per layer and stream, shared across that parameter's microbatches.
 | Backend | Entry | Role |
 | --- | --- | --- |
 | CUDA | `QwenImageTPAttnOutBiasGemmCudaOp` | Strict TP1/2/4/8 execution |
-| CPU | `QwenImageTPAttnOutBiasGemmReference` | WS1 same-tree reference |
+| CPU | `QwenImageTPAttnOutBiasGemmReference` | Independent same-tree reference |
 | ROCm / Ascend / MUSA | None registered | Unsupported |
 
 CUDA requires NVIDIA SM80 or newer. Hardware qualification is specific to the
@@ -99,16 +98,17 @@ The CUDA registry constructs TP1 by default. Pass an existing
 `DeterministicCollective` for real TP. The operator checks extension symbols,
 the strict-math build probe, device, geometry and the collective's capacity.
 Rows are processed in independent slices when one output payload exceeds that
-capacity. Channel reduction order is unchanged by those row slices.
+capacity. Channel reduction order is unchanged by those row slices. A native
+GEMM launch supports at most 1,048,560 rows; larger unsliced calls fail closed.
 
 The CPU reference is restricted to CPU tensors. In the PyTorch 2.4.1 CI profile,
-CUDA `torch.addcmul` fails the independent FMA oracle used by #459. Production
+CUDA `torch.addcmul` differs from scalar `fmaf` on adversarial inputs. Production
 execution therefore uses the native CUDA kernels, and CPU reference tests use
 the independently checked CPU primitive. There is no CUDA reference fallback.
 
 ## Accuracy
 
-The arithmetic follows #459's `attn-out-bias-gemm-tree-v1` contract:
+The arithmetic contract is `qwenimage-attn-out-tp-tree`:
 
 1. Forward uses ascending correctly-rounded FP32 FMA chains over 32 channels.
    Their roots combine through a midpoint-split tree. TP1/2/4/8 assign 96/48/24/12
@@ -119,12 +119,12 @@ The arithmetic follows #459's `attn-out-bias-gemm-tree-v1` contract:
 3. dX uses the same native tree over all 3072 output channels. Each rank computes
    its own input-channel gradient without communication.
 4. `CanonicalBackwardSession` sorts valid parameter contributions by logical
-   key. dW uses #459's ascending-row FMA left fold; dbias uses the existing
+   key. dW uses an ascending-row FMA left fold; dbias uses the existing
    FP32 addition left fold. Each parameter gradient is converted once.
 
 Accuracy and invariance are separate gates. Small cases compare complete
 outputs and gradients with the independent CPU tree reference. Real layouts
-compare complete outputs and gradients byte for byte against WS1 CUDA, across
+compare complete outputs and gradients byte for byte against the single-GPU CUDA path, across
 TP sizes, row permutations, microbatches, padding and repeated calls. The
 fixtures use seeded attention-exit values at model-derived layouts; they do
 not execute the full attention block or load model weights.
@@ -134,9 +134,9 @@ not execute the full attention block or load model weights.
 - `rl_engine/backends/cuda/model_specific/qwenimage/tp_attn_out_bias_gemm.py`:
   geometry checks, local subtree calls, fixed-tree reduction and autograd.
 - `rl_engine/reference/model_specific/qwenimage/tp_attn_out_bias_gemm.py`:
-  weight-column sharding and CPU WS1 reference adapter.
-- `csrc/cuda/gemm/attn_out_bias_gemm.cu`: unchanged WS1 #459 native arithmetic.
-- `rl_engine/reference/gemm/attn_out_bias_gemm.py`: unchanged WS1 CPU reference.
+  weight-column sharding and independent CPU tree/gradient reference.
+- `csrc/cuda/model_specific/qwenimage/attn_out.cu`: shared-memory SIMT tiles,
+  FP32 register tree for forward/dX, ascending-row FMA fold for dW.
 - `rl_engine/distributed/algorithms/collectives.py`: reused FP32 AllReduce.
 - `rl_engine/ops/autograd/canonical_backward.py` and `vjp_fp32.py`: reused
   logical-row collection and dbias reduction.
@@ -173,7 +173,7 @@ python3.11 benchmarks/distributed/tp/benchmark_qwenimage_attn_out.py \
 ```
 
 Repeat with `--dtype float32`, and TP 1, 2, 4 and 8. The distributed benchmark
-checks complete results against WS1 before timing. It covers both streams at
+checks complete results against the single-GPU path before timing. It covers both streams at
 1024², 1328² and 1664×928, varied text lengths and batch sizes, multiple images
 per prompt and sequential/batched CFG.
 
@@ -181,5 +181,5 @@ Timing reports eager forward and forward+backward wall-clock latency. The
 distributed statistic takes the slowest rank for each sample. JSON includes
 raw samples, throughput, source hashes and allocator-visible base, peak delta
 and peak total memory per rank. PyTorch is an ordinary performance control;
-WS1 is the arithmetic and TP scaling control. Reports and plots are generated
+TP1 is the arithmetic and TP scaling control. Reports and plots are generated
 outside the tracked source tree.

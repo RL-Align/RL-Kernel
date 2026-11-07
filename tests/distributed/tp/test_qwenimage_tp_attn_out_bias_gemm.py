@@ -41,7 +41,10 @@ def equal_bytes(a, b):
     return (
         a.dtype == b.dtype
         and a.shape == b.shape
-        and torch.equal(a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8))
+        and torch.equal(
+            a.contiguous().reshape(-1).view(torch.uint8),
+            b.contiguous().reshape(-1).view(torch.uint8),
+        )
     )
 
 
@@ -63,16 +66,14 @@ def inputs(rows, dtype, seed=386):
 
 def native(x, weight, bias, grad, keys):
     order = canonical_attn_out_indices(keys)
-    y = _C.attn_out_bias_gemm_cuda_forward(
-        x.float().contiguous(),
-        weight.float().contiguous(),
-        None if bias is None else bias.float().contiguous(),
-        x.dtype == torch.bfloat16,
-    )
-    dx = _C.attn_out_tree_gemm_cuda(grad.float().contiguous(), weight.t().float().contiguous()).to(
-        x.dtype
-    )
-    dw = _C.attn_out_dw_left_fold_cuda(
+    y = _C.qwenimage_attn_out_tree_gemm(x.float().contiguous(), weight.float().contiguous())
+    if bias is not None:
+        y = y + bias.float()
+    y = y.to(x.dtype)
+    dx = _C.qwenimage_attn_out_tree_gemm(
+        grad.float().contiguous(), weight.t().float().contiguous()
+    ).to(x.dtype)
+    dw = _C.qwenimage_attn_out_weight_grad(
         grad[order].float().contiguous(), x[order].float().contiguous()
     ).to(weight.dtype)
     db = None if bias is None else row_local_bias_fp32(grad[order]).to(bias.dtype)
@@ -281,14 +282,14 @@ def test_registry_inference_and_missing_extension_fail_closed(monkeypatch):
     op = KernelRegistry().get_op("qwenimage_tp_attn_out_bias_gemm", device=x.device)
     with torch.no_grad():
         actual = op(x.requires_grad_(), w.requires_grad_(), b)
-    expected = _C.attn_out_bias_gemm_cuda_forward(x.float(), w.float(), b.float(), True)
+    expected = (_C.qwenimage_attn_out_tree_gemm(x.float(), w.float()) + b.float()).to(x.dtype)
     assert equal_bytes(actual, expected)
     assert op.implementation_info(x, w, b)["fallback"] is False
     with pytest.raises(ValueError, match="NVIDIA"):
         op(x.cpu(), w.cpu(), b.cpu())
     with pytest.raises(ValueError, match="CPU"):
         QwenImageTPAttnOutBiasGemmReference()(x, w, b)
-    monkeypatch.delattr(_C, "attn_out_tree_gemm_cuda")
+    monkeypatch.delattr(_C, "qwenimage_attn_out_tree_gemm")
     with pytest.raises(RuntimeError, match="rebuild"):
         module.QwenImageTPAttnOutBiasGemmCudaOp()
 
@@ -303,7 +304,7 @@ def check_workload(op, workload, dtype, world=1, rank=0):
         expected = native(x, stream["weight"], stream["bias"], grad, keys)
         if rank == 0:
             # Independent CPU matmuls check numerical accuracy at real lengths.
-            # Complete tensors are compared byte for byte with WS1 below.
+            # Complete tensors are compared byte for byte with TP1 below.
             order = canonical_attn_out_indices(keys)
             selected = order[:3]
             w_cpu = stream["weight"].float().cpu()
@@ -404,3 +405,88 @@ def test_real_tp_all_results(world, tmp_path):
     for rank in range(world):
         report = json.loads((tmp_path / f"rank-{rank}.json").read_text())
         assert report["checks"] == 174 and report["byte_equal"]
+
+
+def scalar_fmaf():
+    """Use the host C library as an oracle independent of torch and CUDA."""
+    import ctypes
+    import ctypes.util
+
+    library = ctypes.CDLL(ctypes.util.find_library("m") or None)
+    oracle = library.fmaf
+    oracle.argtypes = (ctypes.c_float, ctypes.c_float, ctypes.c_float)
+    oracle.restype = ctypes.c_float
+    return oracle
+
+
+def scalar_tree(a, b):
+    import ctypes
+
+    fma = scalar_fmaf()
+    roots = []
+    for start in range(0, len(a), 32):
+        value = 0.0
+        for index in range(start, min(start + 32, len(a))):
+            value = fma(a[index], b[index], value)
+        roots.append(value)
+
+    def merge(begin, end):
+        if end - begin == 1:
+            return roots[begin]
+        middle = (begin + end) // 2
+        return ctypes.c_float(merge(begin, middle) + merge(middle, end)).value
+
+    return merge(0, len(roots))
+
+
+def test_cpu_fma_primitive_matches_scalar_oracle():
+    generator = torch.Generator().manual_seed(386)
+    a, b, c = torch.randn((3, 256), generator=generator)
+    # Include operands which distinguish a fused FMA from two rounded operations.
+    a[:2] = torch.tensor([14872.8408203125, -0.016603613272309303])
+    b[:2] = torch.tensor([1.8524175882339478, -2.194535970687866])
+    c[:2] = torch.tensor([1026.0933837890625, -0.03500966727733612])
+    oracle = scalar_fmaf()
+    expected = torch.tensor(
+        [oracle(x, y, z) for x, y, z in zip(a.tolist(), b.tolist(), c.tolist())]
+    )
+    assert equal_bytes(torch.addcmul(c, a, b), expected)
+
+
+@cuda
+@pytest.mark.parametrize("world", TP_SIZES)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_tiled_tree_against_scalar_fmaf(world, dtype):
+    x, w, _, _, _ = inputs(17, dtype)
+    width = HIDDEN // world
+    x, w = x[:, :width].float().contiguous(), w[:, :width].float().contiguous()
+    actual = _C.qwenimage_attn_out_tree_gemm(x, w)
+    for row, col in ((0, 0), (1, 31), (15, 63), (16, 64), (16, 3071)):
+        expected = scalar_tree(x[row].cpu().tolist(), w[col].cpu().tolist())
+        assert equal_bytes(actual[row, col].cpu(), torch.tensor(expected))
+
+
+@cuda
+@pytest.mark.parametrize("rows", [1, 31, 32, 33, 129])
+def test_tiled_weight_fold_tail_against_scalar_fmaf(rows):
+    x, _, _, grad, _ = inputs(rows, torch.float32)
+    if rows == 1:
+        x[0, 0], grad[0, 0] = 1e-30, -1e-30
+    actual = _C.qwenimage_attn_out_weight_grad(grad, x)
+    oracle = scalar_fmaf()
+    for n, k in ((0, 0), (15, 63), (16, 64), (3071, 3071)):
+        value = 0.0
+        for g, a in zip(grad[:, n].cpu().tolist(), x[:, k].cpu().tolist()):
+            value = oracle(g, a, value)
+        assert equal_bytes(actual[n, k].cpu(), torch.tensor(value))
+
+
+@cuda
+def test_tiled_native_rejects_unsupported_geometry():
+    a = torch.zeros((1, 32), device="cuda")
+    with pytest.raises(RuntimeError, match="reduction must"):
+        _C.qwenimage_attn_out_tree_gemm(a, a)
+    with pytest.raises(RuntimeError, match="float32"):
+        _C.qwenimage_attn_out_tree_gemm(a.double(), a.double())
+    with pytest.raises(RuntimeError, match="TP1/2/4/8"):
+        _C.qwenimage_attn_out_weight_grad(a, a)

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Qwen-Image row-parallel output projection reusing WS1 #459 arithmetic."""
+"""Qwen-Image row-parallel output projection with tiled, fixed-order FP32 arithmetic."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from rl_engine.backends.extension import _C
 from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.ops.autograd.canonical_backward import active_session
 from rl_engine.ops.autograd.vjp_fp32 import reduce_rows_fp32
-from rl_engine.reference.gemm.attn_out_bias_gemm import ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION
 from rl_engine.reference.model_specific.qwenimage.tp_attn_out_bias_gemm import (
     HIDDEN,
     TP_SIZES,
@@ -43,7 +42,7 @@ def _tp_world(collective):
 
 
 def _forward(x, weight, bias, collective):
-    """Compute WS1 subtree roots, complete the same tree, then add bias and cast."""
+    """Compute FP32 subtree roots, complete the same tree, then add bias and cast."""
     weight_f = weight.float().contiguous()
     bias_f = None if bias is None else bias.float().contiguous()
     rows_per_call = x.shape[0]
@@ -52,7 +51,7 @@ def _forward(x, weight, bias, collective):
     output = torch.empty((x.shape[0], HIDDEN), dtype=x.dtype, device=x.device)
     for start in range(0, x.shape[0], rows_per_call):
         stop = min(start + rows_per_call, x.shape[0])
-        partial = _C.attn_out_tree_gemm_cuda(x[start:stop].float().contiguous(), weight_f)
+        partial = _C.qwenimage_attn_out_tree_gemm(x[start:stop].float().contiguous(), weight_f)
         if collective is not None:
             partial = collective.all_reduce(partial)
         if bias_f is not None:
@@ -90,15 +89,15 @@ class _TPAttnOut(torch.autograd.Function):
         dx = dw = db = None
         executed = []
         if ctx.needs_input_grad[0]:
-            dx = _C.attn_out_tree_gemm_cuda(
+            dx = _C.qwenimage_attn_out_tree_gemm(
                 grad.float().contiguous(), weight.t().float().contiguous()
             ).to(x.dtype)
-            executed.append("attn_out_tree_gemm_cuda")
+            executed.append("qwenimage_attn_out_tree_gemm")
         if ctx.needs_input_grad[1]:
 
             def weight_reducer(rows, grads):
-                executed.append("attn_out_dw_left_fold_cuda")
-                return _C.attn_out_dw_left_fold_cuda(
+                executed.append("qwenimage_attn_out_weight_grad")
+                return _C.qwenimage_attn_out_weight_grad(
                     grads.float().contiguous(), rows.float().contiguous()
                 ).to(weight.dtype)
 
@@ -129,19 +128,17 @@ class QwenImageTPAttnOutBiasGemmCudaOp:
     """
 
     op_class = "reduction"
-    kernel_id = "rl_engine._C.attn_out_tree_gemm_cuda"
+    kernel_id = "rl_engine._C.qwenimage_attn_out_tree_gemm"
 
     def __init__(self, collective=None):
         require_extension()
         symbols = (
-            "attn_out_tree_gemm_cuda",
-            "attn_out_dw_left_fold_cuda",
+            "qwenimage_attn_out_tree_gemm",
+            "qwenimage_attn_out_weight_grad",
             "reduce_rows_fp32_left_fold",
         )
         if not all(callable(getattr(_C, name, None)) for name in symbols):
-            raise RuntimeError(
-                "rebuild rl_engine._C with WS1 attention output entry points from #459"
-            )
+            raise RuntimeError("rebuild rl_engine._C with Qwen-Image attention output entry points")
         self.collective = collective
         self.tp_world = _tp_world(collective)
 
@@ -172,12 +169,11 @@ class QwenImageTPAttnOutBiasGemmCudaOp:
             "actual_backend": "cuda",
             "fallback": False,
             "contract": _CONTRACT,
-            "ws1_contract": ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
             "kernel_id": self.kernel_id,
             "tp_world_size": self.tp_world,
             "packing": "contiguous whole-head input columns; replicated output and bias",
             "forward": "32-channel FMA leaves; mid-split tree; FP32 fixed-tree AllReduce",
-            "parameter_gradient": "canonical logical rows; WS1 ascending left folds",
+            "parameter_gradient": "canonical rows; ascending FMA weight fold and bias fold",
             "transport": "none" if self.collective is None else self.collective.backend_id,
             "accumulation_dtype": "float32",
             "execution_dtype": str(x.dtype),
