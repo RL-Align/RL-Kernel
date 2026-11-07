@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import overload
+
 import torch
 import torch.nn as nn
 
@@ -60,10 +62,23 @@ class NativeSwiGLUOp(nn.Module):
     ``[..., 2 * I]`` tensor with an explicit ``SwiGLUPackedOrder``. Both packed
     orders produce ``[..., I]``. The gate/up and down linear projections
     remain outside this operator. All intermediate arithmetic stays FP32.
+
+    The overloads describe the two accepted input forms for IDEs and type
+    checkers. Each method has one runtime implementation below them.
     """
 
     def __init__(self) -> None:
         super().__init__()
+
+    @overload
+    def forward(self, gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
+        """Separate gate/up tensors; return output in the input dtype."""
+        ...
+
+    @overload
+    def forward(self, gate: torch.Tensor, *, packed_order: SwiGLUPackedOrder) -> torch.Tensor:
+        """One packed tensor in ``gate``; its half order must be explicit."""
+        ...
 
     def forward(
         self,
@@ -80,6 +95,16 @@ class NativeSwiGLUOp(nn.Module):
         ``packed_order`` must identify the order of its two halves.
         """
         return self._swiglu(gate, up, output_dtype=gate.dtype, packed_order=packed_order)
+
+    @overload
+    def forward_fp32(self, gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
+        """Separate gate/up tensors; return FP32 output."""
+        ...
+
+    @overload
+    def forward_fp32(self, gate: torch.Tensor, *, packed_order: SwiGLUPackedOrder) -> torch.Tensor:
+        """One packed tensor in ``gate``; return FP32 output."""
+        ...
 
     def forward_fp32(
         self,

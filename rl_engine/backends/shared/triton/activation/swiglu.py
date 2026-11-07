@@ -13,6 +13,8 @@ Element-wise and row-independent, so Axis-A batch invariance holds bitwise.
 
 from __future__ import annotations
 
+from typing import overload
+
 import torch
 import triton
 import triton.language as tl
@@ -436,19 +438,36 @@ class TritonSwiGLUOp:
     Strided packed inputs are made contiguous once. Backward writes both
     gradient halves into one tensor, preserving the FP32 SiLU-derivative
     workspace and expression order of the separate-input implementation.
+
+    The overloads describe the two accepted input forms for IDEs and type
+    checkers. Each method has one runtime implementation below them.
     """
 
     op_class = "elementwise"
 
-    def __call__(
-        self,
-        gate: Tensor,
-        up: Tensor | None = None,
-        *,
-        packed_order: SwiGLUPackedOrder | None = None,
-    ) -> Tensor:
-        """Apply SwiGLU to two tensors, or to one tensor with an explicit packed order."""
-        return self.forward(gate, up, packed_order=packed_order)
+    @overload
+    def __call__(self, gate: Tensor, up: Tensor) -> Tensor:
+        """Call with separate gate/up tensors."""
+        ...
+
+    @overload
+    def __call__(self, gate: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
+        """Call with one packed tensor in ``gate`` and an explicit half order."""
+        ...
+
+    def __call__(self, *args, **kwargs) -> Tensor:
+        """Forward either call form to ``forward``, including its input validation."""
+        return self.forward(*args, **kwargs)
+
+    @overload
+    def forward(self, gate: Tensor, up: Tensor) -> Tensor:
+        """Separate gate/up tensors; return output in the input dtype."""
+        ...
+
+    @overload
+    def forward(self, gate: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
+        """One packed tensor in ``gate``; its half order must be explicit."""
+        ...
 
     def forward(
         self,
@@ -466,6 +485,16 @@ class TritonSwiGLUOp:
         if up is None:
             return _PackedSwiGLUTritonFunction.apply(gate, gate.dtype, packed_order)
         return _SwiGLUTritonFunction.apply(gate, up)
+
+    @overload
+    def forward_fp32(self, gate: Tensor, up: Tensor) -> Tensor:
+        """Separate gate/up tensors; return FP32 output."""
+        ...
+
+    @overload
+    def forward_fp32(self, gate: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
+        """One packed tensor in ``gate``; return FP32 output."""
+        ...
 
     def forward_fp32(
         self,
