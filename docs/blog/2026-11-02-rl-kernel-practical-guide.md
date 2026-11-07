@@ -1,52 +1,52 @@
 # RL-Kernel Train–Rollout Consistency: A Practical Guide
 
 In RL post-training, one engine generates responses and another trains on them.
-Both assign probabilities to the generated tokens. **Before the weights change,
-the same tokens should receive the same scores under the same policy.** Different
+Both assign probabilities to the generated tokens. Before the weights change,
+the same tokens should receive the same scores under the same policy. Different
 execution paths can break that agreement, even when the model weights match.
 
 RL-Kernel aligns these computations across training and rollout. This guide
 explains why that matters, then runs a short Qwen3-8B consistency check with
-**vime, vLLM and Megatron-LM** on NVIDIA H100 or AMD MI300X.
+vime, vLLM and Megatron-LM on NVIDIA H100 or AMD MI300X.
 
 ## Why exact consistency matters in post-training
 
-Rollout records a log probability, or **LogP**, for each generated token.
+Rollout records a log probability, or LogP, for each generated token.
 Training independently recomputes LogP for those tokens. Differences between the
 two can enter policy ratios and KL-related measurements. They can make the policy
 appear to have changed before an optimizer update and, if large enough, alter
 which tokens reach a clipping threshold.
 
-**Bitwise train–rollout consistency** means the independently computed LogP
+Bitwise train–rollout consistency means the independently computed LogP
 values have identical bits at the declared comparison point. The comparison must
 use the same weights, tokens, positions, masks and probability definition,
 including any temperature or sampling transformations. Training does not simply
 reuse rollout's stored scores.
 
-This gives post-training developers:
+For post-training, that means:
 
-- **A cleaner learning signal.** Remove execution-induced score differences from
-  the comparison between rollout and training at the same policy version.
-- **A clear debugging target.** Zero mismatch provides a concrete check when
-  changing kernels, engine versions or supported parallel configurations.
-- **A controlled basis for optimization.** Compare faster implementations against
-  an explicit numerical requirement while measuring end-to-end cost separately.
+- The policy comparison is free of score differences caused by the two execution
+  paths at the same policy version.
+- Zero mismatch is a concrete check when changing kernels, engine versions or
+  supported parallel configurations.
+- Faster implementations can be measured against a numerical requirement, with
+  end-to-end cost measured separately.
 
 Batch invariance (BI) asks whether changing a batch changes a computation's
 result. It is one part of this problem. Post-training also needs agreement across
-**two engines and execution phases**, with aligned policy versions and token
+two engines and execution phases, with aligned policy versions and token
 state. BI inside one engine alone does not establish that agreement.
 
 Exact scores remove one source of numerical mismatch. They do not by themselves
 guarantee higher rewards, faster convergence or identical training trajectories.
 Those outcomes need separate experiments. This guide checks training against
-rollout **within each tested platform**; it does not compare NVIDIA outputs with
+rollout within each tested platform; it does not compare NVIDIA outputs with
 AMD outputs. See the [technical explanation and published results](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md)
 for the comparison boundaries and evidence.
 
 ## Requirements
 
-Start inside a **prepared GPU environment**. Installing RL-Kernel alone does not
+Start inside a prepared GPU environment. Installing RL-Kernel alone does not
 install the complete training stack. Reserve all eight GPUs for this experiment.
 
 | | NVIDIA | AMD |
@@ -95,18 +95,18 @@ PY
 
 ## 2. Configure your environment
 
-Choose one backend. For ROCm, the source paths must point to the **patched and
-built** companion checkouts described above. The vLLM changes include compiled
+Choose one backend. For ROCm, the source paths must point to the patched and
+built companion checkouts described above. The vLLM changes include compiled
 code; changing a Python path alone is insufficient.
 
-=== "NVIDIA H100 / CUDA"
+=== "NVIDIA H100 (CUDA)"
 
     ```bash
     export RLK_BACKEND=cuda
     export RLK_PROFILE_TEMPLATE=configs/integrations/orchestrators/vime/dense/qwen3-8b-tp4-cp2.json
     ```
 
-=== "AMD MI300X / ROCm"
+=== "AMD MI300X (ROCm)"
 
     ```bash
     export RLK_BACKEND=rocm
@@ -117,8 +117,8 @@ code; changing a Python path alone is insufficient.
     ```
 
 Create .rlk-profile.json once. It records your interpreter and local paths so the
-launcher can reuse them. **If you already have this file, check its paths and
-skip the Python block.** The block refuses to overwrite an existing profile.
+launcher can reuse them. If you already have this file, check its paths and
+skip the Python block. The block refuses to overwrite an existing profile.
 Unset RLK\_REPRO\_PROFILE to select this checkout's local file.
 
 ```bash
@@ -153,7 +153,7 @@ PY
 
 Finish preparation for the same backend:
 
-=== "NVIDIA H100 / CUDA"
+=== "NVIDIA H100 (CUDA)"
 
     ```bash
     ./rlk prepare --download-data --convert-checkpoint
@@ -165,16 +165,16 @@ Finish preparation for the same backend:
     ./rlk doctor --mode consistency
     ```
 
-    prepare selects the pinned vime/Megatron sources, prepares the data and
+    prepare selects the pinned vime and Megatron-LM sources, prepares the data and
     converts the model. Use a new workspace or clean companion checkouts.
     It does not install the full Python stack or download model weights.
 
     The Ray command reserves 200 GB for its object store. Adjust this for host
     RAM and /dev/shm, or reuse a suitable Ray head you own. Continue when doctor
-    reports **Doctor: PASS**. Extra runtime paths are covered in the
+    reports Doctor: PASS. Extra runtime paths are covered in the
     [CUDA setup guide](../usage/qwen3-vime-consistency.md#prepare-once).
 
-=== "AMD MI300X / ROCm"
+=== "AMD MI300X (ROCm)"
 
     ```bash
     mkdir -p "$RLK_WORKSPACE/data" "$RLK_WORKSPACE/checkpoints"
@@ -218,8 +218,8 @@ RUN_ARGS=(
 ```
 
 Check the resolved paths and runner\_command in the printed JSON. plan does
-not start a GPU job. These settings use training TP4/CP2 and rollout TP4/CP1
-on the same eight-GPU node. Keep the topology fixed for the first check.
+not start a GPU job. These settings use training TP4 with CP2 and rollout TP4
+with CP1 on the same eight-GPU node. Keep the topology fixed for the first check.
 
 Run three steps with a unique output name:
 
@@ -261,7 +261,7 @@ if report.get("passed") is not True:
 PY
 ```
 
-**The top-level passed field must be true.** A completed training process or
+The top-level passed field must be true. A completed training process or
 one zero-looking metric is insufficient. Review the complete validation report.
 
 | Backend | Consistency evidence | Report and log |
@@ -301,7 +301,7 @@ For a longer consistency run, reuse the same settings:
 
 | Symptom | Next step |
 |---|---|
-| Extension import or build fails | Check that Python, PyTorch and the CUDA/ROCm toolchain match the installation requirements. |
+| Extension import or build fails | Check that Python, PyTorch and the CUDA or ROCm toolchain match the installation requirements. |
 | Profile already exists or plan shows the wrong paths | Inspect .rlk-profile.json and RLK\_REPRO\_PROFILE. Keep a working profile rather than overwriting it. |
 | CUDA doctor fails | Fix the named path, version or Ray connection before launching. |
 | ROCm companion checks fail | Check the patched vime, Megatron and vLLM sources and their installed builds. |
@@ -312,31 +312,31 @@ For a longer consistency run, reuse the same settings:
 ROCm supports plan and run with validation inside run. prepare, doctor, validate,
 report and the weight-update verify workflow are CUDA-only. For the initial ROCm
 check, keep rollout CP at 1, temperature positive and top-k disabled. See the
-[CUDA/ROCm support audit](../usage/cuda-rocm-consistency-audit.md) before changing
+[CUDA and ROCm support audit](../usage/cuda-rocm-consistency-audit.md) before changing
 these settings.
 
 ## What we are building next
 
 Qwen3-8B on CUDA and ROCm is our starting point. We are extending the same
-training/rollout consistency checks across models, RL frameworks and hardware:
+training and rollout consistency checks across models, RL frameworks and hardware:
 
-- **Models.** Continue [DeepSeek-V4 Flash MoE](2026-08-09-dsv4-flash-moe-consistency-roadmap.md),
+- Models: Continue [DeepSeek-V4 Flash MoE](2026-08-09-dsv4-flash-moe-consistency-roadmap.md),
   with DeepSeek-V4.1 as a planned follow-on. Develop
   [MiniMax-H3](https://github.com/RL-Align/RL-Kernel/issues/420), whose
-  video/audio trajectory needs its own consistency checks. The
+  video and audio trajectories need their own consistency checks. The
   [Gemma](https://github.com/RL-Align/RL-Kernel/issues/415) and
   [Qwen3-Next](https://github.com/RL-Align/RL-Kernel/issues/428) RFCs expand
   model coverage too.
-- **RL frameworks.** Connect RL-Kernel to verl and AReaL, and advance the
+- RL frameworks: Connect RL-Kernel to verl and AReaL, and advance the
   [miles integration](https://github.com/RL-Align/RL-Kernel/issues/642) for
-  Qwen3.6 MoE. Each integration needs a reproducible training/rollout run and
+  Qwen3.6 MoE. Each integration needs a reproducible training and rollout run and
   a clear numerical comparison.
-- **Hardware.** Extend validation beyond the published NVIDIA and AMD runs,
+- Hardware: Extend validation beyond the published NVIDIA and AMD runs,
   including the MUSA work in the miles roadmap and
   [Ascend with verl](https://github.com/RL-Align/RL-Kernel/issues/563).
 
-These tracks are in progress or planned. Each will publish its supported
-configuration and results as validation lands.
+These are ongoing or planned projects. We will publish the supported
+configurations and results after validation.
 
 ## Contribute
 
