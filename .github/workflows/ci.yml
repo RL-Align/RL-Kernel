@@ -82,6 +82,12 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
             tests/ops/linear_attn/ tests/reference/linear_attn/
 
+      - name: Run SwiGLU Reference and Benchmark Tests (CPU-only)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/reference/test_swiglu_packed.py \
+            tests/benchmarks/test_swiglu_packed_benchmark.py
+
       - name: Run GDN Batch-Invariance Regression Tests (AVX2)
         env:
           ATEN_CPU_CAPABILITY: avx2

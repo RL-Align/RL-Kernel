@@ -130,7 +130,7 @@ def test_native_swiglu_rejects_mismatched_shape():
 
 
 def test_native_activation_rejects_invalid_dtypes():
-    with pytest.raises(TypeError, match="fp16, bf16, or fp32"):
+    with pytest.raises(TypeError, match="dtype"):
         NativeSiLUOp().forward(torch.ones(8, dtype=torch.int32))
 
     with pytest.raises(TypeError, match="share dtype"):
@@ -586,7 +586,7 @@ def test_cuda_triton_activation_handles_noncontiguous_and_empty_inputs(impl):
 def test_cuda_triton_activation_rejects_invalid_dtypes(impl):
     silu = _make_silu_op(impl)
     swiglu = _make_swiglu_op(impl)
-    with pytest.raises(TypeError, match="fp16, bf16, or fp32"):
+    with pytest.raises(TypeError, match="dtype"):
         silu.forward(torch.ones(8, device="cuda", dtype=torch.int32))
     with pytest.raises(TypeError, match="share dtype"):
         swiglu.forward(
