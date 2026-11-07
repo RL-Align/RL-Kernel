@@ -315,13 +315,35 @@ check, keep rollout CP at 1, temperature positive and top-k disabled. See the
 [CUDA/ROCm support audit](../usage/cuda-rocm-consistency-audit.md) before changing
 these settings.
 
-## Next steps and contributions
+## What we are building next
 
-A useful first contribution is to reproduce this run and report the exact
-hardware, source revisions and validation result. Documentation improvements and
-small reproducible failures also help the project.
+Qwen3-8B on CUDA and ROCm is our starting point. We are extending the same
+training/rollout consistency checks across models, RL frameworks and hardware:
+
+- **Models.** Continue [DeepSeek-V4 Flash MoE](2026-08-09-dsv4-flash-moe-consistency-roadmap.md),
+  with DeepSeek-V4.1 as a planned follow-on. Develop
+  [MiniMax-H3](https://github.com/RL-Align/RL-Kernel/issues/420), whose
+  video/audio trajectory needs its own consistency checks. The
+  [Gemma](https://github.com/RL-Align/RL-Kernel/issues/415) and
+  [Qwen3-Next](https://github.com/RL-Align/RL-Kernel/issues/428) RFCs expand
+  model coverage too.
+- **RL frameworks.** Connect RL-Kernel to verl and AReaL, and advance the
+  [miles integration](https://github.com/RL-Align/RL-Kernel/issues/642) for
+  Qwen3.6 MoE. Each integration needs a reproducible training/rollout run and
+  a clear numerical comparison.
+- **Hardware.** Extend validation beyond the published NVIDIA and AMD runs,
+  including the MUSA work in the miles roadmap and
+  [Ascend with verl](https://github.com/RL-Align/RL-Kernel/issues/563).
+
+These tracks are in progress or planned. Each will publish its supported
+configuration and results as validation lands.
+
+## Contribute
+
+Start by reproducing this guide and sharing the hardware, source revisions and
+validation report. You can also improve a confusing step, report a small
+reproducible failure or help with one of the integration tracks above.
 
 - [Contribution guide](../contributing/contributor-guide.md)
 - [Detailed setup and supported configurations](../usage/qwen3-vime-consistency.md)
 - [H100 validation results](../usage/h100-matrix-validation.md)
-- [DSV4 Flash MoE roadmap](2026-08-09-dsv4-flash-moe-consistency-roadmap.md)
