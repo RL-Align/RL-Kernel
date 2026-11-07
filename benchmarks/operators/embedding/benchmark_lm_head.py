@@ -59,6 +59,8 @@ def main():
     parser.add_argument("--iters", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
+    if args.iters < 1:
+        parser.error("--iters must be >= 1")
 
     device = torch.device("cuda")
     op = _make_op(args.backend)
@@ -69,17 +71,21 @@ def main():
 
     print(f"device={torch.cuda.get_device_name(device)} backend={args.backend}")
     print(f"vocab={args.vocab} hidden={args.hidden} warmup={args.warmup} iters={args.iters}")
-    print(f"{'tokens':>6}  {'median_ms':>10}  {'min_ms':>10}  {'max_ms':>10}  {'peak_mem_gb':>11}")
+    print(f"{'tokens':>6}  {'median_ms':>10}  {'min_ms':>10}  {'max_ms':>10}  {'peak_mem_gib':>12}")
     for tokens in args.tokens:
         hidden = torch.randn(
             tokens, args.hidden, device=device, dtype=torch.bfloat16, generator=generator
         )
+        # Peak above the resident inputs: output plus any per-call workspace.
+        torch.cuda.synchronize(device)
+        torch.cuda.empty_cache()
+        baseline = torch.cuda.memory_allocated(device)
         torch.cuda.reset_peak_memory_stats(device)
         times = _time_forward(op, hidden, weight, args.warmup, args.iters)
-        peak_gb = torch.cuda.max_memory_allocated(device) / 1024**3
+        peak_gib = (torch.cuda.max_memory_allocated(device) - baseline) / 1024**3
         print(
             f"{tokens:6d}  {statistics.median(times):10.3f}  {min(times):10.3f}  "
-            f"{max(times):10.3f}  {peak_gb:11.2f}"
+            f"{max(times):10.3f}  {peak_gib:12.2f}"
         )
 
 

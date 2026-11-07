@@ -38,7 +38,7 @@ The op exposes the WS1 dual-path contract:
 | PyTorch fallback | `NativeLMHeadOp` | None | fp32 ground-truth reference; CPU and any GPU. |
 | CUDA SM90 (H200/Hopper) | `SM90LMHeadOp` | `_C.lm_head_sm90_forward` | Single-card batch-invariant forward backend; no Split-K; bf16 backward uses deterministic GEMM. |
 | Ascend NPU | `AscendLMHeadOp` | `_C_npu.lm_head_ascend` | Single-card batch-invariant forward backend: one output element per block, full K reduction in fp32 over a fixed tile order; fp32-formula VJP backward. |
-| ROCm / Triton | `TritonLMHeadOp` | None | Default on ROCm; bf16 only. |
+| ROCm / Triton | N/A | N/A | Falls back to the PyTorch native reference. |
 
 ## Tensor Contract
 
@@ -80,10 +80,8 @@ if bias is not None:
 ## Dispatch Behavior
 
 `kernel_registry.get_op("lm_head")` resolves through the `OpBackend` priority map. On
-CPU and CUDA devices without the SM90 extension, dispatch uses the PyTorch native op
-(`PYTORCH_NATIVE_LM_HEAD`). On ROCm it tries the Triton op (`TRITON_LM_HEAD`) first;
-dispatch does not check dtype, so non-bf16 inputs fail fast instead of falling back. On
-H200/Hopper-class builds that expose `_C.lm_head_sm90_forward`, the CUDA SM90 single-card
+CPU, ROCm, and CUDA devices without the SM90 extension, dispatch uses the PyTorch native op
+(`PYTORCH_NATIVE_LM_HEAD`). On H200/Hopper-class builds that expose `_C.lm_head_sm90_forward`, the CUDA SM90 single-card
 batch-invariant backend is prepended. Its forward is a grid-stride loop: each block reduces
 one output logit at a time over the full K dimension without Split-K, so shapes beyond the
 CUDA grid limit (e.g. Gemma 4, vocab 262144, more than 8191 tokens) are supported.

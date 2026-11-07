@@ -14,6 +14,8 @@ _HIDDEN = 5376  # Gemma 4 31B hidden_size, kept real for representative drift.
 # Real Gemma 4 31B dims, from rl_engine/models/gemma/gemma4_manifest.json.
 _GEMMA_VOCAB = 262144
 _GEMMA_HIDDEN = 5376
+# bf16 weight + bf16 [8193, vocab] output + fp32 weight upcast in the reference.
+_GEMMA_8193_BYTES = _GEMMA_VOCAB * _GEMMA_HIDDEN * (2 + 4) + 8193 * _GEMMA_VOCAB * 2
 
 # Axis-B: max abs error as a fraction of the output peak magnitude. Calibrated
 # at hidden=5376 (bf16 ~0.27% of peak, fp16 ~0.04%) with headroom.
@@ -193,6 +195,10 @@ def test_native_gemma4_real_shape():
 
 
 @requires_sm90_lm_head
+@pytest.mark.skipif(
+    not _enough_gpu_memory(_GEMMA_8193_BYTES),
+    reason="needs ~13 GB free GPU memory for the 8193-token Gemma lm_head",
+)
 def test_sm90_gemma4_beyond_int32_grid():
     from rl_engine.backends.cuda.embedding.lm_head import SM90LMHeadOp
 
@@ -219,16 +225,10 @@ def test_sm90_gemma4_beyond_int32_grid():
     assert torch.equal(op.forward(hidden[:, -1:], weight), out[:, -1:])
 
 
-def test_registry_prefers_triton_lm_head_on_rocm():
-    from rl_engine.runtime.registry import OpBackend, kernel_registry
-
-    assert kernel_registry._priority_map["rocm"]["lm_head"] == [
-        OpBackend.TRITON_LM_HEAD,
-        OpBackend.PYTORCH_NATIVE_LM_HEAD,
-    ]
-
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA or ROCm GPU")
+@pytest.mark.skipif(
+    not _enough_gpu_memory(_GEMMA_8193_BYTES),
+    reason="needs ~13 GB free GPU memory for the 8193-token Gemma lm_head",
+)
 def test_triton_gemma4_beyond_int32_output():
     # Import inside the test: on a GPU host a missing/broken Triton must fail, not skip.
     from rl_engine.backends.shared.triton.embedding.lm_head import TritonLMHeadOp

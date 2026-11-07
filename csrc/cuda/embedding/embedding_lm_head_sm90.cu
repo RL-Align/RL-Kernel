@@ -90,7 +90,8 @@ __global__ void lm_head_sm90_forward_kernel(const scalar_t *__restrict__ hidden,
                                             int64_t num_tokens, int64_t hidden_size,
                                             int64_t vocab_size) {
     const int64_t total = num_tokens * vocab_size;
-    // Grid-stride loop: a fixed-size grid covers > INT_MAX logits, one block per logit at a time.
+    // Grid-stride loop: grid = min(total, INT_MAX), so shapes that already fit keep one block
+    // per logit; only launches beyond INT_MAX loop.
     for (int64_t out_idx = blockIdx.x; out_idx < total; out_idx += gridDim.x) {
         const int64_t token_row = out_idx / vocab_size;
         const int64_t vocab_col = out_idx - token_row * vocab_size;
