@@ -31,31 +31,8 @@ def _validate_dtype(x: Tensor, name: str) -> None:
         raise TypeError(f"{name} must have dtype in {_SUPPORTED_DTYPES}, got {x.dtype}.")
 
 
-def _validate_swiglu_inputs(
-    gate: Tensor, up: Tensor | None, packed_order: SwiGLUPackedOrder | None
-) -> None:
-    """Validate separate operands or one packed tensor before allocating outputs.
-
-    ``gate`` holds the packed projection when ``up`` is absent. Requiring its
-    order explicitly prevents confusing the two valid layouts of equal shape.
-    """
-    if up is None:
-        if not isinstance(packed_order, SwiGLUPackedOrder):
-            raise ValueError(f"packed_order must be one of {tuple(SwiGLUPackedOrder)}")
-        if gate.ndim == 0:
-            raise ValueError("packed input must have at least one dimension")
-        width = gate.shape[-1]
-        if width == 0 or width % 2:
-            raise ValueError(f"packed input must have a positive, even last dimension, got {width}")
-        _validate_dtype(gate, "packed input")
-        if gate.device.type not in _SUPPORTED_DEVICES:
-            raise RuntimeError(
-                f"packed input must use a device in {_SUPPORTED_DEVICES}, got {gate.device}"
-            )
-        return
-
-    if packed_order is not None:
-        raise ValueError("packed_order is only valid with a single packed input")
+def _validate_swiglu_separate_inputs(gate: Tensor, up: Tensor) -> None:
+    """Validate two operands with matching shape, dtype and supported GPU device."""
     if gate.device.type not in _SUPPORTED_DEVICES or up.device.type not in _SUPPORTED_DEVICES:
         raise RuntimeError(
             f"TritonSwiGLUOp requires GPU tensors, got gate='{gate.device}', up='{up.device}'."
@@ -73,6 +50,28 @@ def _validate_swiglu_inputs(
     _validate_dtype(up, "up")
     if gate.dtype != up.dtype:
         raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
+
+
+def _validate_swiglu_packed_input(
+    projected: Tensor, packed_order: SwiGLUPackedOrder | None
+) -> None:
+    """Validate one packed projection and the explicit order of its equal halves.
+
+    The last dimension must be positive and even; leading dimensions may be
+    empty. The dtype and GPU device must be supported by the packed kernels.
+    """
+    if not isinstance(packed_order, SwiGLUPackedOrder):
+        raise ValueError(f"packed_order must be one of {tuple(SwiGLUPackedOrder)}")
+    if projected.ndim == 0:
+        raise ValueError("packed input must have at least one dimension")
+    width = projected.shape[-1]
+    if width == 0 or width % 2:
+        raise ValueError(f"packed input must have a positive, even last dimension, got {width}")
+    _validate_dtype(projected, "packed input")
+    if projected.device.type not in _SUPPORTED_DEVICES:
+        raise RuntimeError(
+            f"packed input must use a device in {_SUPPORTED_DEVICES}, got {projected.device}"
+        )
 
 
 # Every kernel widens pid to int64 before scaling by BLOCK: in int32 the flat
@@ -481,9 +480,13 @@ class TritonSwiGLUOp:
         ``gate`` is the packed tensor when ``up`` is omitted. Its order must
         be specified; a packed order is rejected when both inputs are given.
         """
-        _validate_swiglu_inputs(gate, up, packed_order)
         if up is None:
+            _validate_swiglu_packed_input(gate, packed_order)
             return _PackedSwiGLUTritonFunction.apply(gate, gate.dtype, packed_order)
+
+        if packed_order is not None:
+            raise ValueError("packed_order is only valid with a single packed input")
+        _validate_swiglu_separate_inputs(gate, up)
         return _SwiGLUTritonFunction.apply(gate, up)
 
     @overload
@@ -508,7 +511,11 @@ class TritonSwiGLUOp:
         The packed path widens values in the kernel, avoiding FP32 copies of
         both halves. The separate-input path retains its existing behavior.
         """
-        _validate_swiglu_inputs(gate, up, packed_order)
         if up is None:
+            _validate_swiglu_packed_input(gate, packed_order)
             return _PackedSwiGLUTritonFunction.apply(gate, torch.float32, packed_order)
+
+        if packed_order is not None:
+            raise ValueError("packed_order is only valid with a single packed input")
+        _validate_swiglu_separate_inputs(gate, up)
         return _SwiGLUTritonFunction.apply(gate.float(), up.float())
