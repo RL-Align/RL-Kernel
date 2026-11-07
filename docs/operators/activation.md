@@ -17,6 +17,15 @@ hidden --gate_proj--> gate --\
 hidden --up_proj----> up ----/
 ```
 
+Packed projections compute both operands with one linear layer. For example,
+MiniMax-H3 uses `[up | gate]` in its last dimension. The activation is still
+`SiLU(gate) * up`; only the input layout changes:
+
+```text
+hidden --packed_proj--> [ up | gate ] --SwiGLU--> output --down_proj--> hidden
+                         [..., 2*I]              [..., I]
+```
+
 ## Entry Point
 ```python
 from rl_engine.runtime.registry import kernel_registry
@@ -36,6 +45,42 @@ All backends expose the WS1 dual-path contract:
 - `forward(...)` — computes in fp32, casts back to the input dtype (Axis-B accuracy
   candidate / dtype-behavior path).
 - `forward_fp32(...)` — computes and returns fp32 (the ground-truth golden path).
+
+### Packed input (PyTorch and Triton)
+
+The common PyTorch and Triton classes also accept one tensor. Its last dimension
+must contain two equal halves; an explicit order prevents silently swapping the
+operands. Both `forward` and `forward_fp32` support this form:
+
+```python
+from rl_engine.contracts.operators.activation import SwiGLUPackedOrder
+from rl_engine.backends.shared.triton.activation.swiglu import TritonSwiGLUOp
+from rl_engine.reference.activation.swiglu import NativeSwiGLUOp
+
+swiglu = TritonSwiGLUOp()
+y = swiglu(gate, up)  # Existing positional and keyword calls remain valid.
+y = swiglu(projected, packed_order=SwiGLUPackedOrder.GATE_UP)
+y = swiglu(projected, packed_order=SwiGLUPackedOrder.UP_GATE)  # H3 order
+y_fp32 = swiglu.forward_fp32(projected, packed_order=SwiGLUPackedOrder.UP_GATE)
+reference = NativeSwiGLUOp()(projected, packed_order=SwiGLUPackedOrder.UP_GATE)
+```
+
+The packed form supports FP16/BF16/FP32 input `[..., 2 * I]` and produces `[..., I]`,
+with positive `I`. Leading dimensions may be empty. A contiguous packed input is
+read directly; a strided input is made contiguous once. Backward writes the two
+gradient halves into one packed tensor in the original order and dtype.
+
+Splitting a packed input with `chunk` only creates views. For multiple rows, those
+halves are generally not contiguous: calling the two-input Triton path copies each
+half, and autograd reconstructs the packed gradient. The new packed path avoids
+these copies and reconstruction. It retains the same FP32 expressions and the
+two-stage backward's FP32 SiLU-derivative workspace; no extra low-precision
+intermediate rounding is introduced.
+
+This overload is currently implemented by `NativeSwiGLUOp` and `TritonSwiGLUOp`.
+The standalone CUDA and Ascend wrappers still use two inputs. Instantiate the
+desired class explicitly for packed input: automatic registry selection does not
+inspect the argument layout and may select a two-input-only backend.
 
 ## Backends
 
@@ -162,23 +207,58 @@ Gold path: `NativeSiLUOp.forward_fp32` / `NativeSwiGLUOp.forward_fp32`.
 
 ## Performance Notes
 
-Element-wise kernels with a fixed 1-D grid (CUDA) / `BLOCK=1024` (Triton). Suitable as the
-standalone WS1 activation path; fused bias+SiLU MLP kernels remain a separate future work
-item and should continue to validate against this reference.
+The separate-input Triton path uses a 1-D grid. Packed Triton uses
+`(M, ceil(I / 1024))`, where `M` is the product of leading dimensions; row tails are
+masked. Rows occupy axis 0 to support more than 65535 rows on CUDA. Packed launches
+use the input backend's device context and restore the caller's current device.
+
+The benchmark compares eager PyTorch, a `chunk` + two-input Triton adapter, and
+direct packed Triton. Width and packed order are configurable; the default width
+14336 is H3's motivating workload, not an operator constraint.
+
+```bash
+python benchmarks/operators/activation/benchmark_swiglu_packed.py --dry-run
+python benchmarks/operators/activation/benchmark_swiglu_packed.py \
+  --packed-order up_gate --width 14336 --output-dir reports/swiglu-packed
+python tools/benchmarking/plot_swiglu_packed.py reports/swiglu-packed/results.json
+```
+
+Each case checks packed/separate Triton output and gradient bits, then independent
+FP32 PyTorch accuracy, before timing. CUDA events measure forward, backward and
+forward+backward, both eagerly and through CUDA Graph replay. Forward uses
+`no_grad`; backward reuses a graph; forward+backward builds a graph per call. Inputs,
+validation, JIT and capture are outside timing. Provider order is randomized across
+rounds; there is no `torch.compile` or explicit cache eviction. JSON records sample
+times, environment and source hashes; reports mark incomplete runs explicitly.
+
+Plots show latency and extra peak allocated memory separately, with distinct
+marker sizes for overlapping curves. Latency bands show the observed round range.
+Memory is measured with eager calls above the starting allocation, excluding
+inputs and prebuilt graphs; it is not CUDA Graph pool size or total model VRAM.
+Generated measurements and figures belong in PR attachments, not source control.
 
 ## Tests
 
 ```bash
-python -m pytest tests/ops/activation/test_swiglu.py -v
+python -m pytest tests/ops/activation/test_swiglu.py \
+  tests/ops/activation/test_swiglu_packed.py tests/reference/test_swiglu_packed.py \
+  tests/benchmarks/test_swiglu_packed_benchmark.py -v
 ```
 
 Covers: correctness vs an independent fp32 formula, dtype paths, Axis-A batch invariance
 (slice + padding), input purity, gradient flow, the SwiGLU shape guard, CUDA/Triton vs
 native forward+backward, registry dispatch, and the issue-#108 `OP_SPECS` harness.
+Packed tests cover both orders, bitwise agreement with the separate-input Triton
+path, training/no-grad/inference equality, batch/padding invariance, independent
+FP32 forward/gradient accuracy, strided tensors and gradients, empty rows, tile
+tails, CUDA Graph replay, and noncurrent-device restoration. Hardware checks skip
+without a GPU; device restoration requires two GPUs. The existing `OP_SPECS`
+`swiglu` entry still tests the separate-input form.
 
 ## Implementation Files
 
 - `rl_engine/reference/activation/swiglu.py` — gold
+- `rl_engine/contracts/operators/activation.py` — explicit packed channel order
 - `rl_engine/backends/cuda/activation/swiglu.py` — CUDA wrappers
 - `rl_engine/backends/shared/triton/activation/swiglu.py` — Triton kernels
 - `rl_engine/backends/ascend/activation/swiglu.py` — Ascend SwiGLU autograd wrapper
@@ -194,6 +274,6 @@ native forward+backward, registry dispatch, and the issue-#108 `OP_SPECS` harnes
 ## Known Limitations
 
 - SwiGLU requires `gate` and `up` to share shape, dtype, and device; no broadcasting.
-- No fused `bias + SiLU` or `chunk(y,2) + silu_and_mul` variant yet (vLLM-style
-  `SiluAndMul` on a packed gate/up tensor). Callers that hold a packed tensor should
-  split first, then call `swiglu`.
+- No fused `bias + SiLU` variant is provided.
+- Packed input support here covers the common PyTorch and Triton classes; it does
+  not change the CUDA FFN's separate packed implementation or model bindings.

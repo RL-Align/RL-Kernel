@@ -18,12 +18,59 @@ import triton
 import triton.language as tl
 from torch import Tensor
 
+from rl_engine.contracts.operators.activation import SwiGLUPackedOrder
+
+_SUPPORTED_DEVICES = ("cuda", "hip", "xpu", "musa")
 _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 
 def _validate_dtype(x: Tensor, name: str) -> None:
     if x.dtype not in _SUPPORTED_DTYPES:
-        raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {x.dtype}.")
+        raise TypeError(f"{name} must have dtype in {_SUPPORTED_DTYPES}, got {x.dtype}.")
+
+
+def _validate_swiglu_inputs(
+    gate: Tensor, up: Tensor | None, packed_order: SwiGLUPackedOrder | None
+) -> None:
+    """Validate separate operands or one packed tensor before allocating outputs.
+
+    ``gate`` holds the packed projection when ``up`` is absent. Requiring its
+    order explicitly prevents confusing the two valid layouts of equal shape.
+    """
+    if up is None:
+        if not isinstance(packed_order, SwiGLUPackedOrder):
+            raise ValueError(f"packed_order must be one of {tuple(SwiGLUPackedOrder)}")
+        if gate.ndim == 0:
+            raise ValueError("packed input must have at least one dimension")
+        width = gate.shape[-1]
+        if width == 0 or width % 2:
+            raise ValueError(f"packed input must have a positive, even last dimension, got {width}")
+        _validate_dtype(gate, "packed input")
+        if gate.device.type not in _SUPPORTED_DEVICES:
+            raise RuntimeError(
+                f"packed input must use a device in {_SUPPORTED_DEVICES}, got {gate.device}"
+            )
+        return
+
+    if packed_order is not None:
+        raise ValueError("packed_order is only valid with a single packed input")
+    if gate.device.type not in _SUPPORTED_DEVICES or up.device.type not in _SUPPORTED_DEVICES:
+        raise RuntimeError(
+            f"TritonSwiGLUOp requires GPU tensors, got gate='{gate.device}', up='{up.device}'."
+        )
+    if gate.device != up.device:
+        raise RuntimeError(
+            f"gate and up must be on the same GPU device, got '{gate.device}' and '{up.device}'."
+        )
+    if gate.shape != up.shape:
+        raise ValueError(
+            f"gate and up must share shape, got tuple(gate.shape)="
+            f"{tuple(gate.shape)} vs tuple(up.shape)={tuple(up.shape)}"
+        )
+    _validate_dtype(gate, "gate")
+    _validate_dtype(up, "up")
+    if gate.dtype != up.dtype:
+        raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
 
 
 # Every kernel widens pid to int64 before scaling by BLOCK: in int32 the flat
@@ -96,6 +143,80 @@ def _swiglu_dgate_kernel(
     tl.store(d_gate_ptr + offs, d_gate.to(d_gate_ptr.dtype.element_ty), mask=mask)
 
 
+@triton.jit
+def _swiglu_packed_fwd_kernel(
+    projected_ptr, y_ptr, WIDTH: tl.constexpr, GATE_FIRST: tl.constexpr, BLOCK: tl.constexpr
+):
+    """Read both halves without copying the noncontiguous chunk views."""
+    row = tl.program_id(0).to(tl.int64)
+    cols = tl.program_id(1).to(tl.int64) * BLOCK + tl.arange(0, BLOCK)
+    mask = cols < WIDTH
+    offsets = row * WIDTH + cols
+    packed_offsets = row * (2 * WIDTH) + cols
+    gate_offsets = packed_offsets + (0 if GATE_FIRST else WIDTH)
+    up_offsets = packed_offsets + (WIDTH if GATE_FIRST else 0)
+    g = tl.load(projected_ptr + gate_offsets, mask, other=0).to(tl.float32)
+    u = tl.load(projected_ptr + up_offsets, mask, other=0).to(tl.float32)
+    s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
+    y = (g * s) * u
+    tl.store(y_ptr + offsets, y.to(y_ptr.dtype.element_ty), mask)
+
+
+@triton.jit
+def _swiglu_packed_bwd_up_kernel(
+    dy_ptr,
+    projected_ptr,
+    silu_grad_ptr,
+    dx_ptr,
+    WIDTH: tl.constexpr,
+    GATE_FIRST: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
+    """Write the up gradient directly into the packed output and save FP32 SiLU'."""
+    row = tl.program_id(0).to(tl.int64)
+    cols = tl.program_id(1).to(tl.int64) * BLOCK + tl.arange(0, BLOCK)
+    mask = cols < WIDTH
+    offsets = row * WIDTH + cols
+    packed_offsets = row * (2 * WIDTH) + cols
+    gate_offsets = packed_offsets + (0 if GATE_FIRST else WIDTH)
+    up_offsets = packed_offsets + (WIDTH if GATE_FIRST else 0)
+    dy = tl.load(dy_ptr + offsets, mask, other=0).to(tl.float32)
+    g = tl.load(projected_ptr + gate_offsets, mask, other=0).to(tl.float32)
+    s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
+    silu_g = g * s
+    d_up = dy * silu_g
+    silu_grad = s * (1.0 + g * (1.0 - s))
+    tl.store(dx_ptr + up_offsets, d_up.to(dx_ptr.dtype.element_ty), mask)
+    tl.store(silu_grad_ptr + offsets, silu_grad, mask)
+
+
+@triton.jit
+def _swiglu_packed_bwd_gate_kernel(
+    dy_ptr,
+    projected_ptr,
+    silu_grad_ptr,
+    dx_ptr,
+    WIDTH: tl.constexpr,
+    GATE_FIRST: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
+    """Finish the gate gradient while preserving the shared SwiGLU rounding order."""
+    row = tl.program_id(0).to(tl.int64)
+    cols = tl.program_id(1).to(tl.int64) * BLOCK + tl.arange(0, BLOCK)
+    mask = cols < WIDTH
+    offsets = row * WIDTH + cols
+    packed_offsets = row * (2 * WIDTH) + cols
+    gate_offsets = packed_offsets + (0 if GATE_FIRST else WIDTH)
+    up_offsets = packed_offsets + (WIDTH if GATE_FIRST else 0)
+    dy = tl.load(dy_ptr + offsets, mask, other=0).to(tl.float32)
+    u = tl.load(projected_ptr + up_offsets, mask, other=0).to(tl.float32)
+    silu_grad = tl.load(silu_grad_ptr + offsets, mask, other=0)
+    # Keep the same FP32 workspace boundary as the shared SwiGLU. Fusing the
+    # stages could let the compiler reassociate this expression at BF16 ties.
+    d_gate = (dy * u) * silu_grad
+    tl.store(dx_ptr + gate_offsets, d_gate.to(dx_ptr.dtype.element_ty), mask)
+
+
 _BLOCK = 1024
 
 
@@ -164,6 +285,66 @@ def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Te
     return d_gate, d_up
 
 
+def _launch_swiglu_packed_fwd(
+    projected: Tensor, output_dtype: torch.dtype, packed_order: SwiGLUPackedOrder
+) -> Tensor:
+    """Launch one program per row/tile, storing only the final output cast.
+
+    Flatten leading dimensions into rows. Rows use grid axis 0 so large batches
+    do not encounter CUDA's smaller grid-axis-1 limit.
+    """
+    width = projected.shape[-1] // 2
+    y = torch.empty((*projected.shape[:-1], width), device=projected.device, dtype=output_dtype)
+    if y.numel() == 0:
+        return y
+    n_rows = y.numel() // width
+    device_module = torch.get_device_module(projected.device)
+    with device_module.device(projected.device):
+        _swiglu_packed_fwd_kernel[(n_rows, triton.cdiv(width, _BLOCK))](
+            projected,
+            y,
+            WIDTH=width,
+            GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
+            BLOCK=_BLOCK,
+        )
+    return y
+
+
+def _launch_swiglu_packed_bwd(
+    grad_y: Tensor, projected: Tensor, packed_order: SwiGLUPackedOrder
+) -> Tensor:
+    """Write one packed gradient; both stages share the input device's current stream."""
+    grad_projected = torch.empty_like(projected)
+    if grad_y.numel() == 0:
+        return grad_projected
+    grad_y_c = grad_y.contiguous()
+    silu_grad = torch.empty_like(grad_y_c, dtype=torch.float32)
+    width = projected.shape[-1] // 2
+    n_rows = grad_y_c.numel() // width
+    grid = (n_rows, triton.cdiv(width, _BLOCK))
+    device_module = torch.get_device_module(projected.device)
+    with device_module.device(projected.device):
+        _swiglu_packed_bwd_up_kernel[grid](
+            grad_y_c,
+            projected,
+            silu_grad,
+            grad_projected,
+            WIDTH=width,
+            GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
+            BLOCK=_BLOCK,
+        )
+        _swiglu_packed_bwd_gate_kernel[grid](
+            grad_y_c,
+            projected,
+            silu_grad,
+            grad_projected,
+            WIDTH=width,
+            GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
+            BLOCK=_BLOCK,
+        )
+    return grad_projected
+
+
 class _SiLUTritonFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: Tensor) -> Tensor:
@@ -203,6 +384,25 @@ class _SwiGLUTritonFunction(torch.autograd.Function):
         return d_gate, d_up
 
 
+class _PackedSwiGLUTritonFunction(torch.autograd.Function):
+    """Save the packed projection, avoiding independent gate/up copies."""
+
+    @staticmethod
+    def forward(
+        ctx, projected: Tensor, output_dtype: torch.dtype, packed_order: SwiGLUPackedOrder
+    ) -> Tensor:
+        projected_c = projected.contiguous()
+        y = _launch_swiglu_packed_fwd(projected_c, output_dtype, packed_order)
+        ctx.save_for_backward(projected_c)
+        ctx.packed_order = packed_order
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_y: Tensor):
+        (projected,) = ctx.saved_tensors
+        return _launch_swiglu_packed_bwd(grad_y, projected, ctx.packed_order), None, None
+
+
 class TritonSiLUOp:
     """Triton SiLU: ``out = x * sigmoid(x)``, math in fp32."""
 
@@ -225,61 +425,61 @@ class TritonSiLUOp:
 
 
 class TritonSwiGLUOp:
-    """Triton SwiGLU: ``out = silu(gate) * up``, math in fp32."""
+    """FP32-math SwiGLU for separate operands or one packed projection.
+
+    ``op(gate, up)`` keeps the existing two-tensor interface. For one tensor,
+    call ``op(projected, packed_order=SwiGLUPackedOrder.GATE_UP)`` or use
+    ``UP_GATE``. The last dimension contains two equal halves; the output is
+    half as wide. No broadcasting is performed.
+
+    A contiguous packed input is read directly, without gate/up copies.
+    Strided packed inputs are made contiguous once. Backward writes both
+    gradient halves into one tensor, preserving the FP32 SiLU-derivative
+    workspace and expression order of the separate-input implementation.
+    """
 
     op_class = "elementwise"
 
-    def __call__(self, gate: Tensor, up: Tensor) -> Tensor:
-        return self.forward(gate, up)
+    def __call__(
+        self,
+        gate: Tensor,
+        up: Tensor | None = None,
+        *,
+        packed_order: SwiGLUPackedOrder | None = None,
+    ) -> Tensor:
+        """Apply SwiGLU to two tensors, or to one tensor with an explicit packed order."""
+        return self.forward(gate, up, packed_order=packed_order)
 
-    def forward(self, gate: Tensor, up: Tensor) -> Tensor:
-        if gate.device.type not in ("cuda", "hip", "xpu", "musa") or up.device.type not in (
-            "cuda",
-            "hip",
-            "xpu",
-            "musa",
-        ):
-            raise RuntimeError(
-                f"TritonSwiGLUOp requires GPU tensors, got gate='{gate.device}', up='{up.device}'."
-            )
-        if gate.device != up.device:
-            raise RuntimeError(
-                f"gate and up must be on the same GPU device, got "
-                f"'{gate.device}' and '{up.device}'."
-            )
-        if gate.shape != up.shape:
-            raise ValueError(
-                f"gate and up must share shape, got tuple(gate.shape)="
-                f"{tuple(gate.shape)} vs tuple(up.shape)={tuple(up.shape)}"
-            )
-        _validate_dtype(gate, "gate")
-        _validate_dtype(up, "up")
-        if gate.dtype != up.dtype:
-            raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
+    def forward(
+        self,
+        gate: Tensor,
+        up: Tensor | None = None,
+        *,
+        packed_order: SwiGLUPackedOrder | None = None,
+    ) -> Tensor:
+        """Compute in FP32, then cast the output to the input dtype.
+
+        ``gate`` is the packed tensor when ``up`` is omitted. Its order must
+        be specified; a packed order is rejected when both inputs are given.
+        """
+        _validate_swiglu_inputs(gate, up, packed_order)
+        if up is None:
+            return _PackedSwiGLUTritonFunction.apply(gate, gate.dtype, packed_order)
         return _SwiGLUTritonFunction.apply(gate, up)
 
-    def forward_fp32(self, gate: Tensor, up: Tensor) -> Tensor:
-        if gate.device.type not in ("cuda", "hip", "xpu", "musa") or up.device.type not in (
-            "cuda",
-            "hip",
-            "xpu",
-            "musa",
-        ):
-            raise RuntimeError(
-                f"TritonSwiGLUOp requires GPU tensors, got gate='{gate.device}', up='{up.device}'."
-            )
-        if gate.device != up.device:
-            raise RuntimeError(
-                f"gate and up must be on the same GPU device, got "
-                f"'{gate.device}' and '{up.device}'."
-            )
-        if gate.shape != up.shape:
-            raise ValueError(
-                f"gate and up must share shape, got tuple(gate.shape)="
-                f"{tuple(gate.shape)} vs tuple(up.shape)={tuple(up.shape)}"
-            )
-        _validate_dtype(gate, "gate")
-        _validate_dtype(up, "up")
-        if gate.dtype != up.dtype:
-            raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
+    def forward_fp32(
+        self,
+        gate: Tensor,
+        up: Tensor | None = None,
+        *,
+        packed_order: SwiGLUPackedOrder | None = None,
+    ) -> Tensor:
+        """Return FP32 output; input gradients retain the original input dtype.
+
+        The packed path widens values in the kernel, avoiding FP32 copies of
+        both halves. The separate-input path retains its existing behavior.
+        """
+        _validate_swiglu_inputs(gate, up, packed_order)
+        if up is None:
+            return _PackedSwiGLUTritonFunction.apply(gate, torch.float32, packed_order)
         return _SwiGLUTritonFunction.apply(gate.float(), up.float())

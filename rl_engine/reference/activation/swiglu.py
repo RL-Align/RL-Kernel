@@ -6,12 +6,14 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from rl_engine.contracts.operators.activation import SwiGLUPackedOrder
+
 _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 
 def _validate_dtype(x: torch.Tensor, name: str) -> None:
     if x.dtype not in _SUPPORTED_DTYPES:
-        raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {x.dtype}.")
+        raise TypeError(f"{name} must have dtype in {_SUPPORTED_DTYPES}, got {x.dtype}.")
 
 
 class NativeSiLUOp(nn.Module):
@@ -54,25 +56,40 @@ class NativeSwiGLUOp(nn.Module):
     Pure PyTorch native SwiGLU reference.
     out = silu(gate) * up = (gate * sigmoid(gate)) * up
 
-    Middle stage of the Qwen3/Llama MLP: ``gate`` and ``up`` are the
-    gate_proj / up_proj outputs (already at intermediate dim 12288). The
-    following down_proj is a plain Matmul and lives in a separate op.
-    Element-wise and shape-agnostic; ``gate`` and ``up`` must share shape.
+    Accepts separate ``gate, up`` tensors of the same shape, or a single
+    ``[..., 2 * I]`` tensor with an explicit ``SwiGLUPackedOrder``. Both packed
+    orders produce ``[..., I]``. The gate/up and down linear projections
+    remain outside this operator. All intermediate arithmetic stays FP32.
     """
 
     def __init__(self) -> None:
         super().__init__()
 
-    def forward(self, gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        gate: torch.Tensor,
+        up: torch.Tensor | None = None,
+        *,
+        packed_order: SwiGLUPackedOrder | None = None,
+    ) -> torch.Tensor:
         """
         Canonical entry: compute in fp32, cast the result back to gate.dtype.
         This is the dtype-behavior path used as the Axis-B accuracy candidate.
-        """
-        return self._swiglu(gate, up, output_dtype=gate.dtype)
 
-    def forward_fp32(self, gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
-        """Ground-truth: compute in fp32 and force fp32 output."""
-        return self._swiglu(gate, up, output_dtype=torch.float32)
+        When ``up`` is omitted, ``gate`` is the packed projection and
+        ``packed_order`` must identify the order of its two halves.
+        """
+        return self._swiglu(gate, up, output_dtype=gate.dtype, packed_order=packed_order)
+
+    def forward_fp32(
+        self,
+        gate: torch.Tensor,
+        up: torch.Tensor | None = None,
+        *,
+        packed_order: SwiGLUPackedOrder | None = None,
+    ) -> torch.Tensor:
+        """Compute and return FP32 for either input layout, preserving autograd."""
+        return self._swiglu(gate, up, output_dtype=torch.float32, packed_order=packed_order)
 
     # ------------------------------------------------------------------ #
     # Helpers
@@ -80,10 +97,29 @@ class NativeSwiGLUOp(nn.Module):
     @staticmethod
     def _swiglu(
         gate: torch.Tensor,
-        up: torch.Tensor,
+        up: torch.Tensor | None,
         *,
         output_dtype: torch.dtype,
+        packed_order: SwiGLUPackedOrder | None,
     ) -> torch.Tensor:
+        if up is None:
+            if not isinstance(packed_order, SwiGLUPackedOrder):
+                raise ValueError(f"packed_order must be one of {tuple(SwiGLUPackedOrder)}")
+            if gate.ndim == 0:
+                raise ValueError("packed input must have at least one dimension")
+            width = gate.shape[-1]
+            if width == 0 or width % 2:
+                raise ValueError(
+                    f"packed input must have a positive, even last dimension, got {width}"
+                )
+            first, second = gate.chunk(2, dim=-1)
+            if packed_order is SwiGLUPackedOrder.GATE_UP:
+                gate, up = first, second
+            else:
+                up, gate = first, second
+        elif packed_order is not None:
+            raise ValueError("packed_order is only valid with a single packed input")
+
         if gate.shape != up.shape:
             raise ValueError(
                 f"gate and up must share shape, got tuple(gate.shape)="
