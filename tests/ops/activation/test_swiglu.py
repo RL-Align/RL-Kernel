@@ -606,6 +606,41 @@ def test_cuda_triton_swiglu_rejects_cross_device_inputs(impl):
         op.forward(gate, up)
 
 
+@requires_cuda
+@requires_triton_activation
+def test_triton_activation_kernels_index_past_int32_numel():
+    """Issue #640: an int32 pid * BLOCK wrapped negative past 2**31 elements,
+    passed the mask and read/wrote outside the buffers."""
+    from rl_engine.backends.shared.triton.activation import swiglu as triton_swiglu
+
+    block = triton_swiglu._BLOCK
+    # A full block starting at element 2**31 plus a one-element partial block.
+    numel = 2**31 + block + 1
+    # Peak is the backward: shared bf16 input, bf16 d_gate/d_up and fp32 silu_grad.
+    peak_bytes = numel * (2 + 2 + 2 + 4)
+    free, _ = torch.cuda.mem_get_info()
+    if free < peak_bytes * 1.1:
+        pytest.skip(f"needs ~{peak_bytes * 1.1 / 1e9:.0f} GB of free GPU memory")
+
+    gen = torch.Generator(device="cuda").manual_seed(640)
+    # The kernels are elementwise, so one buffer can feed every input role.
+    x = torch.randn(numel, generator=gen, device="cuda", dtype=torch.bfloat16)
+    tail = slice(2**31 - block, None)
+    x_tail = x[tail].clone()
+    launches = {
+        "silu_fwd": lambda t: (triton_swiglu._launch_silu_fwd(t),),
+        "silu_bwd": lambda t: (triton_swiglu._launch_silu_bwd(t, t),),
+        "swiglu_fwd": lambda t: (triton_swiglu._launch_swiglu_fwd(t, t),),
+        "swiglu_bwd": lambda t: triton_swiglu._launch_swiglu_bwd(t, t, t),
+    }
+    for name, launch in launches.items():
+        full = launch(x)
+        for actual, expected in zip(full, launch(x_tail), strict=True):
+            assert torch.equal(actual[tail], expected), name
+        # `actual` outlives the loop and would keep a full-size output alive.
+        del full, actual, expected
+
+
 # ---------------------------------------------------------------------------
 # Issue #108 ground-truth harness (OP_SPECS + check_operator path)
 # ---------------------------------------------------------------------------
