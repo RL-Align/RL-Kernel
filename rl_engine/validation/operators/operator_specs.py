@@ -6,10 +6,11 @@ from __future__ import annotations
 import argparse
 import importlib
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 import torch
 
+from rl_engine.models.nemotron_h.lm_head_contract import NEMOTRON_H_LM_HEAD_SPEC
 from rl_engine.validation.operators.op_checks import CandidateSpec, OperatorCase
 from rl_engine.validation.operators.operator_inputs import make_operator_inputs, operator_shape_name
 
@@ -22,6 +23,8 @@ class OperatorSpec:
     gold_method: str
     candidate_paths: dict[str, str]
     grad_input_names: tuple[str, ...] = ()
+    # Model-pinned rows ignore --dtype: the strict contract accepts only this dtype.
+    pinned_dtype: Optional[torch.dtype] = None
 
 
 def _load_object(path: str) -> Any:
@@ -153,6 +156,22 @@ OP_SPECS = {
             "ascend": "rl_engine.kernels.ops.ascend.loss.linear_logp.FusedLinearLogpAscendOp",
         },
         grad_input_names=("hidden", "lm_head_weight"),
+    ),
+    # Model-pinned row: inputs use the checkpoint geometry (vocab 131072, hidden 2688, bf16).
+    "nemotron_h_lm_head_logprob": OperatorSpec(
+        name="nemotron_h_lm_head_logprob",
+        op_class="logprob",
+        gold_path="rl_engine.kernels.ops.pytorch.loss.linear_logp.NativeLinearLogpOp",
+        gold_method="apply",
+        candidate_paths={
+            "cuda-sm90": (
+                "rl_engine.kernels.ops.cuda.loss.nemotron_h_lm_head_logp."
+                "NemotronHLMHeadLogprobSM90Op"
+            ),
+        },
+        grad_input_names=("hidden", "lm_head_weight"),
+
+        pinned_dtype=NEMOTRON_H_LM_HEAD_SPEC.param_dtype,
     ),
     "embedding": OperatorSpec(
         name="embedding",
@@ -336,6 +355,7 @@ def make_operator_case(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
 ) -> OperatorCase:
     spec = OP_SPECS[args.op]
+    dtype = spec.pinned_dtype or dtype
     gold_op = _load_object(spec.gold_path)()
     gold_fn = getattr(gold_op, spec.gold_method)
     return OperatorCase(

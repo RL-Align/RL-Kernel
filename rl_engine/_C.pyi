@@ -112,6 +112,16 @@ def linear_logp_logits_bf16_to_dlogits(
     lse: torch.Tensor,
     vocab_start_index: int,
 ) -> torch.Tensor: ...
+def fused_linear_logp_sm90_strict_dlogits(
+    hidden: torch.Tensor,
+    weight: torch.Tensor,
+    target: torch.Tensor,
+    grad_logp: torch.Tensor,
+    lse: torch.Tensor,
+    temperature: torch.Tensor | None = None,
+    vocab_start_index: int = 0,
+    real_vocab_size: int = -1,
+) -> torch.Tensor: ...
 def embedding_sm90_forward(token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor: ...
 def embedding_sm90_forward_fp32(token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor: ...
 def lm_head_sm90_forward(
