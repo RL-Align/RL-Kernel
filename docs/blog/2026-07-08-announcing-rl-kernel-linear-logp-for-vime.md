@@ -43,7 +43,7 @@ RL-Kernel is not designed around a single path for every workload. Instead, oper
 RL-Kernel is designed as an operator-layer bridge between high-level RL orchestration and low-level GPU backends. It integrates with rollout engines and training engines through custom operator hooks, while the actual kernels are implemented through CUDA, Triton, ROCm, and related backend libraries.
 
 <p align="center">
-<img src="../../assets/blog/rlk-global-architecture.png" alt="RL-Kernel Global Architecture" width="80%">
+<img src="../assets/blog/rlk-global-architecture.png" alt="RL-Kernel Global Architecture" width="80%">
 <br>
 <em>RL-Kernel sits at the operator layer between RL orchestration frameworks and hardware-specific kernel backends. This is the architecture diagram from the RL-Kernel README.</em>
 </p>
@@ -57,7 +57,7 @@ For `linear_logp`, the vime integration follows this path:
 - The CUDA extension computes selected logprob and the state needed for backward without exposing a full `[tokens, vocab]` logits tensor to the Python framework layer.
 
 <p align="center">
-<img src="../../assets/blog/rlk-linear-logp-dataflow.svg" alt="RL-Kernel linear_logp data flow" width="90%">
+<img src="../assets/blog/rlk-linear-logp-dataflow.svg" alt="RL-Kernel linear_logp data flow" width="90%">
 <br>
 <em>The vime path materializes full logits; the vime + RL-Kernel path fuses selected-logprob computation into the operator layer.</em>
 </p>
@@ -96,7 +96,7 @@ and reported `fallback=0`.
 The strongest single-operator result is T3: the forward plus backward CUDA time drops from **33.96 ms** to **18.50 ms**. T2 shows the best forward-only speedup at **2.32x**.
 
 <p align="center">
-<img src="../../assets/blog/rlk-linear-logp-speedup.svg" alt="RL-Kernel linear_logp fwd+bwd CUDA time speedup" width="90%">
+<img src="../assets/blog/rlk-linear-logp-speedup.svg" alt="RL-Kernel linear_logp fwd+bwd CUDA time speedup" width="90%">
 <br>
 <em>vime + RL-Kernel reduces forward plus backward CUDA time across the completed no-trace configurations.</em>
 </p>
@@ -114,7 +114,7 @@ The memory comparison also uses operator-level probes. It tracks the peak reserv
 T3 is the clearest single-operator memory result: the peak reserved delta drops from **32342 MB** to **26710 MB**, saving **5632 MB** during the `linear_logp` operator window.
 
 <p align="center">
-<img src="../../assets/blog/rlk-linear-logp-memory.svg" alt="RL-Kernel linear_logp single-operator memory comparison" width="90%">
+<img src="../assets/blog/rlk-linear-logp-memory.svg" alt="RL-Kernel linear_logp single-operator memory comparison" width="90%">
 <br>
 <em>The memory comparison is scoped to the `linear_logp` operator, matching the timing comparison.</em>
 </p>
