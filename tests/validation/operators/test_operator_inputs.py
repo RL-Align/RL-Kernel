@@ -8,6 +8,7 @@ import argparse
 import pytest
 import torch
 
+from rl_engine.contracts.operators.activation import SwiGLUPackedOrder
 from rl_engine.validation.operators.operator_inputs import make_operator_inputs, operator_shape_name
 from rl_engine.validation.operators.operator_specs import (
     make_candidate,
@@ -89,6 +90,41 @@ def test_random_logp_inputs_are_seeded():
 
     assert torch.equal(first["logits"], second["logits"])
     assert torch.equal(first["token_ids"], second["token_ids"])
+
+
+@pytest.mark.parametrize("order", tuple(SwiGLUPackedOrder))
+@pytest.mark.parametrize("input_mode", ("random", "constant"))
+def test_swiglu_packed_case_preserves_operands_and_declares_input_gradient(order, input_mode):
+    args = _args(op="swiglu", input_mode=input_mode)
+    separate = make_operator_case(args, torch.float32, torch.device("cpu"))
+    args.packed_order = order.value
+    packed = make_operator_case(args, torch.float32, torch.device("cpu"))
+
+    assert separate.grad_input_names == ("gate", "up")
+    assert packed.grad_input_names == ("input",)
+    assert packed.inputs.keys() == {"input", "packed_order"}
+    assert packed.inputs["packed_order"] is order
+    projected = packed.inputs["input"]
+    gate, up = separate.inputs["gate"], separate.inputs["up"]
+    assert projected.shape == (*gate.shape[:-1], 2 * gate.shape[-1])
+    assert projected.is_contiguous()
+    first, second = projected.chunk(2, dim=-1)
+    if order is SwiGLUPackedOrder.GATE_UP:
+        assert torch.equal(first, gate)
+        assert torch.equal(second, up)
+    else:
+        assert torch.equal(first, up)
+        assert torch.equal(second, gate)
+    shape = "x".join(str(size) for size in projected.shape)
+    assert packed.name.endswith(f"{shape}-packed-{order.value}")
+    assert packed.name != separate.name
+
+
+@pytest.mark.parametrize("candidate", ("cuda", "ascend"))
+def test_swiglu_packed_rejects_candidates_without_packed_support(candidate):
+    args = _args(op="swiglu", candidate=candidate, packed_order="up_gate")
+    with pytest.raises(ValueError, match="packed SwiGLU requires a pytorch or triton candidate"):
+        make_candidate(args)
 
 
 def test_cp_attention_operator_spec_registers_backward_grad_inputs():

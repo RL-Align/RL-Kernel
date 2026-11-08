@@ -355,22 +355,36 @@ def operator_names() -> tuple[str, ...]:
 def make_operator_case(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
 ) -> OperatorCase:
+    """Build a gold case and declare gradients for its selected input form."""
     spec = OP_SPECS[args.op]
     gold_op = _load_object(spec.gold_path)()
     gold_fn = getattr(gold_op, spec.gold_method)
+    inputs = make_operator_inputs(args.op, args, dtype, device)
+    grad_input_names = spec.grad_input_names
+    if args.op == "swiglu" and "packed_order" in inputs:
+        grad_input_names = ("input",)
     return OperatorCase(
         name=f"{args.op}-{dtype}-{operator_shape_name(args.op, args)}",
         op_class=spec.op_class,
         dtype=dtype,
-        inputs=make_operator_inputs(args.op, args, dtype, device),
+        inputs=inputs,
         gold_fn=gold_fn,
-        grad_input_names=spec.grad_input_names,
+        grad_input_names=grad_input_names,
     )
 
 
 def make_candidate(args: argparse.Namespace) -> CandidateSpec:
     spec = OP_SPECS[args.op]
     candidate_name = "pytorch" if args.candidate == "native" else args.candidate
+
+    if (
+        args.op == "swiglu"
+        and getattr(args, "packed_order", None) is not None
+        and candidate_name not in ("pytorch", "triton")
+    ):
+        raise ValueError(
+            f"packed SwiGLU requires a pytorch or triton candidate, got {args.candidate!r}"
+        )
 
     if candidate_name in spec.candidate_paths:
         candidate_op = _load_object(spec.candidate_paths[candidate_name])()

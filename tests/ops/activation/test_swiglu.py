@@ -20,6 +20,7 @@ import pytest
 import torch
 
 from rl_engine.backends.ascend.activation import swiglu as ascend
+from rl_engine.contracts.operators.activation import SwiGLUPackedOrder
 from rl_engine.platforms.device import _npu_available, device_ctx
 from rl_engine.reference.activation.swiglu import NativeSiLUOp, NativeSwiGLUOp
 from rl_engine.runtime.registry import KernelRegistry, OpBackend, kernel_registry
@@ -684,15 +685,37 @@ def test_silu_pytorch_candidate_suite_passes_issue_108_helper():
     assert report.passed
 
 
-def test_swiglu_pytorch_candidate_suite_passes_issue_108_helper():
-    args = _spec_args("swiglu", candidate="pytorch")
+@pytest.mark.parametrize("packed_order", (None, "gate_up", "up_gate"))
+@pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
+def test_swiglu_pytorch_candidate_suite_passes_issue_108_helper(packed_order, dtype):
+    args = _spec_args("swiglu", candidate="pytorch", packed_order=packed_order)
     report = run_operator_suite(
         "swiglu",
         candidates=[make_candidate(args)],
-        cases=[make_operator_case(args, torch.float32, torch.device("cpu"))],
+        cases=[make_operator_case(args, dtype, torch.device("cpu"))],
         check_grad=True,
     )
     assert report.passed
+    gradient_names = ("gate", "up") if packed_order is None else ("input",)
+    checks = report.candidates[0].cases[0].outputs
+    assert [check.message for check in checks[1:]] == [
+        f"gradient:{name}" for name in gradient_names
+    ]
+
+
+@requires_cuda
+@requires_triton_activation
+@pytest.mark.parametrize("order", tuple(SwiGLUPackedOrder))
+@pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
+def test_swiglu_packed_triton_issue_108_harness(order, dtype):
+    args = _spec_args("swiglu", candidate="triton", packed_order=order.value)
+    report = run_operator_suite(
+        "swiglu",
+        candidates=[make_candidate(args)],
+        cases=[make_operator_case(args, dtype, torch.device("cuda"))],
+        check_grad=True,
+    )
+    assert report.passed, report.candidates[0].cases[0].outputs
 
 
 @requires_cuda

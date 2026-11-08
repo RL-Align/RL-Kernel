@@ -205,10 +205,18 @@ shared issue-#108 CLI:
 ```bash
 python tools/validation/operators/check_operator.py --op silu --candidate cuda --dtype bf16 --device cuda
 python tools/validation/operators/check_operator.py --op swiglu --candidate triton --dtype bf16 --device cuda --check-grad
+python tools/validation/operators/check_operator.py --op swiglu --candidate triton --packed-order up_gate --dtype bf16 --device cuda --check-grad
 python tools/validation/operators/check_operator.py --op silu --candidate pytorch --dtype fp32 --device cpu --check-grad
 ```
 
 Gold path: `NativeSiLUOp.forward_fp32` / `NativeSwiGLUOp.forward_fp32`.
+
+For SwiGLU, omitting `--packed-order` checks separate `gate` and `up` inputs.
+Use `--packed-order gate_up` or `--packed-order up_gate` to check one packed input
+with the PyTorch or Triton candidate. Both forms use the same seeded operand
+values. `--check-grad` compares `gate`/`up` gradients for separate inputs and the
+whole `input` gradient for packed inputs; the channel-order enum is not a gradient
+input. Packed report names include the full input shape and channel order.
 
 ## Performance Notes
 
@@ -257,8 +265,9 @@ Packed tests cover both orders, bitwise agreement with the separate-input Triton
 path, training/no-grad/inference equality, batch/padding invariance, independent
 FP32 forward/gradient accuracy, strided tensors and gradients, empty rows, tile
 tails, CUDA Graph replay, and noncurrent-device restoration. Hardware checks skip
-without a GPU; device restoration requires two GPUs. The existing `OP_SPECS`
-`swiglu` entry still tests the separate-input form.
+without a GPU; device restoration requires two GPUs. The `OP_SPECS` `swiglu` entry
+checks both input forms through `--packed-order`, including forward and backward
+accuracy against the FP32 gold path.
 
 ## Implementation Files
 
