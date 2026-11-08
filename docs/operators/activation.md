@@ -58,12 +58,17 @@ from rl_engine.backends.shared.triton.activation.swiglu import TritonSwiGLUOp
 from rl_engine.reference.activation.swiglu import NativeSwiGLUOp
 
 swiglu = TritonSwiGLUOp()
-y = swiglu(gate, up)  # Existing positional and keyword calls remain valid.
+y = swiglu(gate, up)  # Existing positional calls remain valid.
+y = swiglu(input=gate, up=up)
 y = swiglu(projected, packed_order=SwiGLUPackedOrder.GATE_UP)
-y = swiglu(projected, packed_order=SwiGLUPackedOrder.UP_GATE)  # H3 order
+y = swiglu(input=projected, packed_order=SwiGLUPackedOrder.UP_GATE)  # H3 order
 y_fp32 = swiglu.forward_fp32(projected, packed_order=SwiGLUPackedOrder.UP_GATE)
 reference = NativeSwiGLUOp()(projected, packed_order=SwiGLUPackedOrder.UP_GATE)
 ```
+
+In these two classes, the first parameter is named `input`: it is the gate when
+`up` is supplied, or the complete packed projection when `up` is omitted. Calls
+that previously used `gate=...` must now use `input=...`, including `forward_fp32`.
 
 The packed form supports FP16/BF16/FP32 input `[..., 2 * I]` and produces `[..., I]`,
 with positive `I`. Leading dimensions may be empty. A contiguous packed input is

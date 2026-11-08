@@ -78,8 +78,8 @@ def test_packed_matches_shared_bits_and_native_accuracy(dtype, method, layout, o
     before = x.detach().clone()
     first, second = x.chunk(2, dim=-1)
     gate, up = (first, second) if order is SwiGLUPackedOrder.GATE_UP else (second, first)
-    shared = getattr(TritonSwiGLUOp(), method)(gate, up)
-    packed = getattr(TritonSwiGLUOp(), method)(x, packed_order=order)
+    shared = getattr(TritonSwiGLUOp(), method)(input=gate, up=up)
+    packed = getattr(TritonSwiGLUOp(), method)(input=x, packed_order=order)
     _assert_bits(packed, shared)
     upstream = torch.randn(
         (*packed.shape[:-1], packed.shape[-1] * 2), device="cuda", dtype=packed.dtype
@@ -136,7 +136,7 @@ def test_saturation_and_zero_match_shared_bits(dtype, order):
     first, second = x.chunk(2, dim=-1)
     gate, up = (first, second) if order is SwiGLUPackedOrder.GATE_UP else (second, first)
     op = TritonSwiGLUOp()
-    shared, packed = op(gate, up), op(x, packed_order=order)
+    shared, packed = op(input=gate, up=up), op(input=x, packed_order=order)
     _assert_bits(packed, shared)
     _assert_bits(
         torch.autograd.grad(packed, x, torch.ones_like(packed))[0],

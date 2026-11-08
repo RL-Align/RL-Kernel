@@ -96,6 +96,9 @@ class NativeSwiGLUOp(nn.Module):
     orders produce ``[..., I]``. The gate/up and down linear projections
     remain outside this operator. All intermediate arithmetic stays FP32.
 
+    The first parameter is named ``input``: it holds the gate when ``up`` is
+    supplied, or the complete packed projection when ``up`` is omitted.
+
     The overloads describe the two accepted input forms for IDEs and type
     checkers. Each method has one runtime implementation below them.
     """
@@ -104,57 +107,57 @@ class NativeSwiGLUOp(nn.Module):
         super().__init__()
 
     @overload
-    def forward(self, gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
         """Separate gate/up tensors; return output in the input dtype."""
         ...
 
     @overload
-    def forward(self, gate: torch.Tensor, *, packed_order: SwiGLUPackedOrder) -> torch.Tensor:
-        """One packed tensor in ``gate``; its half order must be explicit."""
+    def forward(self, input: torch.Tensor, *, packed_order: SwiGLUPackedOrder) -> torch.Tensor:
+        """One packed tensor in ``input``; its half order must be explicit."""
         ...
 
     def forward(
         self,
-        gate: torch.Tensor,
+        input: torch.Tensor,
         up: torch.Tensor | None = None,
         *,
         packed_order: SwiGLUPackedOrder | None = None,
     ) -> torch.Tensor:
         """
-        Canonical entry: compute in fp32, cast the result back to gate.dtype.
+        Canonical entry: compute in fp32, cast the result back to input.dtype.
         This is the dtype-behavior path used as the Axis-B accuracy candidate.
 
-        When ``up`` is omitted, ``gate`` is the packed projection and
-        ``packed_order`` must identify the order of its two halves.
+        ``input`` is the gate when ``up`` is supplied, or the packed projection
+        otherwise. A single packed input requires an explicit ``packed_order``.
         """
-        return self._swiglu(gate, up, output_dtype=gate.dtype, packed_order=packed_order)
+        return self._swiglu(input, up, output_dtype=input.dtype, packed_order=packed_order)
 
     @overload
-    def forward_fp32(self, gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
+    def forward_fp32(self, input: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
         """Separate gate/up tensors; return FP32 output."""
         ...
 
     @overload
-    def forward_fp32(self, gate: torch.Tensor, *, packed_order: SwiGLUPackedOrder) -> torch.Tensor:
-        """One packed tensor in ``gate``; return FP32 output."""
+    def forward_fp32(self, input: torch.Tensor, *, packed_order: SwiGLUPackedOrder) -> torch.Tensor:
+        """One packed tensor in ``input``; return FP32 output."""
         ...
 
     def forward_fp32(
         self,
-        gate: torch.Tensor,
+        input: torch.Tensor,
         up: torch.Tensor | None = None,
         *,
         packed_order: SwiGLUPackedOrder | None = None,
     ) -> torch.Tensor:
         """Compute and return FP32 for either input layout, preserving autograd."""
-        return self._swiglu(gate, up, output_dtype=torch.float32, packed_order=packed_order)
+        return self._swiglu(input, up, output_dtype=torch.float32, packed_order=packed_order)
 
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
     @staticmethod
     def _swiglu(
-        gate: torch.Tensor,
+        input: torch.Tensor,
         up: torch.Tensor | None,
         *,
         output_dtype: torch.dtype,
@@ -164,8 +167,9 @@ class NativeSwiGLUOp(nn.Module):
         if up is None:
             if packed_order is None:
                 raise ValueError("packed_order is required with a single packed input")
-            _validate_swiglu_packed_input(gate)
-            first, second = gate.chunk(2, dim=-1)
+            projected = input
+            _validate_swiglu_packed_input(projected)
+            first, second = projected.chunk(2, dim=-1)
             if packed_order is SwiGLUPackedOrder.GATE_UP:
                 gate, up = first, second
             else:
@@ -173,6 +177,7 @@ class NativeSwiGLUOp(nn.Module):
         else:
             if packed_order is not None:
                 raise ValueError("packed_order is only valid with a single packed input")
+            gate = input
             _validate_swiglu_separate_inputs(gate, up)
 
         gate_f = gate.float()

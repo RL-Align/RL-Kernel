@@ -431,6 +431,9 @@ class TritonSwiGLUOp:
     ``UP_GATE``. The last dimension contains two equal halves; the output is
     half as wide. No broadcasting is performed.
 
+    The first parameter is named ``input``: it holds the gate when ``up`` is
+    supplied, or the complete packed projection when ``up`` is omitted.
+
     A contiguous packed input is read directly, without gate/up copies.
     Strided packed inputs are made contiguous once. Backward writes both
     gradient halves into one tensor, preserving the FP32 SiLU-derivative
@@ -443,13 +446,13 @@ class TritonSwiGLUOp:
     op_class = "elementwise"
 
     @overload
-    def __call__(self, gate: Tensor, up: Tensor) -> Tensor:
+    def __call__(self, input: Tensor, up: Tensor) -> Tensor:
         """Call with separate gate/up tensors."""
         ...
 
     @overload
-    def __call__(self, gate: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
-        """Call with one packed tensor in ``gate`` and an explicit half order."""
+    def __call__(self, input: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
+        """Call with one packed tensor in ``input`` and an explicit half order."""
         ...
 
     def __call__(self, *args, **kwargs) -> Tensor:
@@ -457,51 +460,54 @@ class TritonSwiGLUOp:
         return self.forward(*args, **kwargs)
 
     @overload
-    def forward(self, gate: Tensor, up: Tensor) -> Tensor:
+    def forward(self, input: Tensor, up: Tensor) -> Tensor:
         """Separate gate/up tensors; return output in the input dtype."""
         ...
 
     @overload
-    def forward(self, gate: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
-        """One packed tensor in ``gate``; its half order must be explicit."""
+    def forward(self, input: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
+        """One packed tensor in ``input``; its half order must be explicit."""
         ...
 
     def forward(
         self,
-        gate: Tensor,
+        input: Tensor,
         up: Tensor | None = None,
         *,
         packed_order: SwiGLUPackedOrder | None = None,
     ) -> Tensor:
         """Compute in FP32, then cast the output to the input dtype.
 
-        ``gate`` is the packed tensor when ``up`` is omitted. Its order must
-        be specified; a packed order is rejected when both inputs are given.
+        ``input`` is the gate when ``up`` is supplied, or the packed tensor
+        otherwise. A single packed input requires an explicit half order;
+        a packed order is rejected when both inputs are given.
         """
         if up is None:
             if packed_order is None:
                 raise ValueError("packed_order is required with a single packed input")
-            _validate_swiglu_packed_input(gate)
-            return _PackedSwiGLUTritonFunction.apply(gate, gate.dtype, packed_order)
+            projected = input
+            _validate_swiglu_packed_input(projected)
+            return _PackedSwiGLUTritonFunction.apply(projected, projected.dtype, packed_order)
 
         if packed_order is not None:
             raise ValueError("packed_order is only valid with a single packed input")
+        gate = input
         _validate_swiglu_separate_inputs(gate, up)
         return _SwiGLUTritonFunction.apply(gate, up)
 
     @overload
-    def forward_fp32(self, gate: Tensor, up: Tensor) -> Tensor:
+    def forward_fp32(self, input: Tensor, up: Tensor) -> Tensor:
         """Separate gate/up tensors; return FP32 output."""
         ...
 
     @overload
-    def forward_fp32(self, gate: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
-        """One packed tensor in ``gate``; return FP32 output."""
+    def forward_fp32(self, input: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
+        """One packed tensor in ``input``; return FP32 output."""
         ...
 
     def forward_fp32(
         self,
-        gate: Tensor,
+        input: Tensor,
         up: Tensor | None = None,
         *,
         packed_order: SwiGLUPackedOrder | None = None,
@@ -514,10 +520,12 @@ class TritonSwiGLUOp:
         if up is None:
             if packed_order is None:
                 raise ValueError("packed_order is required with a single packed input")
-            _validate_swiglu_packed_input(gate)
-            return _PackedSwiGLUTritonFunction.apply(gate, torch.float32, packed_order)
+            projected = input
+            _validate_swiglu_packed_input(projected)
+            return _PackedSwiGLUTritonFunction.apply(projected, torch.float32, packed_order)
 
         if packed_order is not None:
             raise ValueError("packed_order is only valid with a single packed input")
+        gate = input
         _validate_swiglu_separate_inputs(gate, up)
         return _SwiGLUTritonFunction.apply(gate.float(), up.float())

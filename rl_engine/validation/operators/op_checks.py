@@ -200,8 +200,8 @@ def _run_case(
     case: OperatorCase,
     contract: Mapping[str, Any],
 ) -> CaseCheck:
-    candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, case.inputs))
-    gold_outputs = _flatten_tensors(case.gold_fn(**case.inputs))
+    candidate_outputs = _flatten_tensors(_call_operator(candidate.fn, case.inputs))
+    gold_outputs = _flatten_tensors(_call_operator(case.gold_fn, case.inputs))
     return _compare_case_outputs(candidate, case, contract, candidate_outputs, gold_outputs)
 
 
@@ -218,8 +218,8 @@ def _run_case_backward(
 
     candidate_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
     gold_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
-    candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, candidate_inputs))
-    gold_outputs = _flatten_tensors(case.gold_fn(**gold_inputs))
+    candidate_outputs = _flatten_tensors(_call_operator(candidate.fn, candidate_inputs))
+    gold_outputs = _flatten_tensors(_call_operator(case.gold_fn, gold_inputs))
     # Candidate and gold must use the same upstream gradients; otherwise we
     # would compare different vector-Jacobian products.
     # grad_mode="ones" is the old output.sum().backward() smoke path.
@@ -384,11 +384,19 @@ def _compare_case_outputs(
     )
 
 
-# compatibility function or forward
-def _call_candidate(candidate: Callable[..., Any] | Any, inputs: Mapping[str, Any]) -> Any:
-    if hasattr(candidate, "forward") and callable(candidate.forward):
-        return candidate.forward(**inputs)
-    return candidate(**inputs)
+def _call_operator(operator: Callable[..., Any] | Any, inputs: Mapping[str, Any]) -> Any:
+    """Call a validation operator while preserving logical input names.
+
+    SwiGLU reports keep ``gate``/``up`` names for operands and their gradients.
+    Pass these operands positionally because the first public parameter is
+    ``input`` in PyTorch/Triton and ``gate`` in the standalone CUDA/Ascend wrappers.
+    """
+    forward = getattr(operator, "forward", None)
+    if not callable(forward):
+        forward = operator
+    if inputs.keys() == {"gate", "up"}:
+        return forward(inputs["gate"], inputs["up"])
+    return forward(**inputs)
 
 
 def _clone_inputs_for_backward(

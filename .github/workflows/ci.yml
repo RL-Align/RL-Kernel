@@ -84,7 +84,7 @@ jobs:
 
       - name: Run SwiGLU Reference and Benchmark Tests (CPU-only)
         run: |
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+          python -m pytest -q \
             tests/reference/test_swiglu_packed.py \
             tests/benchmarks/test_swiglu_packed_benchmark.py
 

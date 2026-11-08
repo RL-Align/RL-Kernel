@@ -25,8 +25,8 @@ def test_packed_order_matches_formula_and_separate_inputs(dtype, method, order):
     if method == "forward":
         expected = expected.to(dtype)
     fn = getattr(NativeSwiGLUOp(), method)
-    actual = fn(x, packed_order=order)
-    separate = fn(gate=gate, up=up)  # Existing keyword callers remain compatible.
+    actual = fn(input=x, packed_order=order)
+    separate = fn(input=gate, up=up)
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
     torch.testing.assert_close(actual, separate, rtol=0, atol=0)
     upstream = torch.linspace(-1, 1, actual.numel()).reshape_as(actual).to(actual.dtype)

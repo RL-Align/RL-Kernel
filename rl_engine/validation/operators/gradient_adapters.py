@@ -31,6 +31,7 @@ from rl_engine.validation.operators.gradient_invariance import (
     GradientTensorSpec,
     MissingBackwardError,
 )
+from rl_engine.validation.operators.op_checks import _call_operator
 from rl_engine.validation.operators.operator_specs import OP_SPECS, _load_object
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -449,13 +450,6 @@ def _scaled_upstream(
         rows.append(row * (scale / float(active_token_denominator)))
     stacked = torch.stack(rows) if rows else torch.zeros((0, *tail), device=device)
     return stacked.to(dtype)
-
-
-def _call_operator(operator: Any, inputs: Mapping[str, Any]) -> Any:
-    kwargs = dict(inputs)
-    if hasattr(operator, "forward") and callable(operator.forward):
-        return operator.forward(**kwargs)
-    return operator(**kwargs)
 
 
 def _requires_grad_inputs(inputs: Mapping[str, Any], names: Sequence[str]) -> dict[str, Any]:
