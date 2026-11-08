@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Compare packed SwiGLU, a two-input Triton adapter, and eager PyTorch.
+"""Benchmark separate-input SwiGLU and the packed-input extension against PyTorch.
 
 CUDA events measure forward, retained-graph backward, and fresh forward+backward.
 Eager timing includes launch gaps; CUDA Graph replay removes most host dispatch.
@@ -34,6 +34,7 @@ from rl_engine.reference.activation.swiglu import NativeSwiGLUOp  # noqa: E402
 DTYPES = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}
 MODES = ("forward", "backward", "forward_backward")
 PROVIDERS = ("pytorch", "adapter", "packed")
+SEPARATE_PROVIDERS = ("pytorch", "triton")
 METHOD = (
     "CUDA-event per-call latency; median of sample means, then median across randomized "
     "provider rounds. Warm cache, no explicit eviction, no torch.compile. Forward uses "
@@ -53,6 +54,12 @@ def positive_int(value: str) -> int:
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--input-layout",
+        choices=["separate", "packed"],
+        default="packed",
+        help="separate gate/up regression, or packed input with a chunk adapter baseline",
+    )
     parser.add_argument(
         "--rows", nargs="+", type=positive_int, default=[1, 32, 256, 1024, 4096, 16384]
     )
@@ -85,23 +92,34 @@ def parse_args(argv=None):
 
 def case_plan(args):
     cases = len(args.rows) * len(args.dtypes)
+    packed = args.input_layout == "packed"
+    providers = PROVIDERS if packed else SEPARATE_PROVIDERS
     return {
         "case_count": cases,
-        "measurement_count": cases * len(args.timings) * len(MODES) * len(PROVIDERS) * args.rounds,
-        "input_shapes": [[1, rows, 2 * args.width] for rows in args.rows],
-        "packed_order": args.packed_order,
+        "measurement_count": cases * len(args.timings) * len(MODES) * len(providers) * args.rounds,
+        "input_layout": args.input_layout,
+        "input_count": 1 if packed else 2,
+        "input_shapes": [[1, rows, (2 if packed else 1) * args.width] for rows in args.rows],
+        "packed_order": args.packed_order if packed else None,
+        "providers": providers,
     }
 
 
 def assert_bits(actual, expected):
+    if isinstance(actual, tuple) and isinstance(expected, tuple):
+        assert len(actual) == len(expected)
+        for actual_item, expected_item in zip(actual, expected, strict=True):
+            assert_bits(actual_item, expected_item)
+        return
     if (
         actual.shape != expected.shape
         or actual.dtype != expected.dtype
         or not torch.equal(
-            actual.contiguous().view(torch.uint8), expected.contiguous().view(torch.uint8)
+            actual.contiguous().view(torch.uint8),
+            expected.contiguous().view(torch.uint8),
         )
     ):
-        raise AssertionError("packed and shared paths differ in shape, dtype, or bits")
+        raise AssertionError("compared paths differ in shape, dtype, or bits")
 
 
 def check_case(providers, x, upstream, packed_order):
@@ -135,27 +153,59 @@ def check_case(providers, x, upstream, packed_order):
     return errors
 
 
-def make_call(op, x, upstream, mode):
+def check_separate_case(providers, inputs, upstream):
+    """Gate the existing two-input path on train/infer bits and FP32 output/gradients."""
+    actual = providers["triton"](*inputs)
+    gradients = torch.autograd.grad(actual, inputs, upstream)
+    with torch.no_grad():
+        assert_bits(actual, providers["triton"](*inputs))
+    gold_inputs = tuple(value.detach().float().requires_grad_(True) for value in inputs)
+    gold = NativeSwiGLUOp().forward_fp32(*gold_inputs)
+    gold_gradients = torch.autograd.grad(gold, gold_inputs, upstream.float())
+    errors = {}
+    for name, judgment, result, expected in (
+        ("forward", "forward_accuracy", actual, gold),
+        ("gate", "gradient_accuracy", gradients[0], gold_gradients[0]),
+        ("up", "gradient_accuracy", gradients[1], gold_gradients[1]),
+    ):
+        tolerance = resolve_tolerance(
+            load_contract(),
+            judgment=judgment,
+            op_class="elementwise",
+            dtype=inputs[0].dtype,
+        )
+        torch.testing.assert_close(
+            result.float(), expected, rtol=tolerance.rtol, atol=tolerance.atol
+        )
+        errors[name] = {
+            "max_abs_error": (result.float() - expected).abs().max().item(),
+            "atol": tolerance.atol,
+            "rtol": tolerance.rtol,
+        }
+    return errors
+
+
+def make_call(op, inputs, upstream, mode):
     """Build backward state on the same stream used for measurement and capture."""
     if mode == "backward":
-        y = op(x)
-        return lambda: torch.autograd.grad(y, x, upstream, retain_graph=True)[0]
+        y = op(*inputs)
+        return lambda: torch.autograd.grad(y, inputs, upstream, retain_graph=True)
     if mode == "forward_backward":
-        return lambda: torch.autograd.grad(op(x), x, upstream)[0]
+        return lambda: torch.autograd.grad(op(*inputs), inputs, upstream)
 
     def forward():
         with torch.no_grad():
-            return op(x)
+            return op(*inputs)
 
     return forward
 
 
-def measure(op, x, upstream, mode, timing, args):
+def measure(op, inputs, upstream, mode, timing, args):
     """Keep captured autograd state private; measure eager memory after replay timing."""
     stream = torch.cuda.Stream()
     stream.wait_stream(torch.cuda.current_stream())
     with torch.cuda.stream(stream):
-        call = make_call(op, x, upstream, mode)
+        call = make_call(op, inputs, upstream, mode)
         for _ in range(args.warmup):
             call()
         stream.synchronize()
@@ -205,27 +255,29 @@ def write_report(report, folder):
     """Write checkpoints with an explicit completion flag, including failed gates."""
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "results.json").write_text(json.dumps(report, indent=2) + "\n")
+    plan = report["case_plan"]
+    providers = plan["providers"]
     lines = [
-        "# Packed SwiGLU benchmark",
+        f"# SwiGLU benchmark: {plan['input_layout']} inputs",
         "",
         f"GPU: {report.get('hardware', 'not started')}. {METHOD}",
         "",
-        f"Packed order: {report['case_plan']['packed_order']}; "
-        f"input shapes: {report['case_plan']['input_shapes']}.",
+        f"Input count: {plan['input_count']}; packed order: {plan['packed_order']}; "
+        f"shape of each input: {plan['input_shapes']}.",
         "",
         f"Complete: {report['complete']}; {len(report['results'])}/"
         f"{report['case_plan']['measurement_count']} timing-round records.",
         "",
-        "| Dtype | M | Timing | Mode | PyTorch ms | Adapter ms | Packed ms |",
-        "| --- | ---: | --- | --- | ---: | ---: | ---: |",
+        "| Dtype | M | Timing | Mode | " + " | ".join(f"{p} ms" for p in providers) + " |",
+        "| --- | ---: | --- | --- | " + " | ".join("---:" for _ in providers) + " |",
     ]
     groups = {}
     for row in report["results"]:
         key = (row["dtype"], row["rows"], row["timing"], row["mode"])
         groups.setdefault(key, {}).setdefault(row["provider"], []).append(row["median_ms"])
     for key, values in groups.items():
-        if all(len(values.get(p, [])) == report["settings"]["rounds"] for p in PROVIDERS):
-            medians = [f"{statistics.median(values[p]):.6f}" for p in PROVIDERS]
+        if all(len(values.get(p, [])) == report["settings"]["rounds"] for p in providers):
+            medians = [f"{statistics.median(values[p]):.6f}" for p in providers]
             lines.append("| " + " | ".join([*(str(v) for v in key), *medians]) + " |")
     (folder / "report.md").write_text("\n".join(lines) + "\n")
 
@@ -250,11 +302,14 @@ def main(argv=None):
         gate, up = (first, second) if packed_order is SwiGLUPackedOrder.GATE_UP else (second, first)
         return shared(gate, up)
 
-    providers = {
-        "pytorch": partial(NativeSwiGLUOp(), packed_order=packed_order),
-        "adapter": adapter,
-        "packed": partial(shared, packed_order=packed_order),
-    }
+    if args.input_layout == "separate":
+        providers = {"pytorch": NativeSwiGLUOp(), "triton": shared}
+    else:
+        providers = {
+            "pytorch": partial(NativeSwiGLUOp(), packed_order=packed_order),
+            "adapter": adapter,
+            "packed": partial(shared, packed_order=packed_order),
+        }
     sources = [
         Path(__file__),
         ROOT / "rl_engine/backends/shared/triton/activation/swiglu.py",
@@ -284,28 +339,43 @@ def main(argv=None):
         for dtype_name in args.dtypes:
             for rows in args.rows:
                 torch.manual_seed(args.seed)
-                x = torch.randn(
-                    (1, rows, 2 * args.width), device="cuda", dtype=DTYPES[dtype_name]
-                ).requires_grad_(True)
-                upstream = torch.randn((1, rows, args.width), device="cuda", dtype=x.dtype)
+                dtype = DTYPES[dtype_name]
+                input_width = (2 if args.input_layout == "packed" else 1) * args.width
+                inputs = tuple(
+                    torch.randn((1, rows, input_width), device="cuda", dtype=dtype).requires_grad_(
+                        True
+                    )
+                    for _ in range(plan["input_count"])
+                )
+                upstream = torch.randn((1, rows, args.width), device="cuda", dtype=dtype)
                 print(f"Checking {dtype_name} M={rows}, I={args.width}", flush=True)
-                errors = check_case(providers, x, upstream, packed_order)
+                if args.input_layout == "separate":
+                    errors = check_separate_case(providers, inputs, upstream)
+                else:
+                    errors = check_case(providers, inputs[0], upstream, packed_order)
                 report["checks"].append({"dtype": dtype_name, "rows": rows, **errors})
                 for timing in args.timings:
                     for mode in MODES:
                         for round_id in range(args.rounds):
-                            names = list(PROVIDERS)
+                            names = list(providers)
                             rng.shuffle(names)
                             for name in names:
                                 gc.collect()
                                 torch.cuda.synchronize()
                                 torch.cuda.empty_cache()
-                                result = measure(providers[name], x, upstream, mode, timing, args)
+                                result = measure(
+                                    providers[name],
+                                    inputs,
+                                    upstream,
+                                    mode,
+                                    timing,
+                                    args,
+                                )
                                 report["results"].append(
                                     {
                                         "dtype": dtype_name,
                                         "rows": rows,
-                                        "shape": list(x.shape),
+                                        "shape": list(inputs[0].shape),
                                         "timing": timing,
                                         "mode": mode,
                                         "provider": name,
@@ -315,7 +385,7 @@ def main(argv=None):
                                 )
                         write_report(report, args.output_dir)
                         print(f"  {timing}/{mode} done", flush=True)
-                del x, upstream
+                del inputs, upstream
         report["complete"] = len(report["results"]) == plan["measurement_count"]
     except Exception as exc:
         report["error"] = f"{type(exc).__name__}: {exc}"

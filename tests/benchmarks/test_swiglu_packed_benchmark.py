@@ -20,8 +20,36 @@ def test_default_plan_and_cpu_dry_run(capsys):
     assert json.loads(capsys.readouterr().out)["measurement_count"] == 36
 
 
+def test_separate_plan_and_gradient_gate():
+    args = bench.parse_args(["--input-layout", "separate"])
+    plan = bench.case_plan(args)
+    assert plan["measurement_count"] == 648
+    assert plan["input_count"] == 2
+    assert plan["input_shapes"][0] == [1, 1, args.width]
+    assert plan["packed_order"] is None
+    inputs = tuple(torch.ones(1, 2, 4, requires_grad=True) for _ in range(2))
+    upstream = torch.ones_like(inputs[0])
+    reference = NativeSwiGLUOp()
+    providers = {"pytorch": reference, "triton": reference}
+    errors = bench.check_separate_case(providers, inputs, upstream)
+    assert all(check["max_abs_error"] == 0 for check in errors.values())
+    for mode in ("backward", "forward_backward"):
+        gradients = bench.make_call(reference, inputs, upstream, mode)()
+        assert len(gradients) == 2
+        bench.assert_bits(gradients, torch.autograd.grad(reference(*inputs), inputs, upstream))
+    providers["triton"] = lambda gate, up: reference(gate, up) + (up - up.detach())
+    with pytest.raises(AssertionError):
+        bench.check_separate_case(providers, inputs, upstream)
+
+
 @pytest.mark.parametrize(
-    "argv", [["--rows", "0"], ["--width", "-1"], ["--rounds", "0"], ["--dtypes", "bf16", "bf16"]]
+    "argv",
+    [
+        ["--rows", "0"],
+        ["--width", "-1"],
+        ["--rounds", "0"],
+        ["--dtypes", "bf16", "bf16"],
+    ],
 )
 def test_reject_invalid_plan(argv):
     with pytest.raises(SystemExit):

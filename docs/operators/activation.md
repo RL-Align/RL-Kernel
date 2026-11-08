@@ -103,7 +103,8 @@ inspect the argument layout and may select a two-input-only backend.
 | `x` (SiLU) | `[..., N]` | float (fp16/bf16/fp32) | Any shape; last dim arbitrary (Qwen3-8B `I=12288`). |
 | `gate` (SwiGLU) | `[..., I]` | float | `gate_proj` output. |
 | `up` (SwiGLU) | `[..., I]` | float | `up_proj` output; **must share `gate`'s shape, dtype, and device**. |
-| output | same as input | `forward`: input dtype · `forward_fp32`: float32 | Same shape as input. |
+| `input` (packed SwiGLU) | `[..., 2 * I]` | float | Positive, even last dimension; explicit `packed_order`. Native and Triton only. |
+| output | `[..., N]` for SiLU; `[..., I]` for SwiGLU | `forward`: input dtype · `forward_fp32`: float32 | Packed SwiGLU halves the last dimension. |
 
 Element-wise and shape-agnostic: the Qwen3-8B intermediate dim `I=12288` is just one valid
 last-dim size, not a hard requirement. Pure functions — no randomness, no in-place
@@ -222,23 +223,34 @@ input. Packed report names include the full input shape and channel order.
 
 The separate-input Triton path uses a 1-D grid. Packed Triton uses
 `(M, ceil(I / 1024))`, where `M` is the product of leading dimensions; row tails are
-masked. Rows occupy axis 0 to support more than 65535 rows on CUDA. Packed launches
-use the input backend's device context and restore the caller's current device.
+masked. Rows occupy axis 0 to support more than 65535 rows on CUDA. Both separate
+and packed SwiGLU launches use the input backend's device context and restore the
+caller's current device. This includes the separate-input device-guard fix from
+[PR #665](https://github.com/RL-Align/RL-Kernel/pull/665), tracked in issue #664.
+
+These remain standalone WS1 activation paths. Fused bias+SiLU MLP kernels are a
+separate future work item and should continue to validate against this reference.
 
 The benchmark compares eager PyTorch, a `chunk` + two-input Triton adapter, and
-direct packed Triton. Width and packed order are configurable; the default width
-14336 is H3's motivating workload, not an operator constraint.
+direct packed Triton. `--input-layout separate` instead measures the existing
+two-input Triton path against PyTorch, using two independent contiguous tensors.
+Both layouts share the timing and memory measurement code. Width and packed order
+are configurable; the default width 14336 is H3's motivating workload, not an
+operator constraint.
 
 ```bash
 python benchmarks/operators/activation/benchmark_swiglu_packed.py --dry-run
 python benchmarks/operators/activation/benchmark_swiglu_packed.py \
+  --input-layout separate --width 14336 --output-dir reports/swiglu-separate
+python benchmarks/operators/activation/benchmark_swiglu_packed.py \
   --packed-order up_gate --width 14336 --output-dir reports/swiglu-packed
-python tools/benchmarking/plot_swiglu_packed.py reports/swiglu-packed/results.json
 ```
 
 Each case checks packed/separate Triton output and gradient bits, then independent
-FP32 PyTorch accuracy, before timing. CUDA events measure forward, backward and
-forward+backward, both eagerly and through CUDA Graph replay. Forward uses
+FP32 PyTorch accuracy, before timing. Separate-input cases check training/inference
+output bits and independent FP32 accuracy for the output and both input gradients.
+CUDA events measure forward, backward and forward+backward, both eagerly and
+through CUDA Graph replay. Forward uses
 `no_grad`; backward reuses a graph; forward+backward builds a graph per call. Inputs,
 validation, JIT and capture are outside timing. Provider order is randomized across
 rounds; there is no `torch.compile` or explicit cache eviction. JSON records sample
