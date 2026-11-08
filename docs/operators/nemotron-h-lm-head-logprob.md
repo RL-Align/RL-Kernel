@@ -127,6 +127,11 @@ N in {1, 8, 32, 128, 256, 512}, prefill N in {2048, 8192}, training N in
 {2048, 4096, 8192, 16384}. The report includes the provenance dict (contract version,
 det-GEMM backend id, fallback state).
 
+`strict_ms` times the raw strict kernel entries, with the geometry contract validated once
+per shape outside the timed region, so `strict_over_native` reflects kernel cost.
+`strict_api_ms` times the public op entry, which re-validates on every call (including the
+target-id range check, a host sync on CUDA), and reports that overhead separately.
+
 ## Known Limitations
 
 - The forward kernel processes 256 rows per CTA, so small decode batches underuse the

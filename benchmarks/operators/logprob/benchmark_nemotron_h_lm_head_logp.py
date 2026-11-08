@@ -12,6 +12,12 @@ input lookup. Reported phases:
 * training: strict train entry forward and forward+backward vs native;
 * embedding lookup.
 
+``strict_ms`` times the raw strict kernel entries; the geometry contract is
+validated once per shape outside the timed region, so ``strict_over_native``
+compares kernel cost against the native path. ``strict_api_ms`` times the
+public op entry, which re-validates on every call (including the target-id
+range check, one host sync on CUDA), to report that overhead separately.
+
 Usage:
     python benchmarks/operators/logprob/benchmark_nemotron_h_lm_head_logp.py
     python benchmarks/operators/logprob/benchmark_nemotron_h_lm_head_logp.py \
@@ -26,7 +32,10 @@ import json
 import torch
 from tabulate import tabulate
 
-from rl_engine.models.nemotron_h.lm_head_contract import NEMOTRON_H_LM_HEAD_SPEC
+from rl_engine.models.nemotron_h.lm_head_contract import (
+    NEMOTRON_H_LM_HEAD_SPEC,
+    validate_embedding_geometry,
+)
 
 HIDDEN = NEMOTRON_H_LM_HEAD_SPEC.hidden_size
 VOCAB = NEMOTRON_H_LM_HEAD_SPEC.vocab_size
@@ -73,9 +82,12 @@ def _inputs(rows: int):
 
 
 def _rollout_rows(op, weight, sizes, args, phase):
+    from rl_engine.backends.cuda.logprob.linear_logp import sm90_deterministic_linear_logp
+
     rows = []
     for n in sizes:
         hidden, target = _inputs(n)
+        op._prepare(hidden, weight, target, None, None)
 
         def native():
             with torch.no_grad():
@@ -83,16 +95,22 @@ def _rollout_rows(op, weight, sizes, args, phase):
 
         def strict():
             with torch.no_grad():
+                sm90_deterministic_linear_logp(hidden, weight, target, return_logits=True)
+
+        def strict_api():
+            with torch.no_grad():
                 op.logprob_with_logits(hidden, weight, target)
 
         native_ms = _time_ms(native, args.warmup, args.iters)
         strict_ms = _time_ms(strict, args.warmup, args.iters)
+        strict_api_ms = _time_ms(strict_api, args.warmup, args.iters)
         rows.append(
             {
                 "phase": phase,
                 "tokens": n,
                 "native_ms": native_ms,
                 "strict_ms": strict_ms,
+                "strict_api_ms": strict_api_ms,
                 "strict_over_native": strict_ms / native_ms,
                 "strict_tokens_per_s": n / strict_ms * 1e3,
                 "native_peak_mb": _peak_mb(native),
@@ -103,16 +121,25 @@ def _rollout_rows(op, weight, sizes, args, phase):
 
 
 def _train_rows(op, weight, sizes, args):
+    from rl_engine.backends.cuda.logprob.nemotron_h_lm_head_logp import (
+        _NemotronHStrictLMHeadLogpAutograd as strict_autograd,
+    )
+
     rows = []
     for n in sizes:
         hidden, target = _inputs(n)
         grad = torch.randn(n, device="cuda", dtype=torch.float32)
+        op._prepare(hidden, weight, target, None, None)
 
         def native_fwd():
             with torch.no_grad():
                 _native_logp(hidden, weight, target)
 
         def strict_fwd():
+            with torch.no_grad():
+                strict_autograd.apply(hidden, weight, target, None, -1)
+
+        def strict_api_fwd():
             with torch.no_grad():
                 op.logprob(hidden, weight, target)
 
@@ -124,13 +151,14 @@ def _train_rows(op, weight, sizes, args):
         def strict_fwd_bwd():
             h = hidden.detach().requires_grad_(True)
             w = weight.detach().requires_grad_(True)
-            op.logprob(h, w, target)[0].backward(grad)
+            strict_autograd.apply(h, w, target, None, -1)[0].backward(grad)
 
         timings = {
             name: _time_ms(fn, args.warmup, args.iters)
             for name, fn in (
                 ("native_fwd_ms", native_fwd),
                 ("strict_fwd_ms", strict_fwd),
+                ("strict_api_fwd_ms", strict_api_fwd),
                 ("native_fwd_bwd_ms", native_fwd_bwd),
                 ("strict_fwd_bwd_ms", strict_fwd_bwd),
             )
@@ -154,16 +182,21 @@ def _embedding_rows(op, embed_weight, sizes, args):
     rows = []
     for n in sizes:
         ids = torch.randint(0, VOCAB, (n,), device="cuda")
+        validate_embedding_geometry(ids, embed_weight)
         native_ms = _time_ms(
             lambda: torch.nn.functional.embedding(ids, embed_weight), args.warmup, args.iters
         )
-        strict_ms = _time_ms(lambda: op.embed(ids, embed_weight), args.warmup, args.iters)
+        strict_ms = _time_ms(
+            lambda: op._embedding.forward(ids, embed_weight), args.warmup, args.iters
+        )
+        strict_api_ms = _time_ms(lambda: op.embed(ids, embed_weight), args.warmup, args.iters)
         rows.append(
             {
                 "phase": "embedding",
                 "tokens": n,
                 "native_ms": native_ms,
                 "strict_ms": strict_ms,
+                "strict_api_ms": strict_api_ms,
                 "strict_over_native": strict_ms / native_ms,
             }
         )
