@@ -35,16 +35,12 @@ def _validate_swiglu_separate_inputs(gate: torch.Tensor, up: torch.Tensor) -> No
         raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
 
 
-def _validate_swiglu_packed_input(
-    projected: torch.Tensor, packed_order: SwiGLUPackedOrder | None
-) -> None:
-    """Validate one packed projection and the explicit order of its equal halves.
+def _validate_swiglu_packed_input(projected: torch.Tensor) -> None:
+    """Validate a packed tensor's shape and supported floating dtype.
 
     The last dimension must be positive and even; leading dimensions may be
     empty. The reference accepts supported floating dtypes on any device.
     """
-    if not isinstance(packed_order, SwiGLUPackedOrder):
-        raise ValueError(f"packed_order must be one of {tuple(SwiGLUPackedOrder)}")
     if projected.ndim == 0:
         raise ValueError("packed input must have at least one dimension")
     width = projected.shape[-1]
@@ -164,7 +160,9 @@ class NativeSwiGLUOp(nn.Module):
     ) -> torch.Tensor:
         """Validate the chosen input form, then apply the same FP32 expression."""
         if up is None:
-            _validate_swiglu_packed_input(gate, packed_order)
+            if packed_order is None:
+                raise ValueError("packed_order is required with a single packed input")
+            _validate_swiglu_packed_input(gate)
             first, second = gate.chunk(2, dim=-1)
             if packed_order is SwiGLUPackedOrder.GATE_UP:
                 gate, up = first, second

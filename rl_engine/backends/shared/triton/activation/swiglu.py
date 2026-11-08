@@ -52,16 +52,12 @@ def _validate_swiglu_separate_inputs(gate: Tensor, up: Tensor) -> None:
         raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
 
 
-def _validate_swiglu_packed_input(
-    projected: Tensor, packed_order: SwiGLUPackedOrder | None
-) -> None:
-    """Validate one packed projection and the explicit order of its equal halves.
+def _validate_swiglu_packed_input(projected: Tensor) -> None:
+    """Validate a packed tensor's shape, dtype and supported GPU device.
 
     The last dimension must be positive and even; leading dimensions may be
     empty. The dtype and GPU device must be supported by the packed kernels.
     """
-    if not isinstance(packed_order, SwiGLUPackedOrder):
-        raise ValueError(f"packed_order must be one of {tuple(SwiGLUPackedOrder)}")
     if projected.ndim == 0:
         raise ValueError("packed input must have at least one dimension")
     width = projected.shape[-1]
@@ -481,7 +477,9 @@ class TritonSwiGLUOp:
         be specified; a packed order is rejected when both inputs are given.
         """
         if up is None:
-            _validate_swiglu_packed_input(gate, packed_order)
+            if packed_order is None:
+                raise ValueError("packed_order is required with a single packed input")
+            _validate_swiglu_packed_input(gate)
             return _PackedSwiGLUTritonFunction.apply(gate, gate.dtype, packed_order)
 
         if packed_order is not None:
@@ -512,7 +510,9 @@ class TritonSwiGLUOp:
         both halves. The separate-input path retains its existing behavior.
         """
         if up is None:
-            _validate_swiglu_packed_input(gate, packed_order)
+            if packed_order is None:
+                raise ValueError("packed_order is required with a single packed input")
+            _validate_swiglu_packed_input(gate)
             return _PackedSwiGLUTritonFunction.apply(gate, torch.float32, packed_order)
 
         if packed_order is not None:

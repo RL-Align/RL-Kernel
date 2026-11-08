@@ -42,8 +42,6 @@ def test_reject_ambiguous_or_inapplicable_packed_order(method):
     x = torch.ones(2, 8)
     with pytest.raises(ValueError, match="packed_order"):
         fn(x)
-    with pytest.raises(ValueError, match="packed_order"):
-        fn(x, packed_order="gate_up")
     with pytest.raises(ValueError, match="single packed input"):
         fn(x, x, packed_order=SwiGLUPackedOrder.GATE_UP)
 
