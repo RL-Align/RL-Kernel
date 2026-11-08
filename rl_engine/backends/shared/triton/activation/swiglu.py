@@ -60,9 +60,11 @@ def _validate_swiglu_packed_input(projected: Tensor) -> None:
     """
     if projected.ndim == 0:
         raise ValueError("packed input must have at least one dimension")
-    width = projected.shape[-1]
-    if width == 0 or width % 2:
-        raise ValueError(f"packed input must have a positive, even last dimension, got {width}")
+    packed_width = projected.shape[-1]
+    if packed_width == 0 or packed_width % 2:
+        raise ValueError(
+            f"packed input must have a positive, even last dimension, got {packed_width}"
+        )
     _validate_dtype(projected, "packed input")
     if projected.device.type not in _SUPPORTED_DEVICES:
         raise RuntimeError(
