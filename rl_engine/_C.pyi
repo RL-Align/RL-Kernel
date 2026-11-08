@@ -121,7 +121,14 @@ def fused_linear_logp_sm90_strict_dlogits(
     temperature: torch.Tensor | None = None,
     vocab_start_index: int = 0,
     real_vocab_size: int = -1,
-) -> torch.Tensor: ...
+) -> torch.Tensor:
+    """Strict bf16 dlogits for one LM-head vocab slice.
+
+    Bias-free: ``lse`` must come from a ``fused_linear_logp_sm90`` forward run
+    with ``bias=None``; a biased forward yields silently wrong dlogits.
+    """
+    ...
+
 def embedding_sm90_forward(token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor: ...
 def embedding_sm90_forward_fp32(token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor: ...
 def lm_head_sm90_forward(

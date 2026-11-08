@@ -7,7 +7,9 @@ N_SPLIT=64, IEEE expf). The backward contract added here is:
 
 * dlogits are produced by ``_C.fused_linear_logp_sm90_strict_dlogits``, which
   recomputes the forward kernel's own FP32 logits and applies IEEE ``expf``,
-  the forward temperature rounding points, and one BF16 cast;
+  the forward temperature rounding points, and one BF16 cast. It is
+  bias-free, so the forward always runs with ``bias=None`` (the geometry
+  contract rejects any LM-head bias);
 * ``grad_hidden = dlogits @ W`` and ``grad_weight = dlogits^T @ hidden`` run
   through the strict deterministic GEMM (no split-K, FP32 accumulation, one
   cast in the GEMM epilogue);
@@ -219,7 +221,13 @@ class _NemotronHStrictLMHeadLogpAutograd(torch.autograd.Function):
         weight = weight.contiguous()
         target_1d = target_ids.reshape(-1).to(device=hidden.device, dtype=torch.long).contiguous()
         logp, lse = _C.fused_linear_logp_sm90(
-            hidden_2d, weight, target_1d, None, temperature, False, int(real_vocab_size)
+            hidden_2d,
+            weight,
+            target_1d,
+            None,  # bias: the strict dlogits contract is bias-free
+            temperature,
+            False,
+            int(real_vocab_size),
         )
         ctx.save_for_backward(
             hidden_2d,

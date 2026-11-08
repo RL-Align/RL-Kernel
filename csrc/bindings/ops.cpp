@@ -554,7 +554,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Build bf16 dlogits from bf16 logits and fp32 lse");
     m.def("fused_linear_logp_sm90_strict_dlogits", &fused_linear_logp_sm90_strict_dlogits,
           "Strict-contract bf16 dlogits for one LM-head vocab slice, recomputing the "
-          "forward kernel's fp32 logits (IEEE expf, single cast), SM90",
+          "forward kernel's fp32 logits (IEEE expf, single cast), SM90. Bias-free: lse must "
+          "come from a bias=None fused_linear_logp_sm90 forward",
           py::arg("hidden"), py::arg("weight"), py::arg("target"), py::arg("grad_logp"),
           py::arg("lse"), py::arg("temperature") = py::none(), py::arg("vocab_start_index") = 0,
           py::arg("real_vocab_size") = -1);

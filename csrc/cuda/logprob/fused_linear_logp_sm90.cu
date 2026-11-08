@@ -2608,6 +2608,12 @@ std::vector<torch::Tensor> fused_linear_logp_sm90_backward(torch::Tensor grad_lo
 // p = exp(z - lse) and z is the forward kernel's own FP32 logit (same MMA
 // tiling and K-slab order), scaled by 1/T at the same rounding point. The only
 // cast is the final BF16 store. No reduction crosses rows or columns.
+//
+// Bias-free contract: z carries no bias term, so `lse` must come from a
+// fused_linear_logp_sm90 forward run with bias=None. An lse produced from
+// bias-shifted logits yields silently wrong dlogits. There is deliberately no
+// bias parameter: the strict Nemotron-H LM head has none, and the Python
+// contract (validate_lm_head_logprob_geometry) rejects a bias fail-closed.
 torch::Tensor fused_linear_logp_sm90_strict_dlogits(torch::Tensor hidden,
                                                     torch::Tensor weight,
                                                     torch::Tensor target,
