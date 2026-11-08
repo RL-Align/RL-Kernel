@@ -1,0 +1,256 @@
+{
+  "date": "2026-10-29",
+  "coverage": {
+    "covered_lines": 311,
+    "num_statements": 316,
+    "percent_covered": 97.6063829787234,
+    "percent_covered_display": "98",
+    "missing_lines": 5,
+    "excluded_lines": 0,
+    "percent_statements_covered": 98.41772151898734,
+    "percent_statements_covered_display": "98",
+    "num_branches": 60,
+    "num_partial_branches": 4,
+    "covered_branches": 56,
+    "missing_branches": 4,
+    "percent_branches_covered": 93.33333333333333,
+    "percent_branches_covered_display": "93"
+  },
+  "tested_sources": {
+    "benchmarks/benchmark_o_projection.py": "f25ca7ddee0b2928c1443f74ff4f8fa9cceea3a05925fbb2db70376d313c02a3",
+    "rl_engine/backends/rocm/gemm/o_projection.py": "cadf5b83aff9877d7872bde4d8224c63fcaa43579f615994a9e261fc43e4a204",
+    "rl_engine/contracts/operators/o_projection.py": "2a08d00fa9c921bd3c1d9fd070f2d0dcae27b6292e49fc8389f8dabd75e58fea",
+    "rl_engine/integrations/common/o_projection.py": "9798f850caac22f86f8827f705de41f4d9c8bb5fad8cb546b1f8f6c073c76a75",
+    "rl_engine/integrations/engines/rollout/vllm/o_projection.py": "e9e0189c11327afa92fd9e5c42c4d6300e3ddbcf66b465bcce072e9822745c12",
+    "rl_engine/integrations/engines/train/megatron/o_projection.py": "48ecebf51dc54ca5e2b328208a7078f8ea372a38d16155f95d31bb5f6b869a45",
+    "rl_engine/models/deepseek_v4/o_projection.py": "7c2ede08e2fd8654f3dcec71caae560d26ac655366c867a0c7a3a1c0f0207233",
+    "tests/models/deepseek_v4/o_projection_helpers.py": "e4db98f7f61dc51b6dc95aea9dac690e015a277ecb191d16ba0ba8e8028f2b65",
+    "tests/models/deepseek_v4/test_o_projection.py": "c94e75d58f52853a17f91bab7a13d42a67025beb745fdfb6a4159ebe1b95effd",
+    "tests/models/deepseek_v4/test_o_projection_rocm.py": "9641c1ae38bfca4257d661128f49a4fe42a7c42d6429d6987276863ef9a734ce"
+  },
+  "benchmark": {
+    "records": [
+      {
+        "rows": 1,
+        "heads": 16,
+        "head_dim": 128,
+        "rank": 128,
+        "hidden": 128,
+        "timings": {
+          "inverse_rope": {
+            "event_us": 12.669825553894043,
+            "wall_us": 12.751200119964778
+          },
+          "grouped_a": {
+            "event_us": 38.91757428646088,
+            "wall_us": 43.80149985081516
+          },
+          "b": {
+            "event_us": 59.20077562332153,
+            "wall_us": 53.26069986040238
+          },
+          "full_bound_operator": {
+            "event_us": 277.7442216873169,
+            "wall_us": 271.5595248446334
+          }
+        },
+        "implementation": "fa9831d5b20c4b480a926bb0e8d6d74ac1e3d3d801bcb7527905b9f010ff2196"
+      },
+      {
+        "rows": 32,
+        "heads": 16,
+        "head_dim": 128,
+        "rank": 128,
+        "hidden": 128,
+        "timings": {
+          "inverse_rope": {
+            "event_us": 12.926425039768219,
+            "wall_us": 12.146099834353663
+          },
+          "grouped_a": {
+            "event_us": 34.3251496553421,
+            "wall_us": 34.4331499945838
+          },
+          "b": {
+            "event_us": 58.17442536354065,
+            "wall_us": 53.114975162316114
+          },
+          "full_bound_operator": {
+            "event_us": 289.49501514434814,
+            "wall_us": 289.7182250308106
+          }
+        },
+        "implementation": "fa9831d5b20c4b480a926bb0e8d6d74ac1e3d3d801bcb7527905b9f010ff2196"
+      },
+      {
+        "rows": 256,
+        "heads": 16,
+        "head_dim": 128,
+        "rank": 128,
+        "hidden": 128,
+        "timings": {
+          "inverse_rope": {
+            "event_us": 12.606699764728546,
+            "wall_us": 12.053074897266924
+          },
+          "grouped_a": {
+            "event_us": 33.789923787117004,
+            "wall_us": 34.561400025268085
+          },
+          "b": {
+            "event_us": 52.88737416267395,
+            "wall_us": 53.24550002114847
+          },
+          "full_bound_operator": {
+            "event_us": 289.42487239837646,
+            "wall_us": 289.6274500017171
+          }
+        },
+        "implementation": "fa9831d5b20c4b480a926bb0e8d6d74ac1e3d3d801bcb7527905b9f010ff2196"
+      },
+      {
+        "rows": 1,
+        "heads": 64,
+        "head_dim": 512,
+        "rank": 1024,
+        "hidden": 4096,
+        "timings": {
+          "inverse_rope": {
+            "event_us": 124.64975118637085,
+            "wall_us": 124.88987485994585
+          },
+          "grouped_a": {
+            "event_us": 48.90132546424866,
+            "wall_us": 48.95092497463338
+          },
+          "b": {
+            "event_us": 115.28542041778564,
+            "wall_us": 116.70669991872273
+          },
+          "full_bound_operator": {
+            "event_us": 371.27113342285156,
+            "wall_us": 371.4409000167507
+          }
+        },
+        "implementation": "930fb02a9b77f128e5025e998086939181783fc39adc5da49a35a8e18275372a"
+      },
+      {
+        "rows": 32,
+        "heads": 64,
+        "head_dim": 512,
+        "rank": 1024,
+        "hidden": 4096,
+        "timings": {
+          "inverse_rope": {
+            "event_us": 144.4788694381714,
+            "wall_us": 144.20474999496946
+          },
+          "grouped_a": {
+            "event_us": 52.944523096084595,
+            "wall_us": 52.95167484291596
+          },
+          "b": {
+            "event_us": 123.92810583114624,
+            "wall_us": 124.7054000486969
+          },
+          "full_bound_operator": {
+            "event_us": 404.564905166626,
+            "wall_us": 404.9636250783806
+          }
+        },
+        "implementation": "930fb02a9b77f128e5025e998086939181783fc39adc5da49a35a8e18275372a"
+      },
+      {
+        "rows": 256,
+        "heads": 64,
+        "head_dim": 512,
+        "rank": 1024,
+        "hidden": 4096,
+        "timings": {
+          "inverse_rope": {
+            "event_us": 149.89922046661377,
+            "wall_us": 150.2652501585544
+          },
+          "grouped_a": {
+            "event_us": 63.67095112800598,
+            "wall_us": 65.007250123017
+          },
+          "b": {
+            "event_us": 189.5604968070984,
+            "wall_us": 189.34717500087572
+          },
+          "full_bound_operator": {
+            "event_us": 494.2521095275879,
+            "wall_us": 495.48355000297306
+          }
+        },
+        "implementation": "930fb02a9b77f128e5025e998086939181783fc39adc5da49a35a8e18275372a"
+      }
+    ],
+    "provider": {
+      "backend": "aiter.o_projection.fixed_grouped.v1",
+      "arch": "gfx942",
+      "torch": "2.11.0+gitd0c8b1f",
+      "hip": "7.2.53211",
+      "triton": "3.6.0",
+      "adapter_source_sha256": "85bf473ba85c6be634dd074b2962cd511656310c054d852a578a88e4824c33d4",
+      "sources": {
+        "aiter.ops.triton.gemm.basic.gemm_a16w16": "b23ed4569fd459d6a29a1212de09f57d4339634d630607c70a2726211b233ec6",
+        "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a16w16": "d9ec86004658dfbc6aa806fd7ca2c1f422521831187ac7d6b9163f1bbbb312be",
+        "aiter.ops.triton.gemm.basic.gemm_a8w8_blockscale": "c19c70d7e4b9d76263901963c202a4a1495f797882c8dec4955335dcde5913e7",
+        "aiter.ops.triton._triton_kernels.gemm.basic.gemm_a8w8_blockscale": "32162c3f42dbd4691cfef2d1e05f1648f7512014727719072c6fa47a21722378",
+        "vllm.model_executor.layers.quantization.utils.fp8_utils": "1e6929526140090b30ed20a90b0406e33aa5afbe240dc470bc7e0f6f177d51d5",
+        "vllm.model_executor.layers.quantization.utils.w8a8_utils": "4964277566e9bb2f551d642eaf23073517cbf733ee86f9720b5488c17b2bb5d2",
+        "aiter.ops.rope": "e282cddb8ff3e069e70cf930846425d4b1cd7883549f0f361c826270dc5ae556",
+        "aiter.ops.triton.gemm.batched.batched_gemm_bf16": "d535ddeefc7286e6ef5aea014fad173057d51d012b089b00cb0819d3ad98a374",
+        "aiter.ops.triton._triton_kernels.gemm.batched.batched_gemm_bf16": "dc3665d3211b2943d40459fc852c942ebb10ebb6f5a71bee046a4dbba4aad1d8",
+        "aiter.jit.module_rope_1c_cached_bwd": "036419be8e76594860868070fe99080f87f5942e779e39ec852d0e356ca4108b",
+        "aiter.jit.module_rope_1c_cached_fwd": "90d02de59a9d978ac62ce35747fbc8cfb883e09bf3ff093dc62ccac99878d0d4"
+      },
+      "grouped_config": [
+        [
+          "BLOCK_SIZE_M",
+          32
+        ],
+        [
+          "BLOCK_SIZE_N",
+          128
+        ],
+        [
+          "BLOCK_SIZE_K",
+          64
+        ],
+        [
+          "GROUP_SIZE_M",
+          1
+        ],
+        [
+          "num_warps",
+          4
+        ],
+        [
+          "num_stages",
+          2
+        ],
+        [
+          "matrix_instr_nonkdim",
+          16
+        ],
+        [
+          "kpack",
+          1
+        ]
+      ],
+      "o_projection_adapter_sha256": "cadf5b83aff9877d7872bde4d8224c63fcaa43579f615994a9e261fc43e4a204"
+    }
+  },
+  "tests": {
+    "repeat_passed": 316,
+    "skipped": 0,
+    "new_cpu": 63,
+    "new_rocm": 47,
+    "passed": 316
+  },
+  "main": "8588158650aff58c9c1f527674de94bad06c3d10",
+  "prerequisite": "f9c8b27d78b620e3a29c9125f108af631bd63699"
+}
