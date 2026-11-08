@@ -18,11 +18,15 @@ class ReferenceScoreBackend:
         return (a * b).sum(-1)
 
 
-def score_fp64(icv, weights, contract):
+def head_partials_fp64(icv, weights, contract):
     """Math order is irrelevant here; only the result is compared, within a bound."""
     relu = torch.relu(icv.cpu().double()) * contract.softmax_scale
     w = weights.cpu().double() * contract.head_scale
-    return (relu * w[:, :, None]).sum(1)
+    return relu * w[:, :, None]
+
+
+def score_fp64(icv, weights, contract):
+    return head_partials_fp64(icv, weights, contract).sum(1)
 
 
 def vjp_fp64(icv, weights, grad, contract):

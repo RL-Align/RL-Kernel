@@ -1,6 +1,7 @@
 # DSV4 items 10/14: Indexer scale and ReLU head sum — MI355X validation
 
-Validation date: 2026-11-01 (Asia/Shanghai).
+Validation date: 2026-11-01 (Asia/Shanghai); tests re-run 2026-11-08 after
+adding per-head partials.
 
 ## Baseline
 
@@ -30,8 +31,8 @@ backward record guard and the implementation fingerprint.
 |Suite|Result|
 |---|---:|
 |CPU contract/oracle/guard tests (`test_indexer_score.py`)|23 passed|
-|Actual-library MI355X tests (`test_indexer_score_rocm.py`)|15 passed|
-|Total|38 passed, 0 failures/errors/skips|
+|Actual-library MI355X tests (`test_indexer_score_rocm.py`)|16 passed|
+|Total|39 passed, 0 failures/errors/skips|
 
 Ruff check and format passed. GPU tests used one visible MI355X (GPU 0).
 The single warning is PyTorch reporting the intentionally empty Graph in the
@@ -41,6 +42,9 @@ GPU tests include:
 
 - H=64/D=128 forward against FP64 at (M,N) = (1,1), (7,129), (64,2048), (256,4096).
 - Byte equality with the #631 aux-loss composition.
+- Per-head partials against FP64 and batch invariant. Re-summing them matches
+  `scores` within 1.2e-7 absolute, not byte for byte, because the head-sum
+  kernel fuses each product into its accumulation.
 - Bytes independent of batch composition, key count, non-contiguous ICV and
   repeated calls.
 - Backward against FP64 and batch-invariant; zero gradient at ReLU zero.
@@ -100,7 +104,6 @@ Usage is documented in `docs/models/deepseek_v4/indexer-score.md`.
 - MI300X/gfx942 is not validated and is rejected.
 - aiter gfx950 FP4 fused score (`pa_mqa_logits_fp4`) uses a different scale
   order and was not compared.
-- Per-head partial scores are not returned.
 - Causal mask, invalid rows, Top-K, cross-TP merge, Graph, multi-GPU and the
   full rollout/training chain.
 - Real #599 ICV on MI355X (blocked by #599's gfx942-only gate).

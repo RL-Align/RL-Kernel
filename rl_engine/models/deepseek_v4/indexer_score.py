@@ -34,6 +34,11 @@ class IndexerScoreRecord:
             "saved Indexer score inputs changed after forward",
         )
 
+    def head_partials(self):
+        """Per-head terms [M, local_heads, N] before the head sum."""
+        self.validate()
+        return self.relu * self.scaled_weights[:, :, None]
+
 
 class IndexerScore:
     def __init__(self, contract, *, backend=None, expected_implementation=None):
@@ -87,8 +92,8 @@ class IndexerScore:
         require(
             tuple(weights.shape) == tuple(icv.shape[:2]), "weights must be [queries, local_heads]"
         )
-        relu = torch.relu(icv.detach() * c.softmax_scale)
-        weighted = weights.detach() * c.head_scale
+        relu = torch.relu(icv * c.softmax_scale)
+        weighted = weights * c.head_scale
         scores = self.backend.row_dot(
             relu.transpose(1, 2).contiguous(),
             weighted[:, None, :].expand(-1, icv.shape[2], -1),
@@ -118,7 +123,7 @@ class IndexerScore:
         require(
             grad_scores.shape[1] <= c.max_backward_keys, "backward key rows exceed the contract"
         )
-        grad = grad_scores.detach()[:, None, :]
+        grad = grad_scores[:, None, :]
         d_weights = self.backend.row_dot(record.relu, grad.expand_as(record.relu)) * c.head_scale
         d_icv = grad * record.scaled_weights[:, :, None]
         d_icv = torch.where(record.relu > 0, d_icv * c.softmax_scale, 0.0)

@@ -13,6 +13,7 @@ from rl_engine.integrations.engines.train.megatron.indexer_score import (
 from rl_engine.models.deepseek_v4.indexer_score import IndexerScore
 from tests.models.deepseek_v4.score_helpers import (
     ReferenceScoreBackend,
+    head_partials_fp64,
     normalized_error,
     score_fp64,
     vjp_fp64,
@@ -82,6 +83,11 @@ def test_forward_matches_fp64_and_keeps_intermediates():
     assert normalized_error(record.scores, score_fp64(icv, w, op.contract)) < 1e-6
     assert torch.equal(record.relu, torch.relu(icv * 16**-0.5))
     assert torch.equal(record.scaled_weights, w * 8**-0.5)
+    partials = record.head_partials()
+    assert partials.shape == (5, 8, 13)
+    expected = head_partials_fp64(icv, w, op.contract)
+    assert normalized_error(partials.flatten(1), expected.flatten(1)) < 1e-6
+    torch.testing.assert_close(partials.sum(1), record.scores)
 
 
 def test_tp_shard_uses_global_head_scale():
@@ -141,6 +147,8 @@ def test_backward_rejects_mutation_foreign_records_and_wide_keys():
     record.relu.add_(1)
     with pytest.raises(IndexerScoreError, match="changed after forward"):
         op.backward(record, torch.zeros(2, 4))
+    with pytest.raises(IndexerScoreError, match="changed after forward"):
+        record.head_partials()
     wide = op.forward(*inputs(2, 4, 5))
     with pytest.raises(IndexerScoreError, match="exceed the contract"):
         op.backward(wide, torch.zeros(2, 5))

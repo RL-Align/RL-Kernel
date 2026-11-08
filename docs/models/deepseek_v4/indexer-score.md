@@ -79,6 +79,20 @@ value that underflows to zero after scaling also gets a zero gradient. The
 record keeps `relu` and `scaled_weights`; it checks tensor versions, pointers
 and the producing implementation before use.
 
+## Intermediate outputs
+
+|Stage|Shape|Source|
+|---|---|---|
+|Scaled ReLU ICV|`[M,H,N]`|`record.relu`|
+|Scaled head weights|`[M,H]`|`record.scaled_weights`|
+|Per-head partial scores|`[M,H,N]`|`record.head_partials()`|
+|Summed score|`[M,N]`|`record.scores`|
+
+`head_partials()` is `relu * scaled_weights[:, :, None]`, materialized on
+request. It is batch invariant. The head-sum kernel fuses each product into its
+accumulation, so re-summing the rounded partials matches `scores` only within
+rounding (max 1.2e-7 absolute in the MI355X test), not byte for byte.
+
 ## Integration
 
 ```python
@@ -109,7 +123,7 @@ python benchmarks/benchmark_indexer_score.py --repeats 30 --output benchmark.jso
 
 GPU tests run the actual aiter kernel and check:
 
-1. Forward and backward against an FP64 reference at H=64, D=128.
+1. Forward, per-head partials and backward against an FP64 reference at H=64, D=128.
 2. Byte equality with #631's composition.
 3. Batch invariance: bytes do not change with batch composition, key count,
    non-contiguous input, repeated calls, or two fresh processes with distinct
@@ -121,8 +135,6 @@ GPU tests run the actual aiter kernel and check:
 
 - aiter `pa_mqa_logits_fp4` (gfx950 fused FP4 score) applies scales in a
   different order and was not evaluated against this contract.
-- Per-head partial scores are not returned; only the summed score and the
-  backward record.
 - Causal mask, invalid query/key rows, Top-K and cross-TP-shard merge.
 - CUDA Graph, multi-GPU runs and a full rollout/training chain.
 

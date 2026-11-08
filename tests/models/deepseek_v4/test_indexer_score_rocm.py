@@ -16,6 +16,7 @@ from rl_engine.contracts.operators.indexer_score import IndexerScoreContract, In
 from rl_engine.models.deepseek_v4.indexer_score import IndexerScore
 from tests.models.deepseek_v4.score_helpers import (
     byte_equal,
+    head_partials_fp64,
     normalized_error,
     score_fp64,
     vjp_fp64,
@@ -61,6 +62,16 @@ def test_bytes_match_pr631_composition(op, backend):
         relu.transpose(1, 2).contiguous(), weighted[:, None, :].expand(-1, icv.shape[2], -1)
     )
     byte_equal(op.forward(icv, w).scores, expected)
+
+
+def test_head_partials_match_fp64_and_are_batch_invariant(op):
+    icv, w = inputs(9, 333, seed=9)
+    record = op.forward(icv, w)
+    partials = record.head_partials()
+    expected = head_partials_fp64(icv, w, op.contract)
+    assert normalized_error(partials.flatten(1), expected.flatten(1)) < 1e-6
+    torch.testing.assert_close(partials.sum(1), record.scores, rtol=1e-5, atol=1e-5)
+    byte_equal(op.forward(icv[3:5], w[3:5]).head_partials(), partials[3:5])
 
 
 def test_batch_composition_and_key_count_do_not_change_bytes(op):
