@@ -14,14 +14,14 @@ that vLLM #54955 has already validated end to end, borrow kernel bodies wherever
 (FlashMLA sparse, DeepGEMM, the DeepEP fork, our own P1/P5/det_gemm), and have RL-Kernel
 supply only what decides the reduction order: contracts, stable top-k, per-request
 chunking, and test oracles. Get every component batch-invariant (BI) and aligned end to end
-first, then come back for the known performance debt (shared-expert K-tree).
+first, then come back for any operator that misses the performance gate.
 
 ## 1. Current state
 
 | Package | Contents | Status | Disposition in this plan |
 |---|---|---|---|
 | P1 | mHC + RMSNorm + fp32_gemm_rms | Done (unfused canonical) | Keep as is |
-| P5 | MXFP8 act quant, MXFP4 routed-expert SM90 fused MLP (`sm90_fused_moe_mlp.cu`), LoRA delta, shared expert, clamp SwiGLU | Done | **Keep as is for now.** The routed-expert kernel is optimized and BI; shared expert runs the det_gemm K-tree, a known performance debt handled in Phase 5 |
+| P5 | MXFP8 act quant, MXFP4 routed-expert SM90 fused MLP (`sm90_fused_moe_mlp.cu`), LoRA delta, shared expert, clamp SwiGLU | Done | Routed-expert kernel: keep (optimized and BI). Shared expert: move from the det_gemm K-tree to DeepGEMM FP8 (D2, Phase 3) |
 | P3 | Router: gate GEMM, stable_topk6, routing weights, RoutePlan | Early T01 + T05 were merged but carry almost no usable progress; no `rl_engine/p3` on this branch; T08 (#639) draft | **Redo** on this branch: gate / stable top-k / weights / combine-plan |
 | P2 | Compressed attention: KV compressor C4/C128, FP4 index, paged cache | T01 start kit only | **Critical path**, T02-T07 all open |
 | P6 | Fixed-order MoE combine | T01 + T05 fwd (#462) | T06 + multi-rank |
@@ -49,11 +49,15 @@ comparator carried through local and global selection; track it as a separate is
 
 - Routed experts: `csrc/cuda/moe/sm90_fused_moe_mlp.cu` (MXFP8 x MXFP4 fused MLP, FP8
   WGMMA + TMA, built with `KERNEL_ALIGN_MOE_SM90=1`; optimized and BI). Not switching to
-  DeepGEMM.
-- Shared expert: currently `p5-det-gemm-v1` (det_gemm mid-split K-tree). Its performance
-  gap is significant, but we keep it for now. Phase 5 picks one of: (a) fold the shared
-  expert into the routed kernel as one fixed group, or (b) move it onto the routed kernel's
-  serial profile. Other components come first.
+  DeepGEMM: the checkpoint's routed experts are FP4, and DeepGEMM accepts FP4 operands only
+  on SM100 (`check_ab_fp8_fp4` asserts `arch_major == 10`). Its Mega MoE is SM100-only too,
+  and assigns token slots with `atomicAdd`.
+- Shared expert: moves from `p5-det-gemm-v1` (det_gemm mid-split K-tree, BF16, well above
+  the D7 gate) to DeepGEMM `fp8_gemm_nt`. The checkpoint stores the shared expert as FP8
+  with 128x128 weight blocks, the vLLM fork runs it through DeepGEMM, and the Phase 1 probe
+  found its `gate_up` / `down` shapes batch-invariant at 0.6-0.93x of eager BF16. This
+  also matches the rollout's FP8 arithmetic. The SwiGLU between the two GEMMs stays ours.
+  The shared expert gets a new numeric profile, so its P5 tests and golden bytes change.
 - det_gemm's TP-equivalence property (a contiguous half-K shard is one child of the tree) is
   not needed under the D1 layout, so giving it up costs nothing.
 
@@ -71,6 +75,30 @@ DeepGEMM:
 3. If that is still not enough: take `zhuzilin/DeepGEMM@batch_invariant` directly, with a
    capability probe that fails closed when the installed build does not support the
    contract (the same pattern vLLM uses).
+
+**Outcome (2026-11-09): step 1 passes; steps 2 and 3 are not needed.** Dense FP8 uses
+unmodified DeepGEMM pinned to `vllm-project/DeepGEMM@e21c821f` (the vLLM fork's pin), with
+the default `compiled_dims="nk"` and FP32 UE8M0-valued scales. On an H200 with CUDA 12.8,
+`scripts/probe_dsv4_deepgemm_bi.py` found every check byte-identical over 3 seeds
+(`docs/validation/dsv4-deepgemm-bi-2026-11-09.json`):
+
+- Dense `fp8_gemm_nt` at all seven DSv4 shapes (`fused_wqa_wkv`, `wq_b`, `wo_a` per group,
+  `wo_b`, indexer `wq_b`, shared-expert `gate_up` / `down`): rows of an M=4096 batch equal
+  the same rows at M in {1, 3, 8, 64, 129, 256, 1000}, alone at seven row offsets, in a
+  mid-batch window, and on a second run.
+- Grouped GEMM at the `wo_a` shape (8 groups): token outputs do not change when other
+  groups gain tokens, between the contiguous and masked layouts, or with the masked
+  `expected_m` hint (1, mean, max), and they equal per-group dense `fp8_gemm_nt`.
+- A negative control (eager BF16 cuBLAS) differs with M on 4 of 7 shapes, so the
+  comparisons do detect variance. This also backs D4.
+- Performance (CUDA-graph replay, scales already in DeepGEMM's TMA-aligned layout):
+  0.43-1.09x of eager BF16 cuBLAS on the same shapes, within D7. Converting the scale
+  layout per call adds about 1.5 us at small M, so the activation-quant kernel should emit
+  that layout directly.
+
+Limits: the result holds for this commit, this toolkit (CUDA 12.8; DeepGEMM recommends
+12.9 for speed) and the default SM count (132). Re-run the probe when any of them changes,
+and extend it if prefill batches exceed M=4096.
 
 The verl training side must call the same kernel as rollout; otherwise we get BI without
 train/inference parity. slime #2262's patch-set approach is the reference for patching the
@@ -102,9 +130,9 @@ development fixture under `tests/`, with the artifact explicitly labelled
 Each operator must stay within 1.3x of the non-invariant path to merge; anything above goes
 on the Phase 5 list. The non-invariant path is the naive PyTorch implementation of the same
 operator, or another efficient kernel for it that is not batch-invariant (for example cuBLAS
-or DeepGEMM with default heuristics), measured on the same shapes. The P5 shared expert is a
-known exception: it is above the gate today and stays merged while it is optimized in
-Phase 5. BI does not mean giving up tensor cores: pinned tiles, no split-K, and
+or DeepGEMM with default heuristics), measured on the same shapes. The det_gemm P5 shared
+expert is above the gate today and stays merged until its DeepGEMM replacement lands
+(Phase 3). BI does not mean giving up tensor cores: pinned tiles, no split-K, and
 `allow_tf32=False` are sufficient (demonstrated in P5-3).
 
 ## 3. Pinning rules adopted from vLLM #54955 (to be written into the execution profile)
@@ -131,7 +159,8 @@ Phase 5. BI does not mean giving up tensor cores: pinned tiles, no split-K, and
 | Indexer top-k | Design of vLLM `csrc/ds4_bi_topk_extension.cu` | Own implementation; comparator semantics shared with `stable_topk6` (to be written in the P3 redo) |
 | Indexer logits (FP4/FP8 MQA scoring) | DeepGEMM `fp8_mqa_logits` / FP4 indexer | Verify head-sum and K reduction do not depend on M; fall back to own kernel if not |
 | Dense FP8 GEMM | DeepGEMM (D3 three-step) | Sweep plus possible heuristic patch |
-| Routed / shared expert, act quant, SwiGLU, LoRA | Own P5 (routed: `sm90_fused_moe_mlp.cu`) | Unchanged (shared expert goes to Phase 5) |
+| Routed expert, MX act quant, SwiGLU, LoRA | Own P5 (routed: `sm90_fused_moe_mlp.cu`) | Unchanged |
+| Shared expert GEMMs | DeepGEMM `fp8_gemm_nt` (D2, D3) | Provider with a new numeric profile; SwiGLU stays ours |
 | EP dispatch/combine | `zhuzilin/DeepEP@align_fp8_quantization` | P4 adapter + route-metadata capture + fixed-capacity staging |
 | Router gate | det_gemm FP32 output (`det_gemm_fwd_fp32`) | Wire into the redone P3 provider |
 | mHC / RMSNorm / logprob | Own P1 / linear_logp / #241 | Unchanged |
@@ -143,11 +172,11 @@ Phase 5. BI does not mean giving up tensor cores: pinned tiles, no split-K, and
 | Phase | Weeks | Goal | Parallelism |
 |---|---|---|---|
 | 0 | this week | Unblock #635 on this branch; merge main last | - |
-| 1 | 1-2 | Freeze the execution profile; stand up the vLLM-fork golden (dev fixture); run the DeepGEMM three-step probe | overlaps the tail of Phase 0 |
+| 1 | 1-2 | DeepGEMM three-step probe (BI + performance); then freeze the execution profile | overlaps the tail of Phase 0 |
 | 2 | 2-5 | P2 attention T02-T07 (critical path) | parallel with Phase 3 |
 | 3 | 3-6 | Redo P3 and P7; P6 T06; P4 DeepEP adapter | parallel with Phase 2 |
 | 4 | 5-7 | Layerwise 0-diff gate -> #230 cross_config M0-M10 bitwise -> verl integration -> performance table | - |
-| 5 | 7+ | Performance debt: shared-expert K-tree, operators above 1.3x, DCP (if required) | - |
+| 5 | 7+ | Performance debt: operators above 1.3x, DCP (if required) | - |
 
 ## 6. Todo
 
@@ -191,20 +220,23 @@ Known failures outside Phase 0 (present before and after it, default build):
 `test_p1_provider::test_golden_manifest_anchor` and four Triton `test_p5_lora_delta` cases
 (Triton path, deferred).
 
-### Phase 1 - profile, oracle, GEMM probe
+### Phase 1 - DeepGEMM probe
 
-- [ ] Write `docs/architecture/dsv4-sm90-batch-invariant-profile.md`: D1-D7, the seven rules
-      in section 3, the reuse map in section 4, the reduction-order contract for each
-      M-module, the performance budget
-- [ ] Bring up the `ISEEKYAN/vllm:ds4-v9-rc1` image (`VLLM_BATCH_INVARIANT=1`,
-      `VLLM_DS4_DECODE_KERNEL=sparse`) and produce selected-token logprob goldens for a fixed
-      prompt set: batch 1/8/64, chunked prefill, decode
-- [ ] Land the goldens under `tests/fixtures/dsv4/`, labelled development only; do not
-      write them into #230's verl anchor provenance
-- [ ] DeepGEMM probe step 1: pin a commit; sweep dense `fp8_gemm_nt`, contiguous grouped,
-      masked grouped, including "same tokens via contiguous vs masked"
-- [ ] Only on failure: step 2 (heuristic patch) / step 3 (zhuzilin branch + capability probe)
-- [ ] Decide the dense FP8 GEMM path and record it in the profile
+Current goal: every operator runs, its performance is acceptable (D7), and it is
+batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden").
+
+- [x] Pin DeepGEMM to the commit the vLLM fork uses
+      (`vllm-project/DeepGEMM@e21c821f39a2056d68067a466c64ddc942200106`; requires CUDA 12.8+)
+- [x] DeepGEMM probe step 1: sweep dense `fp8_gemm_nt` (M in {1, 8, 64, 256, 4096}) at the
+      DSv4 projection shapes, contiguous grouped and masked grouped, including "same tokens
+      via contiguous vs masked"; check row bytes against M = 1 and run-to-run identity
+- [x] Measure each probed GEMM against a non-invariant baseline on the same shapes (D7)
+- [x] Only on failure: step 2 (heuristic patch) / step 3 (zhuzilin branch + capability
+      probe): not needed
+- [x] Decide the dense FP8 GEMM path and record it in D3 (step 1 passed)
+- [ ] Afterwards: write `docs/architecture/dsv4-sm90-batch-invariant-profile.md` (D1-D7, the
+      seven rules in section 3, the reuse map in section 4, the reduction-order contract for
+      each M-module, the performance budget)
 
 ### Phase 2 - P2 attention (critical path)
 
@@ -232,7 +264,17 @@ Known failures outside Phase 0 (present before and after it, default build):
 - [ ] P6 T06 + real EP=2/4/8 collectives (replacing the values-only mock)
 - [ ] P4: DeepEP `align_fp8_quantization` adapter, route-metadata capture (top-k slot
       order), fixed-capacity staging; empty ranks still join the collective
-- [ ] P5 unchanged; the shared-expert K-tree is recorded as known performance debt (Phase 5)
+- [ ] DeepGEMM integration shared by the attention projections and the shared expert:
+      optional dependency pinned to `vllm-project/DeepGEMM@e21c821f`, a fail-closed
+      capability check (rule 7; DeepGEMM JIT-compiles, so `nvcc` from CUDA 12.8+ is needed at
+      runtime), and a per-token 1x128 FP8 activation-quant kernel that emits scales directly
+      in DeepGEMM's TMA-aligned layout (per-call conversion costs about 1.5 us)
+- [ ] Shared expert on DeepGEMM: FP8 `gate_up` -> our SwiGLU -> FP8 `down`, as a P5 provider
+      with a new numeric profile; batch-invariance and run-to-run tests, benchmark against
+      eager BF16 and the det_gemm provider; update the P5 shared-expert tests and golden
+      bytes; retire `p5-det-gemm-v1` from the DSv4 path
+- [ ] Re-run `scripts/probe_dsv4_deepgemm_bi.py` whenever the DeepGEMM commit, CUDA toolkit
+      or SM count changes
 
 ### Phase 4 - integration and gates
 
@@ -240,16 +282,25 @@ Known failures outside Phase 0 (present before and after it, default build):
 - [ ] #230 cross_config M0-M10 selected-token logprob bitwise; add a logprob threshold to CI
       (target 0; slime's 1.9e-7 MAE is the reference upper bound)
 - [ ] verl integration: rollout and actor recompute produce the same selected-token logprob
-      on the same kernel set
+      on the same kernel set. Find which routed-expert kernel vLLM uses on Hopper (DeepGEMM
+      cannot run FP4 there); if it is not our P5 kernel, either vLLM uses ours or we match
+      its arithmetic
+- [ ] DeepGEMM backward (dgrad / wgrad) determinism, if the training side uses it (D5)
 - [ ] Performance table: per-operator overhead against the non-invariant path; anything above
       1.3x goes to Phase 5
 
 ### Phase 5 - performance debt
 
-- [ ] Shared expert: fold into the routed kernel as a fixed group, or move to the routed
-      kernel's serial profile; retire the det_gemm K-tree
 - [ ] Operators that exceeded the Phase 4 performance table
 - [ ] DCP attention (single comparator across local and global selection; separate issue)
+
+### Deferred - vLLM golden
+
+- [ ] Bring up the `ISEEKYAN/vllm:ds4-v9-rc1` image (`VLLM_BATCH_INVARIANT=1`,
+      `VLLM_DS4_DECODE_KERNEL=sparse`) and produce selected-token logprob goldens for a fixed
+      prompt set: batch 1/8/64, chunked prefill, decode
+- [ ] Land the goldens under `tests/fixtures/dsv4/`, labelled development only; do not
+      write them into #230's verl anchor provenance
 
 ### Deferred - Triton path
 

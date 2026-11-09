@@ -229,3 +229,6 @@ csrc/hip/*_hip.hip
 .rlk-profile.json
 
 /artifacts/
+
+# Local DSv4 probe reports (regenerate with scripts/probe_dsv4_deepgemm_bi.py)
+docs/validation/dsv4-deepgemm-bi-*.json
