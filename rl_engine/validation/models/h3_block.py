@@ -40,7 +40,9 @@ from typing import Any, Callable
 
 import torch
 
+from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.reference.minimax_h3 import block as gold
+from rl_engine.reference.rope.h3_mm_rope import model_boundary_reference
 from rl_engine.runtime.registry import KernelRegistry
 from rl_engine.validation.models import h3_provider as prov
 from rl_engine.validation.models.h3_cases import H3_BLOCK_LAYOUTS, h3_fl2va_layout, h3_timesteps
@@ -76,8 +78,9 @@ class Node:
 class CandidateOps:
     """The operators bound to the block's nodes, resolved once per run.
 
-    The three rows of this stack are resolved through the registry, so the
-    report records what dispatch actually returned; the interim operators are
+    The three conditioning rows are resolved through the registry, so the
+    report records what dispatch actually returned. MM-RoPE binds its Triton
+    candidate directly for block-level qualification. The interim operators are
     named directly because their registry entries (``det_gemm``,
     ``attention``, ``swiglu``) prefer backends that are not available or not
     deterministic on every GPU this replay runs on.
@@ -87,11 +90,13 @@ class CandidateOps:
         from rl_engine.backends.cuda.activation.swiglu import SwiGLUCudaOp
         from rl_engine.backends.cuda.attention.deterministic_attn import DeterministicAttentionOp
         from rl_engine.backends.shared.triton.gemm.det_gemm import TritonDetGemmOp
+        from rl_engine.backends.shared.triton.rope.h3_mm_rope import TritonH3MMRoPEOp
 
         registry = registry or KernelRegistry()
         self.projection = registry.get_op("adaln_projection_3mod", device="cuda")
         self.norm = registry.get_op("h3_rmsnorm", device="cuda")
         self.gate = registry.get_op("adaln_gate_residual", device="cuda")
+        self.rope = TritonH3MMRoPEOp()
         self.gemm = TritonDetGemmOp()
         self.qkv = registry.get_op("h3_qkv_gemm", device="cuda")
         self.attention = DeterministicAttentionOp()
@@ -258,8 +263,8 @@ def _rope_node(name: str, source: str) -> Node:
     return Node(
         name=name,
         inputs=(source,),
-        binding=Binding("h3_mm_rope_3axis_partial", "reference", "provider_apply_rotary"),
-        candidate=lambda ops, ctx, x: prov.provider_apply_rotary(x, *ctx["rope"]),
+        binding=Binding("h3_mm_rope_3axis_partial", "row", "TritonH3MMRoPEOp"),
+        candidate=lambda ops, ctx, x: ops.rope(x, *ctx["rope"]),
         provider=lambda ctx, x: prov.provider_apply_rotary(x, *ctx["rope"]),
         golden=lambda ctx, x: gold.golden_apply_rotary(x, *ctx["rope_fp32"]),
         provider_bitwise_isolated=True,
@@ -567,6 +572,8 @@ def run_block_case(
         "seq_len": ctx["seq_len"],
         "seed": seed,
         "backends": ops.backends(),
+        "golden_role": "block_mathematical_error_reference",
+        "rope_acceptance_reference": "isolated_model_boundary_reference",
         "nodes": [],
     }
     firsts: dict[str, str | None] = {"first_drift": None, "first_isolated_drift": None}
@@ -595,6 +602,24 @@ def run_block_case(
             "provider_rel_err_vs_golden": rel_err(provider[name], golden[name]),
             "candidate_sha256": digest(chained[name]),
         }
+        if name in ("rope_q", "rope_k"):
+            # Keep the full-block mathematical replay unchanged. RoPE's local
+            # acceptance uses the actual provider input and declared storage.
+            x = provider[node.inputs[0]]
+            reference = model_boundary_reference(x, *ctx["rope"], storage_dtype=x.dtype)
+            tolerance = resolve_tolerance(
+                load_contract(), judgment="forward_accuracy", op_class="elementwise", dtype=x.dtype
+            )
+            error = (isolated[name].float() - reference).abs()
+            outside = error > tolerance.atol + tolerance.rtol * reference.abs()
+            outside = outside | ~torch.isfinite(error)
+            entry["isolated_model_boundary_accuracy"] = {
+                "passed": not bool(outside.any()),
+                "outside_tolerance": int(outside.sum()),
+                "max_abs_error": float(error.max()),
+                "atol": tolerance.atol,
+                "rtol": tolerance.rtol,
+            }
         checks = {
             "first_drift": entry["chained_vs_provider"]["bitwise_equal"],
             "first_isolated_drift": entry["isolated_vs_provider"]["bitwise_equal"],

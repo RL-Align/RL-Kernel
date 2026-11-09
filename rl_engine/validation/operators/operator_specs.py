@@ -33,6 +33,17 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "h3_mm_rope_3axis_partial": OperatorSpec(
+        name="h3_mm_rope_3axis_partial",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.rope.h3_mm_rope.NativeH3MMRoPEOp",
+        gold_method="forward_model_reference",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.rope.h3_mm_rope.NativeH3MMRoPEOp",
+            "triton": "rl_engine.backends.shared.triton.rope.h3_mm_rope.TritonH3MMRoPEOp",
+        },
+        grad_input_names=("x",),
+    ),
     "h3_full_attention": OperatorSpec(
         name="h3_full_attention",
         op_class="attention",
@@ -536,8 +547,9 @@ def make_operator_case(
     spec = OP_SPECS[args.op]
     gold_op = _load_object(spec.gold_path)()
     gold_fn = getattr(gold_op, spec.gold_method)
+    reference_label = "-model-boundary-reference" if args.op == "h3_mm_rope_3axis_partial" else ""
     return OperatorCase(
-        name=f"{args.op}-{dtype}-{operator_shape_name(args.op, args)}",
+        name=f"{args.op}-{dtype}-{operator_shape_name(args.op, args)}{reference_label}",
         op_class=spec.op_class,
         dtype=dtype,
         inputs=make_operator_inputs(args.op, args, dtype, device),
