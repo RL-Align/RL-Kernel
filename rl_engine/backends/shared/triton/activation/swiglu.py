@@ -27,6 +27,7 @@ _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 
 def _validate_dtype(x: Tensor, name: str) -> None:
+    """Reject unsupported tensor dtypes, naming the offending operand in the error."""
     if x.dtype not in _SUPPORTED_DTYPES:
         raise TypeError(f"{name} must have dtype in {_SUPPORTED_DTYPES}, got {x.dtype}.")
 
@@ -243,6 +244,11 @@ def _launch_silu_bwd(dy: Tensor, x: Tensor) -> Tensor:
 
 
 def _launch_swiglu_fwd(gate: Tensor, up: Tensor) -> Tensor:
+    """Materialize separate inputs and launch on their device, restoring the caller.
+
+    The output retains the gate's shape and dtype. Empty inputs return the
+    allocated empty output without launching a kernel.
+    """
     gate_c = gate.contiguous()
     up_c = up.contiguous()
     y = torch.empty_like(gate_c)
@@ -259,6 +265,12 @@ def _launch_swiglu_fwd(gate: Tensor, up: Tensor) -> Tensor:
 
 
 def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Tensor]:
+    """Return gate/up gradients using two stages on the input device's current stream.
+
+    The first stage writes the up gradient and an FP32 SiLU derivative; the
+    second consumes that derivative for the gate gradient. Each output uses
+    its input's dtype, and empty inputs require no kernel launch.
+    """
     dy_c = dy.contiguous()
     gate_c = gate.contiguous()
     up_c = up.contiguous()
@@ -398,6 +410,7 @@ class _PackedSwiGLUTritonFunction(torch.autograd.Function):
     def forward(
         ctx, projected: Tensor, output_dtype: torch.dtype, packed_order: SwiGLUPackedOrder
     ) -> Tensor:
+        """Save one contiguous projection and its enum order for the matching backward."""
         projected_c = projected.contiguous()
         y = _launch_swiglu_packed_fwd(projected_c, output_dtype, packed_order)
         ctx.save_for_backward(projected_c)
@@ -406,6 +419,7 @@ class _PackedSwiGLUTritonFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_y: Tensor):
+        """Return one packed gradient; output dtype and channel order have no gradients."""
         (projected,) = ctx.saved_tensors
         return _launch_swiglu_packed_bwd(grad_y, projected, ctx.packed_order), None, None
 
@@ -449,6 +463,8 @@ class TritonSwiGLUOp:
 
     The overloads describe the two accepted input forms for IDEs and type
     checkers. Each method has one runtime implementation below them.
+    Packed callers must pass a ``SwiGLUPackedOrder`` member; string parsing
+    belongs to the calling configuration or CLI layer.
     """
 
     op_class = "elementwise"

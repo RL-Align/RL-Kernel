@@ -200,6 +200,7 @@ def _run_case(
     case: OperatorCase,
     contract: Mapping[str, Any],
 ) -> CaseCheck:
+    """Compare candidate and reference forward outputs under the case's contract."""
     candidate_outputs = _flatten_tensors(_call_operator(candidate.fn, case.inputs))
     gold_outputs = _flatten_tensors(_call_operator(case.gold_fn, case.inputs))
     return _compare_case_outputs(candidate, case, contract, candidate_outputs, gold_outputs)
@@ -213,6 +214,12 @@ def _run_case_backward(
     grad_mode: str,
     grad_seed: int,
 ) -> CaseCheck:
+    """Compare outputs and named input gradients using independent autograd graphs.
+
+    Both paths receive the same upstream values. Forward and gradient
+    tolerances are resolved separately, and gradient results retain their
+    input names so packed and separate-input cases remain distinguishable.
+    """
     if not case.grad_input_names:
         raise ValueError(f"case {case.name!r} does not declare gradient inputs")
 

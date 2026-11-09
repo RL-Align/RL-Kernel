@@ -93,6 +93,7 @@ def _summarize(report: Any) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse validation options, allowing packed channel order only for SwiGLU."""
     parser = argparse.ArgumentParser(
         description="Validate an operator candidate against a PyTorch gold path."
     )

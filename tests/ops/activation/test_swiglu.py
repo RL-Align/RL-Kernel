@@ -791,6 +791,7 @@ def test_silu_pytorch_candidate_suite_passes_issue_108_helper():
 @pytest.mark.parametrize("packed_order", (None, "gate_up", "up_gate"))
 @pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
 def test_swiglu_pytorch_candidate_suite_passes_issue_108_helper(packed_order, dtype):
+    """Check reference accuracy and reported gradient names for both input forms."""
     args = _spec_args("swiglu", candidate="pytorch", packed_order=packed_order)
     report = run_operator_suite(
         "swiglu",
@@ -811,6 +812,7 @@ def test_swiglu_pytorch_candidate_suite_passes_issue_108_helper(packed_order, dt
 @pytest.mark.parametrize("order", tuple(SwiGLUPackedOrder))
 @pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
 def test_swiglu_packed_triton_issue_108_harness(order, dtype):
+    """Validate packed Triton outputs and input gradients through the shared harness."""
     args = _spec_args("swiglu", candidate="triton", packed_order=order.value)
     report = run_operator_suite(
         "swiglu",

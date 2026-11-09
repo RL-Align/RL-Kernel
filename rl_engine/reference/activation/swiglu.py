@@ -14,6 +14,7 @@ _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 
 def _validate_dtype(x: torch.Tensor, name: str) -> None:
+    """Reject unsupported tensor dtypes, naming the offending operand in the error."""
     if x.dtype not in _SUPPORTED_DTYPES:
         raise TypeError(f"{name} must have dtype in {_SUPPORTED_DTYPES}, got {x.dtype}.")
 
@@ -101,6 +102,8 @@ class NativeSwiGLUOp(nn.Module):
 
     The overloads describe the two accepted input forms for IDEs and type
     checkers. Each method has one runtime implementation below them.
+    Packed callers must pass a ``SwiGLUPackedOrder`` member; string parsing
+    belongs to the calling configuration or CLI layer.
     """
 
     def __init__(self) -> None:

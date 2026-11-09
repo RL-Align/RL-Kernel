@@ -15,12 +15,14 @@ from rl_engine.reference.activation.swiglu import NativeSwiGLUOp
 
 
 def test_default_plan_and_cpu_dry_run(capsys):
+    """Check planned measurement counts and dry-run output without a GPU."""
     assert bench.case_plan(bench.parse_args([]))["measurement_count"] == 972
     bench.main(["--dry-run", "--rows", "1", "3", "--dtypes", "bf16", "--rounds", "1"])
     assert json.loads(capsys.readouterr().out)["measurement_count"] == 36
 
 
 def test_separate_plan_and_gradient_gate():
+    """Verify two-input planning and reject wrong gradients even with correct outputs."""
     args = bench.parse_args(["--input-layout", "separate"])
     plan = bench.case_plan(args)
     assert plan["measurement_count"] == 648
@@ -52,12 +54,14 @@ def test_separate_plan_and_gradient_gate():
     ],
 )
 def test_reject_invalid_plan(argv):
+    """Reject empty shapes, invalid timing counts and duplicate dtype cases."""
     with pytest.raises(SystemExit):
         bench.parse_args(argv)
 
 
 @pytest.mark.parametrize("order", list(SwiGLUPackedOrder))
 def test_accuracy_gate_and_shared_agreement_are_independent(order):
+    """Reject matching provider results when their outputs or gradients are inaccurate."""
     reference = partial(NativeSwiGLUOp(), packed_order=order)
     x = torch.ones(1, 2, 8, requires_grad=True)
     upstream = torch.ones(1, 2, 4)
@@ -77,6 +81,7 @@ def test_accuracy_gate_and_shared_agreement_are_independent(order):
 
 
 def test_partial_report_is_not_complete(tmp_path):
+    """Keep interrupted reports incomplete and report the actual measurement count."""
     report = {
         "complete": False,
         "case_plan": bench.case_plan(bench.parse_args(["--rows", "1", "--rounds", "1"])),

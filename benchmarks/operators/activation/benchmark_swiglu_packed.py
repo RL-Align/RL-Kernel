@@ -53,6 +53,7 @@ def positive_int(value: str) -> int:
 
 
 def parse_args(argv=None):
+    """Parse layout, shape and timing options, rejecting duplicate case dimensions."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--input-layout",
@@ -91,6 +92,7 @@ def parse_args(argv=None):
 
 
 def case_plan(args):
+    """Describe input shapes, providers and timing-round counts without using a GPU."""
     cases = len(args.rows) * len(args.dtypes)
     packed = args.input_layout == "packed"
     providers = PROVIDERS if packed else SEPARATE_PROVIDERS
@@ -106,6 +108,7 @@ def case_plan(args):
 
 
 def assert_bits(actual, expected):
+    """Require matching shapes, dtypes and bytes for tensors or tuples of tensors."""
     if isinstance(actual, tuple) and isinstance(expected, tuple):
         assert len(actual) == len(expected)
         for actual_item, expected_item in zip(actual, expected, strict=True):
@@ -194,6 +197,7 @@ def make_call(op, inputs, upstream, mode):
         return lambda: torch.autograd.grad(op(*inputs), inputs, upstream)
 
     def forward():
+        """Measure forward execution without building an autograd graph."""
         with torch.no_grad():
             return op(*inputs)
 
@@ -283,6 +287,11 @@ def write_report(report, folder):
 
 
 def main(argv=None):
+    """Run correctness-gated measurements and save reports even when a case fails.
+
+    Dry runs only print the case plan. GPU runs randomize provider order in
+    each round and record latency, extra peak allocation and source hashes.
+    """
     args = parse_args(argv)
     plan = case_plan(args)
     print(json.dumps(plan, indent=2), flush=True)
@@ -298,6 +307,7 @@ def main(argv=None):
     packed_order = SwiGLUPackedOrder(args.packed_order)
 
     def adapter(projected):
+        """Benchmark packed input through chunk views and the existing two-input path."""
         first, second = projected.chunk(2, dim=-1)
         gate, up = (first, second) if packed_order is SwiGLUPackedOrder.GATE_UP else (second, first)
         return shared(gate, up)

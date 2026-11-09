@@ -22,6 +22,7 @@ _DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 
 def _assert_bits(actual: torch.Tensor, expected: torch.Tensor) -> None:
+    """Compare shape, dtype and stored bytes without a floating-point tolerance."""
     assert actual.dtype == expected.dtype
     assert actual.shape == expected.shape
     assert torch.equal(
@@ -30,6 +31,7 @@ def _assert_bits(actual: torch.Tensor, expected: torch.Tensor) -> None:
 
 
 def _input(layout: str, dtype: torch.dtype) -> torch.Tensor:
+    """Create a seeded leaf tensor covering row, channel-stride and tail layouts."""
     torch.manual_seed(713)
     shapes = {
         "vector": (28672,),
@@ -74,6 +76,7 @@ def _input(layout: str, dtype: torch.dtype) -> torch.Tensor:
 )
 @pytest.mark.parametrize("order", list(SwiGLUPackedOrder))
 def test_packed_matches_shared_bits_and_native_accuracy(dtype, method, layout, order):
+    """Check shared-path output/gradient bits, independent FP32 accuracy and input integrity."""
     x = _input(layout, dtype)
     before = x.detach().clone()
     first, second = x.chunk(2, dim=-1)
@@ -108,6 +111,7 @@ def test_packed_matches_shared_bits_and_native_accuracy(dtype, method, layout, o
 @pytest.mark.parametrize("method", ["forward", "forward_fp32"])
 @pytest.mark.parametrize("order", list(SwiGLUPackedOrder))
 def test_training_inference_batch_padding_and_repeated_backward(dtype, method, order):
+    """Preserve bits across grad modes, batch slicing/padding and repeated backward."""
     x = _input("contiguous", dtype)
     fn = partial(getattr(TritonSwiGLUOp(), method), packed_order=order)
     y = fn(x)
@@ -129,6 +133,7 @@ def test_training_inference_batch_padding_and_repeated_backward(dtype, method, o
 @pytest.mark.parametrize("dtype", _DTYPES)
 @pytest.mark.parametrize("order", list(SwiGLUPackedOrder))
 def test_saturation_and_zero_match_shared_bits(dtype, order):
+    """Match separate-input output and gradient bits for zero and saturated gate values."""
     up = torch.linspace(-8, 8, 4097, device="cuda", dtype=dtype)
     gate = torch.linspace(-100, 100, 4097, device="cuda", dtype=dtype)
     operands = (gate, up) if order is SwiGLUPackedOrder.GATE_UP else (up, gate)
@@ -148,6 +153,7 @@ def test_saturation_and_zero_match_shared_bits(dtype, order):
 @pytest.mark.parametrize("mode", ["forward", "backward", "forward_backward"])
 @pytest.mark.parametrize("order", list(SwiGLUPackedOrder))
 def test_cuda_graph_replay_matches_eager(dtype, mode, order):
+    """Require graph replay and eager results to match for every measured execution mode."""
     x = _input("contiguous", dtype)
     upstream = torch.randn_like(x[..., :14336])
     op = partial(TritonSwiGLUOp(), packed_order=order)
@@ -158,16 +164,19 @@ def test_cuda_graph_replay_matches_eager(dtype, mode, order):
         if mode == "backward":
 
             def run():
+                """Reuse the saved forward graph to compute an input gradient."""
                 return torch.autograd.grad(y, x, upstream, retain_graph=True)[0]
 
         elif mode == "forward_backward":
 
             def run():
+                """Build a fresh forward graph and return its input gradient."""
                 return torch.autograd.grad(op(x), x, upstream)[0]
 
         else:
 
             def run():
+                """Return forward output without constructing an autograd graph."""
                 with torch.no_grad():
                     return op(x)
 
@@ -185,11 +194,13 @@ def test_cuda_graph_replay_matches_eager(dtype, mode, order):
 
 @pytest.mark.parametrize("shape", [(), (2, 0), (2, 3)])
 def test_rejects_invalid_shape(shape):
+    """Reject scalar inputs and packed widths that cannot form two nonempty halves."""
     with pytest.raises(ValueError):
         TritonSwiGLUOp()(torch.empty(shape, device="cuda"), packed_order=SwiGLUPackedOrder.GATE_UP)
 
 
 def test_rejects_unsupported_dtype_and_cpu():
+    """Require a supported floating dtype and GPU device for the packed Triton path."""
     with pytest.raises(TypeError, match="torch.int32"):
         TritonSwiGLUOp()(
             torch.ones(2, 4, device="cuda", dtype=torch.int32),
@@ -201,6 +212,7 @@ def test_rejects_unsupported_dtype_and_cpu():
 
 @pytest.mark.parametrize("method", ["forward", "forward_fp32"])
 def test_rejects_ambiguous_or_inapplicable_order(method):
+    """Require an order for packed inputs and reject it for separate inputs."""
     fn = getattr(TritonSwiGLUOp(), method)
     x = torch.ones(2, 8, device="cuda")
     with pytest.raises(ValueError, match="packed_order"):
@@ -214,6 +226,7 @@ def test_rejects_ambiguous_or_inapplicable_order(method):
 @pytest.mark.parametrize("method", ["forward", "forward_fp32"])
 @pytest.mark.parametrize("order", list(SwiGLUPackedOrder))
 def test_noncurrent_device_and_caller_restoration(dtype, method, order):
+    """Run forward/backward on cuda:1 while preserving the caller's cuda:0 selection."""
     with torch.cuda.device(0):
         x = torch.randn(2, 3, 28672, device="cuda:1", dtype=dtype).requires_grad_(True)
         fn = partial(getattr(TritonSwiGLUOp(), method), packed_order=order)

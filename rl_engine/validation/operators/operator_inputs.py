@@ -53,6 +53,7 @@ def make_operator_inputs(
 
 
 def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
+    """Describe a validation shape, including packed SwiGLU width and channel order."""
     batch, seq = _batch_seq(args)
     packed_order = getattr(args, "packed_order", None)
     if op_name == "swiglu" and packed_order is not None:

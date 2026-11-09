@@ -374,6 +374,11 @@ def make_operator_case(
 
 
 def make_candidate(args: argparse.Namespace) -> CandidateSpec:
+    """Instantiate a registered candidate with its backend and tolerance metadata.
+
+    Normalize the native alias and reject backends whose public SwiGLU
+    interface does not support the requested packed input form.
+    """
     spec = OP_SPECS[args.op]
     candidate_name = "pytorch" if args.candidate == "native" else args.candidate
 

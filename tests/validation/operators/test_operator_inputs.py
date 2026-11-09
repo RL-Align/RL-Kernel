@@ -95,6 +95,7 @@ def test_random_logp_inputs_are_seeded():
 @pytest.mark.parametrize("order", tuple(SwiGLUPackedOrder))
 @pytest.mark.parametrize("input_mode", ("random", "constant"))
 def test_swiglu_packed_case_preserves_operands_and_declares_input_gradient(order, input_mode):
+    """Keep seeded operands intact when packing and declare one packed input gradient."""
     args = _args(op="swiglu", input_mode=input_mode)
     separate = make_operator_case(args, torch.float32, torch.device("cpu"))
     args.packed_order = order.value
@@ -122,6 +123,7 @@ def test_swiglu_packed_case_preserves_operands_and_declares_input_gradient(order
 
 @pytest.mark.parametrize("candidate", ("cuda", "ascend"))
 def test_swiglu_packed_rejects_candidates_without_packed_support(candidate):
+    """Reject CUDA/Ascend wrappers that expose only the separate-input interface."""
     args = _args(op="swiglu", candidate=candidate, packed_order="up_gate")
     with pytest.raises(ValueError, match="packed SwiGLU requires a pytorch or triton candidate"):
         make_candidate(args)
