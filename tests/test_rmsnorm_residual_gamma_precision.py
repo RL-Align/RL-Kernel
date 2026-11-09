@@ -12,15 +12,19 @@ from rl_engine.mhc import oracle
 def test_fp32_gamma_is_not_rounded_to_bf16(backend, d):
     if backend == "cuda":
         from rl_engine.kernels.ops.cuda.norm.rmsnorm_residual import (
-            cuda_rmsnorm_residual_fwd as fwd,
             cuda_rmsnorm_residual_bwd as bwd,
-            rmsnorm_residual,
         )
+        from rl_engine.kernels.ops.cuda.norm.rmsnorm_residual import (
+            cuda_rmsnorm_residual_fwd as fwd,
+        )
+        from rl_engine.kernels.ops.cuda.norm.rmsnorm_residual import rmsnorm_residual
     else:
+        from rl_engine.kernels.ops.triton.rmsnorm_residual_triton import rmsnorm_residual
+        from rl_engine.kernels.ops.triton.rmsnorm_residual_triton import (
+            triton_rmsnorm_residual_bwd as bwd,
+        )
         from rl_engine.kernels.ops.triton.rmsnorm_residual_triton import (
             triton_rmsnorm_residual_fwd as fwd,
-            triton_rmsnorm_residual_bwd as bwd,
-            rmsnorm_residual,
         )
 
     generator = torch.Generator().manual_seed(53)
@@ -41,8 +45,11 @@ def test_fp32_gamma_is_not_rounded_to_bf16(backend, d):
     y, residual, saved = fwd(x, gamma)
     dx, dg = bwd(dy, dr, x, gamma, saved)
     for got, want in (
-        (y, want_y), (residual, want_residual),
-        (saved["r"], want_saved["r"]), (dx, want_dx), (dg, want_dg),
+        (y, want_y),
+        (residual, want_residual),
+        (saved["r"], want_saved["r"]),
+        (dx, want_dx),
+        (dg, want_dg),
     ):
         assert got.dtype == want.dtype
         assert torch.equal(got.contiguous().view(torch.uint8), want.contiguous().view(torch.uint8))

@@ -27,11 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from rl_engine.mhc import fixtures, oracle  # noqa: E402
 from rl_engine.mhc.contract import tensor_sha256  # noqa: E402
-from rl_engine.mhc.provider import (  # noqa: E402
-    MHCProvider,
-    check_capability,
-    resolve_provider,
-)
+from rl_engine.mhc.provider import MHCProvider, check_capability, resolve_provider  # noqa: E402
 from rl_engine.mhc.trace import MHCTrace  # noqa: E402
 
 

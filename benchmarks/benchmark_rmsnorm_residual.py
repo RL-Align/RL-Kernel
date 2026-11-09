@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
 import platform
 import subprocess
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from rl_engine.mhc import oracle
-from rl_engine.mhc.provider import ReferenceProvider
+from rl_engine.mhc import oracle  # noqa: E402
+from rl_engine.mhc.provider import ReferenceProvider  # noqa: E402
 
 EPS = 1.0e-6
 D = 4096
@@ -77,9 +77,7 @@ def collect_outputs(fwd, bwd, inputs):
 
 
 def bit_equal(a, b):
-    return torch.equal(
-        a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8)
-    )
+    return torch.equal(a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8))
 
 
 def validate(backends, inputs):
@@ -101,10 +99,7 @@ def validate(backends, inputs):
                 want.device,
             ):
                 raise AssertionError(f"{name}.{key}: shape/dtype/device mismatch")
-            if (
-                not torch.isfinite(actual).all().item()
-                or not torch.isfinite(want).all().item()
-            ):
+            if not torch.isfinite(actual).all().item() or not torch.isfinite(want).all().item():
                 raise AssertionError(f"{name}.{key}: non-finite output")
             equal = bit_equal(actual, want)
             checks[name][key] = {
@@ -162,9 +157,7 @@ def benchmark_backend(fwd, bwd, inputs, warmup, iterations):
 
 def command_output(*args):
     try:
-        return subprocess.check_output(
-            args, cwd=ROOT, text=True, stderr=subprocess.STDOUT
-        ).strip()
+        return subprocess.check_output(args, cwd=ROOT, text=True, stderr=subprocess.STDOUT).strip()
     except (OSError, subprocess.CalledProcessError) as exc:
         return f"unavailable: {exc}"
 
@@ -196,19 +189,13 @@ def environment():
 
 
 def print_table(rows):
-    print(
-        "| T | Backend | Forward ms | Backward ms | Fwd+Bwd ms | Extra MiB (F/B/FB) |"
-    )
+    print("| T | Backend | Forward ms | Backward ms | Fwd+Bwd ms | Extra MiB (F/B/FB) |")
     print("|---:|---|---:|---:|---:|---|")
     for row in rows:
         modes = [row[key] for key in ("forward", "backward", "forward_backward")]
         f, b, fb = [mode["mean_ms"] for mode in modes]
-        memory = "/".join(
-            f'{mode["peak_extra_allocated_bytes"] / 2**20:.4f}' for mode in modes
-        )
-        print(
-            f'| {row["T"]} | {row["backend"]} | {f:.6f} | {b:.6f} | {fb:.6f} | {memory} |'
-        )
+        memory = "/".join(f'{mode["peak_extra_allocated_bytes"] / 2**20:.4f}' for mode in modes)
+        print(f'| {row["T"]} | {row["backend"]} | {f:.6f} | {b:.6f} | {fb:.6f} | {memory} |')
 
 
 def main():
@@ -221,11 +208,7 @@ def main():
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if (
-        args.warmup < 1
-        or args.iterations < 1
-        or any(t < 1 or t > 2**31 - 1 for t in args.tokens)
-    ):
+    if args.warmup < 1 or args.iterations < 1 or any(t < 1 or t > 2**31 - 1 for t in args.tokens):
         parser.error("warmup/iterations must be positive; T must be in [1, INT_MAX]")
     if len(set(args.tokens)) != len(args.tokens):
         parser.error("tokens must not contain duplicates")
@@ -254,22 +237,16 @@ def main():
     }
     with torch.no_grad():
         for t in args.tokens:
-            print(
-                f"T={t}, D={D}: validating before timing", file=sys.stderr, flush=True
-            )
+            print(f"T={t}, D={D}: validating before timing", file=sys.stderr, flush=True)
             inputs = make_inputs(t, args.seed)
             report["validation"][str(t)] = validate(backends, inputs)
             for name, (fwd, bwd) in backends.items():
-                result = benchmark_backend(
-                    fwd, bwd, inputs, args.warmup, args.iterations
-                )
+                result = benchmark_backend(fwd, bwd, inputs, args.warmup, args.iterations)
                 report["results"].append({"T": t, "backend": name, **result})
             del inputs
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8"
-    )
+    args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     print_table(report["results"])
     print(f"Report: {args.output}")
 

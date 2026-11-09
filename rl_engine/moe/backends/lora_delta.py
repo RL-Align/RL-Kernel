@@ -183,6 +183,7 @@ class LoRADeltaTritonProvider(LoRADeltaProvider):
 
     def __init__(self) -> None:
         from rl_engine.kernels.ops.triton.matmul.det_gemm import TritonDetGemmOp
+
         self._op = TritonDetGemmOp()
 
     def provenance(self) -> dict[str, Any]:

@@ -135,9 +135,7 @@ def test_invalid_inputs():
         api.cuda_rmsnorm_residual_bwd(dy, dr, x, gamma, {})
     for bad_r in (saved["r"].bfloat16(), saved["r"].cpu(), saved["r"][:0]):
         with pytest.raises(errors):
-            api.cuda_rmsnorm_residual_bwd(
-                dy, dr, x, gamma, {"r": bad_r, "d": x.shape[1]}
-            )
+            api.cuda_rmsnorm_residual_bwd(dy, dr, x, gamma, {"r": bad_r, "d": x.shape[1]})
 
 
 @pytest.mark.parametrize("suffix", ["forward", "backward"])

@@ -67,16 +67,12 @@ def test_native_mhc_pre_h_aggregate_backward_is_explicit_fp32():
     # Check FP32 gradient outputs against the analytic aggregate derivative.
     residual, pre, grad_output = _make_inputs(3, device="cpu", seed=7)
 
-    grad_residual, grad_pre = NativeMHCPreHAggregateOp().backward_fp32(
-        grad_output, residual, pre
-    )
+    grad_residual, grad_pre = NativeMHCPreHAggregateOp().backward_fp32(grad_output, residual, pre)
 
     assert grad_residual.dtype is torch.float32
     assert grad_pre.dtype is torch.float32
     expected_grad_residual = grad_output.float()[:, None, :] * pre[:, :, None]
-    expected_grad_pre = torch.sum(
-        grad_output.float()[:, None, :] * residual.float(), dim=-1
-    )
+    expected_grad_pre = torch.sum(grad_output.float()[:, None, :] * residual.float(), dim=-1)
     assert _same_bytes(grad_residual, expected_grad_residual)
     torch.testing.assert_close(grad_pre, expected_grad_pre, atol=5e-4, rtol=1e-5)
 
@@ -127,9 +123,7 @@ def test_mhc_pre_h_aggregate_forward_is_batch_and_padding_invariant():
     padded = _C.mhc_pre_h_aggregate(padded_residual, padded_pre)[1:-1]
     token_by_token = torch.cat(
         [
-            _C.mhc_pre_h_aggregate(
-                residual[token : token + 1], pre[token : token + 1]
-            )
+            _C.mhc_pre_h_aggregate(residual[token : token + 1], pre[token : token + 1])
             for token in range(residual.shape[0])
         ]
     )
@@ -144,9 +138,7 @@ def test_mhc_pre_h_aggregate_backward_matches_explicit_fixed_sum_oracle():
     from rl_engine.kernels.ops.base import _C
 
     residual, pre, grad_output = _make_inputs(129, device="cuda", seed=3)
-    reference = NativeMHCPreHAggregateOp().backward_fp32(
-        grad_output, residual, pre
-    )
+    reference = NativeMHCPreHAggregateOp().backward_fp32(grad_output, residual, pre)
 
     first = _C.mhc_pre_h_aggregate_backward(grad_output, residual, pre)
 
@@ -182,14 +174,10 @@ def test_mhc_pre_h_aggregate_backward_is_batch_and_padding_invariant():
     pad_residual, pad_pre, pad_grad_output = _make_inputs(2, device="cuda", seed=5)
     padded_residual = torch.cat((pad_residual[:1], residual, pad_residual[1:]))
     padded_pre = torch.cat((pad_pre[:1], pre, pad_pre[1:]))
-    padded_grad_output = torch.cat(
-        (pad_grad_output[:1], grad_output, pad_grad_output[1:])
-    )
+    padded_grad_output = torch.cat((pad_grad_output[:1], grad_output, pad_grad_output[1:]))
 
     unpadded = _C.mhc_pre_h_aggregate_backward(grad_output, residual, pre)
-    padded = _C.mhc_pre_h_aggregate_backward(
-        padded_grad_output, padded_residual, padded_pre
-    )
+    padded = _C.mhc_pre_h_aggregate_backward(padded_grad_output, padded_residual, padded_pre)
     split = [
         _C.mhc_pre_h_aggregate_backward(
             grad_output[token : token + 1],
@@ -245,9 +233,11 @@ def aggregate_op(request):
         if not _kernel_available():
             pytest.skip("Rebuild the CUDA extension")
         from rl_engine.kernels.ops.cuda.mhc import MHCPreHAggregateCudaOp
+
         return MHCPreHAggregateCudaOp(), "cuda"
     pytest.importorskip("triton")
     from rl_engine.kernels.ops.triton.mhc import MHCPreHAggregateTritonOp
+
     return MHCPreHAggregateTritonOp(), "cuda"
 
 
@@ -279,8 +269,10 @@ def test_aggregate_batch_invariance(aggregate_op, hidden):
     dh = torch.randn(129, hidden, device=device)
     full = (op(residual, pre), *op.backward_fp32(dh, residual, pre))
     for start, stop in ((0, 1), (1, 128), (0, 128), (0, 129)):
-        part = (op(residual[start:stop], pre[start:stop]),
-                *op.backward_fp32(dh[start:stop], residual[start:stop], pre[start:stop]))
+        part = (
+            op(residual[start:stop], pre[start:stop]),
+            *op.backward_fp32(dh[start:stop], residual[start:stop], pre[start:stop]),
+        )
         for got, want in zip(part, full, strict=True):
             assert _same_bytes(got, want[start:stop])
 
@@ -316,8 +308,11 @@ def test_aggregate_invalid_inputs(aggregate_op):
     pre = torch.ones(2, 4, device=device)
     dh = torch.ones(2, 128, device=device)
     for bad_residual, bad_pre in (
-        (residual[:, :, :64].contiguous(), pre), (residual.float(), pre),
-        (residual, pre.half()), (residual[:, :, ::2], pre), (residual, pre[:1]),
+        (residual[:, :, :64].contiguous(), pre),
+        (residual.float(), pre),
+        (residual, pre.half()),
+        (residual[:, :, ::2], pre),
+        (residual, pre[:1]),
     ):
         with pytest.raises((ValueError, TypeError, RuntimeError)):
             op(bad_residual, bad_pre)
@@ -331,8 +326,11 @@ def test_aggregate_registry_order_and_fallback(monkeypatch):
     from rl_engine.kernels.registry import KernelRegistry, OpBackend
 
     registry = KernelRegistry()
-    order = [OpBackend.CUDA_MHC_PRE_H_AGGREGATE, OpBackend.TRITON_MHC_PRE_H_AGGREGATE,
-             OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE]
+    order = [
+        OpBackend.CUDA_MHC_PRE_H_AGGREGATE,
+        OpBackend.TRITON_MHC_PRE_H_AGGREGATE,
+        OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE,
+    ]
     assert registry._priority_map["cuda"]["mhc_pre_h_aggregate"] == order
     for chosen in order:
         visited = []
@@ -346,7 +344,7 @@ def test_aggregate_registry_order_and_fallback(monkeypatch):
 
         monkeypatch.setattr(registry, "_get_or_create_backend", create)
         assert registry.get_op("mhc_pre_h_aggregate", "cuda") is instance
-        assert visited == order[:order.index(chosen) + 1]
+        assert visited == order[: order.index(chosen) + 1]
     monkeypatch.undo()
     assert isinstance(registry.get_op("mhc_pre_h_aggregate", "cpu"), NativeMHCPreHAggregateOp)
 

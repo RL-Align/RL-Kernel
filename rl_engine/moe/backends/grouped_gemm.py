@@ -35,11 +35,8 @@ from typing import Any
 
 import torch
 
-from rl_engine.moe.backends.lora_delta import (
-    DET_GEMM_PROFILE as _LORA_DELTA_PROFILE,
-    det_gemm_lora_delta_bwd,
-    det_gemm_lora_delta_fwd,
-)
+from rl_engine.moe.backends.lora_delta import DET_GEMM_PROFILE as _LORA_DELTA_PROFILE
+from rl_engine.moe.backends.lora_delta import det_gemm_lora_delta_bwd, det_gemm_lora_delta_fwd
 from rl_engine.moe.mx_format import MXTensor
 from rl_engine.moe.provider import ReferenceProvider
 

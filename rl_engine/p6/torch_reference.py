@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Optional PyTorch reference smoke, NOT the T05/T06 production Triton kernels."""
 
-from .contract import ContractError, CombinePlan, require
+from .contract import CombinePlan, ContractError, require
 from .oracle import forward
 
 
@@ -158,9 +158,9 @@ def conformance(records, device_name, require_h100=False, graph=False):
         "hip": torch.version.hip,
         "device": str(device),
         "gpu_name": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
-        "compute_capability": list(torch.cuda.get_device_capability(device))
-        if device.type == "cuda"
-        else None,
+        "compute_capability": (
+            list(torch.cuda.get_device_capability(device)) if device.type == "cuda" else None
+        ),
         "compiled_production_kernel": False,
     }
     outcomes = []

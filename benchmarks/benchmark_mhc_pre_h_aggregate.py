@@ -22,8 +22,9 @@ from rl_engine.mhc import oracle  # noqa: E402
 
 def assert_bytes(actual, expected):
     assert actual.dtype == expected.dtype and actual.shape == expected.shape
-    assert torch.equal(actual.contiguous().view(torch.uint8),
-                       expected.contiguous().view(torch.uint8)), "P1 oracle bytes differ"
+    assert torch.equal(
+        actual.contiguous().view(torch.uint8), expected.contiguous().view(torch.uint8)
+    ), "P1 oracle bytes differ"
 
 
 def measure(fn, warmup, repeat):
@@ -58,15 +59,24 @@ def main():
     args = parser.parse_args()
     if min(args.tokens) <= 0 or args.warmup < 0 or args.repeat <= 0:
         parser.error("tokens and repeat must be positive; warmup must be nonnegative")
-    ops = {"PyTorch": NativeMHCPreHAggregateOp(), "CUDA": MHCPreHAggregateCudaOp(),
-           "Triton": MHCPreHAggregateTritonOp()}
+    ops = {
+        "PyTorch": NativeMHCPreHAggregateOp(),
+        "CUDA": MHCPreHAggregateCudaOp(),
+        "Triton": MHCPreHAggregateTritonOp(),
+    }
     grad_dtype = {"fp32": torch.float32, "bf16": torch.bfloat16}[args.grad_dtype]
-    print(f"GPU: {torch.cuda.get_device_name()}; PyTorch: {torch.__version__}; "
-          f"CUDA: {torch.version.cuda}; D={args.hidden}; dH={args.grad_dtype}")
-    print(f"Median CUDA-event latency; warmup={args.warmup}, repeat={args.repeat}. "
-          "Extra peak allocated memory includes outputs and temporaries.")
-    print("| T | Backend | Forward (us) | Backward (us) | Forward extra (MiB) | "
-          "Backward extra (MiB) | Oracle bytes |")
+    print(
+        f"GPU: {torch.cuda.get_device_name()}; PyTorch: {torch.__version__}; "
+        f"CUDA: {torch.version.cuda}; D={args.hidden}; dH={args.grad_dtype}"
+    )
+    print(
+        f"Median CUDA-event latency; warmup={args.warmup}, repeat={args.repeat}. "
+        "Extra peak allocated memory includes outputs and temporaries."
+    )
+    print(
+        "| T | Backend | Forward (us) | Backward (us) | Forward extra (MiB) | "
+        "Backward extra (MiB) | Oracle bytes |"
+    )
     print("|---:|:---|---:|---:|---:|---:|:---|")
     torch.manual_seed(366)
     with torch.no_grad():
@@ -83,11 +93,16 @@ def main():
                 assert_bytes(dp, expected_dp)
                 del dr, dp
                 forward_us, forward_mem = measure(
-                    partial(op, residual, pre), args.warmup, args.repeat)
+                    partial(op, residual, pre), args.warmup, args.repeat
+                )
                 backward_us, backward_mem = measure(
-                    partial(op.backward_fp32, dh, residual, pre), args.warmup, args.repeat)
-                print(f"| {tokens} | {name} | {forward_us:.2f} | {backward_us:.2f} | "
-                      f"{forward_mem:.3f} | {backward_mem:.3f} | PASS |", flush=True)
+                    partial(op.backward_fp32, dh, residual, pre), args.warmup, args.repeat
+                )
+                print(
+                    f"| {tokens} | {name} | {forward_us:.2f} | {backward_us:.2f} | "
+                    f"{forward_mem:.3f} | {backward_mem:.3f} | PASS |",
+                    flush=True,
+                )
 
 
 if __name__ == "__main__":

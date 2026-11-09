@@ -131,9 +131,7 @@ def test_rmsnorm_residual_cuda_priority():
         OpBackend.TRITON_RMSNORM_RESIDUAL,
         OpBackend.PYTORCH_RMSNORM_RESIDUAL,
     ]
-    assert registry._priority_map["cpu"]["rmsnorm_residual"] == [
-        OpBackend.PYTORCH_RMSNORM_RESIDUAL
-    ]
+    assert registry._priority_map["cpu"]["rmsnorm_residual"] == [OpBackend.PYTORCH_RMSNORM_RESIDUAL]
 
 
 def test_hardware_priority_skips_unavailable_cuda(monkeypatch):
@@ -163,12 +161,8 @@ def test_rmsnorm_residual_registry_falls_back_in_order(
 ):
     import importlib
 
-    cuda_api = importlib.import_module(
-        "rl_engine.kernels.ops.cuda.norm.rmsnorm_residual"
-    )
-    triton_api = importlib.import_module(
-        "rl_engine.kernels.ops.triton.rmsnorm_residual_triton"
-    )
+    cuda_api = importlib.import_module("rl_engine.kernels.ops.cuda.norm.rmsnorm_residual")
+    triton_api = importlib.import_module("rl_engine.kernels.ops.triton.rmsnorm_residual_triton")
     calls = []
 
     def cuda_probe():

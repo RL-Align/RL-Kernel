@@ -24,11 +24,8 @@ import pytest
 import torch
 
 from rl_engine.moe import fixtures, oracle
+from rl_engine.moe.backends.lora_delta import LoRADeltaCudaProvider, LoRADeltaTritonProvider
 from rl_engine.moe.contract import ORACLE_PROFILE
-from rl_engine.moe.backends.lora_delta import (
-    LoRADeltaCudaProvider,
-    LoRADeltaTritonProvider,
-)
 
 torch.backends.cuda.matmul.allow_tf32 = False
 DEV = "cuda"
@@ -103,9 +100,7 @@ def test_backward_returns_no_dw_and_leaves_inputs_untouched(name, cls):
     for label, g, want in zip(("dX", "dA", "dB"), grads, (x, a, b), strict=True):
         assert g.shape == want.shape, f"{name}: {label} shape must mirror its operand"
         assert g.dtype is torch.float32, f"{name}: {label} must be FP32 (contract D7)"
-    for label, now, orig in zip(
-        ("x", "a", "b", "dy", "u"), (x, a, b, dy, u), before, strict=True
-    ):
+    for label, now, orig in zip(("x", "a", "b", "dy", "u"), (x, a, b, dy, u), before, strict=True):
         assert torch.equal(now, orig), f"{name}: backward mutated {label} in place"
 
 
@@ -174,9 +169,7 @@ def test_backward_dx_batch_invariance(name, cls):
     _, uN = provider.shared_grouped_lora_delta_fwd(big, a, b, _ALPHA)
     dy_big = _rand(256, _N)
 
-    dx1, _, _ = provider.shared_grouped_lora_delta_bwd(
-        dy_big[:1], row, a, b, _ALPHA, u1
-    )
+    dx1, _, _ = provider.shared_grouped_lora_delta_bwd(dy_big[:1], row, a, b, _ALPHA, u1)
     dxN, _, _ = provider.shared_grouped_lora_delta_bwd(dy_big, big, a, b, _ALPHA, uN)
     assert torch.equal(dx1[0], dxN[0]), f"{name}: dX batch-invariance broken"
 
@@ -274,9 +267,12 @@ def test_tampering_packed_base_bytes_changes_the_output(name, cls):
 
     # This operator cannot unpack anything: its signature never receives w1/w2.
     params = inspect.signature(provider.shared_grouped_lora_delta_fwd).parameters
-    assert set(params) == {"x", "a", "b", "alpha"}, (
-        f"{name}: the LoRA path must not take base weights, got {list(params)}"
-    )
+    assert set(params) == {
+        "x",
+        "a",
+        "b",
+        "alpha",
+    }, f"{name}: the LoRA path must not take base weights, got {list(params)}"
 
     batch = fixtures.make_expert_batch("base_plus_lora").to(DEV)
     y_clean, _ = oracle.routed_expert_forward(batch, ops=provider)
@@ -325,9 +321,7 @@ def test_matches_oracle_within_bf16_tolerance(name, cls, case):
 
     y_ref, u_ref = oracle.shared_grouped_lora_delta_fwd(x, a, b, alpha)
     dy = fixtures.make_grad_output(case, tuple(y_ref.shape)).to(DEV)
-    dx_ref, da_ref, db_ref = oracle.shared_grouped_lora_delta_bwd(
-        dy, x, a, b, alpha, u_ref
-    )
+    dx_ref, da_ref, db_ref = oracle.shared_grouped_lora_delta_bwd(dy, x, a, b, alpha, u_ref)
 
     provider = cls()
     y, u = provider.shared_grouped_lora_delta_fwd(x, a, b, alpha)
@@ -358,9 +352,7 @@ def test_triton_is_byte_equal_at_fixture_geometry(case):
 
     y_ref, u_ref = oracle.shared_grouped_lora_delta_fwd(x, a, b, alpha)
     dy = fixtures.make_grad_output(case, tuple(y_ref.shape)).to(DEV)
-    dx_ref, da_ref, db_ref = oracle.shared_grouped_lora_delta_bwd(
-        dy, x, a, b, alpha, u_ref
-    )
+    dx_ref, da_ref, db_ref = oracle.shared_grouped_lora_delta_bwd(dy, x, a, b, alpha, u_ref)
 
     provider = LoRADeltaTritonProvider()
     y, u = provider.shared_grouped_lora_delta_fwd(x, a, b, alpha)
@@ -410,9 +402,9 @@ def test_triton_diverges_from_oracle_at_production_width():
         # below BF16 noise. This half is the one that must always hold.
         for label, got, want in (("y", y, y_ref), ("u", u, u_ref)):
             err = _rel(got, want)
-            assert err < 1e-5, (
-                f"triton seed={seed}: {label} rel err {err:.2e} exceeds reduction noise"
-            )
+            assert (
+                err < 1e-5
+            ), f"triton seed={seed}: {label} rel err {err:.2e} exceeds reduction noise"
 
         byte_equal.append(torch.equal(y, y_ref) and torch.equal(u, u_ref))
 
@@ -432,6 +424,6 @@ def test_provenance_reports_actual_backend(name, cls):
     prov = cls().provenance()
     for key in ("requested_backend", "actual_backend", "numeric_profile"):
         assert key in prov, f"{name}: provenance is missing {key}"
-    assert name in prov["actual_backend"], (
-        f"{name}: actual_backend {prov['actual_backend']!r} does not name the backend"
-    )
+    assert (
+        name in prov["actual_backend"]
+    ), f"{name}: actual_backend {prov['actual_backend']!r} does not name the backend"

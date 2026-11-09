@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import importlib.util
 from typing import TypedDict, cast
+
 import torch
 from torch.autograd.function import once_differentiable
 from torch.version import hip as torch_hip
@@ -179,9 +181,7 @@ def triton_rmsnorm_residual_bwd(
     if not isinstance(saved, dict) or saved.get("d") != d or "r" not in saved:
         raise ValueError("saved stats does not match the forward input")
     _check_tensor(dy, "dy", dtype=torch.bfloat16, shape=x.shape, device=x.device)
-    _check_tensor(
-        d_residual, "d_residual", dtype=torch.bfloat16, shape=x.shape, device=x.device
-    )
+    _check_tensor(d_residual, "d_residual", dtype=torch.bfloat16, shape=x.shape, device=x.device)
     _check_tensor(
         saved["r"],
         "saved.r",
@@ -237,9 +237,7 @@ class RMSNormResidualTriton(torch.autograd.Function):
 
 
 def rmsnorm_residual(x, gamma, eps=1e-6) -> tuple[torch.Tensor, torch.Tensor]:
-    return cast(
-        tuple[torch.Tensor, torch.Tensor], RMSNormResidualTriton.apply(x, gamma, eps)
-    )
+    return cast(tuple[torch.Tensor, torch.Tensor], RMSNormResidualTriton.apply(x, gamma, eps))
 
 
 class RMSNormResidualTritonOp:

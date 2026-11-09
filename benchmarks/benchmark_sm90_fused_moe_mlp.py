@@ -56,19 +56,34 @@ def main() -> int:
     H, F, E = args.hidden, args.ffn, args.experts
     g = torch.Generator().manual_seed(2026)
     print(f"H={H} F={F} E={E} ({torch.cuda.get_device_name(0)})")
-    print(f"{'rows':>7} {'two-launch ms':>14} {'fused ms':>10} {'bf16 loop ms':>13} {'two-launch TFLOPS':>18}")
+    print(
+        f"{'rows':>7} {'two-launch ms':>14} {'fused ms':>10} {'bf16 loop ms':>13} "
+        f"{'two-launch TFLOPS':>18}"
+    )
     for M in [int(v) for v in args.rows.split(",")]:
         x = (torch.randn(M, H, generator=g) * 0.5).bfloat16().cuda()
         w1 = (torch.randn(E, 2 * F, H, generator=g) / H**0.5).bfloat16().cuda()
         w2 = (torch.randn(E, H, F, generator=g) / F**0.5).bfloat16().cuda()
         p_s = torch.rand(M, generator=g).cuda()
-        offsets = torch.tensor([0] + [M * (i + 1) // E for i in range(E)], dtype=torch.int32, device="cuda")
-        batch = ExpertBatch(x=x, expert_offsets=offsets, p_s=p_s, w1=mx_quantize(w1, "e2m1"),
-                            w2=mx_quantize(w2, "e2m1"), lora=None,
-                            output_slot=torch.arange(M, dtype=torch.int32, device="cuda"),
-                            numeric_profile=PROFILE)
+        offsets = torch.tensor(
+            [0] + [M * (i + 1) // E for i in range(E)], dtype=torch.int32, device="cuda"
+        )
+        batch = ExpertBatch(
+            x=x,
+            expert_offsets=offsets,
+            p_s=p_s,
+            w1=mx_quantize(w1, "e2m1"),
+            w2=mx_quantize(w2, "e2m1"),
+            lora=None,
+            output_slot=torch.arange(M, dtype=torch.int32, device="cuda"),
+            numeric_profile=PROFILE,
+        )
         x_q = mx_quantize(x, "e4m3")
-        xd, w1d, w2d = mx_dequantize(x_q).bfloat16(), mx_dequantize(batch.w1).bfloat16(), mx_dequantize(batch.w2).bfloat16()
+        xd, w1d, w2d = (
+            mx_dequantize(x_q).bfloat16(),
+            mx_dequantize(batch.w1).bfloat16(),
+            mx_dequantize(batch.w2).bfloat16(),
+        )
         offs = offsets.tolist()
 
         def bf16_loop():

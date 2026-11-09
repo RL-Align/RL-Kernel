@@ -484,10 +484,12 @@ def test_explicit_fp32_backward_checks_unrounded_gradients():
 
     native = NativeMHCPreHAggregateOp()
     case = OperatorCase(
-        name="mhc-explicit-backward", op_class="reduction", dtype=torch.bfloat16,
-        inputs={"residual": torch.randn(2, 4, 128, dtype=torch.bfloat16),
-                "pre": torch.randn(2, 4)},
-        gold_fn=native.forward_fp32, grad_input_names=("residual", "pre"),
+        name="mhc-explicit-backward",
+        op_class="reduction",
+        dtype=torch.bfloat16,
+        inputs={"residual": torch.randn(2, 4, 128, dtype=torch.bfloat16), "pre": torch.randn(2, 4)},
+        gold_fn=native.forward_fp32,
+        grad_input_names=("residual", "pre"),
         gold_backward_fn=native.backward_fp32,
     )
 
@@ -503,7 +505,9 @@ def test_explicit_fp32_backward_checks_unrounded_gradients():
 
     for op, expected in ((CheckedCandidate(), True), (WrongBackward(), False)):
         report = run_operator_suite(
-            "explicit", candidates=[CandidateSpec(name="mhc", fn=op)], cases=[case],
+            "explicit",
+            candidates=[CandidateSpec(name="mhc", fn=op)],
+            cases=[case],
             check_grad=True,
         )
         assert report.passed == expected
@@ -511,5 +515,9 @@ def test_explicit_fp32_backward_checks_unrounded_gradients():
         assert checks[1].candidate_dtype == "torch.float32"
         assert checks[2].passed == expected
     with pytest.raises(ValueError, match="no explicit FP32 backward"):
-        run_operator_suite("missing", candidates=[CandidateSpec(name="missing", fn=native.forward)],
-                           cases=[case], check_grad=True)
+        run_operator_suite(
+            "missing",
+            candidates=[CandidateSpec(name="missing", fn=native.forward)],
+            cases=[case],
+            check_grad=True,
+        )

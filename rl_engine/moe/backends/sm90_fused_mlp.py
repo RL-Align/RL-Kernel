@@ -131,10 +131,18 @@ class Sm90FusedMoeMlp:
         self._check_batch(batch, x_q)
         w1 = self.prepare(batch.w1)
         codes, scales = self._ext.sm90_moe_fc1_swiglu_quant_forward(
-            x_q.codes, x_q.scales, w1.codes, w1.scales, w1.ref, w1.res,
-            batch.expert_offsets, batch.p_s.contiguous(),
+            x_q.codes,
+            x_q.scales,
+            w1.codes,
+            w1.scales,
+            w1.ref,
+            w1.res,
+            batch.expert_offsets,
+            batch.p_s.contiguous(),
         )
-        return MXTensor(codes=codes, scales=scales, elem_format="e4m3", shape=(batch.rows, batch.ffn))
+        return MXTensor(
+            codes=codes, scales=scales, elem_format="e4m3", shape=(batch.rows, batch.ffn)
+        )
 
     def fc3(self, batch: ExpertBatch, h_q: MXTensor) -> torch.Tensor:
         """fc3 (down projection): BF16 y [M, H]."""
@@ -151,7 +159,17 @@ class Sm90FusedMoeMlp:
         if path == "fused":
             w1, w2 = self.prepare(batch.w1), self.prepare(batch.w2)
             return self._ext.sm90_moe_fused_mlp_forward(
-                x_q.codes, x_q.scales, w1.codes, w1.scales, w1.ref, w1.res,
-                w2.codes, w2.scales, w2.ref, w2.res, batch.expert_offsets, batch.p_s.contiguous(),
+                x_q.codes,
+                x_q.scales,
+                w1.codes,
+                w1.scales,
+                w1.ref,
+                w1.res,
+                w2.codes,
+                w2.scales,
+                w2.ref,
+                w2.res,
+                batch.expert_offsets,
+                batch.p_s.contiguous(),
             )
         raise ValueError(f"unknown path {path!r} (expected 'two_launch' or 'fused')")

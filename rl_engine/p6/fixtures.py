@@ -1,20 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic start-kit inputs. Goldens are serialized and reviewed separately."""
 
+import json
 from dataclasses import asdict
 from pathlib import Path
-import json
+
 from .contract import (
-    Context,
-    CombinePlan,
     POLICY,
     SCHEMA,
+    CombinePlan,
+    Context,
     SavedForward,
     digest,
     exact_keys,
     require,
 )
-from .oracle import bf16_value, forward, backward, gradient_dispatch, matrix_hex
+from .oracle import backward, bf16_value, forward, gradient_dispatch, matrix_hex
 
 
 class Generator:
@@ -105,9 +106,7 @@ def cases():
         rounding["rows"][i] = (
             [1.0, 1.0078125, 1.0]
             if s == 0
-            else [0.00390625, 0.00390625, 0.0]
-            if s == 1
-            else [0.0] * 3
+            else [0.00390625, 0.00390625, 0.0] if s == 1 else [0.0] * 3
         )
     rounding["shared"] = [[0.0, 0.0, 0.00390625]]
     rounding["residual"] = [[0.0, 0.0, 0.00390625]]

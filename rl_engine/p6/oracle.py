@@ -3,6 +3,7 @@
 
 import math
 import struct
+
 from .contract import ContractError, SavedForward, digest, require
 
 

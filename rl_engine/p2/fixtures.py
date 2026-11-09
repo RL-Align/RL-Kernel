@@ -343,9 +343,11 @@ def required_evidence() -> list[dict]:
                 (
                     "state"
                     if ".state." in op.boundary
-                    else "backward_not_applicable"
-                    if op.backward == "non_differentiable"
-                    else "backward"
+                    else (
+                        "backward_not_applicable"
+                        if op.backward == "non_differentiable"
+                        else "backward"
+                    )
                 ),
             ],
             "live_status": Status.UNSUPPORTED_CAPABILITY.value,

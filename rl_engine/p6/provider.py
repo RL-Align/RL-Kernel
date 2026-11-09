@@ -6,12 +6,12 @@ from dataclasses import asdict
 from typing import Protocol
 
 from .contract import (
+    OPERATORS,
+    PROFILE,
+    TRACE_SCHEMA,
     CombinePlan,
     Context,
-    PROFILE,
-    OPERATORS,
     SavedForward,
-    TRACE_SCHEMA,
     check_compatibility,
     digest,
     exact_keys,

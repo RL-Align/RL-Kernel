@@ -27,8 +27,7 @@ def _h_aggregate_forward(Residual, Pre, Output, D: tl.constexpr, BLOCK: tl.const
 
 
 @triton.jit
-def _h_aggregate_grad_residual(GradOutput, Pre, GradResidual, D: tl.constexpr,
-                             BLOCK: tl.constexpr):
+def _h_aggregate_grad_residual(GradOutput, Pre, GradResidual, D: tl.constexpr, BLOCK: tl.constexpr):
     token = tl.program_id(0).to(tl.int64)
     hidden = tl.program_id(1) * BLOCK + tl.arange(0, BLOCK)
     grad = tl.load(GradOutput + token * D + hidden, hidden < D, 0).to(tl.float32)
@@ -75,14 +74,17 @@ class MHCPreHAggregateTritonOp:
     def forward(self, residual, pre):
         self._validate_inputs(residual, pre)
         if torch.is_grad_enabled() and (residual.requires_grad or pre.requires_grad):
-            raise RuntimeError("MHC H Aggregate does not expose standalone autograd; "
-                               "use the explicit FP32 composite backward")
+            raise RuntimeError(
+                "MHC H Aggregate does not expose standalone autograd; "
+                "use the explicit FP32 composite backward"
+            )
         tokens, _, hidden = residual.shape
         output = torch.empty((tokens, hidden), dtype=torch.bfloat16, device=residual.device)
         if tokens:
             with torch.cuda.device(residual.device):
                 _h_aggregate_forward[(tokens, triton.cdiv(hidden, 256))](
-                    residual, pre, output, hidden, 256, enable_fp_fusion=False)
+                    residual, pre, output, hidden, 256, enable_fp_fusion=False
+                )
         return output
 
     def backward_fp32(self, grad_output, residual, pre):
@@ -101,7 +103,9 @@ class MHCPreHAggregateTritonOp:
         if tokens:
             with torch.cuda.device(residual.device):
                 _h_aggregate_grad_residual[(tokens, triton.cdiv(hidden, 256))](
-                    grad_output, pre, grad_residual, hidden, 256, enable_fp_fusion=False)
+                    grad_output, pre, grad_residual, hidden, 256, enable_fp_fusion=False
+                )
                 _h_aggregate_grad_pre[(tokens,)](
-                    grad_output, residual, grad_pre, hidden, num_warps=1, enable_fp_fusion=False)
+                    grad_output, residual, grad_pre, hidden, num_warps=1, enable_fp_fusion=False
+                )
         return grad_residual, grad_pre

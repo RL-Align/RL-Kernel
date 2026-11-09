@@ -65,13 +65,13 @@ from rl_engine.moe.mx_format import MX_BLOCK, MXTensor
 
 # Triton can only close over globals that are tl.constexpr instances, so the
 # contract's constants are mirrored here rather than read from the modules.
-_GATE_MAX = tl.constexpr(10.0)      # rl_engine.moe.contract.GATE_CLAMP_MAX
-_UP_MIN = tl.constexpr(-10.0)       # rl_engine.moe.contract.UP_CLAMP_MIN
-_UP_MAX = tl.constexpr(10.0)        # rl_engine.moe.contract.UP_CLAMP_MAX
-_E4M3_MAX = tl.constexpr(448.0)     # rl_engine.moe.mx_format.E4M3_MAX
-_BIAS = tl.constexpr(127)           # rl_engine.moe.mx_format.E8M0_BIAS
-_EMAX = tl.constexpr(8)             # EMAX_ELEM["e4m3"]
-_MXB = tl.constexpr(MX_BLOCK)       # rl_engine.moe.mx_format.MX_BLOCK
+_GATE_MAX = tl.constexpr(10.0)  # rl_engine.moe.contract.GATE_CLAMP_MAX
+_UP_MIN = tl.constexpr(-10.0)  # rl_engine.moe.contract.UP_CLAMP_MIN
+_UP_MAX = tl.constexpr(10.0)  # rl_engine.moe.contract.UP_CLAMP_MAX
+_E4M3_MAX = tl.constexpr(448.0)  # rl_engine.moe.mx_format.E4M3_MAX
+_BIAS = tl.constexpr(127)  # rl_engine.moe.mx_format.E8M0_BIAS
+_EMAX = tl.constexpr(8)  # EMAX_ELEM["e4m3"]
+_MXB = tl.constexpr(MX_BLOCK)  # rl_engine.moe.mx_format.MX_BLOCK
 
 # The deterministic all-reduce supports TP sizes 1, 2, 4 and 8, so the shared
 # fc3 K-tree has 8 leaves: one per rank at the largest supported TP size.
@@ -160,8 +160,9 @@ def _e8m0_code_and_inv(amax):
 
 
 @triton.jit
-def _locate_token_block(offsets, block_prefix, n_experts, pid, BM: tl.constexpr,
-                        SEARCH_STEPS: tl.constexpr):
+def _locate_token_block(
+    offsets, block_prefix, n_experts, pid, BM: tl.constexpr, SEARCH_STEPS: tl.constexpr
+):
     """Map a program id to (expert, row0, row_end) over the sorted token rows.
 
     ``block_prefix[e]`` is the number of BM-row blocks before expert ``e``. The
@@ -272,7 +273,15 @@ def fused_shared_fc1_swiglu(x: Tensor, w_fc1: Tensor) -> Tensor:
     cfg = tiles("shared_fc1", x.device)
     grid = (triton.cdiv(t, cfg["BM"]), triton.cdiv(f_dim, cfg["BN"]))
     _shared_fc1_swiglu_kernel[grid](
-        x, w_fc1, out, t, h_dim, f_dim, BM=cfg["BM"], BN=cfg["BN"], BK=cfg["BK"],
+        x,
+        w_fc1,
+        out,
+        t,
+        h_dim,
+        f_dim,
+        BM=cfg["BM"],
+        BN=cfg["BN"],
+        BK=cfg["BK"],
         **_launch_kw(cfg),
     )
     return out
@@ -292,8 +301,21 @@ def _bf16_add(a, b):
 
 
 @triton.jit
-def _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, k_lo, seg_len,
-                 BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr, EVEN_K: tl.constexpr):
+def _segment_dot(
+    HP,
+    WP,
+    offs_m,
+    offs_n,
+    m_mask,
+    n_mask,
+    K,
+    k_lo,
+    seg_len,
+    BM: tl.constexpr,
+    BN: tl.constexpr,
+    BK: tl.constexpr,
+    EVEN_K: tl.constexpr,
+):
     """One K-tree leaf: FP32 ascending-BK reduction of [k_lo, k_lo+seg_len), BF16 out.
 
     The leaf boundary is F/8 whatever BK is; a ragged last tile is zero-masked,
@@ -318,8 +340,18 @@ def _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, k_lo, seg_len,
 
 @triton.jit
 def _shared_fc3_kernel(
-    HP, WP, Y, T, N, K, seg_len, NSEG: tl.constexpr,
-    BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr, EVEN_K: tl.constexpr,
+    HP,
+    WP,
+    Y,
+    T,
+    N,
+    K,
+    seg_len,
+    NSEG: tl.constexpr,
+    BM: tl.constexpr,
+    BN: tl.constexpr,
+    BK: tl.constexpr,
+    EVEN_K: tl.constexpr,
 ):
     """y = h @ w_fc2^T over this rank's NSEG adjacent leaves of the 8-leaf K-tree.
 
@@ -336,18 +368,32 @@ def _shared_fc3_kernel(
 
     s = _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, 0, seg_len, BM, BN, BK, EVEN_K)
     if NSEG >= 2:
-        s1 = _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, seg_len, seg_len, BM, BN, BK, EVEN_K)
+        s1 = _segment_dot(
+            HP, WP, offs_m, offs_n, m_mask, n_mask, K, seg_len, seg_len, BM, BN, BK, EVEN_K
+        )
         s = _bf16_add(s, s1)
     if NSEG >= 4:
-        s2 = _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, 2 * seg_len, seg_len, BM, BN, BK, EVEN_K)
-        s3 = _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, 3 * seg_len, seg_len, BM, BN, BK, EVEN_K)
+        s2 = _segment_dot(
+            HP, WP, offs_m, offs_n, m_mask, n_mask, K, 2 * seg_len, seg_len, BM, BN, BK, EVEN_K
+        )
+        s3 = _segment_dot(
+            HP, WP, offs_m, offs_n, m_mask, n_mask, K, 3 * seg_len, seg_len, BM, BN, BK, EVEN_K
+        )
         s = _bf16_add(s, _bf16_add(s2, s3))
     if NSEG >= 8:
-        s4 = _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, 4 * seg_len, seg_len, BM, BN, BK, EVEN_K)
-        s5 = _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, 5 * seg_len, seg_len, BM, BN, BK, EVEN_K)
+        s4 = _segment_dot(
+            HP, WP, offs_m, offs_n, m_mask, n_mask, K, 4 * seg_len, seg_len, BM, BN, BK, EVEN_K
+        )
+        s5 = _segment_dot(
+            HP, WP, offs_m, offs_n, m_mask, n_mask, K, 5 * seg_len, seg_len, BM, BN, BK, EVEN_K
+        )
         s45 = _bf16_add(s4, s5)
-        s6 = _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, 6 * seg_len, seg_len, BM, BN, BK, EVEN_K)
-        s7 = _segment_dot(HP, WP, offs_m, offs_n, m_mask, n_mask, K, 7 * seg_len, seg_len, BM, BN, BK, EVEN_K)
+        s6 = _segment_dot(
+            HP, WP, offs_m, offs_n, m_mask, n_mask, K, 6 * seg_len, seg_len, BM, BN, BK, EVEN_K
+        )
+        s7 = _segment_dot(
+            HP, WP, offs_m, offs_n, m_mask, n_mask, K, 7 * seg_len, seg_len, BM, BN, BK, EVEN_K
+        )
         s = _bf16_add(s, _bf16_add(s45, _bf16_add(s6, s7)))
 
     tl.store(Y + offs_m[:, None] * N + offs_n[None, :], s, mask=m_mask[:, None] & n_mask[None, :])
@@ -390,8 +436,18 @@ def shared_fc3(h: Tensor, w_fc2: Tensor, tp_size: int = 1) -> Tensor:
         return y.zero_()
     grid = (triton.cdiv(t, cfg["BM"]), triton.cdiv(n, cfg["BN"]))
     _shared_fc3_kernel[grid](
-        h, w_fc2, y, t, n, k_local, seg_len, NSEG=nseg,
-        BM=cfg["BM"], BN=cfg["BN"], BK=cfg["BK"], EVEN_K=seg_len % cfg["BK"] == 0,
+        h,
+        w_fc2,
+        y,
+        t,
+        n,
+        k_local,
+        seg_len,
+        NSEG=nseg,
+        BM=cfg["BM"],
+        BN=cfg["BN"],
+        BK=cfg["BK"],
+        EVEN_K=seg_len % cfg["BK"] == 0,
         **_launch_kw(cfg),
     )
     return y
@@ -461,8 +517,9 @@ def _decode_e2m1(nib):
 
 
 @triton.jit
-def _load_mxfp8_a(CODES, SCALES, offs_m, k0, m_mask, k_stride, nblk,
-                  BK: tl.constexpr, HW_FNUZ: tl.constexpr):
+def _load_mxfp8_a(
+    CODES, SCALES, offs_m, k0, m_mask, k_stride, nblk, BK: tl.constexpr, HW_FNUZ: tl.constexpr
+):
     """Activation tile [BM, BK] as BF16, with its block scale folded in.
 
     One E8M0 scale per (row, 32-block), broadcast over the block rather than
@@ -504,10 +561,13 @@ def _load_mxfp4_b(CODES, SCALES, offs_n, k0, n_mask, k_stride, nblk, BK: tl.cons
     byte = tl.load(
         CODES + offs_n[:, None] * (k_stride // 2) + offs_j[None, :], mask=n_mask[:, None], other=0
     )
-    s = _e8m0_scale(tl.load(
-        SCALES + offs_n[:, None] * nblk + (offs_j // (_MXB // 2))[None, :],
-        mask=n_mask[:, None], other=_BIAS,
-    ))
+    s = _e8m0_scale(
+        tl.load(
+            SCALES + offs_n[:, None] * nblk + (offs_j // (_MXB // 2))[None, :],
+            mask=n_mask[:, None],
+            other=_BIAS,
+        )
+    )
     lo = _decode_e2m1(byte & 0xF) * s
     hi = _decode_e2m1(byte >> 4) * s
     bn: tl.constexpr = lo.shape[0]
@@ -595,9 +655,25 @@ def _unfold_fnuz(acc, ref):
 
 @triton.jit
 def _routed_fc1_kernel(
-    XC, XS, WC, WS, WREF, OFFS, PREFIX, PS, HC, HS, H, F, n_experts,
-    SEARCH_STEPS: tl.constexpr, BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr,
-    HW_FNUZ: tl.constexpr, FP8: tl.constexpr,
+    XC,
+    XS,
+    WC,
+    WS,
+    WREF,
+    OFFS,
+    PREFIX,
+    PS,
+    HC,
+    HS,
+    H,
+    F,
+    n_experts,
+    SEARCH_STEPS: tl.constexpr,
+    BM: tl.constexpr,
+    BN: tl.constexpr,
+    BK: tl.constexpr,
+    HW_FNUZ: tl.constexpr,
+    FP8: tl.constexpr,
 ):
     """MXFP8 x MXFP4 fc1, then clamp-SwiGLU * p_s, then MX re-quantization of h.
 
@@ -667,9 +743,23 @@ def _routed_fc1_kernel(
 
 @triton.jit
 def _routed_fc3_kernel(
-    HC, HS, WC, WS, WREF, OFFS, PREFIX, Y, F, Hdim, n_experts,
-    SEARCH_STEPS: tl.constexpr, BM: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr,
-    HW_FNUZ: tl.constexpr, FP8: tl.constexpr,
+    HC,
+    HS,
+    WC,
+    WS,
+    WREF,
+    OFFS,
+    PREFIX,
+    Y,
+    F,
+    Hdim,
+    n_experts,
+    SEARCH_STEPS: tl.constexpr,
+    BM: tl.constexpr,
+    BN: tl.constexpr,
+    BK: tl.constexpr,
+    HW_FNUZ: tl.constexpr,
+    FP8: tl.constexpr,
 ):
     """MXFP8 x MXFP4 fc3 -> BF16 y."""
     expert, row0, row_end = _locate_token_block(
@@ -692,7 +782,9 @@ def _routed_fc3_kernel(
             for j in tl.static_range(BK // _MXB):
                 kb = k0 + j * _MXB
                 a, sa = _load_fnuz_a(HC, HS, offs_m, kb, m_mask, F, nblk)
-                acc += tl.dot(a, _load_fnuz_b(WC, WS, w_rows, ref, kb, n_mask, F, nblk)) * sa[:, None]
+                acc += (
+                    tl.dot(a, _load_fnuz_b(WC, WS, w_rows, ref, kb, n_mask, F, nblk)) * sa[:, None]
+                )
         acc = _unfold_fnuz(acc, ref)
     else:
         for k0 in tl.range(0, F, BK):
@@ -724,7 +816,10 @@ def _block_prefix(expert_offsets: Tensor, bm: int) -> Tensor:
     n_experts = expert_offsets.numel() - 1
     prefix = torch.empty(n_experts + 1, dtype=torch.int32, device=expert_offsets.device)
     _block_prefix_kernel[(1,)](
-        expert_offsets, prefix, n_experts, BM=bm,
+        expert_offsets,
+        prefix,
+        n_experts,
+        BM=bm,
         BLOCK_E=triton.next_power_of_2(max(n_experts, 1)),
     )
     return prefix
@@ -769,8 +864,13 @@ def _resolve_fp8(fp8: bool, w: MXTensor, w_ref: Tensor | None, dev: torch.device
 
 
 def routed_fc1_swiglu_quant(
-    x_q: MXTensor, w1: MXTensor, expert_offsets: Tensor, p_s: Tensor,
-    *, fp8: bool = False, w1_ref: Tensor | None = None,
+    x_q: MXTensor,
+    w1: MXTensor,
+    expert_offsets: Tensor,
+    p_s: Tensor,
+    *,
+    fp8: bool = False,
+    w1_ref: Tensor | None = None,
 ) -> MXTensor:
     """fc1 -> clamp-SwiGLU * p_s -> MX quant. Returns ``h_q`` [M, F].
 
@@ -796,18 +896,37 @@ def routed_fc1_swiglu_quant(
     if m and f_dim:
         grid = (_grid_blocks(n_experts, m, cfg["BM"]), triton.cdiv(f_dim, cfg["BN"]))
         _routed_fc1_kernel[grid](
-            x_q.codes, x_q.scales, w1.codes, w1.scales, wref, expert_offsets,
-            _block_prefix(expert_offsets, cfg["BM"]), p_s.contiguous(),
-            codes, scales, h_dim, f_dim, n_experts, SEARCH_STEPS=_search_steps(n_experts),
-            BM=cfg["BM"], BN=cfg["BN"], BK=cfg["BK"], HW_FNUZ=_hw_fnuz(dev), FP8=use_fp8,
+            x_q.codes,
+            x_q.scales,
+            w1.codes,
+            w1.scales,
+            wref,
+            expert_offsets,
+            _block_prefix(expert_offsets, cfg["BM"]),
+            p_s.contiguous(),
+            codes,
+            scales,
+            h_dim,
+            f_dim,
+            n_experts,
+            SEARCH_STEPS=_search_steps(n_experts),
+            BM=cfg["BM"],
+            BN=cfg["BN"],
+            BK=cfg["BK"],
+            HW_FNUZ=_hw_fnuz(dev),
+            FP8=use_fp8,
             **_launch_kw(cfg),
         )
     return MXTensor(codes=codes, scales=scales, elem_format="e4m3", shape=(m, f_dim))
 
 
 def routed_fc3(
-    h_q: MXTensor, w2: MXTensor, expert_offsets: Tensor,
-    *, fp8: bool = False, w2_ref: Tensor | None = None,
+    h_q: MXTensor,
+    w2: MXTensor,
+    expert_offsets: Tensor,
+    *,
+    fp8: bool = False,
+    w2_ref: Tensor | None = None,
 ) -> Tensor:
     """fc3 -> BF16 ``y [M, H]``. ``fp8`` / ``w2_ref`` as in ``routed_fc1_swiglu_quant``."""
     m, f_dim = h_q.shape
@@ -823,18 +942,38 @@ def routed_fc3(
     if m and h_dim:
         grid = (_grid_blocks(n_experts, m, cfg["BM"]), triton.cdiv(h_dim, cfg["BN"]))
         _routed_fc3_kernel[grid](
-            h_q.codes, h_q.scales, w2.codes, w2.scales, wref, expert_offsets,
-            _block_prefix(expert_offsets, cfg["BM"]), y, f_dim, h_dim, n_experts,
+            h_q.codes,
+            h_q.scales,
+            w2.codes,
+            w2.scales,
+            wref,
+            expert_offsets,
+            _block_prefix(expert_offsets, cfg["BM"]),
+            y,
+            f_dim,
+            h_dim,
+            n_experts,
             SEARCH_STEPS=_search_steps(n_experts),
-            BM=cfg["BM"], BN=cfg["BN"], BK=cfg["BK"], HW_FNUZ=_hw_fnuz(dev), FP8=use_fp8,
+            BM=cfg["BM"],
+            BN=cfg["BN"],
+            BK=cfg["BK"],
+            HW_FNUZ=_hw_fnuz(dev),
+            FP8=use_fp8,
             **_launch_kw(cfg),
         )
     return y
 
 
 def routed_mlp_forward(
-    x_q: MXTensor, w1: MXTensor, w2: MXTensor, expert_offsets: Tensor, p_s: Tensor,
-    *, fp8: bool = False, w1_ref: Tensor | None = None, w2_ref: Tensor | None = None,
+    x_q: MXTensor,
+    w1: MXTensor,
+    w2: MXTensor,
+    expert_offsets: Tensor,
+    p_s: Tensor,
+    *,
+    fp8: bool = False,
+    w1_ref: Tensor | None = None,
+    w2_ref: Tensor | None = None,
 ) -> Tensor:
     """The two-stage routed expert: fc1+SwiGLU+quant, then fc3."""
     h_q = routed_fc1_swiglu_quant(x_q, w1, expert_offsets, p_s, fp8=fp8, w1_ref=w1_ref)

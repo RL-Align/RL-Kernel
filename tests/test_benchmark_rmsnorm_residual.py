@@ -3,9 +3,7 @@ from pathlib import Path
 
 
 def load_benchmark():
-    path = (
-        Path(__file__).resolve().parents[1] / "benchmarks/benchmark_rmsnorm_residual.py"
-    )
+    path = Path(__file__).resolve().parents[1] / "benchmarks/benchmark_rmsnorm_residual.py"
     spec = importlib.util.spec_from_file_location("rmsnorm_benchmark", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

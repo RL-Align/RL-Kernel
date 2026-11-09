@@ -3,9 +3,9 @@
 
 import argparse
 import json
-from pathlib import Path
 import platform
 import sys
+from pathlib import Path
 
 from .artifact import build_payload, publish, resume, verify
 from .contract import CombinePlan, ContractError, manifest, require

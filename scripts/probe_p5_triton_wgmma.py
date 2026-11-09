@@ -28,12 +28,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rl_engine.moe import oracle  # noqa: E402
-from rl_engine.moe.mx_format import (  # noqa: E402
-    MXTensor,
-    e4m3_encode,
-    pack_nibbles,
-)
 from rl_engine.moe import triton_grouped_gemm_wgmma as impl  # noqa: E402
+from rl_engine.moe.mx_format import MXTensor, e4m3_encode, pack_nibbles  # noqa: E402
 
 REPORT = {
     "numeric_profile_candidate": "p5-wgmma-triton-v1",

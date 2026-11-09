@@ -33,9 +33,7 @@ from rl_engine.alignment.cross_config.adapters.megatron_training import (
     T05ContractError,
     canonical_sha256,
 )
-from rl_engine.alignment.cross_config.adapters.megatron_training_ranks import (
-    ExpectedRankTopology,
-)
+from rl_engine.alignment.cross_config.adapters.megatron_training_ranks import ExpectedRankTopology
 from rl_engine.integrations.megatron_training_gradients import (
     GRADIENT_EVIDENCE_SCHEMA_VERSION,
     GradientStepEvidence,

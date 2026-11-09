@@ -9,9 +9,7 @@ import torch
 
 from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
 from rl_engine.moe import fixtures, oracle
-from rl_engine.moe.backends.clamp_swiglu import (
-    ClampSwiGLUWeightedCudaProvider,
-)
+from rl_engine.moe.backends.clamp_swiglu import ClampSwiGLUWeightedCudaProvider
 
 _HAS_P5_CUDA = bool(
     torch.cuda.is_available()

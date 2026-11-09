@@ -18,11 +18,7 @@ from typing import Optional
 import torch
 
 from rl_engine.validation.cross_config.schema import SerializableModel
-from rl_engine.validation.m10.schema import (
-    M10_INPUT_SCHEMA_VERSION,
-    M10Input,
-    M10Status,
-)
+from rl_engine.validation.m10.schema import M10_INPUT_SCHEMA_VERSION, M10Input, M10Status
 from rl_engine.validation.sampling_params.gate import evaluate_sampling_gate
 
 

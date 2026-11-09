@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Any, cast
+
+from typing import cast
 
 import torch
 from torch.autograd.function import once_differentiable
@@ -27,9 +28,7 @@ class _NativeRMSNormResidual(torch.autograd.Function):
 
 
 def rmsnorm_residual(x, gamma, eps=1.0e-6) -> tuple[torch.Tensor, torch.Tensor]:
-    return cast(
-        tuple[torch.Tensor, torch.Tensor], _NativeRMSNormResidual.apply(x, gamma, eps)
-    )
+    return cast(tuple[torch.Tensor, torch.Tensor], _NativeRMSNormResidual.apply(x, gamma, eps))
 
 
 class NativeRMSNormResidualOp:

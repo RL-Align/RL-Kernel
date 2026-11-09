@@ -102,8 +102,12 @@ def test_k_tree_survives_a_half_k_split(ext):
     x, w1 = _operands(256, 4096, 512)
     h = x.shape[1]
     full = ext.det_gemm_fwd_rhs_transposed(x, w1)
-    left = ext.det_gemm_fwd_rhs_transposed(x[:, : h // 2].contiguous(), w1[:, : h // 2].contiguous())
-    right = ext.det_gemm_fwd_rhs_transposed(x[:, h // 2 :].contiguous(), w1[:, h // 2 :].contiguous())
+    left = ext.det_gemm_fwd_rhs_transposed(
+        x[:, : h // 2].contiguous(), w1[:, : h // 2].contiguous()
+    )
+    right = ext.det_gemm_fwd_rhs_transposed(
+        x[:, h // 2 :].contiguous(), w1[:, h // 2 :].contiguous()
+    )
     assert torch.equal(full, (left.float() + right.float()).to(torch.bfloat16))
 
 

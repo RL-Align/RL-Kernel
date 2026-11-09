@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Any
 
 from rl_engine.kernels.ops.cuda.norm.rmsnorm_residual import (
     cuda_rmsnorm_residual_bwd,

@@ -23,7 +23,7 @@ except ImportError:
     triton = None
     tl = None
 
-from rl_engine.moe.mx_format import MX_BLOCK, MXTensor, NIBBLE_PACKING
+from rl_engine.moe.mx_format import MX_BLOCK, NIBBLE_PACKING, MXTensor
 
 # Device descriptor entries are int64 element offsets, not byte addresses.
 ROW_BEGIN, ROW_END, ROW_COUNT, WEIGHT, WEIGHT_SCALE, INPUT, INPUT_SCALE, OUTPUT = range(8)

@@ -45,9 +45,7 @@ def build_m10_stub(
         raise ValueError("active_ratio must be within [0, 1]")
 
     generator = torch.Generator().manual_seed(seed)
-    rows = torch.randn(tokens, hidden, dtype=torch.float32, generator=generator).to(
-        torch.bfloat16
-    )
+    rows = torch.randn(tokens, hidden, dtype=torch.float32, generator=generator).to(torch.bfloat16)
     weight = torch.randn(local_vocab, hidden, dtype=torch.float32, generator=generator).to(
         torch.bfloat16
     )

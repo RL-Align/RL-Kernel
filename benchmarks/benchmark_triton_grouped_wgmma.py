@@ -11,18 +11,18 @@ import argparse
 import hashlib
 import itertools
 import json
-from pathlib import Path
 import statistics
 import sys
 import time
+from pathlib import Path
 
 import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from rl_engine.moe.mx_format import MXTensor  # noqa: E402
 from rl_engine.moe import triton_grouped_gemm_wgmma as impl  # noqa: E402
+from rl_engine.moe.mx_format import MXTensor  # noqa: E402
 
 
 def measure(fn, iterations):
@@ -104,20 +104,20 @@ def run_case(label, sizes, args):
     if len(sizes) <= impl.SCAN_BLOCK:
         sums = torch.empty((1,), dtype=torch.int64, device="cuda")
         for backward, desc, prefix, name in ((False, df, pf, "fwd"), (True, db, pb, "bwd")):
-            calls[f"{name}_prep_preallocated"] = (
-                lambda backward=backward, desc=desc, prefix=prefix: impl._prep_kernel[(1,)](
-                    offsets,
-                    desc,
-                    prefix,
-                    sums,
-                    N=n,
-                    K=k,
-                    E=len(sizes),
-                    BLOCK_M=impl.BM,
-                    B=impl.triton.next_power_of_2(len(sizes)),
-                    BACKWARD=backward,
-                    num_warps=4,
-                )
+            calls[
+                f"{name}_prep_preallocated"
+            ] = lambda backward=backward, desc=desc, prefix=prefix: impl._prep_kernel[(1,)](
+                offsets,
+                desc,
+                prefix,
+                sums,
+                N=n,
+                K=k,
+                E=len(sizes),
+                BLOCK_M=impl.BM,
+                B=impl.triton.next_power_of_2(len(sizes)),
+                BACKWARD=backward,
+                num_warps=4,
             )
     for alias in args.compare:
         from rl_engine.moe.provider import resolve_provider

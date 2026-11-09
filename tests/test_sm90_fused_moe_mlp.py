@@ -83,7 +83,9 @@ def test_fc1_matches_fp32_reference(backend):
     z = backend.fc1_z(batch, x_q)
     a, w1 = mx_dequantize(x_q), mx_dequantize(batch.w1)
     ref = torch.zeros_like(z)
-    for e, (lo, hi) in enumerate(zip(batch.expert_offsets.tolist(), batch.expert_offsets.tolist()[1:])):
+    for e, (lo, hi) in enumerate(
+        zip(batch.expert_offsets.tolist(), batch.expert_offsets.tolist()[1:])
+    ):
         if lo < hi:
             ref[lo:hi] = a[lo:hi] @ w1[e].t()
     assert torch.isfinite(z).all()
@@ -115,9 +117,15 @@ def test_forward_close_to_p5_oracle(backend):
 
 @requires_cuda
 def test_fused_equals_two_launch_bitwise(backend):
-    for shape in [(130, 3, 512, 128, torch.tensor([0, 64, 64, 130])), (777, 4, 4096, 2048, None), (1, 2, 4096, 2048, torch.tensor([0, 0, 1]))]:
+    for shape in [
+        (130, 3, 512, 128, torch.tensor([0, 64, 64, 130])),
+        (777, 4, 4096, 2048, None),
+        (1, 2, 4096, 2048, torch.tensor([0, 0, 1])),
+    ]:
         batch, x_q = _batch(*shape[:4], offsets=shape[4])
-        assert torch.equal(backend.forward(batch, x_q, "fused"), backend.forward(batch, x_q, "two_launch"))
+        assert torch.equal(
+            backend.forward(batch, x_q, "fused"), backend.forward(batch, x_q, "two_launch")
+        )
 
 
 @requires_cuda
@@ -134,13 +142,21 @@ def test_batch_invariance_across_expert_boundaries(backend, path):
                 **batch.__dict__,
                 "x": batch.x[m : m + 1].contiguous(),
                 "p_s": batch.p_s[m : m + 1].contiguous(),
-                "expert_offsets": torch.tensor([0] * (e + 1) + [1] * (E - e), dtype=torch.int32, device="cuda"),
+                "expert_offsets": torch.tensor(
+                    [0] * (e + 1) + [1] * (E - e), dtype=torch.int32, device="cuda"
+                ),
                 "output_slot": batch.output_slot[m : m + 1].contiguous(),
             }
         )
-        xq1 = MXTensor(codes=x_q.codes[m : m + 1].contiguous(), scales=x_q.scales[m : m + 1].contiguous(),
-                       elem_format="e4m3", shape=(1, batch.hidden))
-        assert torch.equal(backend.forward(one, xq1, path=path)[0], y[m]), f"row {m} ({path}) diverged"
+        xq1 = MXTensor(
+            codes=x_q.codes[m : m + 1].contiguous(),
+            scales=x_q.scales[m : m + 1].contiguous(),
+            elem_format="e4m3",
+            shape=(1, batch.hidden),
+        )
+        assert torch.equal(
+            backend.forward(one, xq1, path=path)[0], y[m]
+        ), f"row {m} ({path}) diverged"
 
 
 @requires_cuda

@@ -80,9 +80,7 @@ class CanonicalSamplingLayer(SerializableModel):
     raw: Optional[Any] = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
-        if isinstance(self.temperature, bool) or not isinstance(
-            self.temperature, (int, float)
-        ):
+        if isinstance(self.temperature, bool) or not isinstance(self.temperature, (int, float)):
             raise ValueError("temperature must be a real number")
         if self.top_k is not None and (
             isinstance(self.top_k, bool) or not isinstance(self.top_k, int)

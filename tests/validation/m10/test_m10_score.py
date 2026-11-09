@@ -112,9 +112,7 @@ class TestM10ScoringCpuDouble:
 
         values = torch.arange(8, dtype=torch.float32)
         monkeypatch.setattr(score_mod, "LinearLogpWrapper", lambda: self._FakeWrapper(values))
-        result = score_m10(
-            build_m10_stub(tokens=8, hidden=32, local_vocab=64, active_ratio=0.5)
-        )
+        result = score_m10(build_m10_stub(tokens=8, hidden=32, local_vocab=64, active_ratio=0.5))
         assert result.selected_logprob.shape[0] == 8
         assert result.selected_logprob_active.shape[0] == result.active_token_count
         assert len(result.selected_logprob_bytes) == 4 * result.active_token_count
@@ -127,9 +125,7 @@ class TestM10ScoringCpuDouble:
         monkeypatch.setattr(score_mod, "LinearLogpWrapper", lambda: self._FakeWrapper(values))
         unverified = score_m10(inp)
         assert unverified.provenance["pre_update_weight_lock_verified"] is False
-        verified = score_m10(
-            inp, expected_pre_update_weight_lock=inp.pre_update_weight_lock
-        )
+        verified = score_m10(inp, expected_pre_update_weight_lock=inp.pre_update_weight_lock)
         assert verified.provenance["pre_update_weight_lock_verified"] is True
 
 

@@ -56,7 +56,9 @@ def _shared_reference(x: torch.Tensor, w1: torch.Tensor) -> torch.Tensor:
 
 
 @requires_cuda
-@pytest.mark.parametrize("shape", [(128, 256, 64), (200, 512, 128), (1, 4096, 2048), (2048, 4096, 2048)])
+@pytest.mark.parametrize(
+    "shape", [(128, 256, 64), (200, 512, 128), (1, 4096, 2048), (2048, 4096, 2048)]
+)
 def test_shared_matches_fp32_reference(tk, shape):
     x, w1 = _shared_operands(*shape)
     got = tk.fused_shared_fc1_swiglu(x, w1)
@@ -121,7 +123,9 @@ def _shard_w_fc1(w1: torch.Tensor, rank: int, tp: int) -> torch.Tensor:
 
 
 @requires_cuda
-@pytest.mark.parametrize("shape", [(128, 256, 64), (200, 512, 136), (1, 4096, 2048), (512, 4096, 2048)])
+@pytest.mark.parametrize(
+    "shape", [(128, 256, 64), (200, 512, 136), (1, 4096, 2048), (512, 4096, 2048)]
+)
 def test_shared_fc3_matches_fp32_reference(tk, shape):
     t, h, f = shape
     g = torch.Generator().manual_seed(10)
@@ -244,7 +248,11 @@ def test_routed_matches_fp64_at_production_width(tk):
     x_q, w1, w2, offsets, p_s = _routed_case(512, 8, 4096, 2048, seed=3)
     y = tk.routed_mlp_forward(x_q, w1, w2, offsets, p_s)
 
-    a, w1d, w2d = mx_dequantize(x_q).double(), mx_dequantize(w1).double(), mx_dequantize(w2).double()
+    a, w1d, w2d = (
+        mx_dequantize(x_q).double(),
+        mx_dequantize(w1).double(),
+        mx_dequantize(w2).double(),
+    )
     f = w2.shape[2]
     ref = torch.zeros_like(y, dtype=torch.float64)
     offs = offsets.tolist()
@@ -333,12 +341,20 @@ def test_routed_many_experts_match_per_expert_launches(tk):
     y_all = tk.routed_fc3(h_all, w2, offsets)
 
     def rows(t: MXTensor, lo: int, hi: int) -> MXTensor:
-        return MXTensor(codes=t.codes[lo:hi].contiguous(), scales=t.scales[lo:hi].contiguous(),
-                        elem_format=t.elem_format, shape=(hi - lo, t.shape[1]))
+        return MXTensor(
+            codes=t.codes[lo:hi].contiguous(),
+            scales=t.scales[lo:hi].contiguous(),
+            elem_format=t.elem_format,
+            shape=(hi - lo, t.shape[1]),
+        )
 
     def expert(t: MXTensor, i: int) -> MXTensor:
-        return MXTensor(codes=t.codes[i : i + 1].contiguous(), scales=t.scales[i : i + 1].contiguous(),
-                        elem_format=t.elem_format, shape=(1, *t.shape[1:]))
+        return MXTensor(
+            codes=t.codes[i : i + 1].contiguous(),
+            scales=t.scales[i : i + 1].contiguous(),
+            elem_format=t.elem_format,
+            shape=(1, *t.shape[1:]),
+        )
 
     offs = offsets.tolist()
     for i in range(e):
@@ -346,7 +362,9 @@ def test_routed_many_experts_match_per_expert_launches(tk):
         if lo == hi:
             continue
         one = torch.tensor([0, hi - lo], dtype=torch.int32, device="cuda")
-        h_one = tk.routed_fc1_swiglu_quant(rows(x_q, lo, hi), expert(w1, i), one, p_s[lo:hi].contiguous())
+        h_one = tk.routed_fc1_swiglu_quant(
+            rows(x_q, lo, hi), expert(w1, i), one, p_s[lo:hi].contiguous()
+        )
         assert torch.equal(h_one.codes, h_all.codes[lo:hi]), f"expert {i} h codes"
         assert torch.equal(tk.routed_fc3(h_one, expert(w2, i), one), y_all[lo:hi]), f"expert {i} y"
 
@@ -366,24 +384,33 @@ def test_routed_fp8_lane_matches_fp64_and_is_batch_invariant(tk):
     r1, r2 = tk.prepare_mxfp4_fp8(w1), tk.prepare_mxfp4_fp8(w2)
     y = tk.routed_mlp_forward(x_q, w1, w2, offsets, p_s, fp8=True, w1_ref=r1, w2_ref=r2)
 
-    a, w1d, w2d = mx_dequantize(x_q).double(), mx_dequantize(w1).double(), mx_dequantize(w2).double()
+    a, w1d, w2d = (
+        mx_dequantize(x_q).double(),
+        mx_dequantize(w1).double(),
+        mx_dequantize(w2).double(),
+    )
     f = w2.shape[2]
     ref = torch.zeros_like(y, dtype=torch.float64)
     offs = offsets.tolist()
     for e in range(len(offs) - 1):
         lo, hi = offs[e], offs[e + 1]
         z = a[lo:hi] @ w1d[e].t()
-        h = (torch.nn.functional.silu(z[:, :f].clamp(max=10.0)) * z[:, f:].clamp(-10.0, 10.0))
+        h = torch.nn.functional.silu(z[:, :f].clamp(max=10.0)) * z[:, f:].clamp(-10.0, 10.0)
         ref[lo:hi] = (h * p_s[lo:hi, None].double()) @ w2d[e].t()
     assert _rel(y, ref) < 8e-2
 
     for t in (0, 63, 64, 300, 511):
         e = int((offsets[1:] <= t).sum().item())
         one = torch.tensor([0] * (e + 1) + [1] * (8 - e), dtype=torch.int32, device="cuda")
-        x_one = MXTensor(codes=x_q.codes[t : t + 1].contiguous(), scales=x_q.scales[t : t + 1].contiguous(),
-                         elem_format="e4m3", shape=(1, 4096))
-        y_one = tk.routed_mlp_forward(x_one, w1, w2, one, p_s[t : t + 1].contiguous(),
-                                      fp8=True, w1_ref=r1, w2_ref=r2)
+        x_one = MXTensor(
+            codes=x_q.codes[t : t + 1].contiguous(),
+            scales=x_q.scales[t : t + 1].contiguous(),
+            elem_format="e4m3",
+            shape=(1, 4096),
+        )
+        y_one = tk.routed_mlp_forward(
+            x_one, w1, w2, one, p_s[t : t + 1].contiguous(), fp8=True, w1_ref=r1, w2_ref=r2
+        )
         assert torch.equal(y_one[0], y[t]), f"row {t}"
 
 
@@ -397,8 +424,12 @@ def test_routed_fp8_lane_handles_negative_zero_and_subnormals(tk):
     _, w1, w2, offsets, p_s = _routed_case(64, 2, 128, 64, seed=18)
     codes = torch.randint(0, 256, (64, 128), dtype=torch.uint8, device="cuda")
     codes[(codes & 0x7F) == 0x7F] = 0x80  # drop fn NaN codes; plenty of -0 and subnormals
-    x_q = MXTensor(codes=codes, scales=torch.full((64, 4), 120, dtype=torch.uint8, device="cuda"),
-                   elem_format="e4m3", shape=(64, 128))
+    x_q = MXTensor(
+        codes=codes,
+        scales=torch.full((64, 4), 120, dtype=torch.uint8, device="cuda"),
+        elem_format="e4m3",
+        shape=(64, 128),
+    )
     got = tk.routed_fc1_swiglu_quant(x_q, w1, offsets, p_s, fp8=True)
     want = tk.routed_fc1_swiglu_quant(x_q, w1, offsets, p_s, fp8=False)
     assert torch.isfinite(oracle.mxfp8_mxfp4_grouped_gemm_fwd(got, w2, offsets)).all()
@@ -419,7 +450,9 @@ def test_prepare_mxfp4_fp8_fails_closed(tk):
     wide = scales.clone()
     wide[0, 0, 0] = 120 - 15  # 15 binades below the column max
     with pytest.raises(ValueError, match="span"):
-        tk.prepare_mxfp4_fp8(MXTensor(codes=codes, scales=wide, elem_format="e2m1", shape=(1, 4, 128)))
+        tk.prepare_mxfp4_fp8(
+            MXTensor(codes=codes, scales=wide, elem_format="e2m1", shape=(1, 4, 128))
+        )
 
 
 @requires_cuda

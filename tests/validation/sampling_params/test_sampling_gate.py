@@ -217,9 +217,7 @@ class TestSamplingGate:
 
     def test_enum_and_string_fallback_entries_are_deduplicated(self):
         record = _record()
-        record.provenance = {
-            "fallback_layers": (SamplingLayerName.REQUESTED, "requested")
-        }
+        record.provenance = {"fallback_layers": (SamplingLayerName.REQUESTED, "requested")}
         result = evaluate_sampling_gate(record)
         assert result.status is SamplingGateStatus.SILENT_FALLBACK
         assert result.failing_layer == SamplingLayerName.REQUESTED.value
@@ -272,4 +270,6 @@ class TestCanonicalRecord:
 
     def test_layer_provenance_does_not_change_the_fingerprint(self):
         tagged = CanonicalSamplingLayer(source="api", raw={"temperature": 1.0})
-        assert _record(requested=tagged).canonical_fingerprint() == _record().canonical_fingerprint()
+        assert (
+            _record(requested=tagged).canonical_fingerprint() == _record().canonical_fingerprint()
+        )

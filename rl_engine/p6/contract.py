@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Versioned P6 start-kit contract; live Foundation bindings require owner review."""
 
-from dataclasses import asdict, dataclass
 import hashlib
 import json
 import re
+from dataclasses import asdict, dataclass
 
 SCHEMA = "p6-start-kit.v1"
 CONTRACT_VERSION = "p6-task-contract.proposed.v1"

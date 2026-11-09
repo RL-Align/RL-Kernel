@@ -2,13 +2,13 @@
 """Independent inputs and recorded bytes for each P6 operator boundary."""
 
 import copy
+import struct
 from dataclasses import asdict
 from pathlib import Path
-import struct
 
-from .contract import CombinePlan, OPERATORS, SavedForward, digest, exact_keys, require
-from .fixtures import evaluate, load_golden
 from . import reference
+from .contract import OPERATORS, CombinePlan, SavedForward, digest, exact_keys, require
+from .fixtures import evaluate, load_golden
 
 GOLDEN = Path(__file__).resolve().parents[2] / "tests/p6/data/golden.v1.json"
 

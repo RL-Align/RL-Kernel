@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 import copy
-from dataclasses import replace
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 
 from rl_engine.p6.contract import (
+    CombinePlan,
     Context,
     ContractError,
-    CombinePlan,
     SavedForward,
     production_provider,
 )

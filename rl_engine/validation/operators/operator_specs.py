@@ -64,9 +64,13 @@ OP_SPECS = {
         gold_path="rl_engine.kernels.ops.pytorch.norm.rmsnorm_residual.NativeRMSNormResidualOp",
         gold_method="forward",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.norm.rmsnorm_residual.NativeRMSNormResidualOp",
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.norm.rmsnorm_residual.NativeRMSNormResidualOp"
+            ),
             "cuda": "rl_engine.kernels.ops.cuda.norm.rmsnorm_residual.RMSNormResidualCudaOp",
-            "triton": "rl_engine.kernels.ops.triton.rmsnorm_residual_triton.RMSNormResidualTritonOp",
+            "triton": (
+                "rl_engine.kernels.ops.triton.rmsnorm_residual_triton.RMSNormResidualTritonOp"
+            ),
         },
         grad_input_names=("x", "gamma"),
     ),

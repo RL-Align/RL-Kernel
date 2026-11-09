@@ -25,10 +25,7 @@ from rl_engine.alignment.cross_config.adapters.megatron_training import (
     T05ContractError,
     canonical_sha256,
 )
-from rl_engine.integrations.megatron_training_readback import (
-    EvidenceSource,
-    TrainingCallSnapshot,
-)
+from rl_engine.integrations.megatron_training_readback import EvidenceSource, TrainingCallSnapshot
 from rl_engine.integrations.runtime import _contains_fallback
 
 TRAINING_M10_EVIDENCE_SCHEMA_VERSION = "rlkernel.p7.t05.training_m10_evidence.v1-draft"

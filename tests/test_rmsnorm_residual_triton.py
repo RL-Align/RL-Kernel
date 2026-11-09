@@ -36,12 +36,8 @@ def compare(x, gamma, dy, d_residual):
     assert_bytes(got_residual, want_residual, "residual")
     assert got_residual.data_ptr() != x.data_ptr(), "residual must not alias x"
 
-    want_dx, want_dgamma = oracle.rmsnorm_residual_bwd(
-        dy, d_residual, gamma, want_saved
-    )
-    got_dx, got_dgamma = api.triton_rmsnorm_residual_bwd(
-        dy, d_residual, x, gamma, got_saved
-    )
+    want_dx, want_dgamma = oracle.rmsnorm_residual_bwd(dy, d_residual, gamma, want_saved)
+    got_dx, got_dgamma = api.triton_rmsnorm_residual_bwd(dy, d_residual, x, gamma, got_saved)
     assert_bytes(got_dx, want_dx, "dx")
     assert_bytes(got_dgamma, want_dgamma, "dgamma")
     for value in (got_y, got_saved["r"], got_dx, got_dgamma):

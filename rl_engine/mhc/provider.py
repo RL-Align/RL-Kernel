@@ -153,6 +153,7 @@ class ReferenceProvider:
     h_aggregate_fwd = staticmethod(oracle.h_aggregate_fwd)
     h_aggregate_bwd = staticmethod(oracle.h_aggregate_bwd)
     rmsnorm_residual_fwd = staticmethod(oracle.rmsnorm_residual_fwd)
+
     @staticmethod
     def rmsnorm_residual_bwd(dy, d_residual, x, gamma, saved):
         # Providers expose x explicitly; the oracle uses saved FP32 activations.

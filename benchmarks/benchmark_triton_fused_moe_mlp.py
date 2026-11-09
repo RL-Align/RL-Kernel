@@ -58,7 +58,11 @@ def fp64_reference(x_q, w1, w2, offsets, p_s, ffn: int) -> torch.Tensor:
     """The same chain in FP64: neither lane's rounding, so both can be scored."""
     from rl_engine.moe.mx_format import mx_dequantize
 
-    a, w1d, w2d = mx_dequantize(x_q).double(), mx_dequantize(w1).double(), mx_dequantize(w2).double()
+    a, w1d, w2d = (
+        mx_dequantize(x_q).double(),
+        mx_dequantize(w1).double(),
+        mx_dequantize(w2).double(),
+    )
     out = torch.zeros(a.shape[0], w2d.shape[1], dtype=torch.float64, device=a.device)
     offs = offsets.tolist()
     for e in range(len(offs) - 1):
@@ -121,9 +125,7 @@ def main() -> int:
             (torch.randn(E, H, F, generator=gen) / F**0.5).to(torch.bfloat16).cuda(), "e2m1"
         )
         p_s = torch.rand(M, generator=gen).cuda()
-        offsets = torch.tensor(
-            [0] + [M * (i + 1) // E for i in range(E)], dtype=torch.int32
-        ).cuda()
+        offsets = torch.tensor([0] + [M * (i + 1) // E for i in range(E)], dtype=torch.int32).cuda()
         x_q = mx_quantize(x, "e4m3")
 
         t_fc1 = time_ms(lambda: tf.routed_fc1_swiglu_quant(x_q, w1, offsets, p_s))
@@ -160,7 +162,9 @@ def main() -> int:
                 )
             )
 
-    print(f"\n{'M':>7} {'triton fc1':>12} {'triton fc3':>12} {'triton':>10} {'cuda':>10} {'ratio':>7}")
+    print(
+        f"\n{'M':>7} {'triton fc1':>12} {'triton fc3':>12} {'triton':>10} {'cuda':>10} {'ratio':>7}"
+    )
     for M, a, b, tot, c in rows_time:
         have = c == c  # NaN when the CUDA extension is unavailable
         cuda_col = f"{c:8.3f}ms" if have else f"{'-':>10}"

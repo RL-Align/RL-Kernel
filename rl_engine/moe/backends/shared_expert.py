@@ -334,9 +334,7 @@ class TritonFusedSharedExpertProvider(_StrictSharedExpertProvider):
 
     def shared_expert_mlp_fwd(self, batch: SharedBatch) -> tuple[torch.Tensor, dict[str, Any]]:
         self._check_batch(batch)
-        h_bf16 = self._tf.fused_shared_fc1_swiglu(
-            batch.x.contiguous(), batch.w_fc1.contiguous()
-        )
+        h_bf16 = self._tf.fused_shared_fc1_swiglu(batch.x.contiguous(), batch.w_fc1.contiguous())
         y = self._tf.shared_fc3(h_bf16, batch.w_fc2.contiguous(), self._tp_size)
         # No "z32": not materializing it is the point of the fusion.
         return y, {"h_bf16": h_bf16}

@@ -106,9 +106,7 @@ def _make_rmsnorm_residual_inputs(
     batch, seq = _batch_seq(args)
     normalized_dim = _normalized_dim(args)
     return {
-        "x": _floating_tensor(
-            (batch * seq, normalized_dim), args, dtype, device, offset=0
-        ),
+        "x": _floating_tensor((batch * seq, normalized_dim), args, dtype, device, offset=0),
         "gamma": _floating_tensor((normalized_dim,), args, torch.float32, device, offset=1),
         "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
     }
