@@ -188,6 +188,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ASCEND_SILU = "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp"
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
     TRITON_SWIGLU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp"
+    TRITON_FINAL_LOGIT_SOFTCAP = (
+        "rl_engine.kernels.ops.triton.activation.final_logit_softcap.TritonFinalLogitSoftcapOp"
+    )
+    PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP = (
+        "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap.NativeFinalLogitSoftcapOp"
+    )
 
     # WS1 pure-PyTorch ground-truth attention reference (hand-written fp32 softmax).
     # Distinct from PYTORCH_ATTN above, which is the production SDPA fallback.
@@ -647,6 +653,10 @@ class KernelRegistry:
                     OpBackend.TRITON_SWIGLU,
                     OpBackend.PYTORCH_NATIVE_SWIGLU,
                 ],
+                "final_logit_softcap": [
+                    OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
+                    OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
+                ],
                 # Default dispatch logic for new operators
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rope": [
@@ -696,6 +706,10 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "final_logit_softcap": [
+                    OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
+                    OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
+                ],
             },
             "musa": {
                 "mhc_pre_h_aggregate": [OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE],
@@ -746,6 +760,7 @@ class KernelRegistry:
                 ],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
             },
             "cpu": {
                 "mhc_pre_h_aggregate": [OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE],
@@ -773,6 +788,7 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
+                "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
