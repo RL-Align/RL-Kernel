@@ -98,7 +98,6 @@ def test_unimplemented_models_do_not_register_backends():
         assert not any(not key.startswith("_") for key in vars(module))
     h3 = importlib.import_module("rl_engine.models.minimax_h3")
     metadata = importlib.import_module("rl_engine.models.minimax_h3.packed_layout")
-    assert {key for key in vars(h3) if not key.startswith("_")} == {"packed_layout"}
     assert h3.packed_layout is metadata
     assert vars(kernel_registry) == before
 

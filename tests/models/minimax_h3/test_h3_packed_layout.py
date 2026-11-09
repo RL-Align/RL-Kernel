@@ -629,6 +629,7 @@ def test_unsupported_shapes_types_and_context_are_explicit_errors(field, value, 
         H3PackedLayout(**hand_inputs(**{field: value}))
 
 
+@pytest.mark.skipif(not hasattr(torch.Tensor, "refine_names"), reason="named tensors unavailable")
 @pytest.mark.filterwarnings("ignore:Named tensors and all their associated APIs:UserWarning")
 @pytest.mark.parametrize("field", PRIMARY)
 def test_named_metadata_is_rejected_with_field_error(field):
@@ -640,6 +641,7 @@ def test_named_metadata_is_rejected_with_field_error(field):
     assert inputs[field].names == names
 
 
+@pytest.mark.skipif(not hasattr(torch.Tensor, "refine_names"), reason="named tensors unavailable")
 @pytest.mark.filterwarnings("ignore:Named tensors and all their associated APIs:UserWarning")
 def test_partially_named_metadata_is_rejected():
     inputs = hand_inputs()
@@ -683,6 +685,7 @@ def test_illegal_permutation_is_rejected_without_changing_original(perm):
     assert layout.to_dict() == original
 
 
+@pytest.mark.skipif(not hasattr(torch.Tensor, "refine_names"), reason="named tensors unavailable")
 @pytest.mark.filterwarnings("ignore:Named tensors and all their associated APIs:UserWarning")
 def test_named_permutation_is_rejected_without_changing_original():
     layout = H3PackedLayout(**hand_inputs())

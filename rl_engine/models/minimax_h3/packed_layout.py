@@ -90,8 +90,9 @@ def _copy_metadata_tensor(name: str, value: torch.Tensor, dtype: torch.dtype) ->
         raise H3PackedLayoutError(f"{name}: expected {dtype}, got {value.dtype}")
     if value.layout != torch.strided or value.is_nested or value.requires_grad:
         raise H3PackedLayoutError(f"{name}: expected dense metadata without gradients")
-    if value.has_names():
-        raise H3PackedLayoutError(f"{name}: expected unnamed metadata, got names {value.names}")
+    names = getattr(value, "names", None)
+    if names is not None and any(dim_name is not None for dim_name in names):
+        raise H3PackedLayoutError(f"{name}: expected unnamed metadata, got names {names}")
     return value.detach().clone(memory_format=torch.contiguous_format)
 
 
