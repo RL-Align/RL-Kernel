@@ -32,9 +32,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_forward_fp32_matches_cpu_reference_byte_for_byte():
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     scores_cpu = torch.linspace(-10.0, 10.0, 513, dtype=torch.float32).reshape(1, 513)
@@ -46,9 +44,7 @@ def test_forward_fp32_matches_cpu_reference_byte_for_byte():
 
 
 def test_forward_bf16_casts_once_at_final_triton_write():
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     scores_cpu = torch.linspace(-10.0, 10.0, 513, dtype=torch.bfloat16).reshape(1, 513)
@@ -61,9 +57,7 @@ def test_forward_bf16_casts_once_at_final_triton_write():
 
 
 def test_backward_fp32_matches_cpu_reference_byte_for_byte():
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     generator = torch.Generator().manual_seed(386)
@@ -80,9 +74,7 @@ def test_backward_fp32_matches_cpu_reference_byte_for_byte():
 
 
 def test_backward_bf16_matches_cpu_reference_byte_for_byte():
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     scores = torch.linspace(-10.0, 10.0, 513, dtype=torch.bfloat16).reshape(1, 513)
@@ -102,9 +94,7 @@ def test_backward_bf16_matches_cpu_reference_byte_for_byte():
 
 def test_fp32_underflow_boundary_matches_all_backends_forward_and_backward():
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     round_to_zero_boundary = math.log(math.ldexp(1.0, -150))
@@ -147,9 +137,7 @@ def test_fp32_underflow_boundary_matches_all_backends_forward_and_backward():
     [(torch.float32, True), (torch.bfloat16, False), (torch.bfloat16, True)],
 )
 def test_fully_masked_row_returns_zero_probabilities_and_gradients(dtype, output_fp32):
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     finite_row = torch.linspace(-4.0, 4.0, 513, dtype=torch.float32).to(dtype)
@@ -186,9 +174,7 @@ def test_fully_masked_row_returns_zero_probabilities_and_gradients(dtype, output
 
 @pytest.mark.parametrize("invalid_score", [float("nan"), float("inf")], ids=["nan", "posinf"])
 def test_unsupported_nonfinite_scores_propagate_nan(invalid_score):
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
 
     scores = torch.tensor(
         [[invalid_score, float("-inf")]],
@@ -205,9 +191,7 @@ def test_unsupported_nonfinite_scores_propagate_nan(invalid_score):
 
 
 def test_registry_falls_back_to_triton_when_cuda_symbol_is_unavailable(monkeypatch):
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.kernels.ops.base import _C
     from rl_engine.runtime.registry import KernelRegistry
 
@@ -218,9 +202,7 @@ def test_registry_falls_back_to_triton_when_cuda_symbol_is_unavailable(monkeypat
 
 
 def test_triton_trace_records_the_frozen_arithmetic_contract():
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
 
     operation = TritonJointAttnSoftmaxOp()
 
@@ -239,9 +221,7 @@ def test_triton_trace_records_the_frozen_arithmetic_contract():
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_triton_matches_cuda_forward_and_backward_byte_for_byte(dtype):
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
 
     generator = torch.Generator().manual_seed(386)
     scores = (torch.randn(2, 777, dtype=torch.float32, generator=generator) * 8.0).to(dtype)
@@ -260,9 +240,7 @@ def test_triton_matches_cuda_forward_and_backward_byte_for_byte(dtype):
 
 
 def test_triton_forward_and_backward_are_byte_invariant_to_batch_companions():
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
 
     target = torch.linspace(-5.0, 5.0, 513, device="cuda", dtype=torch.float32)
     upstream = torch.linspace(1.0, -1.0, 513, device="cuda", dtype=torch.float32)
@@ -283,9 +261,7 @@ def test_triton_forward_and_backward_are_byte_invariant_to_batch_companions():
 
 
 def test_masked_prompt_padding_is_batch_invariant():
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
 
     target = torch.linspace(-5.0, 5.0, 769, device="cuda", dtype=torch.float32)
     # The first 512 keys are text positions: 73 valid tokens, then padding.
@@ -316,9 +292,7 @@ def test_explicit_key_padding_mask_preserves_prompt_padding_bytes_across_backend
     upstream_kind, dtype, output_fp32
 ):
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     text_key_count = 73
@@ -401,9 +375,7 @@ def test_explicit_key_padding_mask_preserves_prompt_padding_bytes_across_backend
 @pytest.mark.parametrize("output_fp32", [False, True])
 def test_explicit_key_padding_mask_uses_each_batch_layout_across_backends(dtype, output_fp32):
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     generator = torch.Generator().manual_seed(386)
@@ -450,9 +422,7 @@ def test_explicit_key_padding_mask_uses_each_batch_layout_across_backends(dtype,
 
 def test_explicit_key_padding_mask_preserves_empty_batch_across_backends():
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     for operation in (
@@ -480,9 +450,7 @@ def test_explicit_key_padding_mask_preserves_empty_batch_across_backends():
     [(torch.float32, True), (torch.bfloat16, False), (torch.bfloat16, True)],
 )
 def test_fully_masked_tail_tile_preserves_valid_key_bytes(dtype, output_fp32):
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
 
     scores = torch.linspace(-4.0, 4.0, 256, device="cuda", dtype=torch.float32).to(dtype)
     upstream = torch.linspace(-1.0, 1.0, 256, device="cuda", dtype=torch.float32)
@@ -515,9 +483,7 @@ def test_fully_masked_tail_tile_preserves_valid_key_bytes(dtype, output_fp32):
 def test_qwen_image_shapes_match_all_backends_forward_and_backward(image_shape, joint_key_length):
     """Cover 512 text tokens plus H/16 * W/16 packed image tokens."""
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     height, width = image_shape
@@ -547,9 +513,7 @@ def test_qwen_image_shapes_match_all_backends_forward_and_backward(image_shape, 
 
 def test_noncontiguous_input_matches_all_backends_forward_and_backward():
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     generator = torch.Generator().manual_seed(386)
@@ -577,9 +541,7 @@ def test_noncontiguous_input_matches_all_backends_forward_and_backward():
 
 def test_materialized_negative_infinity_mask_matches_all_backends():
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     scores = torch.linspace(-5.0, 5.0, 513, dtype=torch.float32).reshape(1, 513)
@@ -614,9 +576,7 @@ def test_materialized_negative_infinity_mask_matches_all_backends():
 def test_leading_fully_masked_tiles_still_produce_finite_forward_and_backward(
     leading_masked_tiles, finite_tail_keys, dtype, output_fp32
 ):
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     key_length = leading_masked_tiles * 256 + finite_tail_keys

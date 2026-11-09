@@ -18,9 +18,7 @@ def test_legacy_package_exports_the_cuda_triton_operator() -> None:
     from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
         TritonJointAttnSoftmaxOp as CanonicalOp,
     )
-    from rl_engine.kernels.ops.triton.attention import (
-        TritonJointAttnSoftmaxOp as LegacyOp,
-    )
+    from rl_engine.kernels.ops.triton.attention import TritonJointAttnSoftmaxOp as LegacyOp
 
     assert LegacyOp is CanonicalOp
 
@@ -87,9 +85,7 @@ def test_cuda_and_triton_unavailable_falls_back_to_pytorch(monkeypatch) -> None:
 )
 def test_cuda_unavailable_selects_triton_with_trace(monkeypatch) -> None:
     pytest.importorskip("triton")
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
 
     registry = KernelRegistry()
     load_backend = registry._load_backend

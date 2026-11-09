@@ -29,9 +29,7 @@ def test_full_qwen_image_scores_match_cuda_triton_and_sampled_cpu_reference(
 ) -> None:
     """Validate complete [B, H, Q, K] scores with Q=K, not just a sample row."""
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     height, width = image_shape
