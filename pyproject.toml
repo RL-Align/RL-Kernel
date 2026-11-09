@@ -33,6 +33,12 @@ rl_kernel = "rl_engine.integrations.engines.rollout.vllm.runtime:register_vllm_p
 cuda = ["flashinfer-python>=0.6.0,<0.7", "nvidia-ml-py"]
 rocm = ["aiter"]
 vllm = ["vllm>=0.6.0"]
+# DSv4 SM90 FP8 GEMMs. Pinned to the vLLM fork's DeepGEMM commit validated by
+# scripts/probe_dsv4_deepgemm_bi.py; build with CUDA_HOME at CUDA 12.8+ and
+# --no-build-isolation (see rl_engine/kernels/ops/cuda/deepgemm.py).
+dsv4 = [
+    "deep_gemm @ git+https://github.com/vllm-project/DeepGEMM.git@e21c821f39a2056d68067a466c64ddc942200106",
+]
 drift-viewer = ["Pillow>=10", "PySide6>=6.6"]
 dev = ["pytest", "black", "isort", "ruff", "mypy", "pre-commit"]
 

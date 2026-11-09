@@ -290,11 +290,27 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
   - [x] Activation quantization: `fp8_group_quant` (golden + CUDA, byte-equal; matches
         vLLM's `per_token_group_fp8_quant` with UE8M0 scales; token-direction variant for
         wgrad). See `docs/operators/fp8-group-quant.md`
-  - [ ] DeepGEMM dependency pin and fail-closed capability check
+  - [x] DeepGEMM dependency pin and fail-closed capability check: `dsv4` extra in
+        `pyproject.toml`, `rl_engine/kernels/ops/cuda/deepgemm.py` (SM90, pinned
+        `2.6.1+e21c821`, JIT `nvcc` >= 12.8)
 - [ ] Shared expert on DeepGEMM: FP8 `gate_up` -> our SwiGLU -> FP8 `down`, as a P5 provider
       with a new numeric profile; batch-invariance and run-to-run tests, benchmark against
       eager BF16 and the det_gemm provider; update the P5 shared-expert tests and golden
       bytes; retire `p5-det-gemm-v1` from the DSv4 path
+  - [x] `rl_engine/moe/backends/deepgemm_shared_expert.py`, profile `dsv4-deepgemm-fp8-v1`:
+        forward byte-equal to the vLLM rollout composition (`fp8_group_quant`, DeepGEMM,
+        vLLM's `silu_and_mul_with_clamp`, limit 10); dX only (weights frozen), FP8 DeepGEMM
+        dgrad by default or det_gemm BF16 (`backward="bf16_det_gemm"`) as the reference.
+        Forward and dX are batch-invariant and run-to-run identical. Relative error against
+        FP32 on the dequantized weights (H200, T=512/2048): y 4.7%, FP8 dX 3.8%, BF16 dX 0.74%
+  - [ ] CUDA kernels for the clamped SwiGLU forward and backward. The PyTorch golden is 70%
+        of fwd+bwd time at T=4096 (0.34 + 0.75 ms against 0.50 ms for all four quant+GEMMs),
+        which puts the provider at 2.1x of eager BF16; a fused kernel should bring it to
+        about 0.7x
+  - [ ] The det_gemm BF16 fallback needs a `KERNEL_ALIGN_DET_GEMM_SM90=1` build to be fast
+- [ ] The P5 oracle's shared-expert SwiGLU does not clamp and rounds once from FP32, unlike
+      the rollout (`SiluAndMulWithClamp(10)` on BF16, two roundings); align the P5 contract
+      or record the difference
 - [ ] Re-run `scripts/probe_dsv4_deepgemm_bi.py` whenever the DeepGEMM commit, CUDA toolkit
       or SM count changes
 

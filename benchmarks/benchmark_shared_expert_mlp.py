@@ -84,6 +84,16 @@ def main() -> int:
         ("cuda", "rl_engine.moe.backends.shared_expert:CudaSharedExpertProvider", True),
         ("triton-det", "rl_engine.moe.backends.shared_expert:TritonDetSharedExpertProvider", False),
         ("cuda-det", "rl_engine.moe.backends.shared_expert:CudaDetSharedExpertProvider", False),
+        (
+            "deepgemm-fp8",
+            "rl_engine.moe.backends.deepgemm_shared_expert:DeepGemmSharedExpertProvider",
+            False,
+        ),
+        (
+            "deepgemm-bf16bwd",
+            "rl_engine.moe.backends.deepgemm_shared_expert:DeepGemmSharedExpertBf16BwdProvider",
+            False,
+        ),
     ):
         try:
             provider = resolve_provider(spec)
@@ -92,7 +102,7 @@ def main() -> int:
             profiles[label] = provider.numeric_profile
             if is_strict:
                 strict[label] = runner
-        except NotImplementedError as exc:
+        except (NotImplementedError, RuntimeError) as exc:  # RuntimeError: DeepGemmUnavailable
             print(f"[skip] {label}: {exc}")
 
     device = torch.device("cuda")

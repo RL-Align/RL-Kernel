@@ -32,12 +32,22 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
+import pathlib
 import platform
 import statistics
 import sys
 
 import torch
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from rl_engine.kernels.ops.cuda.deepgemm import (  # noqa: E402
+    DEEPGEMM_COMMIT,
+    DeepGemmUnavailable,
+    require_deepgemm,
+)
 
 # (name, N, K) from DeepSeek-V4-Flash-0731: hidden 4096, q_lora_rank 1024,
 # head_dim 512 x 64 heads, index 128 x 64 heads, o_lora_rank 1024 x 8 groups,
@@ -432,15 +442,17 @@ def perf_wgrad(name: str, n: int, k: int, warmup: int, iters: int, tokens: int =
 
 
 def environment() -> dict:
-    dg = _dg()
+    dg, capability = require_deepgemm()
     return {
         "gpu": torch.cuda.get_device_name(),
         "compute_capability": list(torch.cuda.get_device_capability()),
         "torch": torch.__version__,
         "torch_cuda": torch.version.cuda,
-        "deep_gemm": getattr(dg, "__version__", "unknown"),
-        "deep_gemm_commit": os.environ.get("DEEPGEMM_COMMIT", "unknown"),
-        "cuda_home": os.environ.get("CUDA_HOME", ""),
+        "deep_gemm": capability.version,
+        "deep_gemm_pinned": capability.pinned,
+        "deep_gemm_commit": DEEPGEMM_COMMIT if capability.pinned else "unpinned",
+        "jit_nvcc": capability.nvcc,
+        "jit_nvcc_version": ".".join(map(str, capability.nvcc_version)),
         "num_sms": dg.get_num_sms(),
         "mk_alignment": dg.get_mk_alignment_for_contiguous_layout(),
         "compiled_dims": "nk (default)",
@@ -463,8 +475,13 @@ def main() -> int:
         print("an SM90 GPU is required")
         return 2
 
+    try:
+        env = environment()
+    except DeepGemmUnavailable as exc:
+        print(f"DeepGEMM is not usable: {exc}")
+        return 2
     report = {
-        "environment": environment(),
+        "environment": env,
         "control": [],
         "cases": [],
         "precision": [],
