@@ -19,7 +19,7 @@ A more detailed v4 roadmap will be published later as an RL-Kernel GitHub issue.
 In Dense models, the main consistency surfaces are usually continuous numeric paths such as matmul, attention, and logprob. MoE makes the problem more discrete. A tiny router difference can change the selected top-k expert. A different token order, padding choice, or all2all layout can change the expert input tensor. A different floating-point reduction order in weighted combine can make `dlogp` drift across batch, pack, TP, CP, and EP configurations.
 
 <p align="center">
-<img src="../../assets/blog/dsv4-moe-consistency-risk-map.png" alt="DSV4 Flash MoE train-inference drift surfaces" width="92%">
+<img src="../assets/blog/dsv4-moe-consistency-risk-map.png" alt="DSV4 Flash MoE train-inference drift surfaces" width="92%">
 <br>
 <em>The main DSV4 Flash MoE drift surfaces: routing, fused materialization, final reduction, and the batch / pack / padding / EP / TP / CP provenance above them.</em>
 </p>
@@ -72,7 +72,7 @@ This means that comparing only "gather" or "scatter" may be meaningless. The mid
 - Reduction boundary: weighted combine order, dtype, and downcast point
 
 <p align="center">
-<img src="../../assets/blog/dsv4-moe-fused-boundaries.png" alt="DSV4 MoE fused semantic boundaries" width="92%">
+<img src="../assets/blog/dsv4-moe-fused-boundaries.png" alt="DSV4 MoE fused semantic boundaries" width="92%">
 <br>
 <em>gather / gate_and_up / down / scatter should not be treated as natural acceptance units. The roadmap should validate semantic boundaries instead.</em>
 </p>
@@ -116,7 +116,7 @@ R3 should be an audit, noise-reduction, and provenance tool, not the source of t
 We have found a way to structure DSV4 Flash MoE inside the RL-Kernel framework. The goal is not to create a separate numeric standard for DSV4, but to reuse the WS1 -> WS2 design already established for Dense models.
 
 <p align="center">
-<img src="../../assets/blog/dsv4-moe-ws-roadmap.png" alt="RL-Kernel DSV4 Flash MoE WS1 WS2 Roadmap" width="92%">
+<img src="../assets/blog/dsv4-moe-ws-roadmap.png" alt="RL-Kernel DSV4 Flash MoE WS1 WS2 Roadmap" width="92%">
 <br>
 <em>The DSV4 Flash MoE consistency path: WS1 stabilizes single-GPU semantic boundaries, and WS2 handles EP / TP / CP plus cross-config dlogp.</em>
 </p>
