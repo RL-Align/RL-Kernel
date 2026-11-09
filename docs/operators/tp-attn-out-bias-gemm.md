@@ -177,6 +177,10 @@ checks complete results against the single-GPU path before timing. It covers bot
 1024², 1328² and 1664×928, varied text lengths and batch sizes, multiple images
 per prompt and sequential/batched CFG.
 
+To measure ordinary PyTorch on the same layouts, run the distributed benchmark
+with `--backend pytorch --tp 1` and a separate output file. This uses
+`F.linear` and native autograd for each layout's original call sequence.
+
 Timing reports eager forward and forward+backward wall-clock latency. The
 distributed statistic takes the slowest rank for each sample. JSON includes
 raw samples, throughput, source hashes and allocator-visible base, peak delta
