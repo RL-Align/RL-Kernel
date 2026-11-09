@@ -38,8 +38,9 @@ def test_separate_plan_and_gradient_gate():
     for mode in ("backward", "forward_backward"):
         gradients = bench.make_call(reference, inputs, upstream, mode)()
         assert len(gradients) == 2
-        bench.assert_bits(gradients, torch.autograd.grad(reference(*inputs), inputs, upstream))
-    providers["triton"] = lambda gate, up: reference(gate, up) + (up - up.detach())
+        expected = reference(gate=inputs[0], up=inputs[1])
+        bench.assert_bits(gradients, torch.autograd.grad(expected, inputs, upstream))
+    providers["triton"] = lambda gate, up: reference(gate=gate, up=up) + (up - up.detach())
     with pytest.raises(AssertionError):
         bench.check_separate_case(providers, inputs, upstream)
 
@@ -68,13 +69,24 @@ def test_accuracy_gate_and_shared_agreement_are_independent(order):
     providers = {name: reference for name in bench.PROVIDERS}
     errors = bench.check_case(providers, x, upstream, order)
     assert errors["forward_accuracy"]["max_abs_error"] == 0
+    for mode in ("forward", "backward", "forward_backward"):
+        actual = bench.make_call(reference, (x,), upstream, mode)()
+        expected = reference(packed_input=x)
+        if mode != "forward":
+            expected = torch.autograd.grad(expected, x, upstream)
+        bench.assert_bits(actual, expected)
     # Agreement alone must not pass a numerically wrong implementation.
-    providers.update(packed=lambda x: reference(x) + 1, adapter=lambda x: reference(x) + 1)
+    providers.update(
+        packed=lambda packed_input: reference(packed_input=packed_input) + 1,
+        adapter=lambda packed_input: reference(packed_input=packed_input) + 1,
+    )
     with pytest.raises(AssertionError):
         bench.check_case(providers, x, upstream, order)
     providers.update(
-        packed=lambda x: reference(x) + (x[..., :4] - x[..., :4].detach()),
-        adapter=lambda x: reference(x) + (x[..., :4] - x[..., :4].detach()),
+        packed=lambda packed_input: reference(packed_input=packed_input)
+        + (packed_input[..., :4] - packed_input[..., :4].detach()),
+        adapter=lambda packed_input: reference(packed_input=packed_input)
+        + (packed_input[..., :4] - packed_input[..., :4].detach()),
     )
     with pytest.raises(AssertionError):
         bench.check_case(providers, x, upstream, order)

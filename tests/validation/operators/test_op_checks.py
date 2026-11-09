@@ -112,6 +112,24 @@ def test_logp_native_candidate_suite_passes():
     assert all(case.passed for case in report.candidates[0].cases)
 
 
+def test_suite_binds_swiglu_inputs_by_name():
+    """Operand names must still bind correctly for a keyword-only candidate."""
+
+    def candidate(*, up, gate):
+        return gate * torch.sigmoid(gate) * up
+
+    report = run_operator_suite(
+        "swiglu",
+        candidates=[CandidateSpec(name="keyword-swiglu", backend="pytorch", fn=candidate)],
+        cases=[make_operator_case(_spec_args("swiglu"), torch.float32, torch.device("cpu"))],
+        check_grad=True,
+    )
+
+    assert report.passed
+    checks = report.candidates[0].cases[0].outputs
+    assert [check.message for check in checks[1:]] == ["gradient:gate", "gradient:up"]
+
+
 def test_embedding_native_candidate_suite_passes_issue_108_helper():
     report = run_operator_suite(
         "embedding",

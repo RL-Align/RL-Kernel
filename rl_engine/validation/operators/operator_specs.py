@@ -362,7 +362,7 @@ def make_operator_case(
     inputs = make_operator_inputs(args.op, args, dtype, device)
     grad_input_names = spec.grad_input_names
     if args.op == "swiglu" and "packed_order" in inputs:
-        grad_input_names = ("input",)
+        grad_input_names = ("packed_input",)
     return OperatorCase(
         name=f"{args.op}-{dtype}-{operator_shape_name(args.op, args)}",
         op_class=spec.op_class,

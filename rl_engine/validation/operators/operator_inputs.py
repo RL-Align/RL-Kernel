@@ -287,7 +287,7 @@ def _make_swiglu_inputs(
     """Build separate operands or pack the same seeded values in the requested order.
 
     Omitting ``packed_order`` preserves the two-input form. Packed cases carry
-    one ``input`` tensor plus the channel-order enum expected by the operator.
+    one ``packed_input`` tensor plus the channel-order enum expected by the operator.
     """
     batch, seq = _batch_seq(args)
     shape = (batch, seq, DEFAULT_INTERMEDIATE)
@@ -303,7 +303,7 @@ def _make_swiglu_inputs(
     else:
         operands = (up, gate)
     return {
-        "input": torch.cat(operands, dim=-1),
+        "packed_input": torch.cat(operands, dim=-1),
         "packed_order": order,
     }
 

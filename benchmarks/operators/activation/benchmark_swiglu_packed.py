@@ -127,15 +127,15 @@ def assert_bits(actual, expected):
 
 def check_case(providers, x, upstream, packed_order):
     """Separate shared-path equivalence from independent FP32 accuracy."""
-    packed = providers["packed"](x)
+    packed = providers["packed"](packed_input=x)
     grad = torch.autograd.grad(packed, x, upstream)[0]
-    shared = providers["adapter"](x)
+    shared = providers["adapter"](packed_input=x)
     assert_bits(packed, shared)
     assert_bits(grad, torch.autograd.grad(shared, x, upstream)[0])
     with torch.no_grad():
-        assert_bits(packed, providers["packed"](x))
+        assert_bits(packed, providers["packed"](packed_input=x))
     gold_x = x.detach().float().requires_grad_(True)
-    gold = NativeSwiGLUOp().forward_fp32(gold_x, packed_order=packed_order)
+    gold = NativeSwiGLUOp().forward_fp32(packed_input=gold_x, packed_order=packed_order)
     gold_grad = torch.autograd.grad(gold, gold_x, upstream.float())[0]
     errors = {}
     for judgment, actual, expected in (
@@ -158,12 +158,14 @@ def check_case(providers, x, upstream, packed_order):
 
 def check_separate_case(providers, inputs, upstream):
     """Gate the existing two-input path on train/infer bits and FP32 output/gradients."""
-    actual = providers["triton"](*inputs)
+    gate, up = inputs
+    actual = providers["triton"](gate=gate, up=up)
     gradients = torch.autograd.grad(actual, inputs, upstream)
     with torch.no_grad():
-        assert_bits(actual, providers["triton"](*inputs))
+        assert_bits(actual, providers["triton"](gate=gate, up=up))
     gold_inputs = tuple(value.detach().float().requires_grad_(True) for value in inputs)
-    gold = NativeSwiGLUOp().forward_fp32(*gold_inputs)
+    gold_gate, gold_up = gold_inputs
+    gold = NativeSwiGLUOp().forward_fp32(gate=gold_gate, up=gold_up)
     gold_gradients = torch.autograd.grad(gold, gold_inputs, upstream.float())
     errors = {}
     for name, judgment, result, expected in (
@@ -190,16 +192,22 @@ def check_separate_case(providers, inputs, upstream):
 
 def make_call(op, inputs, upstream, mode):
     """Build backward state on the same stream used for measurement and capture."""
+    if len(inputs) == 2:
+        gate, up = inputs
+        arguments = {"gate": gate, "up": up}
+    else:
+        (packed_input,) = inputs
+        arguments = {"packed_input": packed_input}
     if mode == "backward":
-        y = op(*inputs)
+        y = op(**arguments)
         return lambda: torch.autograd.grad(y, inputs, upstream, retain_graph=True)
     if mode == "forward_backward":
-        return lambda: torch.autograd.grad(op(*inputs), inputs, upstream)
+        return lambda: torch.autograd.grad(op(**arguments), inputs, upstream)
 
     def forward():
         """Measure forward execution without building an autograd graph."""
         with torch.no_grad():
-            return op(*inputs)
+            return op(**arguments)
 
     return forward
 
@@ -306,11 +314,11 @@ def main(argv=None):
     shared = TritonSwiGLUOp()
     packed_order = SwiGLUPackedOrder(args.packed_order)
 
-    def adapter(projected):
+    def adapter(*, packed_input):
         """Benchmark packed input through chunk views and the existing two-input path."""
-        first, second = projected.chunk(2, dim=-1)
+        first, second = packed_input.chunk(2, dim=-1)
         gate, up = (first, second) if packed_order is SwiGLUPackedOrder.GATE_UP else (second, first)
-        return shared(gate, up)
+        return shared(gate=gate, up=up)
 
     if args.input_layout == "separate":
         providers = {"pytorch": NativeSwiGLUOp(), "triton": shared}

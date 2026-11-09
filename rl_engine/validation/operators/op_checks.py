@@ -392,17 +392,10 @@ def _compare_case_outputs(
 
 
 def _call_operator(operator: Callable[..., Any] | Any, inputs: Mapping[str, Any]) -> Any:
-    """Call a validation operator while preserving logical input names.
-
-    SwiGLU reports keep ``gate``/``up`` names for operands and their gradients.
-    Pass these operands positionally because the first public parameter is
-    ``input`` in PyTorch/Triton and ``gate`` in the standalone CUDA/Ascend wrappers.
-    """
+    """Call a validation operator with named inputs, including non-tensor options."""
     forward = getattr(operator, "forward", None)
     if not callable(forward):
         forward = operator
-    if inputs.keys() == {"gate", "up"}:
-        return forward(inputs["gate"], inputs["up"])
     return forward(**inputs)
 
 

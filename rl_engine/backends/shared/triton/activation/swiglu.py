@@ -53,23 +53,23 @@ def _validate_swiglu_separate_inputs(gate: Tensor, up: Tensor) -> None:
         raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
 
 
-def _validate_swiglu_packed_input(projected: Tensor) -> None:
+def _validate_swiglu_packed_input(packed_input: Tensor) -> None:
     """Validate a packed tensor's shape, dtype and supported GPU device.
 
     The last dimension must be positive and even; leading dimensions may be
     empty. The dtype and GPU device must be supported by the packed kernels.
     """
-    if projected.ndim == 0:
+    if packed_input.ndim == 0:
         raise ValueError("packed input must have at least one dimension")
-    packed_width = projected.shape[-1]
+    packed_width = packed_input.shape[-1]
     if packed_width == 0 or packed_width % 2:
         raise ValueError(
             f"packed input must have a positive, even last dimension, got {packed_width}"
         )
-    _validate_dtype(projected, "packed input")
-    if projected.device.type not in _SUPPORTED_DEVICES:
+    _validate_dtype(packed_input, "packed input")
+    if packed_input.device.type not in _SUPPORTED_DEVICES:
         raise RuntimeError(
-            f"packed input must use a device in {_SUPPORTED_DEVICES}, got {projected.device}"
+            f"packed input must use a device in {_SUPPORTED_DEVICES}, got {packed_input.device}"
         )
 
 
@@ -145,7 +145,7 @@ def _swiglu_dgate_kernel(
 
 @triton.jit
 def _swiglu_packed_fwd_kernel(
-    projected_ptr, y_ptr, WIDTH: tl.constexpr, GATE_FIRST: tl.constexpr, BLOCK: tl.constexpr
+    packed_input_ptr, y_ptr, WIDTH: tl.constexpr, GATE_FIRST: tl.constexpr, BLOCK: tl.constexpr
 ):
     """Read both halves without copying the noncontiguous chunk views."""
     row = tl.program_id(0).to(tl.int64)
@@ -155,8 +155,8 @@ def _swiglu_packed_fwd_kernel(
     packed_offsets = row * (2 * WIDTH) + cols
     gate_offsets = packed_offsets + (0 if GATE_FIRST else WIDTH)
     up_offsets = packed_offsets + (WIDTH if GATE_FIRST else 0)
-    g = tl.load(projected_ptr + gate_offsets, mask, other=0).to(tl.float32)
-    u = tl.load(projected_ptr + up_offsets, mask, other=0).to(tl.float32)
+    g = tl.load(packed_input_ptr + gate_offsets, mask, other=0).to(tl.float32)
+    u = tl.load(packed_input_ptr + up_offsets, mask, other=0).to(tl.float32)
     s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
     y = (g * s) * u
     tl.store(y_ptr + offsets, y.to(y_ptr.dtype.element_ty), mask)
@@ -165,7 +165,7 @@ def _swiglu_packed_fwd_kernel(
 @triton.jit
 def _swiglu_packed_bwd_up_kernel(
     dy_ptr,
-    projected_ptr,
+    packed_input_ptr,
     silu_grad_ptr,
     dx_ptr,
     WIDTH: tl.constexpr,
@@ -181,7 +181,7 @@ def _swiglu_packed_bwd_up_kernel(
     gate_offsets = packed_offsets + (0 if GATE_FIRST else WIDTH)
     up_offsets = packed_offsets + (WIDTH if GATE_FIRST else 0)
     dy = tl.load(dy_ptr + offsets, mask, other=0).to(tl.float32)
-    g = tl.load(projected_ptr + gate_offsets, mask, other=0).to(tl.float32)
+    g = tl.load(packed_input_ptr + gate_offsets, mask, other=0).to(tl.float32)
     s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
     silu_g = g * s
     d_up = dy * silu_g
@@ -193,7 +193,7 @@ def _swiglu_packed_bwd_up_kernel(
 @triton.jit
 def _swiglu_packed_bwd_gate_kernel(
     dy_ptr,
-    projected_ptr,
+    packed_input_ptr,
     silu_grad_ptr,
     dx_ptr,
     WIDTH: tl.constexpr,
@@ -209,7 +209,7 @@ def _swiglu_packed_bwd_gate_kernel(
     gate_offsets = packed_offsets + (0 if GATE_FIRST else WIDTH)
     up_offsets = packed_offsets + (WIDTH if GATE_FIRST else 0)
     dy = tl.load(dy_ptr + offsets, mask, other=0).to(tl.float32)
-    u = tl.load(projected_ptr + up_offsets, mask, other=0).to(tl.float32)
+    u = tl.load(packed_input_ptr + up_offsets, mask, other=0).to(tl.float32)
     silu_grad = tl.load(silu_grad_ptr + offsets, mask, other=0)
     # Keep the same FP32 workspace boundary as the shared SwiGLU. Fusing the
     # stages could let the compiler reassociate this expression at BF16 ties.
@@ -305,22 +305,24 @@ def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Te
 
 
 def _launch_swiglu_packed_fwd(
-    projected: Tensor, output_dtype: torch.dtype, packed_order: SwiGLUPackedOrder
+    packed_input: Tensor, output_dtype: torch.dtype, packed_order: SwiGLUPackedOrder
 ) -> Tensor:
     """Launch one program per row/tile, storing only the final output cast.
 
     Flatten leading dimensions into rows. Rows use grid axis 0 so large batches
     do not encounter CUDA's smaller grid-axis-1 limit.
     """
-    width = projected.shape[-1] // 2
-    y = torch.empty((*projected.shape[:-1], width), device=projected.device, dtype=output_dtype)
+    width = packed_input.shape[-1] // 2
+    y = torch.empty(
+        (*packed_input.shape[:-1], width), device=packed_input.device, dtype=output_dtype
+    )
     if y.numel() == 0:
         return y
     n_rows = y.numel() // width
-    device_module = torch.get_device_module(projected.device)
-    with device_module.device(projected.device):
+    device_module = torch.get_device_module(packed_input.device)
+    with device_module.device(packed_input.device):
         _swiglu_packed_fwd_kernel[(n_rows, triton.cdiv(width, _BLOCK))](
-            projected,
+            packed_input,
             y,
             WIDTH=width,
             GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
@@ -330,38 +332,38 @@ def _launch_swiglu_packed_fwd(
 
 
 def _launch_swiglu_packed_bwd(
-    grad_y: Tensor, projected: Tensor, packed_order: SwiGLUPackedOrder
+    grad_y: Tensor, packed_input: Tensor, packed_order: SwiGLUPackedOrder
 ) -> Tensor:
     """Write one packed gradient; both stages share the input device's current stream."""
-    grad_projected = torch.empty_like(projected)
+    grad_packed_input = torch.empty_like(packed_input)
     if grad_y.numel() == 0:
-        return grad_projected
+        return grad_packed_input
     grad_y_c = grad_y.contiguous()
     silu_grad = torch.empty_like(grad_y_c, dtype=torch.float32)
-    width = projected.shape[-1] // 2
+    width = packed_input.shape[-1] // 2
     n_rows = grad_y_c.numel() // width
     grid = (n_rows, triton.cdiv(width, _BLOCK))
-    device_module = torch.get_device_module(projected.device)
-    with device_module.device(projected.device):
+    device_module = torch.get_device_module(packed_input.device)
+    with device_module.device(packed_input.device):
         _swiglu_packed_bwd_up_kernel[grid](
             grad_y_c,
-            projected,
+            packed_input,
             silu_grad,
-            grad_projected,
+            grad_packed_input,
             WIDTH=width,
             GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
             BLOCK=_BLOCK,
         )
         _swiglu_packed_bwd_gate_kernel[grid](
             grad_y_c,
-            projected,
+            packed_input,
             silu_grad,
-            grad_projected,
+            grad_packed_input,
             WIDTH=width,
             GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
             BLOCK=_BLOCK,
         )
-    return grad_projected
+    return grad_packed_input
 
 
 class _SiLUTritonFunction(torch.autograd.Function):
@@ -408,20 +410,20 @@ class _PackedSwiGLUTritonFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx, projected: Tensor, output_dtype: torch.dtype, packed_order: SwiGLUPackedOrder
+        ctx, packed_input: Tensor, output_dtype: torch.dtype, packed_order: SwiGLUPackedOrder
     ) -> Tensor:
         """Save one contiguous projection and its enum order for the matching backward."""
-        projected_c = projected.contiguous()
-        y = _launch_swiglu_packed_fwd(projected_c, output_dtype, packed_order)
-        ctx.save_for_backward(projected_c)
+        packed_input_c = packed_input.contiguous()
+        y = _launch_swiglu_packed_fwd(packed_input_c, output_dtype, packed_order)
+        ctx.save_for_backward(packed_input_c)
         ctx.packed_order = packed_order
         return y
 
     @staticmethod
     def backward(ctx, grad_y: Tensor):
         """Return one packed gradient; output dtype and channel order have no gradients."""
-        (projected,) = ctx.saved_tensors
-        return _launch_swiglu_packed_bwd(grad_y, projected, ctx.packed_order), None, None
+        (packed_input,) = ctx.saved_tensors
+        return _launch_swiglu_packed_bwd(grad_y, packed_input, ctx.packed_order), None, None
 
 
 class TritonSiLUOp:
@@ -448,13 +450,13 @@ class TritonSiLUOp:
 class TritonSwiGLUOp:
     """FP32-math SwiGLU for separate operands or one packed projection.
 
-    ``op(gate, up)`` keeps the existing two-tensor interface. For one tensor,
-    call ``op(projected, packed_order=SwiGLUPackedOrder.GATE_UP)`` or use
+    Call ``op(gate=gate, up=up)`` for two separate tensors. For one tensor,
+    call ``op(packed_input=packed_input, packed_order=SwiGLUPackedOrder.GATE_UP)`` or use
     ``UP_GATE``. The last dimension contains two equal halves; the output is
     half as wide. No broadcasting is performed.
 
-    The first parameter is named ``input``: it holds the gate when ``up`` is
-    supplied, or the complete packed projection when ``up`` is omitted.
+    Both call forms require named arguments. Positional tensor arguments and
+    mixtures of ``packed_input`` with ``gate`` or ``up`` are rejected.
 
     A contiguous packed input is read directly, without gate/up copies.
     Strided packed inputs are made contiguous once. Backward writes both
@@ -470,70 +472,54 @@ class TritonSwiGLUOp:
     op_class = "elementwise"
 
     @overload
-    def __call__(self, input: Tensor, up: Tensor) -> Tensor:
-        """Call with separate gate/up tensors."""
-        ...
+    def __call__(self, *, gate: Tensor, up: Tensor) -> Tensor: ...
 
     @overload
-    def __call__(self, input: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
-        """Call with one packed tensor in ``input`` and an explicit half order."""
-        ...
+    def __call__(self, *, packed_input: Tensor, packed_order: SwiGLUPackedOrder) -> Tensor: ...
 
-    def __call__(self, *args, **kwargs) -> Tensor:
+    def __call__(self, **kwargs) -> Tensor:
         """Forward either call form to ``forward``, including its input validation."""
-        return self.forward(*args, **kwargs)
+        return self.forward(**kwargs)
 
     @overload
-    def forward(self, input: Tensor, up: Tensor) -> Tensor:
-        """Separate gate/up tensors; return output in the input dtype."""
-        ...
+    def forward(self, *, gate: Tensor, up: Tensor) -> Tensor: ...
 
     @overload
-    def forward(self, input: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
-        """One packed tensor in ``input``; its half order must be explicit."""
-        ...
+    def forward(self, *, packed_input: Tensor, packed_order: SwiGLUPackedOrder) -> Tensor: ...
 
     def forward(
         self,
-        input: Tensor,
-        up: Tensor | None = None,
         *,
+        gate: Tensor | None = None,
+        up: Tensor | None = None,
+        packed_input: Tensor | None = None,
         packed_order: SwiGLUPackedOrder | None = None,
     ) -> Tensor:
         """Compute in FP32, then cast the output to the input dtype.
 
-        ``input`` is the gate when ``up`` is supplied, or the packed tensor
-        otherwise. A single packed input requires an explicit half order;
-        a packed order is rejected when both inputs are given.
+        Accept named ``gate`` and ``up``, or named ``packed_input`` and ``packed_order``.
+        Requiring keywords prevents a positional swap of the separate operands.
         """
-        if up is None:
-            if packed_order is None:
-                raise ValueError("packed_order is required with a single packed input")
-            projected = input
-            _validate_swiglu_packed_input(projected)
-            return _PackedSwiGLUTritonFunction.apply(projected, projected.dtype, packed_order)
-
-        if packed_order is not None:
-            raise ValueError("packed_order is only valid with a single packed input")
-        gate = input
-        _validate_swiglu_separate_inputs(gate, up)
-        return _SwiGLUTritonFunction.apply(gate, up)
+        return self._swiglu(
+            gate=gate,
+            up=up,
+            packed_input=packed_input,
+            packed_order=packed_order,
+            fp32_output=False,
+        )
 
     @overload
-    def forward_fp32(self, input: Tensor, up: Tensor) -> Tensor:
-        """Separate gate/up tensors; return FP32 output."""
-        ...
+    def forward_fp32(self, *, gate: Tensor, up: Tensor) -> Tensor: ...
 
     @overload
-    def forward_fp32(self, input: Tensor, *, packed_order: SwiGLUPackedOrder) -> Tensor:
-        """One packed tensor in ``input``; return FP32 output."""
-        ...
+    def forward_fp32(self, *, packed_input: Tensor, packed_order: SwiGLUPackedOrder) -> Tensor: ...
 
     def forward_fp32(
         self,
-        input: Tensor,
-        up: Tensor | None = None,
         *,
+        gate: Tensor | None = None,
+        up: Tensor | None = None,
+        packed_input: Tensor | None = None,
         packed_order: SwiGLUPackedOrder | None = None,
     ) -> Tensor:
         """Return FP32 output; input gradients retain the original input dtype.
@@ -541,15 +527,34 @@ class TritonSwiGLUOp:
         The packed path widens values in the kernel, avoiding FP32 copies of
         both halves. The separate-input path retains its existing behavior.
         """
-        if up is None:
-            if packed_order is None:
-                raise ValueError("packed_order is required with a single packed input")
-            projected = input
-            _validate_swiglu_packed_input(projected)
-            return _PackedSwiGLUTritonFunction.apply(projected, torch.float32, packed_order)
+        return self._swiglu(
+            gate=gate, up=up, packed_input=packed_input, packed_order=packed_order, fp32_output=True
+        )
 
+    @staticmethod
+    def _swiglu(
+        *,
+        gate: Tensor | None,
+        up: Tensor | None,
+        packed_input: Tensor | None,
+        packed_order: SwiGLUPackedOrder | None,
+        fp32_output: bool,
+    ) -> Tensor:
+        """Validate one named input form and dispatch its existing autograd implementation."""
+        if packed_input is not None:
+            if gate is not None or up is not None:
+                raise TypeError("packed_input cannot be combined with gate or up")
+            if packed_order is None:
+                raise ValueError("packed_order is required with packed_input")
+            _validate_swiglu_packed_input(packed_input)
+            output_dtype = torch.float32 if fp32_output else packed_input.dtype
+            return _PackedSwiGLUTritonFunction.apply(packed_input, output_dtype, packed_order)
+
+        if gate is None or up is None:
+            raise TypeError("provide both gate and up, or packed_input with packed_order")
         if packed_order is not None:
-            raise ValueError("packed_order is only valid with a single packed input")
-        gate = input
+            raise ValueError("packed_order is only valid with packed_input")
         _validate_swiglu_separate_inputs(gate, up)
-        return _SwiGLUTritonFunction.apply(gate.float(), up.float())
+        if fp32_output:
+            return _SwiGLUTritonFunction.apply(gate.float(), up.float())
+        return _SwiGLUTritonFunction.apply(gate, up)

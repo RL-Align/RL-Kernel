@@ -747,10 +747,10 @@ class Qwen3DenseBIModel:
                 )
                 swiglu_op = self.profile_ops.get("swiglu")
                 if self.execution_dtype == torch.bfloat16:
-                    swiglu = swiglu_op.forward_fp32(gate, up)
+                    swiglu = swiglu_op.forward_fp32(gate=gate, up=up)
                     swiglu_public = swiglu.to(dtype=self.execution_dtype)
                 else:
-                    swiglu = swiglu_op.forward(gate, up)
+                    swiglu = swiglu_op.forward(gate=gate, up=up)
                     swiglu_public = swiglu
                 self.profile_ops.observe("swiglu", swiglu_public)
                 self._record(f"{prefix}.swiglu", swiglu_public)
@@ -979,10 +979,10 @@ class Qwen3DenseBIModel:
         )
         swiglu_op = self.profile_ops.get("swiglu")
         if self.execution_dtype == torch.bfloat16:
-            swiglu = swiglu_op.forward_fp32(gate, up)
+            swiglu = swiglu_op.forward_fp32(gate=gate, up=up)
             swiglu_public = swiglu.to(dtype=self.execution_dtype)
         else:
-            swiglu = swiglu_op.forward(gate, up)
+            swiglu = swiglu_op.forward(gate=gate, up=up)
             swiglu_public = swiglu
         self.profile_ops.observe("swiglu", swiglu_public)
         self._record(f"{prefix}.swiglu", swiglu_public)

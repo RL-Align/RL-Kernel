@@ -37,7 +37,7 @@ swiglu = kernel_registry.get_op("swiglu")
 y = silu(x)                       # [..., N]  ->  [..., N]
 
 # SwiGLU: gated activation (gate and up must share shape)
-h = swiglu(gate, up)              # [..., I], [..., I]  ->  [..., I]
+h = swiglu(gate=gate, up=up)      # [..., I], [..., I]  ->  [..., I]
 ```
 
 All backends expose the WS1 dual-path contract:
@@ -58,17 +58,20 @@ from rl_engine.backends.shared.triton.activation.swiglu import TritonSwiGLUOp
 from rl_engine.reference.activation.swiglu import NativeSwiGLUOp
 
 swiglu = TritonSwiGLUOp()
-y = swiglu(gate, up)  # Existing positional calls remain valid.
-y = swiglu(input=gate, up=up)
-y = swiglu(projected, packed_order=SwiGLUPackedOrder.GATE_UP)
-y = swiglu(input=projected, packed_order=SwiGLUPackedOrder.UP_GATE)  # H3 order
-y_fp32 = swiglu.forward_fp32(projected, packed_order=SwiGLUPackedOrder.UP_GATE)
-reference = NativeSwiGLUOp()(projected, packed_order=SwiGLUPackedOrder.UP_GATE)
+y = swiglu(gate=gate, up=up)
+y = swiglu(packed_input=packed_input, packed_order=SwiGLUPackedOrder.GATE_UP)
+y = swiglu(packed_input=packed_input, packed_order=SwiGLUPackedOrder.UP_GATE)  # H3 order
+y_fp32 = swiglu.forward_fp32(packed_input=packed_input, packed_order=SwiGLUPackedOrder.UP_GATE)
+reference = NativeSwiGLUOp()(packed_input=packed_input, packed_order=SwiGLUPackedOrder.UP_GATE)
 ```
 
-In these two classes, the first parameter is named `input`: it is the gate when
-`up` is supplied, or the complete packed projection when `up` is omitted. Calls
-that previously used `gate=...` must now use `input=...`, including `forward_fp32`.
+The two overloads require explicit keyword arguments: separate tensors use
+`gate=..., up=...`; one packed tensor uses `packed_input=...` and requires
+`packed_order`. This applies to `forward`, `forward_fp32` and the operator call.
+Migrate positional calls such as `swiglu(gate, up)` to `swiglu(gate=gate, up=up)`;
+the PyTorch and Triton wrappers now reject positional tensors to prevent silent
+operand swaps. The former `input=` name is removed. Mixing `packed_input` with
+`gate` or `up` is also rejected. The arithmetic and rounding contract is unchanged.
 
 The packed form supports FP16/BF16/FP32 input `[..., 2 * I]` and produces `[..., I]`,
 with positive `I`. Leading dimensions may be empty. A contiguous packed input is
@@ -103,7 +106,7 @@ inspect the argument layout and may select a two-input-only backend.
 | `x` (SiLU) | `[..., N]` | float (fp16/bf16/fp32) | Any shape; last dim arbitrary (Qwen3-8B `I=12288`). |
 | `gate` (SwiGLU) | `[..., I]` | float | `gate_proj` output. |
 | `up` (SwiGLU) | `[..., I]` | float | `up_proj` output; **must share `gate`'s shape, dtype, and device**. |
-| `input` (packed SwiGLU) | `[..., 2 * I]` | float | Positive, even last dimension; explicit `packed_order`. Native and Triton only. |
+| `packed_input` (packed SwiGLU) | `[..., 2 * I]` | float | Positive, even last dimension; explicit `packed_order`. Native and Triton only. |
 | output | `[..., N]` for SiLU; `[..., I]` for SwiGLU | `forward`: input dtype · `forward_fp32`: float32 | Packed SwiGLU halves the last dimension. |
 
 Element-wise and shape-agnostic: the Qwen3-8B intermediate dim `I=12288` is just one valid
@@ -130,7 +133,7 @@ Ascend C kernel is required; the constructors raise if a native symbol is missin
 
 Both NPU kernels share one tile geometry (`TILE_LENGTH = 2048`, `MAX_BLOCKS = 32`) and
 the same FP32 `1 / (1 + exp(-x))` sequence, so `silu(x)` is bitwise equal to
-`swiglu(x, ones)` on this hardware. Each element is evaluated by a fixed expression
+`swiglu(gate=x, up=ones)` on this hardware. Each element is evaluated by a fixed expression
 independent of tensor size and of the launched block count, which is what makes the
 op batch-invariant for the WS1 `ascend_bf16` profile (`silu` is a required C2 chain
 node, so the profile needs its own kernel rather than a SwiGLU with a unit operand).
@@ -160,7 +163,7 @@ from rl_engine.runtime.registry import kernel_registry
 swiglu = kernel_registry.get_op("swiglu", device="npu")
 gate = torch.randn(2, 12288, device="npu", dtype=torch.bfloat16, requires_grad=True)
 up = torch.randn_like(gate, requires_grad=True)
-out = swiglu(gate, up)
+out = swiglu(gate=gate, up=up)
 out.float().sum().backward()
 ```
 
@@ -216,7 +219,7 @@ For SwiGLU, omitting `--packed-order` checks separate `gate` and `up` inputs.
 Use `--packed-order gate_up` or `--packed-order up_gate` to check one packed input
 with the PyTorch or Triton candidate. Both forms use the same seeded operand
 values. `--check-grad` compares `gate`/`up` gradients for separate inputs and the
-whole `input` gradient for packed inputs; the channel-order enum is not a gradient
+whole `packed_input` gradient for packed inputs; the channel-order enum is not a gradient
 input. Packed report names include the full input shape and channel order.
 
 ## Performance Notes

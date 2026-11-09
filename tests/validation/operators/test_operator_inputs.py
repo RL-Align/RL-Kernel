@@ -102,21 +102,21 @@ def test_swiglu_packed_case_preserves_operands_and_declares_input_gradient(order
     packed = make_operator_case(args, torch.float32, torch.device("cpu"))
 
     assert separate.grad_input_names == ("gate", "up")
-    assert packed.grad_input_names == ("input",)
-    assert packed.inputs.keys() == {"input", "packed_order"}
+    assert packed.grad_input_names == ("packed_input",)
+    assert packed.inputs.keys() == {"packed_input", "packed_order"}
     assert packed.inputs["packed_order"] is order
-    projected = packed.inputs["input"]
+    packed_input = packed.inputs["packed_input"]
     gate, up = separate.inputs["gate"], separate.inputs["up"]
-    assert projected.shape == (*gate.shape[:-1], 2 * gate.shape[-1])
-    assert projected.is_contiguous()
-    first, second = projected.chunk(2, dim=-1)
+    assert packed_input.shape == (*gate.shape[:-1], 2 * gate.shape[-1])
+    assert packed_input.is_contiguous()
+    first, second = packed_input.chunk(2, dim=-1)
     if order is SwiGLUPackedOrder.GATE_UP:
         assert torch.equal(first, gate)
         assert torch.equal(second, up)
     else:
         assert torch.equal(first, up)
         assert torch.equal(second, gate)
-    shape = "x".join(str(size) for size in projected.shape)
+    shape = "x".join(str(size) for size in packed_input.shape)
     assert packed.name.endswith(f"{shape}-packed-{order.value}")
     assert packed.name != separate.name
 
