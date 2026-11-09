@@ -723,7 +723,9 @@ std::vector<torch::Tensor> fp32_gemm_rms_forward(
       } else {
         const size_t smem =
             3 * static_cast<size_t>(n_i + 8) * kG8RS * sizeof(float4);
-        if (smem <= 224 * 1024) {
+        // The 4*N projection lanes and 8 sum-of-squares lanes must all sit in
+        // the 128 compute threads below the staging warps; N = 31 needs 132.
+        if (smem <= 224 * 1024 && 4 * n_i + 8 <= 128) {
           static bool g8_opt = [] {
             cudaFuncSetAttribute(gemm_rms_fwd_g8cpl2_kernel<192>,
                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
@@ -731,8 +733,8 @@ std::vector<torch::Tensor> fp32_gemm_rms_forward(
             return true;
           }();
           (void)g8_opt;
-          // 4*N projection + kG sum-of-squares slots (N <= 31 -> 132, warps
-          // 0..3) plus two dedicated staging warps.
+          // 4*N projection + kG sum-of-squares slots (N <= 30 -> <= 128,
+          // warps 0..3) plus two dedicated staging warps.
           gemm_rms_fwd_g8cpl2_kernel<192>
               <<<static_cast<unsigned>(grid_1d(tokens, 8)), 192, smem, stream>>>(
                   x.data_ptr<float>(), w.data_ptr<float>(), p.data_ptr<float>(),
@@ -740,8 +742,9 @@ std::vector<torch::Tensor> fp32_gemm_rms_forward(
                   q.data_ptr<float>(), r.data_ptr<float>(), tokens, n_dim,
                   k_dim, recip_sqrt_k, static_cast<float>(eps));
         } else {
-          // Very wide N would overflow the triple-buffered tile; the G2
-          // kernel handles any token count correctly.
+          // N = 31 needs more lanes than the G8 compute warps have, and very
+          // wide N would overflow the triple-buffered tile; the G2 kernel
+          // handles any token count correctly.
           const size_t smem2 =
               3 * static_cast<size_t>(n_i + 2) * kGnRS * sizeof(float4);
           gemm_rms_fwd_gN_kernel<2, 128>

@@ -91,7 +91,7 @@ y   = BF16(fc3(h_q, W2[e]))
 | Provider | `rl_engine.moe.backends.sm90_fused_mlp:Sm90FusedMoeMlp` |
 | Tests | `tests/test_sm90_fused_moe_mlp.py` |
 | Benchmark | `benchmarks/benchmark_sm90_fused_moe_mlp.py` |
-| Build | `KERNEL_ALIGN_MOE_SM90=1` (adds `sm_90a`, `-lcuda`, `RL_KERNEL_ENABLE_SM90`) |
+| Build | `KERNEL_ALIGN_MOE_SM90=1` on an SM90 host (compiles the kernel, binds `sm90_moe_*` under `RL_KERNEL_ENABLE_MOE_SM90`, builds for `sm_90a` only, adds `-lcuda` and `RL_KERNEL_ENABLE_SM90`). Other builds do not bind `sm90_moe_*`, so the provider fails closed at construction |
 
 Scope (v1): base weights only (no LoRA), no backward, no combine, no TP, H and F
 multiples of 128, F ≤ 2048 for the single-launch path. Fail-closed on a batch that

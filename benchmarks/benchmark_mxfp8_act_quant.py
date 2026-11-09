@@ -194,9 +194,12 @@ def verify_baselines_are_byte_equal(dtype: torch.dtype) -> None:
             scales.view(torch.uint8).reshape(ref.scales.shape), ref.scales
         )
 
+    # The module docstring presents these external baselines as independent
+    # validation of the P5 recipe, so a mismatch must stop the run.
     if _HAS_TORCHAO:
         scales, codes = _torchao_to_mx(x, torch.float8_e4m3fn, MX_BLOCK)
-        print(f"torchao to_mx(FLOOR)       byte-identical to the P5 oracle: {same(codes, scales)}")
+        assert same(codes, scales), "torchao to_mx(FLOOR) is not byte-identical to the P5 oracle"
+        print("torchao to_mx(FLOOR)       byte-identical to the P5 oracle: True")
     if _HAS_TRITON_KERNELS:
         codes, scales = downcast_to_mxfp(
             x,
@@ -204,7 +207,10 @@ def verify_baselines_are_byte_equal(dtype: torch.dtype) -> None:
             axis=-1,
             DEQUANT_SCALE_ROUNDING_MODE=DequantScaleRoundingMode.ROUND_DOWN,
         )
-        print(f"triton_kernels(ROUND_DOWN) byte-identical to the P5 oracle: {same(codes, scales)}")
+        assert same(
+            codes, scales
+        ), "triton_kernels(ROUND_DOWN) is not byte-identical to the P5 oracle"
+        print("triton_kernels(ROUND_DOWN) byte-identical to the P5 oracle: True")
     if _HAS_TRITON:
         got = mxfp8_act_quant_fwd_triton(x)
         assert same(got.codes, got.scales)

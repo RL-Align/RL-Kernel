@@ -347,7 +347,7 @@ def test_triton_offsets_do_not_wrap_past_int32():
     fwd = dict(FWD)["triton"]
     # Generate in bf16 directly: an fp32 randn followed by .to(bf16) would need
     # an 8 GiB temporary on top of the 4 GiB input, blowing past the gate above.
-    x = torch.randn(rows, cols, device=DEV, dtype=torch.bfloat16) * 3.0
+    x = torch.randn(rows, cols, device=DEV, dtype=torch.bfloat16).mul_(3.0)
     full = fwd(x)
     for lo in (0, rows // 2, rows - 64):
         part = mx_quantize(x[lo : lo + 64], "e4m3")

@@ -260,6 +260,9 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
 torch::Tensor fused_shared_expert_fc1_swiglu(torch::Tensor x, torch::Tensor w_fc1);
 
 // SM90 fused routed-expert MLP (MXFP8 x MXFP4, FP8 WGMMA): csrc/cuda/moe/sm90_fused_moe_mlp.cu
+// Compiled and bound only with KERNEL_ALIGN_MOE_SM90=1, so the Python provider's
+// symbol check fails closed on other builds.
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
 std::vector<torch::Tensor> sm90_moe_prepare_weight_ref(torch::Tensor w_scales);
 torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales,
                                    torch::Tensor w1_codes, torch::Tensor w1_scales,
@@ -274,6 +277,7 @@ torch::Tensor sm90_moe_fused_mlp_forward(
     torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes, torch::Tensor w1_scales,
     torch::Tensor w1_ref, torch::Tensor w1_res, torch::Tensor w2_codes, torch::Tensor w2_scales,
     torch::Tensor w2_ref, torch::Tensor w2_res, torch::Tensor expert_offsets, torch::Tensor p_s);
+#endif  // RL_KERNEL_ENABLE_MOE_SM90
 
 // RMSNorm Declarations & Wrappers
 
@@ -791,6 +795,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // SM90 fused routed-expert MLP (profile p5-sm90-fused-mlp-v1)
     m.def("fused_shared_expert_fc1_swiglu", &fused_shared_expert_fc1_swiglu,
           "Fused shared-expert fc1 + SwiGLU (det_gemm K-tree, BF16 h out)");
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
     m.def("sm90_moe_prepare_weight_ref", &sm90_moe_prepare_weight_ref,
           "Per-column reference exponents + residuals for folded MXFP4 scales (fail-closed)");
     m.def("sm90_moe_fc1_forward", &sm90_moe_fc1_forward,
@@ -801,6 +806,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Grouped MXFP8 x MXFP4 fc3 -> BF16 y [M, H]");
     m.def("sm90_moe_fused_mlp_forward", &sm90_moe_fused_mlp_forward,
           "Single-launch fc1 -> SwiGLU -> quant -> fc3 with h_q resident in shared memory");
+#endif  // RL_KERNEL_ENABLE_MOE_SM90
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(

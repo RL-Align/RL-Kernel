@@ -56,7 +56,7 @@
 #include <cuda_fp8.h>
 #include <cstdint>
 
-#if defined(RL_KERNEL_ENABLE_SM90)
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
 #include <cuda.h>
 #include <cudaTypedefs.h>
 #include "../gemm/det_gemm_tma.cuh"
@@ -127,7 +127,7 @@ __device__ __forceinline__ float e8m0_to_f32(uint32_t code) {
   return __uint_as_float(code ? (code << 23) : 0x00400000u);
 }
 
-#if defined(RL_KERNEL_ENABLE_SM90)
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
 
 // ------------------------------------------------------------------ PTX ----
 
@@ -1033,7 +1033,7 @@ int sm_major_of(const torch::Tensor& t) {
   return at::cuda::getDeviceProperties(t.get_device())->major;
 }
 
-#endif  // RL_KERNEL_ENABLE_SM90
+#endif  // RL_KERNEL_ENABLE_MOE_SM90
 
 }  // namespace
 
@@ -1062,7 +1062,7 @@ std::vector<torch::Tensor> sm90_moe_prepare_weight_ref(torch::Tensor w_scales) {
 torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales,
                                    torch::Tensor w1_codes, torch::Tensor w1_scales,
                                    torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets) {
-#if defined(RL_KERNEL_ENABLE_SM90)
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
   int64_t M, K, E, N;
   check_grouped_inputs(a_codes, a_scales, w1_codes, w1_scales, w_ref, w_res, expert_offsets, M, K, E, N);
   TORCH_CHECK(N % 128 == 0, "2F must be a multiple of 128, got ", N);
@@ -1091,7 +1091,7 @@ torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales
 std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
     torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes,
     torch::Tensor w1_scales, torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets, torch::Tensor p_s) {
-#if defined(RL_KERNEL_ENABLE_SM90)
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
   int64_t M, K, E, N;
   check_grouped_inputs(a_codes, a_scales, w1_codes, w1_scales, w_ref, w_res, expert_offsets, M, K, E, N);
   TORCH_CHECK(N % 128 == 0, "2F must be a multiple of 128, got ", N);
@@ -1127,7 +1127,7 @@ std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
 torch::Tensor sm90_moe_fc3_forward(torch::Tensor h_codes, torch::Tensor h_scales,
                                    torch::Tensor w2_codes, torch::Tensor w2_scales,
                                    torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets) {
-#if defined(RL_KERNEL_ENABLE_SM90)
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
   int64_t M, K, E, N;
   check_grouped_inputs(h_codes, h_scales, w2_codes, w2_scales, w_ref, w_res, expert_offsets, M, K, E, N);
   TORCH_CHECK(N % kBN == 0, "H must be a multiple of ", kBN, ", got ", N);
@@ -1157,7 +1157,7 @@ torch::Tensor sm90_moe_fused_mlp_forward(
     torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes, torch::Tensor w1_scales,
     torch::Tensor w1_ref, torch::Tensor w1_res, torch::Tensor w2_codes, torch::Tensor w2_scales,
     torch::Tensor w2_ref, torch::Tensor w2_res, torch::Tensor expert_offsets, torch::Tensor p_s) {
-#if defined(RL_KERNEL_ENABLE_SM90)
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
   int64_t M, H, E, N1;
   check_grouped_inputs(a_codes, a_scales, w1_codes, w1_scales, w1_ref, w1_res, expert_offsets, M, H, E, N1);
   const int64_t F = N1 / 2;

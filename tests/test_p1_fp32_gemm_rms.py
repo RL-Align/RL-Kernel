@@ -178,6 +178,23 @@ def test_fixture_k_matches_oracle(backend, tokens):
 
 
 @cuda_only
+@pytest.mark.parametrize("n_dim", [30, 31])
+def test_eight_token_regime_edge_n_matches_oracle(n_dim):
+    """T > 288 at the widest N: N = 30 is the largest the G8 kernel's compute
+    warps fit; N = 31 needs four more sum-of-squares lanes and must fall back."""
+    gen = torch.Generator(device="cpu").manual_seed(n_dim)
+    x = torch.randn(300, 512, generator=gen, dtype=torch.float32).cuda()
+    w = torch.randn(n_dim, 512, generator=gen, dtype=torch.float32).cuda()
+
+    p, r, saved = CudaGemmRMSProvider().fp32_gemm_rms_fwd(x, w, EPS)
+    gp, gr, gsaved = oracle.fp32_gemm_rms_fwd(x, w, EPS)
+    _assert_bytes_equal(p, gp, f"cuda P[N={n_dim},T=300]")
+    _assert_bytes_equal(r, gr, f"cuda r[N={n_dim},T=300]")
+    for key in ("s", "norm", "q"):
+        _assert_bytes_equal(saved[key], gsaved[key], f"cuda saved.{key}[N={n_dim}]")
+
+
+@cuda_only
 def test_dispatch_regimes_agree_bytewise():
     """The same row must produce identical bytes through every kernel the
     launcher can pick (solo-split vs G2 vs G8), on top of oracle equality."""

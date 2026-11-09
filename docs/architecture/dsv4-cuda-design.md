@@ -2,9 +2,10 @@
 
 - Control PR: RL-Align/RL-Kernel #635 (`test-dsv4-cuda`)
 - Reference architecture: vLLM #54955 (`ISEEKYAN/vllm:ds4-v9-rc1 @ 1a6542c`)
+- Integration target: verl (rollout and actor training must call the same kernel set)
 - Scope: CUDA SM90 only. Forward (selected-token logprob) must be bitwise; backward only
-  needs to be run-to-run deterministic.
-- Last updated: 2026-11-05
+  needs to be run-to-run deterministic. CUDA kernels come first; Triton paths are deferred.
+- Last updated: 2026-11-09
 
 ## 0. Strategy in one sentence
 
@@ -20,12 +21,15 @@ first, then come back for the known performance debt (shared-expert K-tree).
 | Package | Contents | Status | Disposition in this plan |
 |---|---|---|---|
 | P1 | mHC + RMSNorm + fp32_gemm_rms | Done (unfused canonical) | Keep as is |
-| P5 | MXFP8 act quant, MXFP4 routed-expert WGMMA grouped GEMM, LoRA delta, shared expert, clamp SwiGLU | Done | **Keep as is for now.** Grouped GEMM is optimized and BI; shared expert runs the det_gemm K-tree, a known performance debt handled in Phase 5 |
-| P3 | Router: gate GEMM, stable_topk6, routing weights, RoutePlan | T01 + T05 merged, T08 (#639) draft | Finish live CUDA for gate / weights / combine-plan |
+| P5 | MXFP8 act quant, MXFP4 routed-expert SM90 fused MLP (`sm90_fused_moe_mlp.cu`), LoRA delta, shared expert, clamp SwiGLU | Done | **Keep as is for now.** The routed-expert kernel is optimized and BI; shared expert runs the det_gemm K-tree, a known performance debt handled in Phase 5 |
+| P3 | Router: gate GEMM, stable_topk6, routing weights, RoutePlan | Early T01 + T05 were merged but carry almost no usable progress; no `rl_engine/p3` on this branch; T08 (#639) draft | **Redo** on this branch: gate / stable top-k / weights / combine-plan |
 | P2 | Compressed attention: KV compressor C4/C128, FP4 index, paged cache | T01 start kit only | **Critical path**, T02-T07 all open |
 | P6 | Fixed-order MoE combine | T01 + T05 fwd (#462) | T06 + multi-rank |
 | P4 | EP transport | Empty | DeepEP fork adapter |
-| P7 | Sampling gate + M10 logprob | T02 (#648) merged | Wire to the #241 vocab-TP deterministic reduce |
+| P7 | Sampling gate + M10 logprob | T02 (#648) was merged but carries almost no usable progress | **Redo** on this branch; wire to the #241 vocab-TP deterministic reduce |
+
+Development happens on `test-dsv4-cuda` directly. The original P-dev branches are far behind
+and are not rebased or tracked any more.
 
 ## 2. Design decisions (settled)
 
@@ -43,17 +47,19 @@ comparator carried through local and global selection; track it as a separate is
 
 ### D2. Expert path stays on our own P5
 
-- Routed experts: the P5-4 WGMMA grouped GEMM (optimized and BI). Not switching to DeepGEMM.
+- Routed experts: `csrc/cuda/moe/sm90_fused_moe_mlp.cu` (MXFP8 x MXFP4 fused MLP, FP8
+  WGMMA + TMA, built with `KERNEL_ALIGN_MOE_SM90=1`; optimized and BI). Not switching to
+  DeepGEMM.
 - Shared expert: currently `p5-det-gemm-v1` (det_gemm mid-split K-tree). Its performance
   gap is significant, but we keep it for now. Phase 5 picks one of: (a) fold the shared
-  expert into the grouped GEMM as one fixed group, or (b) move it onto the grouped kernel's
+  expert into the routed kernel as one fixed group, or (b) move it onto the routed kernel's
   serial profile. Other components come first.
 - det_gemm's TP-equivalence property (a contiguous half-K shard is one child of the tree) is
   not needed under the D1 layout, so giving it up costs nothing.
 
 ### D3. Dense FP8 block-scaled GEMM (q/kv/indexer projections): three-step DeepGEMM probe
 
-det_gemm is a BF16 fixed K-tree with no 1x128 / 128x128 FP8 scaling; the P5 WGMMA kernel
+det_gemm is a BF16 fixed K-tree with no 1x128 / 128x128 FP8 scaling; the P5 routed kernel
 is MXFP8xMXFP4 with block-32 scales, also the wrong format. Dense FP8 therefore goes through
 DeepGEMM:
 
@@ -66,34 +72,39 @@ DeepGEMM:
    capability probe that fails closed when the installed build does not support the
    contract (the same pattern vLLM uses).
 
-The Megatron side must call the same kernel (the slime #2262 patch-set approach); otherwise
-we get BI without train/inference parity.
+The verl training side must call the same kernel as rollout; otherwise we get BI without
+train/inference parity. slime #2262's patch-set approach is the reference for patching the
+training backend's kernels.
 
 ### D4. The router gate GEMM must not use bare `torch.mm`
 
 vLLM can use `torch.mm` only because `VLLM_BATCH_INVARIANT=1` makes `batch_invariant.py`
 override `aten.mm/addmm` with a fixed-tile Triton matmul. A bare cuBLAS FP32 sgemm chooses
-split-K on its own at small M and is not BI. RL-Kernel uses det_gemm's FP32-output path or a
-pinned-tile Triton FP32 matmul.
+split-K on its own at small M and is not BI. RL-Kernel uses det_gemm's FP32-output path
+(`det_gemm_fwd_fp32`).
 
 ### D5. Backward is relaxed
 
-FlashMLA sparse has no backward. Training-side backward uses existing Megatron kernels with
-a fixed reduction; it must be run-to-run deterministic but is not required to be bitwise
-against inference.
+FlashMLA sparse has no backward. Training-side backward uses the verl training backend's
+existing kernels with a fixed reduction; it must be run-to-run deterministic but is not
+required to be bitwise against inference.
 
-### D6. Anchor stays `anchor_pending`
+### D6. The formal anchor is verl
 
-The vLLM fork is not written into #230's formal provenance (we do not want to tie the
-roadmap to an engine other than vime/Miles). Its golden outputs are used only as a
+The formal WS1 anchor for #230 is verl: rollout and actor recompute on the same kernel set.
+Until a verl anchor run is recorded, the slot keeps `MISSING_PROVENANCE`. The vLLM fork is
+not written into #230's formal provenance. Its golden outputs are used only as a
 development fixture under `tests/`, with the artifact explicitly labelled
-`reference: vllm-ds4-preview@1a6542c (development only)`. The formal WS1 Miles anchor slot
-keeps `MISSING_PROVENANCE`.
+`reference: vllm-ds4-preview@1a6542c (development only)`.
 
 ### D7. Performance gate
 
 Each operator must stay within 1.3x of the non-invariant path to merge; anything above goes
-on the Phase 5 list. BI does not mean giving up tensor cores: pinned tiles, no split-K, and
+on the Phase 5 list. The non-invariant path is the naive PyTorch implementation of the same
+operator, or another efficient kernel for it that is not batch-invariant (for example cuBLAS
+or DeepGEMM with default heuristics), measured on the same shapes. The P5 shared expert is a
+known exception: it is above the gate today and stays merged while it is optimized in
+Phase 5. BI does not mean giving up tensor cores: pinned tiles, no split-K, and
 `allow_tf32=False` are sufficient (demonstrated in P5-3).
 
 ## 3. Pinning rules adopted from vLLM #54955 (to be written into the execution profile)
@@ -117,45 +128,68 @@ on the Phase 5 list. BI does not mean giving up tensor cores: pinned tiles, no s
 | Need | Reuse from | What RL-Kernel adds |
 |---|---|---|
 | Sparse MLA core (fwd) | FlashMLA `flash_mla_sparse_fwd` | Wrapper: num_splits/workspace pinned from config; canonical sorted indices; per-request chunking; stable addresses under CUDA graphs |
-| Indexer top-k | Design of vLLM `csrc/ds4_bi_topk_extension.cu` | Own implementation; comparator semantics shared with `stable_topk6` |
+| Indexer top-k | Design of vLLM `csrc/ds4_bi_topk_extension.cu` | Own implementation; comparator semantics shared with `stable_topk6` (to be written in the P3 redo) |
 | Indexer logits (FP4/FP8 MQA scoring) | DeepGEMM `fp8_mqa_logits` / FP4 indexer | Verify head-sum and K reduction do not depend on M; fall back to own kernel if not |
 | Dense FP8 GEMM | DeepGEMM (D3 three-step) | Sweep plus possible heuristic patch |
-| Routed / shared expert, act quant, SwiGLU, LoRA | Own P5 | Unchanged (shared expert goes to Phase 5) |
+| Routed / shared expert, act quant, SwiGLU, LoRA | Own P5 (routed: `sm90_fused_moe_mlp.cu`) | Unchanged (shared expert goes to Phase 5) |
 | EP dispatch/combine | `zhuzilin/DeepEP@align_fp8_quantization` | P4 adapter + route-metadata capture + fixed-capacity staging |
-| Router gate | det_gemm FP32 / pinned-tile Triton FP32 matmul | Wire into the P3 provider |
+| Router gate | det_gemm FP32 output (`det_gemm_fwd_fp32`) | Wire into the redone P3 provider |
 | mHC / RMSNorm / logprob | Own P1 / linear_logp / #241 | Unchanged |
 | Sliding-window dense attention | Own #240 or FA3 | Verify split-KV is pinned |
-| Integration methodology | slime #2262 | Layerwise exact-zero diff gate, logprob CI threshold, Megatron patch-set structure |
+| Training integration | verl; slime #2262 for methodology | Rollout and actor recompute on the same kernel set; layerwise exact-zero diff gate; logprob CI threshold |
 
 ## 5. Phases
 
 | Phase | Weeks | Goal | Parallelism |
 |---|---|---|---|
-| 0 | this week | Unblock #635 and merge into main; rebase every P-dev branch onto one trunk | - |
+| 0 | this week | Unblock #635 on this branch; merge main last | - |
 | 1 | 1-2 | Freeze the execution profile; stand up the vLLM-fork golden (dev fixture); run the DeepGEMM three-step probe | overlaps the tail of Phase 0 |
 | 2 | 2-5 | P2 attention T02-T07 (critical path) | parallel with Phase 3 |
-| 3 | 3-6 | Finish P3, P6 T06, P4 DeepEP adapter | parallel with Phase 2 |
-| 4 | 5-7 | Layerwise 0-diff gate -> #230 cross_config M0-M10 bitwise -> performance table | - |
+| 3 | 3-6 | Redo P3 and P7; P6 T06; P4 DeepEP adapter | parallel with Phase 2 |
+| 4 | 5-7 | Layerwise 0-diff gate -> #230 cross_config M0-M10 bitwise -> verl integration -> performance table | - |
 | 5 | 7+ | Performance debt: shared-expert K-tree, operators above 1.3x, DCP (if required) | - |
 
 ## 6. Todo
 
-### Phase 0 - #635 blockers
+### Phase 0 - #635 blockers (CUDA path)
 
-- [ ] `build_tools/extensions.py`: move `sm90_fused_moe_mlp.cu` into the `not is_rocm` branch
-      and gate it on `KERNEL_ALIGN_MOE_SM90`
-- [ ] `csrc/bindings/ops.cpp`: wrap the `sm90_moe_*` declarations and `m.def` calls in
-      `#if defined(RL_KERNEL_ENABLE_SM90)`
-- [ ] Remove the `and not is_rocm` exemption from the fast-math hard error (hipcc defines
-      `__FAST_MATH__`, so the existing `#error` guard does not fire)
-- [ ] `rl_engine/kernels/ops/triton/mhc.py`: replace libdevice `mul_rn/add_rn` with plain
-      operators (FTZ flushes subnormals); add a subnormal byte-equality test
-- [ ] `fp32_gemm_rms.cu`: add `4*n_i + 8 <= 128` to the G8 dispatch condition so N=31 /
-      T>288 takes the fallback; add a test
-- [ ] `pre-commit run --all-files` so Black passes
-- [ ] Benchmark fixes: clone baseline, TF32 flag save/restore, rsqrt eps placement, external
-      MX baselines as asserts, `.mul_(3.0)` in place
-- [ ] Merge main; rebase the P2/P3/P6/P7 dev branches onto the trunk
+Order: build gating first (everything else needs a clean build), then correctness fixes,
+benchmark fixes, formatting, and merging main last.
+
+- [x] SM90 MoE build gating. The two halves must change together, or `_C` import breaks:
+  - `build_tools/extensions.py`: `sm90_fused_moe_mlp.cu` is compiled only on CUDA with
+    `KERNEL_ALIGN_MOE_SM90=1`, under a dedicated `-DRL_KERNEL_ENABLE_MOE_SM90`. It does not
+    reuse `RL_KERNEL_ENABLE_SM90`: det_gemm (`KERNEL_ALIGN_DET_GEMM_SM90=1`) also defines
+    that macro, so an `ops.cpp` guard on it would bind `sm90_moe_*` while the source is not
+    compiled (undefined symbol at import). The MoE build emits `sm_90a` only (a plain
+    `compute_90` pass also compiles the WGMMA PTX and fails ptxas) and fails fast on a
+    non-SM90 host.
+  - `csrc/cuda/moe/sm90_fused_moe_mlp.cu`: kernel-body guards use
+    `RL_KERNEL_ENABLE_MOE_SM90`.
+  - `csrc/bindings/ops.cpp`: the `sm90_moe_*` declarations and `m.def` calls sit under
+    `#if defined(RL_KERNEL_ENABLE_MOE_SM90)`. Before, the stubs were always bound, so the
+    `hasattr` check in `rl_engine/moe/backends/sm90_fused_mlp.py` always passed and the
+    failure only showed up at call time; now it fails closed at resolve time.
+  - Tests: `tests/build/test_build_platform_collectives.py` covers the default, det_gemm-only,
+    MoE, non-Hopper and ROCm configurations.
+- [x] Fast-math is a hard error on ROCm too. hipcc defines `__FAST_MATH__`, while the
+      `#error` guards in `fused_shared_expert_mlp.cu` and `clamp_swiglu_weighted.cu` check
+      `__USE_FAST_MATH__`, so they did not fire. The error now names every affected kernel.
+- [x] `fp32_gemm_rms.cu`: the G8 dispatch also requires `4*n_i + 8 <= 128`, so N=31 /
+      T>288 takes the G2 fallback (the G8 kernel has 128 compute threads and needs 4N + 8
+      slots); `test_eight_token_regime_edge_n_matches_oracle` covers N=30 and N=31.
+- [x] Benchmark fixes: per-provider numeric profile in `benchmark_shared_expert_mlp.py`,
+      TF32 flag save/restore in `benchmark_lora_delta.py`, external MX baselines as asserts
+      in `benchmark_mxfp8_act_quant.py`, `.mul_(3.0)` in place in
+      `test_p5_mxfp8_act_quant.py`
+- [x] Keep `csrc/cuda/moe/mxfp8_mxfp4_grouped_gemm_wgmma.cu` (not referenced by any build
+      script or Python module yet)
+- [x] `pre-commit run --all-files` passes (Black, isort, flake8)
+- [ ] Merge main last, after the fixes above pass
+
+Known failures outside Phase 0 (present before and after it, default build):
+`test_p1_provider::test_golden_manifest_anchor` and four Triton `test_p5_lora_delta` cases
+(Triton path, deferred).
 
 ### Phase 1 - profile, oracle, GEMM probe
 
@@ -165,8 +199,8 @@ on the Phase 5 list. BI does not mean giving up tensor cores: pinned tiles, no s
 - [ ] Bring up the `ISEEKYAN/vllm:ds4-v9-rc1` image (`VLLM_BATCH_INVARIANT=1`,
       `VLLM_DS4_DECODE_KERNEL=sparse`) and produce selected-token logprob goldens for a fixed
       prompt set: batch 1/8/64, chunked prefill, decode
-- [ ] Land the goldens under `tests/fixtures/dsv4/`, labelled development only; leave #230
-      provenance untouched
+- [ ] Land the goldens under `tests/fixtures/dsv4/`, labelled development only; do not
+      write them into #230's verl anchor provenance
 - [ ] DeepGEMM probe step 1: pin a commit; sweep dense `fp8_gemm_nt`, contiguous grouped,
       masked grouped, including "same tokens via contiguous vs masked"
 - [ ] Only on failure: step 2 (heuristic patch) / step 3 (zhuzilin branch + capability probe)
@@ -186,13 +220,15 @@ on the Phase 5 list. BI does not mean giving up tensor cores: pinned tiles, no s
       byte-equal
 - [ ] T06 sliding window: confirm split-KV is pinned on the #240 / FA3 path
 - [ ] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x)
-- [ ] Wire the Megatron-side recompute path to the same kernel set (forward only)
+- [ ] Wire the verl training-side recompute path to the same kernel set (forward only)
 
-### Phase 3 - MoE wrap-up
+### Phase 3 - MoE and sampling
 
-- [ ] P3 gate GEMM: det_gemm FP32-output or pinned-tile Triton FP32 matmul (never bare
-      `torch.mm`)
-- [ ] P3 routing-weights CUDA and combine-plan live provider; close out T08 (#639)
+- [ ] P3 redo: gate GEMM on det_gemm FP32 output (never bare `torch.mm`), `stable_topk6`
+      with the comparator shared with the indexer top-k, routing-weights CUDA, combine-plan
+      live provider; re-evaluate the T08 draft (#639) against the redo
+- [ ] P7 redo: sampling gate + M10 selected-token logprob, wired to the #241 vocab-TP
+      deterministic reduce
 - [ ] P6 T06 + real EP=2/4/8 collectives (replacing the values-only mock)
 - [ ] P4: DeepEP `align_fp8_quantization` adapter, route-metadata capture (top-k slot
       order), fixed-capacity staging; empty ranks still join the collective
@@ -203,15 +239,26 @@ on the Phase 5 list. BI does not mean giving up tensor cores: pinned tiles, no s
 - [ ] Layerwise exact-zero hidden-state diff gate, advancing one layer at a time from layer 0
 - [ ] #230 cross_config M0-M10 selected-token logprob bitwise; add a logprob threshold to CI
       (target 0; slime's 1.9e-7 MAE is the reference upper bound)
+- [ ] verl integration: rollout and actor recompute produce the same selected-token logprob
+      on the same kernel set
 - [ ] Performance table: per-operator overhead against the non-invariant path; anything above
       1.3x goes to Phase 5
 
 ### Phase 5 - performance debt
 
-- [ ] Shared expert: fold into the grouped GEMM as a fixed group, or move to the grouped
+- [ ] Shared expert: fold into the routed kernel as a fixed group, or move to the routed
       kernel's serial profile; retire the det_gemm K-tree
 - [ ] Operators that exceeded the Phase 4 performance table
 - [ ] DCP attention (single comparator across local and global selection; separate issue)
+
+### Deferred - Triton path
+
+CUDA comes first. Revisit after the CUDA path is aligned:
+
+- [ ] `rl_engine/kernels/ops/triton/mhc.py`: replace libdevice `mul_rn/add_rn` (FTZ flushes
+      subnormals) with plain operators, and launch with `enable_fp_fusion=False` so the
+      plain mul + add is not contracted into an FMA (the oracle requires mul-then-add, no
+      fusion); add a subnormal byte-equality test that fails before the fix
 
 ### Explicitly out of scope (v1)
 
@@ -225,5 +272,6 @@ on the Phase 5 list. BI does not mean giving up tensor cores: pinned tiles, no s
 - RL-Kernel #635, #447 (P2 T01), #498 (P3 T01), #448 (P6 T01), #462 (P6 T05), #648 (P7
   T02), #639 (P3 T08), #230 (cross_config), #241 (TP logprob)
 - vLLM #54955 (DSv4 batch-invariant preview)
+- verl (integration target)
 - slime #2262 (Megatron/SGLang DSA alignment)
 - `zhuzilin/DeepGEMM@batch_invariant`, `zhuzilin/DeepEP@align_fp8_quantization`

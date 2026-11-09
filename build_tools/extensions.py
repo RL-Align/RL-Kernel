@@ -226,7 +226,6 @@ def get_extensions():
             "csrc/cuda/gemm/det_gemm_kernel.cu",
             "csrc/cuda/norm/rmsnorm.cu",
             "csrc/cuda/activation/activation.cu",
-            "csrc/cuda/moe/sm90_fused_moe_mlp.cu",
             "csrc/cuda/moe/fused_shared_expert_mlp.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
         ]
@@ -250,18 +249,24 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/mhc/mhc_pre_h_aggregate.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
-        use_fast_math = envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
-        if use_fast_math and not is_rocm:
+        # Rejected on ROCm too: hipcc defines __FAST_MATH__, not nvcc's
+        # __USE_FAST_MATH__, so the per-source #error guards would not fire.
+        if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
             raise RuntimeError(
                 "KERNEL_ALIGN_USE_FAST_MATH is incompatible with the deterministic "
-                "MHC H Aggregate CUDA contract"
+                "kernels in rl_engine._C (MHC H Aggregate, P5 shared expert and "
+                "clamp-SwiGLU require precise FP32 math)"
             )
-        if use_fast_math:
-            nvcc_flags.append("--use_fast_math")
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
             enable_sm90 = os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"
-            if not enable_sm90:
+            enable_moe_sm90 = os.environ.get("KERNEL_ALIGN_MOE_SM90") == "1"
+            if enable_moe_sm90 and cc_major != 9:
+                raise RuntimeError(
+                    "KERNEL_ALIGN_MOE_SM90=1 requires an SM90 (Hopper) build target, "
+                    f"got compute capability {cc_major}.{cc_minor}"
+                )
+            if not enable_sm90 and not enable_moe_sm90:
                 # SM90 build emits 90a below; mixing plain compute_90 breaks TMA ptxas.
                 nvcc_flags.append(
                     f"-gencode=arch=compute_{cc_major}{cc_minor},code=sm_{cc_major}{cc_minor}"
@@ -377,9 +382,13 @@ def get_extensions():
                 nvcc_flags.append("-DRL_KERNEL_ENABLE_SM90")
                 cxx_flags.append("-DRL_KERNEL_ENABLE_SM90")
             # SM90 fused MoE MLP (MXFP8 x MXFP4 grouped GEMM, FP8 WGMMA + TMA):
-            # csrc/cuda/moe/sm90_fused_moe_mlp.cu. Same gate style as det_gemm.
-            enable_moe_sm90 = os.environ.get("KERNEL_ALIGN_MOE_SM90") == "1"
+            # csrc/cuda/moe/sm90_fused_moe_mlp.cu is compiled, and its sm90_moe_*
+            # bindings registered, only under RL_KERNEL_ENABLE_MOE_SM90. That macro
+            # is separate from RL_KERNEL_ENABLE_SM90, which det_gemm also sets.
             if enable_moe_sm90:
+                cuda_sources.append("csrc/cuda/moe/sm90_fused_moe_mlp.cu")
+                nvcc_flags.append("-DRL_KERNEL_ENABLE_MOE_SM90")
+                cxx_flags.append("-DRL_KERNEL_ENABLE_MOE_SM90")
                 tma_arch = f"{cc_major}{cc_minor}a"
                 arch_flag = f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}"
                 if arch_flag not in nvcc_flags:

@@ -103,12 +103,17 @@ def run(direction: str):
         _, u_ref = native.shared_grouped_lora_delta_fwd(x, a, b, ALPHA)
 
         # Fair baseline: TF32 off, since both deterministic paths disable it.
-        torch.backends.cuda.matmul.allow_tf32 = True
-        t_tf32 = _time(_bench_fn(native, direction, tensors, u_ref))
-        torch.backends.cuda.matmul.allow_tf32 = False
-        t_native = _time(_bench_fn(native, direction, tensors, u_ref))
-        t_triton = _time(_bench_fn(triton, direction, tensors, u_ref))
-        t_cuda = _time(_bench_fn(cuda, direction, tensors, u_ref))
+        # Restore the caller's setting afterwards so later code is unaffected.
+        prev_tf32 = torch.backends.cuda.matmul.allow_tf32
+        try:
+            torch.backends.cuda.matmul.allow_tf32 = True
+            t_tf32 = _time(_bench_fn(native, direction, tensors, u_ref))
+            torch.backends.cuda.matmul.allow_tf32 = False
+            t_native = _time(_bench_fn(native, direction, tensors, u_ref))
+            t_triton = _time(_bench_fn(triton, direction, tensors, u_ref))
+            t_cuda = _time(_bench_fn(cuda, direction, tensors, u_ref))
+        finally:
+            torch.backends.cuda.matmul.allow_tf32 = prev_tf32
 
         rows.append((label, m, k, n, r, t_tf32, t_native, t_triton, t_cuda))
     return rows

@@ -13,6 +13,7 @@ PR delivers. Alignment between the strict backends is asserted on every shape.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import pathlib
 import sys
 
@@ -75,6 +76,8 @@ def main() -> int:
     from rl_engine.moe.provider import resolve_provider
 
     runners: dict[str, object] = {"torch-native": torch_native}
+    # Each provider fails closed on a batch that declares another numeric profile.
+    profiles: dict[str, str] = {}
     strict: dict[str, object] = {}
     for label, spec, is_strict in (
         ("triton", "rl_engine.moe.backends.shared_expert:TritonSharedExpertProvider", True),
@@ -83,8 +86,10 @@ def main() -> int:
         ("cuda-det", "rl_engine.moe.backends.shared_expert:CudaDetSharedExpertProvider", False),
     ):
         try:
-            runner = make_runner(resolve_provider(spec))
+            provider = resolve_provider(spec)
+            runner = make_runner(provider)
             runners[label] = runner
+            profiles[label] = provider.numeric_profile
             if is_strict:
                 strict[label] = runner
         except NotImplementedError as exc:
@@ -113,8 +118,13 @@ def main() -> int:
         outputs = {}
         base_ms = None
         for label, fn in runners.items():
-            ms = time_ms(fn, batch, dy, iters=args.iters)
-            outputs[label] = fn(batch, dy)
+            run_batch = (
+                dataclasses.replace(batch, numeric_profile=profiles[label])
+                if label in profiles
+                else batch
+            )
+            ms = time_ms(fn, run_batch, dy, iters=args.iters)
+            outputs[label] = fn(run_batch, dy)
             if label == "torch-native":
                 base_ms = ms
             rel = f"{ms / base_ms:8.2f}x" if base_ms else "        -"
