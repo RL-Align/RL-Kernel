@@ -536,6 +536,10 @@ at::Tensor prefix_shared_attention(
 // DSv4 per-token-group FP8 activation quantization (csrc/cuda/quant/fp8_group_quant.cu)
 std::vector<torch::Tensor> fp8_group_quant_forward(torch::Tensor x, bool scale_ue8m0);
 std::vector<torch::Tensor> fp8_group_quant_tokens_forward(torch::Tensor x, bool scale_ue8m0);
+// DSv4 indexer stable per-row top-k (csrc/cuda/topk/stable_topk.cu)
+void stable_topk_per_row_out(torch::Tensor logits, torch::Tensor row_starts,
+                             torch::Tensor row_ends, torch::Tensor indices, int64_t top_k,
+                             int64_t threads);
 // DSv4 shared-expert clamped SwiGLU (csrc/cuda/activation/silu_and_mul_clamp.cu)
 std::vector<torch::Tensor> silu_and_mul_clamp_quant_forward(torch::Tensor z, double limit,
                                                             bool scale_ue8m0, bool write_h);
@@ -562,6 +566,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Per-token 1x128 FP8 E4M3 quantization with DeepGEMM-layout FP32 scales");
     m.def("fp8_group_quant_tokens_forward", &fp8_group_quant_tokens_forward,
           "Token-direction 128-group FP8 quantization of x.T for wgrad");
+    m.def("stable_topk_per_row_out", &stable_topk_per_row_out,
+          "DSv4 indexer top-k: (score, local index) descending, vLLM ds4_bi order",
+          py::arg("logits"), py::arg("row_starts"), py::arg("row_ends"),
+          py::arg("indices"), py::arg("top_k"), py::arg("threads") = 0);
     m.def("silu_and_mul_clamp_quant_forward", &silu_and_mul_clamp_quant_forward,
           "vLLM silu_and_mul_with_clamp fused with per-token-group FP8 quantization");
     m.def("silu_and_mul_clamp_backward", &silu_and_mul_clamp_backward_cuda,

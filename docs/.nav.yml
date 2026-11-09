@@ -36,6 +36,7 @@ nav:
       - operators/embedding.md
       - operators/dsv4-moe.md
       - operators/fp8-group-quant.md
+      - operators/stable-topk.md
       - operators/final-logit-softcap.md
   - Developer Guide:
     - contributing/README.md

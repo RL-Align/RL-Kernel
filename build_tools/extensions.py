@@ -251,6 +251,8 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/quant/fp8_group_quant.cu")
             # DSv4 shared-expert clamped SwiGLU (fused with the FP8 quant above).
             cuda_sources.append("csrc/cuda/activation/silu_and_mul_clamp.cu")
+            # DSv4 indexer stable top-k (uses CUB block radix sort).
+            cuda_sources.append("csrc/cuda/topk/stable_topk.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         # Rejected on ROCm too: hipcc defines __FAST_MATH__, not nvcc's

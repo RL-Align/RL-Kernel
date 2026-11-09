@@ -174,7 +174,7 @@ expert is above the gate today and stays merged until its DeepGEMM replacement l
 | Need | Reuse from | What RL-Kernel adds |
 |---|---|---|
 | Sparse MLA core (fwd) | FlashMLA `flash_mla_sparse_fwd` | Wrapper: num_splits/workspace pinned from config; canonical sorted indices; per-request chunking; stable addresses under CUDA graphs |
-| Indexer top-k | Design of vLLM `csrc/ds4_bi_topk_extension.cu` | Own implementation; comparator semantics shared with `stable_topk6` (to be written in the P3 redo) |
+| Indexer top-k | Design of vLLM `csrc/ds4_bi_topk_extension.cu` | Own implementation (done, T04), byte-equal to it. The comparator is **not** shared with the router: vLLM's DSv4 router top-6 (`fused_moe/router/dsv4_topk.py`) breaks ties toward the **smallest** expert id, the indexer toward the largest local index; P3 follows the router's own order |
 | Indexer logits (FP4/FP8 MQA scoring) | DeepGEMM `fp8_mqa_logits` / FP4 indexer | Verify head-sum and K reduction do not depend on M; fall back to own kernel if not |
 | Dense FP8 GEMM | DeepGEMM (D3 three-step) | Sweep plus possible heuristic patch |
 | Routed expert, MX act quant, SwiGLU, LoRA | Own P5 (routed: `sm90_fused_moe_mlp.cu`) | Unchanged |
@@ -263,8 +263,18 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 - [ ] T03 indexer projection + FP4/FP8 logits: use the GEMM decided in Phase 1; run the
       invariance probe against DeepGEMM `fp8_mqa_logits` (5 seeds x 5 sub-batch sizes x
       production shape)
-- [ ] T04 stable top-k: composite key, fixed output slots, one selector for prefill and
-      decode; regression covers "all ties + true cutoff"
+- [x] T04 stable top-k: composite key, fixed output slots, one selector for prefill and
+      decode; regression covers "all ties + true cutoff". `stable_topk_per_row` (golden
+      `rl_engine/kernels/ops/pytorch/topk/`, CUDA `csrc/cuda/topk/stable_topk.cu`;
+      `docs/operators/stable-topk.md`) reproduces vLLM's BI selector
+      `ds4_bi.top_k_per_row_prefill` byte for byte
+      (`scripts/check_stable_topk_vllm_parity.py`, 80/80 cases incl. random bit patterns):
+      key `(ordered_bits(score), local_index)` descending, so ties keep the **larger**
+      request-local index; int32 ids in key order, `-1` padding. Decision (2026-11-09):
+      follow vLLM; the P2 v1 start-kit contract (`finite_score_desc_global_id_asc`,
+      `p2/oracle.topk512`) stays unchanged as a separate contract. 0.31-0.96x of
+      `torch.topk` on H200 (decode and causal prefill, k = 512 and 2048), 1.4-3.7x
+      faster than vLLM's own BI kernel
 - [ ] T05 FlashMLA sparse wrapper: canonicalize indices, pin num_splits/workspace from
       config, stable addresses under CUDA graphs; test `fwd(x)[t] == fwd(x[t:t+1])`
       byte-equal

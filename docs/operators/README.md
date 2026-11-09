@@ -37,5 +37,6 @@ Every operator page should include:
 - [Token Embedding](embedding.md)
 - [DSv4 MoE](dsv4-moe.md)
 - [DSv4 FP8 Group Quant](fp8-group-quant.md)
+- [DSv4 Indexer Stable Top-K](stable-topk.md)
 - [Final Logit Softcap](final-logit-softcap.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
