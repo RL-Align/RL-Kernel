@@ -79,10 +79,12 @@ def test_forward_matches_the_rollout_composition():
     y, saved = provider.shared_expert_mlp_fwd(_batch(provider, x, w1, w2))
     weights = saved["weights"]
     z = torch.empty(37, 2 * SMALL[1], device="cuda", dtype=torch.bfloat16)
-    deep_gemm.fp8_gemm_nt(fp8_group_quant(x), weights.w1.pair(), z, disable_ue8m0_cast=True)
+    deep_gemm.fp8_gemm_nt(fp8_group_quant(x), weights.fc1.weight.pair(), z, disable_ue8m0_cast=True)
     h = silu_and_mul_clamp(z)
     y_ref = torch.empty(37, SMALL[0], device="cuda", dtype=torch.bfloat16)
-    deep_gemm.fp8_gemm_nt(fp8_group_quant(h), weights.w2.pair(), y_ref, disable_ue8m0_cast=True)
+    deep_gemm.fp8_gemm_nt(
+        fp8_group_quant(h), weights.fc2.weight.pair(), y_ref, disable_ue8m0_cast=True
+    )
     assert _same(saved["z"], z) and _same(y, y_ref)
 
 

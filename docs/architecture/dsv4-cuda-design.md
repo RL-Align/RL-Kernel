@@ -293,6 +293,13 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
   - [x] DeepGEMM dependency pin and fail-closed capability check: `dsv4` extra in
         `pyproject.toml`, `rl_engine/kernels/ops/cuda/deepgemm.py` (SM90, pinned
         `2.6.1+e21c821`, JIT `nvcc` >= 12.8)
+  - [x] General dense FP8 linear for the attention/indexer projections and the shared
+        expert: `rl_engine/kernels/ops/cuda/fp8_linear.py` (`Fp8Linear`: checkpoint or
+        BF16 weights; forward = `fp8_group_quant` + `fp8_gemm_nt`, byte-equal to the rollout
+        composition; FP8 dX through the precomputed `W.T`; FP32 dW on the 1D1D wgrad kernel,
+        optionally accumulated). Forward and dX batch-invariant at the five DSv4 projection
+        shapes, dW run-to-run identical (`tests/ops/gemm/test_dsv4_fp8_linear.py`). The
+        shared-expert provider is built on it
 - [ ] Shared expert on DeepGEMM: FP8 `gate_up` -> our SwiGLU -> FP8 `down`, as a P5 provider
       with a new numeric profile; batch-invariance and run-to-run tests, benchmark against
       eager BF16 and the det_gemm provider; update the P5 shared-expert tests and golden
