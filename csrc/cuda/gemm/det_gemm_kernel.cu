@@ -448,6 +448,12 @@ torch::Tensor gemm_dispatch(const torch::Tensor& a, const torch::Tensor& rhs,
   const bool transpose_output = output_layout == OutputLayout::kNM;
   auto options = a.options().dtype(output_fp32 ? torch::kFloat32 : torch::kBFloat16);
   auto c = transpose_output ? torch::empty({N, M}, options) : torch::empty({M, N}, options);
+  // Empty shapes never reach a launch: a zero grid dimension is an invalid
+  // configuration whose error stays pending until an unrelated later call
+  // checks it. An empty K reduces nothing, so its output is exactly zero
+  // (this is the det_gemm_db / db_transposed case with zero tokens).
+  if (M == 0 || N == 0) return c;
+  if (K == 0) return c.zero_();
   auto stream = at::cuda::getCurrentCUDAStream();
 
 #if defined(RL_KERNEL_ENABLE_SM90)
@@ -584,7 +590,7 @@ torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc) {
   // token batches, materializing that transpose and launching the 16x16
   // scalar fallback dominates the actual outer-product work. The tiled path
   // reads A directly and preserves the same ascending-token reduction order.
-  if (tokens > 0 && tokens < SMALL_K_TILE) {
+  if (tokens > 0 && tokens < SMALL_K_TILE && in_features > 0 && out_features > 0) {
     a = a.contiguous();
     dc = dc.contiguous();
     auto output = torch::empty({out_features, in_features}, a.options());

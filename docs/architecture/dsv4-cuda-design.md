@@ -308,8 +308,10 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         has no SM90 epilogue fusion, and vLLM does not fuse it into the GEMM either) and the
         backward, both byte-equal to the golden over every BF16 gate value. Provider fwd+bwd
         is now 0.71-0.78x of eager BF16 (H=4096, F=2048, T=16..4096; was 2.1x)
-  - [ ] det_gemm launches an empty grid for M=0 and leaves a pending CUDA error that the
-        next checked call reports; the provider guards it, det_gemm should too
+  - [x] det_gemm launches an empty grid for M=0 and leaves a pending CUDA error that the
+        next checked call reports: `gemm_dispatch` (and the short-token `db_transposed`
+        path) now return empty outputs for empty M/N and zeros for K=0 without launching
+        (`test_empty_shapes_launch_nothing_and_leave_no_pending_error`)
   - [ ] The det_gemm BF16 fallback needs a `KERNEL_ALIGN_DET_GEMM_SM90=1` build to be fast
 - [x] The P5 oracle's shared-expert SwiGLU does not clamp and rounds once from FP32, unlike
       the rollout (`SiluAndMulWithClamp(10)` on BF16, two roundings). Decision: record the
