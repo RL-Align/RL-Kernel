@@ -249,6 +249,8 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/mhc/mhc_pre_h_aggregate.cu")
             # DSv4 FP8 activation quantization for DeepGEMM (uses cuda_fp8.h).
             cuda_sources.append("csrc/cuda/quant/fp8_group_quant.cu")
+            # DSv4 shared-expert clamped SwiGLU (fused with the FP8 quant above).
+            cuda_sources.append("csrc/cuda/activation/silu_and_mul_clamp.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         # Rejected on ROCm too: hipcc defines __FAST_MATH__, not nvcc's

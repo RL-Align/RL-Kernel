@@ -303,10 +303,13 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         dgrad by default or det_gemm BF16 (`backward="bf16_det_gemm"`) as the reference.
         Forward and dX are batch-invariant and run-to-run identical. Relative error against
         FP32 on the dequantized weights (H200, T=512/2048): y 4.7%, FP8 dX 3.8%, BF16 dX 0.74%
-  - [ ] CUDA kernels for the clamped SwiGLU forward and backward. The PyTorch golden is 70%
-        of fwd+bwd time at T=4096 (0.34 + 0.75 ms against 0.50 ms for all four quant+GEMMs),
-        which puts the provider at 2.1x of eager BF16; a fused kernel should bring it to
-        about 0.7x
+  - [x] CUDA kernels for the clamped SwiGLU (`csrc/cuda/activation/silu_and_mul_clamp.cu`):
+        forward fused with the FP8 group quant (same bytes as vLLM's two kernels; DeepGEMM
+        has no SM90 epilogue fusion, and vLLM does not fuse it into the GEMM either) and the
+        backward, both byte-equal to the golden over every BF16 gate value. Provider fwd+bwd
+        is now 0.71-0.78x of eager BF16 (H=4096, F=2048, T=16..4096; was 2.1x)
+  - [ ] det_gemm launches an empty grid for M=0 and leaves a pending CUDA error that the
+        next checked call reports; the provider guards it, det_gemm should too
   - [ ] The det_gemm BF16 fallback needs a `KERNEL_ALIGN_DET_GEMM_SM90=1` build to be fast
 - [ ] The P5 oracle's shared-expert SwiGLU does not clamp and rounds once from FP32, unlike
       the rollout (`SiluAndMulWithClamp(10)` on BF16, two roundings); align the P5 contract

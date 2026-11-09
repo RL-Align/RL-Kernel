@@ -83,7 +83,17 @@ def test_forward_matches_the_rollout_composition():
     h = silu_and_mul_clamp(z)
     y_ref = torch.empty(37, SMALL[0], device="cuda", dtype=torch.bfloat16)
     deep_gemm.fp8_gemm_nt(fp8_group_quant(h), weights.w2.pair(), y_ref, disable_ue8m0_cast=True)
-    assert _same(saved["z"], z) and _same(saved["h_bf16"], h) and _same(y, y_ref)
+    assert _same(saved["z"], z) and _same(y, y_ref)
+
+
+@pytest.mark.parametrize("backward", ["fp8", "bf16_det_gemm"])
+def test_empty_batch(backward):
+    provider = _provider(backward)
+    w1, w2 = _weights(*SMALL)
+    x = torch.empty(0, SMALL[0], dtype=torch.bfloat16, device="cuda")
+    y, saved = provider.shared_expert_mlp_fwd(_batch(provider, x, w1, w2))
+    dx = provider.shared_expert_mlp_bwd(y, _batch(provider, x, w1, w2), saved)
+    assert y.shape == (0, SMALL[0]) and dx.shape == (0, SMALL[0])
 
 
 @pytest.mark.parametrize("backward", ["fp8", "bf16_det_gemm"])

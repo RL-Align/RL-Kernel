@@ -23,7 +23,7 @@ vLLM has no backward. Ours is deterministic and elementwise, in FP32:
 
     dgate = dh * u * dsilu(g)     where gate < limit, else 0
     dup   = dh * act              where -limit < up < limit, else 0
-    dsilu = sig * (1 + g * (1 - sig)),  sig = 1 / (1 + exp(-g))
+    dsilu = sig * ((g * (1 - sig)) + 1),  sig = 1 / (exp(-g) + 1)
 
 and returns ``dz = [dgate | dup]`` in BF16 for the dgrad GEMM.
 """
@@ -76,9 +76,12 @@ def silu_and_mul_clamp_backward(dh: Tensor, z: Tensor, limit: float = SWIGLU_LIM
         raise ValueError(f"dh shape {tuple(dh.shape)} != {tuple(gate.shape)}.")
     g, u = _clamped(gate, up, limit)
     dh32 = dh.float()
-    sig = 1.0 / (torch.exp(-g) + 1.0)
-    dsilu = sig * (1.0 + g * (1.0 - sig))
-    act = _silu(g).to(torch.bfloat16).float()
+    # Separate, unfused FP32 operations in this order; the CUDA kernel spells
+    # out the same ones with _rn intrinsics so no FMA contraction changes bytes.
+    denominator = torch.exp(-g) + 1.0
+    sig = torch.ones_like(g) / denominator
+    dsilu = sig * ((g * (1.0 - sig)) + 1.0)
+    act = (g / denominator).to(torch.bfloat16).float()
     zero = torch.zeros_like(dh32)
     dgate = torch.where(gate < limit, (dh32 * u) * dsilu, zero)
     dup = torch.where((up > -limit) & (up < limit), dh32 * act, zero)

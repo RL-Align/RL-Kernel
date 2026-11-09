@@ -8,6 +8,10 @@ Forward, as vLLM's ``DeepseekV4MLP`` runs it::
     z          -> silu_and_mul_clamp(limit 10)                -> h  (BF16 [T, F])
     h          -> fp8_group_quant -> DeepGEMM fp8_gemm_nt(W2) -> y  (BF16 [T, H])
 
+The SwiGLU and the second quantization run as one CUDA kernel
+(``csrc/cuda/activation/silu_and_mul_clamp.cu``) whose bytes equal vLLM's two
+separate kernels; the SwiGLU backward is a CUDA kernel too.
+
 Weights are 128x128-block FP8 with UE8M0-valued FP32 scales, the checkpoint
 format; :func:`prepare_shared_weights` quantizes BF16 weights the same way, and
 :meth:`DeepGemmSharedExpertProvider.prepare_fp8` takes checkpoint tensors.
@@ -38,13 +42,10 @@ from typing import Any
 import torch
 from torch import Tensor
 
+from rl_engine.kernels.ops.cuda.activation import silu_and_mul_clamp as cuda_swiglu
 from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
 from rl_engine.kernels.ops.cuda.quant import Fp8GroupQuantCudaOp
-from rl_engine.kernels.ops.pytorch.activation.silu_and_mul_clamp import (
-    SWIGLU_LIMIT,
-    silu_and_mul_clamp,
-    silu_and_mul_clamp_backward,
-)
+from rl_engine.kernels.ops.pytorch.activation.silu_and_mul_clamp import SWIGLU_LIMIT
 from rl_engine.moe.contract import SharedBatch
 from rl_engine.moe.provider import ReferenceProvider
 
@@ -125,6 +126,7 @@ class DeepGemmSharedExpertProvider(ReferenceProvider):
         self.swiglu_limit = float(swiglu_limit)
         self._dg, self._capability = require_deepgemm()
         self._quant = Fp8GroupQuantCudaOp()
+        cuda_swiglu._extension()  # fail closed without the SwiGLU kernels
         self._det = None
         if backward == "bf16_det_gemm":
             from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
@@ -161,11 +163,16 @@ class DeepGemmSharedExpertProvider(ReferenceProvider):
         return PreparedSharedWeights(Fp8BlockWeight(*w1), Fp8BlockWeight(*w2))
 
     # GEMMs ----------------------------------------------------------------
-    def _fp8_linear(self, x: Tensor, w: Fp8BlockWeight) -> Tensor:
-        out = torch.empty(x.shape[0], w.q.shape[0], device=x.device, dtype=torch.bfloat16)
-        if x.shape[0]:
-            self._dg.fp8_gemm_nt(self._quant(x), w.pair(), out, disable_ue8m0_cast=True)
+    def _fp8_gemm(self, a: tuple[Tensor, Tensor], w: Fp8BlockWeight) -> Tensor:
+        out = torch.empty(a[0].shape[0], w.q.shape[0], device=a[0].device, dtype=torch.bfloat16)
+        if a[0].shape[0]:
+            self._dg.fp8_gemm_nt(a, w.pair(), out, disable_ue8m0_cast=True)
         return out
+
+    def _fp8_linear(self, x: Tensor, w: Fp8BlockWeight) -> Tensor:
+        if not x.shape[0]:
+            return torch.empty(0, w.q.shape[0], device=x.device, dtype=torch.bfloat16)
+        return self._fp8_gemm(self._quant(x), w)
 
     # Provider surface ------------------------------------------------------
     def capabilities(self) -> dict[str, Any]:
@@ -209,21 +216,26 @@ class DeepGemmSharedExpertProvider(ReferenceProvider):
     def forward(self, x: Tensor, weights: PreparedSharedWeights) -> tuple[Tensor, dict[str, Any]]:
         x = x.contiguous()
         z = self._fp8_linear(x, weights.w1)
-        h = silu_and_mul_clamp(z, self.swiglu_limit)
-        y = self._fp8_linear(h, weights.w2)
-        return y, {"z": z, "h_bf16": h, "weights": weights}
+        if not z.shape[0]:
+            empty = torch.empty(0, weights.w2.q.shape[0], device=x.device, dtype=torch.bfloat16)
+            return empty, {"z": z, "weights": weights}
+        h_q = cuda_swiglu.silu_and_mul_clamp_quant_cuda(z, self.swiglu_limit)
+        y = self._fp8_gemm(h_q, weights.w2)
+        return y, {"z": z, "weights": weights}
 
     def backward_dx(self, dy: Tensor, saved: dict[str, Any]) -> Tensor:
         weights: PreparedSharedWeights = saved["weights"]
         dy = dy.to(torch.bfloat16).contiguous()
+        if not dy.shape[0]:  # det_gemm would launch an empty grid
+            return torch.empty(0, weights.w1_t.q.shape[0], device=dy.device, dtype=torch.float32)
         if self.backward == "fp8":
             dh = self._fp8_linear(dy, weights.w2_t)
-            dz = silu_and_mul_clamp_backward(dh, saved["z"], self.swiglu_limit)
+        else:
+            dh = self._det.det_gemm_fwd(dy, weights.bf16()[1])
+        dz = cuda_swiglu.silu_and_mul_clamp_backward_cuda(dh, saved["z"], self.swiglu_limit)
+        if self.backward == "fp8":
             return self._fp8_linear(dz, weights.w1_t).float()
-        w1, w2 = weights.bf16()
-        dh = self._det.det_gemm_fwd(dy, w2)
-        dz = silu_and_mul_clamp_backward(dh, saved["z"], self.swiglu_limit)
-        return self._det.det_gemm_fwd(dz, w1).float()
+        return self._det.det_gemm_fwd(dz, weights.bf16()[0]).float()
 
     def shared_expert_mlp_fwd(self, batch: SharedBatch) -> tuple[Tensor, dict[str, Any]]:
         self._check_batch(batch)
