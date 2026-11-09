@@ -533,6 +533,9 @@ at::Tensor prefix_shared_attention(
 #endif
 
 #if defined(KERNEL_ALIGN_WITH_CUDA)
+// DSv4 per-token-group FP8 activation quantization (csrc/cuda/quant/fp8_group_quant.cu)
+std::vector<torch::Tensor> fp8_group_quant_forward(torch::Tensor x, bool scale_ue8m0);
+std::vector<torch::Tensor> fp8_group_quant_tokens_forward(torch::Tensor x, bool scale_ue8m0);
 std::vector<torch::Tensor> mhc_rmsnorm_residual_forward(torch::Tensor x, torch::Tensor gamma, double eps);
 std::vector<torch::Tensor> mhc_rmsnorm_residual_backward(torch::Tensor dy,
                                                          torch::Tensor dr,
@@ -551,6 +554,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 #endif
 
 #if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("fp8_group_quant_forward", &fp8_group_quant_forward,
+          "Per-token 1x128 FP8 E4M3 quantization with DeepGEMM-layout FP32 scales");
+    m.def("fp8_group_quant_tokens_forward", &fp8_group_quant_tokens_forward,
+          "Token-direction 128-group FP8 quantization of x.T for wgrad");
     m.def("mhc_rmsnorm_residual_forward", &mhc_rmsnorm_residual_forward);
     m.def("mhc_rmsnorm_residual_backward", &mhc_rmsnorm_residual_backward);
 #endif

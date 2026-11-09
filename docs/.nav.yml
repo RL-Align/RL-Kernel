@@ -35,6 +35,7 @@ nav:
       - operators/fp32-gemm-rms.md
       - operators/embedding.md
       - operators/dsv4-moe.md
+      - operators/fp8-group-quant.md
       - operators/final-logit-softcap.md
   - Developer Guide:
     - contributing/README.md

@@ -287,6 +287,10 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       capability check (rule 7; DeepGEMM JIT-compiles, so `nvcc` from CUDA 12.8+ is needed at
       runtime), and a per-token 1x128 FP8 activation-quant kernel that emits scales directly
       in DeepGEMM's TMA-aligned layout (per-call conversion costs about 1.5 us)
+  - [x] Activation quantization: `fp8_group_quant` (golden + CUDA, byte-equal; matches
+        vLLM's `per_token_group_fp8_quant` with UE8M0 scales; token-direction variant for
+        wgrad). See `docs/operators/fp8-group-quant.md`
+  - [ ] DeepGEMM dependency pin and fail-closed capability check
 - [ ] Shared expert on DeepGEMM: FP8 `gate_up` -> our SwiGLU -> FP8 `down`, as a P5 provider
       with a new numeric profile; batch-invariance and run-to-run tests, benchmark against
       eager BF16 and the det_gemm provider; update the P5 shared-expert tests and golden
