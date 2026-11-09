@@ -116,6 +116,7 @@ def test_suite_binds_swiglu_inputs_by_name():
     """Operand names must still bind correctly for a keyword-only candidate."""
 
     def candidate(*, up, gate):
+        """Reverse the declaration order to expose any accidental positional binding."""
         return gate * torch.sigmoid(gate) * up
 
     report = run_operator_suite(

@@ -111,6 +111,7 @@ def test_native_silu_matches_fp32_reference(dtype: torch.dtype):
 
 @pytest.mark.parametrize("dtype", (torch.float32, torch.bfloat16, torch.float16))
 def test_native_swiglu_matches_fp32_reference(dtype: torch.dtype):
+    """Check FP32 arithmetic and the requested output cast against an explicit formula."""
     gate = torch.linspace(-4.0, 4.0, 48, dtype=dtype).reshape(2, 3, 8)
     up = torch.linspace(0.5, 2.0, 48, dtype=dtype).reshape(2, 3, 8)
 
@@ -177,6 +178,7 @@ def test_swiglu_rejects_conflicting_or_incomplete_keyword_inputs(method):
 
 
 def test_native_swiglu_rejects_mismatched_shape():
+    """Reject separate operands whose shapes differ."""
     gate = torch.randn(2, 3)
     up = torch.randn(2, 4)
 
@@ -185,6 +187,7 @@ def test_native_swiglu_rejects_mismatched_shape():
 
 
 def test_native_activation_rejects_invalid_dtypes():
+    """Reject integer SiLU inputs and mismatched SwiGLU operand dtypes."""
     with pytest.raises(TypeError, match="dtype"):
         NativeSiLUOp().forward(torch.ones(8, dtype=torch.int32))
 
@@ -206,6 +209,7 @@ def test_silu_batch_invariance_slice():
 
 
 def test_swiglu_batch_invariance_slice():
+    """Require FP32 outputs to remain bitwise equal when evaluated as batch slices."""
     op = NativeSwiGLUOp()
     gate = _rand((8, 32, _INTERMEDIATE), seed=3)
     up = _rand((8, 32, _INTERMEDIATE), seed=4)
@@ -223,6 +227,7 @@ def test_silu_batch_invariance_with_padding():
 
 
 def test_swiglu_batch_invariance_with_padding():
+    """Adding unrelated rows must preserve each original row's FP32 output bits."""
     op = NativeSwiGLUOp()
     gate = _rand((4, _INTERMEDIATE), seed=6)
     up = _rand((4, _INTERMEDIATE), seed=7)
@@ -244,6 +249,7 @@ def test_silu_inputs_not_mutated():
 
 
 def test_swiglu_inputs_not_mutated():
+    """Both public output modes must leave the gate and up tensors unchanged."""
     op = NativeSwiGLUOp()
     gate = _rand((2, _INTERMEDIATE), seed=9)
     up = _rand((2, _INTERMEDIATE), seed=10)
@@ -262,6 +268,7 @@ def test_silu_gradient_flows():
 
 
 def test_swiglu_gradient_flows():
+    """Require finite gradients for both separate operands through the FP32 path."""
     op = NativeSwiGLUOp()
     gate = _rand((2, _INTERMEDIATE), seed=12).requires_grad_(True)
     up = _rand((2, _INTERMEDIATE), seed=13).requires_grad_(True)
@@ -404,6 +411,7 @@ def test_cuda_triton_silu_matches_native_forward_and_backward(impl, dtype, shape
     ],
 )
 def test_cuda_triton_swiglu_matches_native_forward_and_backward(impl, dtype, shape):
+    """Compare GPU outputs and both gradients with the independent FP32 reference."""
     if impl == "cuda" and not _HAS_CUDA_ACTIVATION:
         pytest.skip("CUDA SwiGLU extension is not available")
 
@@ -452,6 +460,7 @@ def test_cuda_triton_silu_batch_invariance_bitwise(impl):
 @requires_cuda
 @pytest.mark.parametrize("impl", _silu_impls())
 def test_cuda_triton_swiglu_batch_invariance_bitwise(impl):
+    """Require GPU output bits to be unchanged when evaluating batch slices."""
     if impl == "cuda" and not _HAS_CUDA_ACTIVATION:
         pytest.skip("CUDA SwiGLU extension is not available")
 
@@ -491,6 +500,7 @@ def test_cuda_triton_silu_deterministic_repeat(impl):
 @requires_cuda
 @pytest.mark.parametrize("impl", _silu_impls())
 def test_cuda_triton_swiglu_rejects_mismatched_shape(impl):
+    """Reject differently shaped gate/up tensors before launching the GPU kernel."""
     if impl == "cuda" and not _HAS_CUDA_ACTIVATION:
         pytest.skip("CUDA SwiGLU extension is not available")
 
@@ -520,6 +530,7 @@ def test_cuda_triton_silu_backward_batch_invariance_bitwise(impl):
 @requires_cuda
 @pytest.mark.parametrize("impl", _silu_impls())
 def test_cuda_triton_swiglu_backward_batch_invariance_bitwise(impl):
+    """Require both operand gradients to match bitwise across full and sliced batches."""
     op = _make_swiglu_op(impl)
     gate = _rand((6, 4, 64), seed=12, dtype=torch.bfloat16, device="cuda")
     up = _rand((6, 4, 64), seed=13, dtype=torch.bfloat16, device="cuda")
@@ -562,6 +573,7 @@ def test_cuda_triton_silu_padding_invariance_forward_and_backward(impl):
 @requires_cuda
 @pytest.mark.parametrize("impl", _silu_impls())
 def test_cuda_triton_swiglu_padding_invariance_forward_and_backward(impl):
+    """Unrelated padded rows must not change real rows' outputs or either gradient."""
     op = _make_swiglu_op(impl)
     gate = _rand((4, 64), seed=19, dtype=torch.bfloat16, device="cuda")
     up = _rand((4, 64), seed=20, dtype=torch.bfloat16, device="cuda")
@@ -589,12 +601,14 @@ def test_cuda_triton_swiglu_padding_invariance_forward_and_backward(impl):
 @requires_cuda
 @pytest.mark.parametrize("impl", _silu_impls())
 def test_cuda_triton_swiglu_deterministic_repeat(impl):
+    """Repeated GPU evaluations must reproduce output and gradient bits exactly."""
     op = _make_swiglu_op(impl)
     gate = _rand((16, 256), seed=25, dtype=torch.bfloat16, device="cuda")
     up = _rand((16, 256), seed=26, dtype=torch.bfloat16, device="cuda")
     dy = _rand(gate.shape, seed=27, dtype=torch.bfloat16, device="cuda")
 
     def _run():
+        """Evaluate one fresh autograd graph and return detached output and gradients."""
         gate_r = gate.detach().clone().requires_grad_(True)
         up_r = up.detach().clone().requires_grad_(True)
         y = op.forward(gate=gate_r, up=up_r)
@@ -611,6 +625,7 @@ def test_cuda_triton_swiglu_deterministic_repeat(impl):
 @requires_cuda
 @pytest.mark.parametrize("impl", _silu_impls())
 def test_cuda_triton_activation_handles_noncontiguous_and_empty_inputs(impl):
+    """Exercise forward and backward on transposed tensors and empty batches."""
     silu = _make_silu_op(impl)
     swiglu = _make_swiglu_op(impl)
 
@@ -641,6 +656,7 @@ def test_cuda_triton_activation_handles_noncontiguous_and_empty_inputs(impl):
 @requires_cuda
 @pytest.mark.parametrize("impl", _silu_impls())
 def test_cuda_triton_activation_rejects_invalid_dtypes(impl):
+    """Reject unsupported SiLU dtypes and mismatched GPU SwiGLU operand dtypes."""
     silu = _make_silu_op(impl)
     swiglu = _make_swiglu_op(impl)
     with pytest.raises(TypeError, match="dtype"):
@@ -656,6 +672,7 @@ def test_cuda_triton_activation_rejects_invalid_dtypes(impl):
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires at least two CUDA devices")
 @pytest.mark.parametrize("impl", _silu_impls())
 def test_cuda_triton_swiglu_rejects_cross_device_inputs(impl):
+    """Require gate and up to share a device even when both devices support CUDA."""
     op = _make_swiglu_op(impl)
     gate = torch.ones(8, device="cuda:0")
     up = torch.ones(8, device="cuda:1")
@@ -939,6 +956,7 @@ def test_ascend_candidate_is_exposed_to_accuracy_harness():
 
 @pytest.mark.parametrize("method", ["forward", "forward_fp32"])
 def test_ascend_wrapper_rejects_cpu_inputs(monkeypatch, method):
+    """An available Ascend extension must still reject CPU operands in both output modes."""
     monkeypatch.setattr(
         ascend, "_C_npu", SimpleNamespace(swiglu_forward=object(), swiglu_backward=object())
     )
@@ -953,6 +971,7 @@ def test_autograd_wrapper_contiguity_and_gradient_routing(monkeypatch, needs_gra
     calls = []
 
     def forward(gate, up):
+        """Record the wrapper's dtype and verify contiguous inputs at the mocked boundary."""
         assert gate.is_contiguous() and up.is_contiguous()
         calls.append(("forward", gate.dtype))
         return NativeSwiGLUOp()(gate=gate, up=up)
@@ -1027,6 +1046,7 @@ def _ascend_dtype_tolerance(dtype):
     ],
 )
 def test_npu_forward_backward_and_fp32_path(npu_op, dtype, shape):
+    """Check both NPU output modes and operand gradients against the native reference."""
     generator = torch.Generator().manual_seed(29)
     gate_cpu = torch.randn(shape, generator=generator).to(dtype).requires_grad_()
     up_cpu = torch.randn(shape, generator=generator).to(dtype).requires_grad_()
@@ -1053,6 +1073,7 @@ def test_npu_forward_backward_and_fp32_path(npu_op, dtype, shape):
 @requires_npu
 @pytest.mark.parametrize("dtype", _ASCEND_DTYPES)
 def test_npu_strided_inputs_and_upstream_gradient(npu_op, dtype):
+    """Check chunked operands and a strided upstream gradient against native autograd."""
     # Chunked gate/up projections and a transposed upstream gradient.
     packed = torch.randn(5, 66, dtype=dtype, device="npu", requires_grad=True)
     gate, up = packed.chunk(2, dim=-1)
@@ -1072,11 +1093,13 @@ def test_npu_strided_inputs_and_upstream_gradient(npu_op, dtype):
 @requires_npu
 @pytest.mark.parametrize("dtype", _ASCEND_DTYPES)
 def test_npu_batch_position_and_repeat_invariance(npu_op, dtype):
+    """Moving a row within larger batches must preserve its NPU output and gradient bits."""
     gate = torch.randn(33, dtype=dtype, device="npu")
     up = torch.randn_like(gate)
     dy = torch.randn_like(gate)
 
     def evaluate(g, u, grad):
+        """Evaluate a fresh graph and return its output and both operand gradients."""
         g = g.detach().requires_grad_()
         u = u.detach().requires_grad_()
         out = npu_op(gate=g, up=u)
@@ -1094,6 +1117,7 @@ def test_npu_batch_position_and_repeat_invariance(npu_op, dtype):
 
 @requires_npu
 def test_npu_input_validation_and_native_boundary(npu_op):
+    """Exercise shape/dtype validation and the Ascend extension's contiguous-input contract."""
     x = torch.ones(7, device="npu")
     with pytest.raises(ValueError, match="share shape"):
         npu_op(gate=x, up=x[:3])
@@ -1111,6 +1135,7 @@ def test_npu_input_validation_and_native_boundary(npu_op):
 
 @requires_npu
 def test_npu_current_stream_ordering(npu_op):
+    """Compare outputs and gradients produced on a nondefault NPU stream with native."""
     stream = torch.npu.Stream()
     with torch.npu.stream(stream):
         gate = torch.randn(4099, device="npu").mul_(2).requires_grad_()
@@ -1129,6 +1154,7 @@ def test_npu_current_stream_ordering(npu_op):
 
 @requires_npu
 def test_npu_device_guard_and_cross_device_rejection(npu_op):
+    """Run on a noncurrent NPU, restore the caller's device, and reject mixed devices."""
     if torch.npu.device_count() < 2:
         pytest.skip("Two NPUs required")
     with torch.npu.device(0):

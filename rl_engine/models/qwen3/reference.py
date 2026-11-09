@@ -900,6 +900,12 @@ class Qwen3DenseBIModel:
         kv_cache: StatefulKVCache | None,
         segment_lengths: Sequence[int] | None = None,
     ) -> torch.Tensor:
+        """Run one attention/MLP block and record its public node outputs.
+
+        Apply the selected profile's operators and update the KV cache when
+        provided. The BF16 path retains the FP32 SwiGLU result for the down
+        projection while recording the public SwiGLU node in BF16.
+        """
         prefix = f"layers.{layer}"
         normed = self._rms(
             hidden.to(dtype=self.execution_dtype),
