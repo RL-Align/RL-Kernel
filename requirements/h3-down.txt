@@ -1,0 +1,7 @@
+# Install a CUDA PyTorch build separately. This runbook uses torch==2.6.0 with cu124.
+pytest==9.1.1
+ruff==0.17.0
+matplotlib==3.10.9
+ninja==1.13.0
+setuptools>=64
+wheel
