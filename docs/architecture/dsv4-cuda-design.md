@@ -96,6 +96,24 @@ the default `compiled_dims="nk"` and FP32 UE8M0-valued scales. On an H200 with C
   layout per call adds about 1.5 us at small M, so the activation-quant kernel should emit
   that layout directly.
 
+Backward (same probe, same shapes, 3 seeds):
+
+- dgrad (`dX = dY @ W`, NT kernel with `W.T`) passes the dense row checks. Block-quantizing
+  `W.T` gives the same bytes as transposing the block-quantized `W`, so `W.T` can be
+  precomputed once per weight.
+- wgrad (`dW = dY.T @ X`, 1D1D kernel, `recipe=(1, 1, 128)`) is run-to-run identical over
+  10 runs at 128, 1008 and 4096 tokens, including FP32 accumulation into an existing
+  gradient. On SM90 it requires FP32 output with `c` (no BF16 output) and a token count
+  that is a multiple of 16 (TMA stride); callers pad with zero tokens, which add nothing.
+- Speed: wgrad 0.87-1.06x of BF16 at 4096 tokens; dgrad 0.41-1.0x except at small M for
+  the long-K shapes (`wq_b` dgrad, K=32768: 1.56x at M=1, 1.29x at M=64; indexer `wq_b`
+  dgrad: 1.23x at M=1). Training backward runs with thousands of tokens, where these are
+  0.56-0.67x.
+- Precision on Gaussian data: FP8 forward, dgrad and wgrad all have 3.8% relative L2
+  error against FP32, versus 0.17% for BF16. That is the E4M3 rounding of the operands,
+  not a kernel defect; whether FP8 gradients are acceptable has to be judged on training
+  curves.
+
 Limits: the result holds for this commit, this toolkit (CUDA 12.8; DeepGEMM recommends
 12.9 for speed) and the default SM count (132). Re-run the probe when any of them changes,
 and extend it if prefill batches exceed M=4096.
