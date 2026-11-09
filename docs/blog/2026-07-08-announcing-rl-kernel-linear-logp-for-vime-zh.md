@@ -43,7 +43,7 @@ RL-Kernel 的设计并不是用单一路径覆盖所有场景，而是让 operat
 RL-Kernel 被设计为高层 RL orchestration 和底层 GPU backend 之间的 operator-layer bridge。它通过 custom operator hooks 接入 rollout engines 和 training engines，真正的 kernel 则由 CUDA、Triton、ROCm 以及相关后端实现。
 
 <p align="center">
-<img src="../../assets/RL-Kernel%20underlying%20operator%20library%20technical%20architecture.png" alt="RL-Kernel Global Architecture" width="80%">
+<img src="../assets/RL-Kernel%20underlying%20operator%20library%20technical%20architecture.png" alt="RL-Kernel Global Architecture" width="80%">
 <br>
 <em>RL-Kernel 位于 RL orchestration frameworks 和硬件相关 kernel backends 之间的 operator layer。这里使用的是 RL-Kernel README 中的架构图。</em>
 </p>
@@ -57,7 +57,7 @@ RL-Kernel 被设计为高层 RL orchestration 和底层 GPU backend 之间的 op
 - CUDA extension 直接计算 selected logprob 和 backward 需要的状态，不把完整 `[tokens, vocab]` logits 暴露给 Python framework layer。
 
 <p align="center">
-<img src="../../assets/blog/rlk-linear-logp-dataflow.svg" alt="RL-Kernel linear_logp data flow" width="90%">
+<img src="../assets/blog/rlk-linear-logp-dataflow.svg" alt="RL-Kernel linear_logp data flow" width="90%">
 <br>
 <em>vime 原生路径会物化完整 logits；vime + RL-Kernel 将 selected-logprob 计算融合在 operator layer。</em>
 </p>
@@ -96,7 +96,7 @@ Using fused-tile bf16 full-gradient tensor-parallel linear_logp fast path.
 最强的单算子结果来自 T3：forward + backward CUDA 时间从 **33.96 ms** 降到 **18.50 ms**。T2 的 forward-only speedup 最高，达到 **2.32x**。
 
 <p align="center">
-<img src="../../assets/blog/rlk-linear-logp-speedup.svg" alt="RL-Kernel linear_logp fwd+bwd CUDA time speedup" width="90%">
+<img src="../assets/blog/rlk-linear-logp-speedup.svg" alt="RL-Kernel linear_logp fwd+bwd CUDA time speedup" width="90%">
 <br>
 <em>vime + RL-Kernel 在完成的 no-trace 配置中降低了 forward + backward CUDA 时间。</em>
 </p>
@@ -114,7 +114,7 @@ Using fused-tile bf16 full-gradient tensor-parallel linear_logp fast path.
 T3 是最清晰的单算子显存结果：`linear_logp` operator window 内的 peak reserved delta 从 **32342 MB** 降到 **26710 MB**，节省 **5632 MB**。
 
 <p align="center">
-<img src="../../assets/blog/rlk-linear-logp-memory.svg" alt="RL-Kernel linear_logp single-operator memory comparison" width="90%">
+<img src="../assets/blog/rlk-linear-logp-memory.svg" alt="RL-Kernel linear_logp single-operator memory comparison" width="90%">
 <br>
 <em>显存对比与 timing 对比保持同一口径，都限定在 `linear_logp` 单算子。</em>
 </p>
