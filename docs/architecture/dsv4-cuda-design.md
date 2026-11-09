@@ -232,7 +232,7 @@ benchmark fixes, formatting, and merging main last.
 - [x] Keep `csrc/cuda/moe/mxfp8_mxfp4_grouped_gemm_wgmma.cu` (not referenced by any build
       script or Python module yet)
 - [x] `pre-commit run --all-files` passes (Black, isort, flake8)
-- [ ] Merge main last, after the fixes above pass
+- [x] Merge main last, after the fixes above pass (`9df841a1`)
 
 Known failures outside Phase 0 (present before and after it, default build):
 `test_p1_provider::test_golden_manifest_anchor` and four Triton `test_p5_lora_delta` cases
@@ -311,9 +311,11 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
   - [ ] det_gemm launches an empty grid for M=0 and leaves a pending CUDA error that the
         next checked call reports; the provider guards it, det_gemm should too
   - [ ] The det_gemm BF16 fallback needs a `KERNEL_ALIGN_DET_GEMM_SM90=1` build to be fast
-- [ ] The P5 oracle's shared-expert SwiGLU does not clamp and rounds once from FP32, unlike
-      the rollout (`SiluAndMulWithClamp(10)` on BF16, two roundings); align the P5 contract
-      or record the difference
+- [x] The P5 oracle's shared-expert SwiGLU does not clamp and rounds once from FP32, unlike
+      the rollout (`SiluAndMulWithClamp(10)` on BF16, two roundings). Decision: record the
+      difference, do not change P5. `p5-det-gemm-v1` (oracle, `fused_shared_expert_mlp.cu`,
+      its golden bytes) stays a separate profile off the DSv4 path; DSv4 uses
+      `dsv4-deepgemm-fp8-v1`, which matches the rollout
 - [ ] Re-run `scripts/probe_dsv4_deepgemm_bi.py` whenever the DeepGEMM commit, CUDA toolkit
       or SM count changes
 
@@ -326,7 +328,9 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       on the same kernel set. Find which routed-expert kernel vLLM uses on Hopper (DeepGEMM
       cannot run FP4 there); if it is not our P5 kernel, either vLLM uses ours or we match
       its arithmetic
-- [ ] DeepGEMM backward (dgrad / wgrad) determinism, if the training side uses it (D5)
+- [x] DeepGEMM backward (dgrad / wgrad) determinism, if the training side uses it (D5):
+      dgrad is batch-invariant and wgrad run-to-run identical at the DSv4 shapes (Phase 1
+      probe, `4d6e033e`; see D3 "Backward")
 - [ ] Performance table: per-operator overhead against the non-invariant path; anything above
       1.3x goes to Phase 5
 

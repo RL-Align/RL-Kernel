@@ -202,6 +202,11 @@ def clamp_swiglu_weighted_fwd(
     All math in FP32; the only BF16 round is on the output. The association
     order ``(SiLU(g) * u) * p_s`` is frozen. ``p_s=None`` means the unweighted
     shared-expert variant (no clamp is applied in that variant, P5-5 (#64)).
+
+    The DSv4 rollout's shared expert does clamp (vLLM ``SiluAndMulWithClamp(10)``
+    on BF16, rounding twice), so this unclamped variant is not its golden; DSv4
+    uses the ``dsv4-deepgemm-fp8-v1`` profile in
+    ``rl_engine.moe.backends.deepgemm_shared_expert`` instead.
     """
     gate32 = gate.to(torch.float32)
     up32 = up.to(torch.float32)
