@@ -35,6 +35,7 @@ nav:
       - operators/embedding.md
       - operators/final-logit-softcap.md
       - MiniMax-H3:
+        - operators/h3-packed-index-select.md
         - operators/h3-sigma-schedule.md
         - operators/h3-timestep-sinusoid.md
         - operators/h3-timestep-mlp.md

@@ -271,6 +271,9 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_H3_ADALN_PROJECTION = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.adaln_projection.H3AdaLNProjectionCudaOp"
     )
+    TRITON_PACKED_INDEX_SELECT = (
+        "rl_engine.backends.shared.triton.embedding.packed_index_select.TritonPackedIndexSelectOp"
+    )
     PYTORCH_H3_ADALN_ROW_GATHER = (
         "rl_engine.reference.minimax_h3.adaln_row_gather.NativeH3AdaLNRowGatherOp"
     )
@@ -395,6 +398,36 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory=OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32.value,
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="rlkernel-h3-video-output-projection-fp32-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="packed_index_select",
+            backend_id="triton-packed-index-select",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "stable_segment_sequential_fp32_cast_once",
+                "layout": "BSD",
+                "index_order": "increasing_output_position_within_each_source_row",
+                "accumulator_dtype": "float32",
+                "cuda_sm_min": 80,
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "split_policy": "none",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.TRITON_PACKED_INDEX_SELECT.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel-packed-index-select-ordered-fp32-v1",
         ),
         OperatorBackendDescriptor(
             semantic_op="video_patch_pack_unpack",
@@ -920,6 +953,7 @@ class KernelRegistry:
                     OpBackend.CUDA_H3_ADALN_PROJECTION,
                     OpBackend.PYTORCH_H3_ADALN_PROJECTION,
                 ],
+                "packed_index_select": [OpBackend.TRITON_PACKED_INDEX_SELECT],
                 "adaln_row_gather": [
                     OpBackend.CUDA_H3_ADALN_ROW_GATHER,
                     OpBackend.PYTORCH_H3_ADALN_ROW_GATHER,
@@ -1409,6 +1443,8 @@ class KernelRegistry:
         platform = self._platform_for_device(device)
         if op_type == "h3_full_attention" and platform != "cuda":
             raise RuntimeError("h3_full_attention requires NVIDIA CUDA; no fallback")
+        if op_type == "packed_index_select" and platform != "cuda":
+            raise RuntimeError("packed_index_select requires NVIDIA CUDA; no fallback")
         if op_type == "video_input_projection_fp32" and platform != "cuda":
             raise RuntimeError("video input projection is qualified on CUDA SM90 only")
         if op_type == "video_output_projection_fp32" and platform != "cuda":
