@@ -41,6 +41,7 @@ Every operator page should include:
 - [MiniMax-H3 Final AdaLN Output](h3-final-adaln-out.md)
 - [MiniMax-H3 Tensor-Parallel AdaLN Projection](h3-tp-adaln-3mod.md)
 - [MiniMax-H3 Sequence-Parallel Norm and AdaLN](h3-sp-norm-adaln.md)
+- [MiniMax-H3 Gate/Up and Attention Output Projections](h3-projections.md)
 - [MiniMax-H3 One Block, Forward and Backward](h3-one-block.md)
 - [MiniMax-H3 Architecture Fingerprint](h3-arch-fingerprint.md)
 - [MiniMax-H3 Operator Trace](h3-operator-trace.md)

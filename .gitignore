@@ -226,3 +226,5 @@ csrc/hip/*_hip.hip
 .rlk-profile.json
 
 /artifacts/
+
+/artifacts/h3-projections/
