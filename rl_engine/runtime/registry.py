@@ -77,6 +77,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_DETERMINISTIC_LOGP = "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
     # Deterministic standard-softmax attention (issue #147); not FlashAttention.
     CUDA_H3_FULL_ATTENTION = "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp"
+    # Deterministic rectified-flow Euler step (RFC #420 h3_ode_step).
+    CUDA_H3_ODE_STEP = "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp"
+    PYTORCH_H3_ODE_STEP = "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp"
+    TRITON_H3_ODE_STEP = "rl_engine.backends.shared.triton.flow.ode_step.H3OdeStepTritonOp"
     CUDA_DETERMINISTIC_ATTENTION = (
         "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
     )
@@ -418,6 +422,98 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             version_or_build_fingerprint=(
                 "vllm-omni-b1fc5fcfa3e1a4f76c6686eaf09242f0fc6464bc-h3-adapter-v1"
             ),
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_ode_step",
+            backend_id="rlkernel.cuda.h3_ode_step.euler_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-cuda-strict-v1",
+                "accumulator_dtype": "float32",
+                "epilogue_cast": "storage_dtype",
+                "reduction": "none",
+                "sigma_layout": "per_packed_row",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.CUDA_H3_ODE_STEP.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint=("h3-euler-fp32-v1; binary profile checked at invocation"),
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_ode_step",
+            backend_id="rlkernel.triton.h3_ode_step.euler_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda", "rocm"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-triton-strict-v1",
+                "accumulator_dtype": "float32",
+                "epilogue_cast": "storage_dtype",
+                "reduction": "none",
+                "sigma_layout": "per_packed_row",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.TRITON_H3_ODE_STEP.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-euler-fp32-triton-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_ode_step",
+            backend_id="rlkernel.pytorch.h3_ode_step.euler_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            # The reference is the CPU/NPU path only: the GPU profiles keep the
+            # strict CUDA/Triton candidates and deliberately declare no reference
+            # fallback ("no silent fallback" in the operator page), so advertising
+            # CPU-only here keeps the declared capability resolvable.
+            supported_devices=frozenset({"cpu"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "torch.elementwise_euler_blend, one declared fp32 program",
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-pytorch-strict-v1",
+                "accumulator_dtype": "float32",
+                "epilogue_cast": "storage_dtype",
+                "reduction": "none",
+                "sigma_layout": "per_packed_row",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.PYTORCH_H3_ODE_STEP.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-euler-fp32-reference-v1",
         ),
         OperatorBackendDescriptor(
             semantic_op="selected_logprob",
@@ -848,6 +944,7 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "h3_ode_step": [OpBackend.CUDA_H3_ODE_STEP, OpBackend.TRITON_H3_ODE_STEP],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "video_input_projection_fp32": [OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32],
                 "video_output_projection_fp32": [OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32],
@@ -953,6 +1050,7 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "h3_ode_step": [OpBackend.TRITON_H3_ODE_STEP],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -1008,6 +1106,7 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "h3_ode_step": [OpBackend.TRITON_H3_ODE_STEP],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -1056,6 +1155,7 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "h3_ode_step": [OpBackend.PYTORCH_H3_ODE_STEP],
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
