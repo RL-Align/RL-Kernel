@@ -456,3 +456,58 @@ def test_triton_backward_narrowing_follows_hidden_not_the_cotangent():
         wide, narrow, ("d_hidden", "d_residual", "partial_post_w", "partial_pre_w"), strict=True
     ):
         assert torch.equal(got, want), f"{name} changed with the cotangent's dtype"
+
+
+@requires_cuda
+@pytest.mark.parametrize(
+    "mutate, exc, match",
+    [
+        (lambda kw: kw | {"rstd_post": kw["rstd_post"].cpu()}, RuntimeError, "GPU tensor"),
+        (lambda kw: kw | {"rstd_pre": kw["rstd_pre"].to(torch.bfloat16)}, TypeError, "float32"),
+        (lambda kw: kw | {"rstd_post": kw["rstd_post"][:-1]}, ValueError, "one entry per row"),
+    ],
+)
+def test_triton_backward_rstd_checks_match_the_cuda_binding(mutate, exc, match):
+    """The two backends must reject the same statistics, not one of the two.
+
+    The CUDA binding checks device, contiguity, float32 and shape on
+    ``rstd_post``/``rstd_pre``; this side checked rank and length only, and the
+    kernels read them with ``tl.load(RSTD_POST + row)``, an implicit stride of one.
+    So a strided view ran here and raised there, which is the backend divergence
+    the weight checks beside it exist to avoid, one argument over.
+    """
+    shape = (4, HIDDEN_SIZE)
+    dtype = torch.bfloat16
+    hidden, residual, post_w, pre_w = _inputs(shape, dtype)
+    res_out, _, rstd_post, rstd_pre = fused_add_norm_triton_forward(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )
+    kwargs = {
+        "grad_residual_out": torch.randn_like(res_out),
+        "grad_pre_normed": torch.randn_like(res_out),
+        "hidden": hidden,
+        "residual_out": res_out,
+        "post_weight": post_w,
+        "pre_weight": pre_w,
+        "rstd_post": rstd_post,
+        "rstd_pre": rstd_pre,
+    }
+    with pytest.raises(exc, match=match):
+        fused_add_norm_triton_backward(**mutate(kwargs))
+
+
+@requires_cuda
+def test_triton_backward_rejects_a_strided_rstd():
+    """The case the CUDA binding's comment measured, on this side too."""
+    shape = (4, HIDDEN_SIZE)
+    hidden, residual, post_w, pre_w = _inputs(shape, torch.bfloat16)
+    res_out, _, rstd_post, rstd_pre = fused_add_norm_triton_forward(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )
+    padded = torch.zeros(shape[0] * 2, device="cuda", dtype=torch.float32)
+    padded[::2] = rstd_post
+    strided = padded[::2]
+    assert strided.shape == rstd_post.shape and not strided.is_contiguous()
+    g = torch.randn_like(res_out)
+    with pytest.raises(ValueError, match="rstd_post must be contiguous"):
+        fused_add_norm_triton_backward(g, g, hidden, res_out, post_w, pre_w, strided, rstd_pre)

@@ -58,7 +58,17 @@ except ImportError:  # pragma: no cover - CPU-only builds
     _TRITON_AVAILABLE = False
 
 _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
-_MAX_BLOCK = 1 << 16
+# The ceiling is on the number of statically unrolled chunks, not on a tile size.
+# The kernels took a BLOCK_H tile before the reduction order was pinned and the
+# message still described one, while the computed value had stopped being used by
+# either caller. 128 chunks at 512 lanes is the same effective width ceiling the
+# BLOCK_H form had, so nothing that compiled before stops compiling.
+#
+# The CUDA kernel has no matching ceiling: it loops rather than unrolling, so a
+# width between these bounds is accepted there and rejected here. That divergence
+# is real and is not something this row should settle by adding a limit to the .cu;
+# it is recorded in the operator doc's Known Limitations.
+_MAX_CHUNKS = 128
 
 
 def _reduction_shape(width: int) -> tuple[int, int, int]:
@@ -302,14 +312,14 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
             f"post_weight and pre_weight must share dtype, got {post_w.dtype} "
             f"and {pre_w.dtype}."
         )
-    block = triton.next_power_of_2(width)
-    if block > _MAX_BLOCK:
+    _, chunks, _ = _reduction_shape(width)
+    if chunks > _MAX_CHUNKS:
         raise ValueError(
-            f"hidden width {width} needs BLOCK_H {block}, above the {_MAX_BLOCK} "
-            "single-block limit; a row must fit one program for the reduction order "
-            "to stay independent of the batch layout."
+            f"hidden width {width} needs {chunks} statically unrolled chunks, above "
+            f"the {_MAX_CHUNKS} limit; a row is folded by one program so the "
+            "reduction order stays independent of the batch layout, and the unroll "
+            "is what bounds the width."
         )
-    return block
 
 
 def fused_add_norm_triton_forward(
@@ -397,6 +407,18 @@ def fused_add_norm_triton_backward(
             )
     rows_expected = hidden.numel() // width
     for name, r in (("rstd_post", rstd_post), ("rstd_pre", rstd_pre)):
+        # The same four checks the CUDA binding makes. Rank and length alone were
+        # not enough: the kernels read these with tl.load(RSTD_POST + row), an
+        # implicit stride of one, so a strided view such as rstd[::2] ran and
+        # produced different gradients. The CUDA side rejects it and this side did
+        # not, which is the backend divergence the weight checks above exist to
+        # avoid, one argument over.
+        if not r.is_cuda:
+            raise RuntimeError(f"{name} must be a GPU tensor, got device '{r.device}'.")
+        if not r.is_contiguous():
+            raise ValueError(f"{name} must be contiguous.")
+        if r.dtype != torch.float32:
+            raise TypeError(f"{name} must be float32, got {r.dtype}.")
         if r.dim() != 1 or r.shape[0] != rows_expected:
             raise ValueError(
                 f"{name} must be 1-D with one entry per row ({rows_expected}), "

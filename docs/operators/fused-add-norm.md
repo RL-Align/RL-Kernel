@@ -168,7 +168,19 @@ reduction rows.
 
 - `hidden` and `residual` must share shape and dtype; no broadcasting. Weights are
   1-D at the hidden width.
-- A row must fit one Triton program (`BLOCK_H` up to 65536), so the reduction order
-  stays independent of batch layout. Wider rows raise rather than silently splitting.
+- A row is folded by one Triton program, and the unroll is what bounds the width:
+  `_MAX_CHUNKS` is 128 chunks of 512 lanes, so 65536 is the ceiling, and wider rows
+  raise rather than silently splitting. The CUDA kernel loops instead of unrolling
+  and has no matching ceiling, so a wider width is accepted there and rejected on
+  the Triton side. That asymmetry is real and is not something this row settles.
+- The shape-invariant statistic is not invariant at every width. Both reductions
+  zero-pad to a 32-wide chunk boundary, which fixes widths that are not a multiple
+  of 32, but the second level is a `torch.sum` over the chunk count and that is
+  itself shape-dependent for some counts: measured on SM 8.9, width 8192 moves a
+  row's bytes in 4 of 9 sub-batch comparisons, with or without the padding, because
+  256 chunks is one of the counts that breaks. 6656, the model's width, and 4096,
+  which `rms_norm` uses, are both invariant. Making it hold for every width means
+  chunking recursively, which changes the bytes of a statistic `rms_norm` and
+  `qk_norm` already ship, so it is raised rather than done here.
 - The model's final norm (`rmsnorm_times_weight`, `pow_neg_half`) is the reference
   `NativeFinalNormOp` only; it has no GPU kernel in this row.

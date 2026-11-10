@@ -679,3 +679,51 @@ def test_final_norm_backward_matches_autograd_on_the_production_forward(shape):
     lead = tuple(range(x.dim() - 1))
     torch.testing.assert_close(dx, leaf.grad, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(dw_rows.sum(dim=lead), weight_leaf.grad, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+@pytest.mark.parametrize("width", [33, 100, 129])
+def test_batch_invariance_holds_at_widths_that_are_not_a_multiple_of_32(device, width):
+    """Axis A is unconditional, and the chunked statistic used to opt out.
+
+    ``shape_invariant_meansq`` and ``shape_invariant_rowsum`` fell back to a plain
+    ``mean``/``sum`` when the width was not a multiple of 32, which is the
+    shape-dependent reduction they exist to avoid. Measured on CUDA at width 100
+    with 16 rows before the fix: the mean's per-row bytes moved in 3 of 9 sub-batch
+    comparisons, the row sum's in 8, and the closed-form backward in 23. Width 6656
+    is a multiple of 32 and was invariant, which is why every other test here
+    missed it.
+
+    Both helpers now zero-pad to a chunk boundary, which is exact for a sum, and
+    the chunk count depends on the width alone. Forward and backward are both
+    checked because the backward is the path that lost it.
+    """
+    rows = 16
+    kw = {"dtype": torch.float32, "device": device}
+    hidden = _rand((rows, width), seed=130, **kw)
+    residual = _rand((rows, width), seed=131, **kw)
+    post_w = _rand((width,), seed=132, **kw)
+    pre_w = _rand((width,), seed=133, **kw)
+    g_res = _rand((rows, width), seed=134, **kw)
+    g_pre = _rand((rows, width), seed=135, **kw)
+
+    op = NativeFusedAddNormOp()
+    full_fwd = op.forward_fp32(hidden, residual, post_w, pre_w)
+    full_bwd = fused_add_norm_backward(g_res, g_pre, hidden, residual, post_w, pre_w)
+
+    for count in (1, 2, 7):
+        for start in (0, 1, rows - count):
+            sl = slice(start, start + count)
+            where = f"rows [{start}, {start + count}) at width {width} on {device}"
+            part_fwd = op.forward_fp32(hidden[sl], residual[sl], post_w, pre_w)
+            for whole, piece, name in zip(
+                full_fwd, part_fwd, ("residual_out", "pre_normed"), strict=True
+            ):
+                assert torch.equal(whole[sl], piece), f"{name} drifted at {where}"
+            part_bwd = fused_add_norm_backward(
+                g_res[sl], g_pre[sl], hidden[sl], residual[sl], post_w, pre_w
+            )
+            for whole, piece, name in zip(
+                full_bwd, part_bwd, ("d_hidden", "d_residual", "d_post", "d_pre"), strict=True
+            ):
+                assert torch.equal(whole[sl], piece), f"{name} drifted at {where}"

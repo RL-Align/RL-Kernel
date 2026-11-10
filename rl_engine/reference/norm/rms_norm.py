@@ -86,6 +86,32 @@ def strict_add_rms_norm(
     return _strict_add_rms_norm(x, residual, weight, eps)
 
 
+_CHUNK = 32
+
+
+def _pad_to_chunk(x_f: torch.Tensor) -> torch.Tensor:
+    """Reshape the last dim into fixed ``_CHUNK``-wide chunks, zero-padding the tail.
+
+    Both reductions below used to fall back to a plain ``mean``/``sum`` when the
+    width was not a multiple of 32, which is the shape-dependent reduction they
+    exist to avoid. Measured on CUDA at width 100 with 16 rows: the mean's per-row
+    bytes moved in 3 of 9 sub-batch comparisons, the row sum's in 8, and the whole
+    closed-form backward in 23 -- while width 6656 was invariant, which is why the
+    operator's own tests never saw it. Axis A in RFC #501 is unconditional, so the
+    fallback had to go rather than be documented.
+
+    Padding with zeros is exact for both a sum of squares and a row sum, and the
+    chunk count is ``ceil(width / 32)``, which depends on the width alone. The
+    intermediate shapes therefore stay independent of the batch layout, which is
+    the whole point of the scheme.
+    """
+    hidden = x_f.shape[-1]
+    remainder = hidden % _CHUNK
+    if remainder:
+        x_f = torch.nn.functional.pad(x_f, (0, _CHUNK - remainder))
+    return x_f.reshape(*x_f.shape[:-1], -1, _CHUNK)
+
+
 def shape_invariant_meansq(x_f: torch.Tensor) -> torch.Tensor:
     """Shape-invariant per-row mean of squares (the shared RMSNorm statistic).
 
@@ -102,9 +128,7 @@ def shape_invariant_meansq(x_f: torch.Tensor) -> torch.Tensor:
     both have to share this reduction or batch invariance goes with it.
     """
     hidden = x_f.shape[-1]
-    if hidden % 32 != 0:
-        return x_f.pow(2).mean(dim=-1)
-    sq = x_f.pow(2).reshape(*x_f.shape[:-1], -1, 32)
+    sq = _pad_to_chunk(x_f.pow(2))
     partial = sq.sum(dim=-1)  # [*, C] — fixed 32-wide chunks
     sumsq = partial.sum(dim=-1)  # [*lead]
     return sumsq / float(hidden)
@@ -117,11 +141,7 @@ def shape_invariant_rowsum(x_f: torch.Tensor) -> torch.Tensor:
     chunking as ``shape_invariant_meansq`` or gradients stop being batch invariant
     even though the forward still is.
     """
-    hidden = x_f.shape[-1]
-    if hidden % 32 != 0:
-        return x_f.sum(dim=-1)
-    chunked = x_f.reshape(*x_f.shape[:-1], -1, 32)
-    return chunked.sum(dim=-1).sum(dim=-1)
+    return _pad_to_chunk(x_f).sum(dim=-1).sum(dim=-1)
 
 
 def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
