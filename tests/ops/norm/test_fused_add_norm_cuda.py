@@ -666,6 +666,52 @@ def test_cuda_binding_rejects_fp64_instead_of_silently_narrowing():
 
 
 @requires_cuda_kernel
+@pytest.mark.parametrize("weight_dtype", DTYPES, ids=lambda d: f"w_{str(d).split('.')[-1]}")
+@pytest.mark.parametrize("row_dtype", DTYPES, ids=lambda d: f"x_{str(d).split('.')[-1]}")
+def test_a_weight_dtype_may_differ_from_the_rows(row_dtype, weight_dtype):
+    """A mixed row-and-weight dtype pair is legal, and the bitwise claim covers it.
+
+    Asked about as a validation gap in the oracle: nothing requires the weights to
+    share ``hidden``'s dtype, so BF16 rows with FP32 weights pass the reference. The
+    premise that the kernels reject it does not hold. The CUDA kernel is templated
+    on ``<scalar_t, weight_t>`` and its launcher nests a second ``AT_DISPATCH`` on
+    ``post_w.scalar_type()``, so two independent dtypes are a designed capability;
+    both kernels read the gain through a float load, and the binding checks the two
+    weights against each other and against ``hidden``'s device, never against
+    ``hidden``'s dtype.
+
+    So this pins the capability rather than removing it. All nine combinations run on
+    all three implementations, and the two kernels agree bitwise on both outputs and
+    both statistics, which is the same bar the matching-dtype table is held to.
+    Tightening the oracle the way the finding suggested would make it reject what the
+    kernels implement, which is the divergence these checks exist to prevent, aimed
+    the other way.
+    """
+    triton_mod = pytest.importorskip("rl_engine.backends.shared.triton.norm.fused_add_norm")
+    width = 256
+    hidden = _rand((4, width), seed=310, dtype=row_dtype)
+    residual = _rand((4, width), seed=311, dtype=row_dtype)
+    post_w = _rand((width,), seed=312, dtype=weight_dtype)
+    pre_w = _rand((width,), seed=313, dtype=weight_dtype)
+
+    want_res, want_pre = NativeFusedAddNormOp().forward(
+        hidden.cpu(), residual.cpu(), post_w.cpu(), pre_w.cpu()
+    )
+    cuda_out = fused_add_norm_cuda_forward(hidden, residual, post_w, pre_w, **_KW)
+    triton_out = triton_mod.fused_add_norm_triton_forward(hidden, residual, post_w, pre_w, **_KW)
+
+    for got, other, name in zip(
+        cuda_out, triton_out, ("residual_out", "pre_normed", "rstd_post", "rstd_pre"), strict=True
+    ):
+        assert torch.equal(
+            got.view(torch.uint8), other.view(torch.uint8)
+        ), f"{name}: CUDA and Triton differ with {row_dtype} rows and {weight_dtype} weights"
+    assert cuda_out[0].dtype is row_dtype, "the output dtype has to follow the rows"
+    _assert_against_gold("residual_out", row_dtype, cuda_out[0], want_res)
+    _assert_against_gold("pre_normed", row_dtype, cuda_out[1], want_pre)
+
+
+@requires_cuda_kernel
 def test_cuda_and_triton_are_bitwise_equal_on_a_subnormal_intermediate():
     """The bitwise claim at the one input class a build flag can still break.
 

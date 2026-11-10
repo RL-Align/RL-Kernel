@@ -81,11 +81,26 @@ def _validate_weight_pair(post_weight: Tensor, pre_weight: Tensor) -> None:
 
 
 def _validate_weight(weight: Tensor, hidden: int, name: str) -> None:
-    # The rows are held to this dtype set and the weights were not, while both
-    # kernels reject anything outside it in fused_add_norm_check_pair and _validate.
-    # Measured: an int64 or bool weight of ones was widened by weight.float() and
-    # the oracle returned a full set of plausible values, so the reference answered
-    # where the implementations it defines would have raised.
+    # Deliberately not tied to the rows' dtype, and asked about twice, so the reason
+    # is here rather than in a commit message. A weight in a different supported
+    # dtype from hidden is legal in all three implementations: the CUDA kernel is
+    # templated on <scalar_t, weight_t> with a nested AT_DISPATCH on
+    # post_w.scalar_type(), so the pairing is a designed capability and not an
+    # oversight, and both kernels read the gain through a float load either way.
+    # Measured over all nine row-by-weight dtype combinations at width 64: every one
+    # runs on the reference, the CUDA kernel and the Triton kernel, and CUDA and
+    # Triton are bitwise equal on both outputs and both statistics in all nine. So
+    # pinning the weight to the row dtype here would make the oracle reject what the
+    # kernels implement, which is the divergence the checks around it exist to
+    # prevent, pointing the other way. test_a_weight_dtype_may_differ_from_the_rows
+    # holds it.
+    #
+    # The dtype set is a different question and is checked: the rows were held to it
+    # and the weights were not, while both kernels reject anything outside it in
+    # fused_add_norm_check_pair and _validate. Measured: an int64 or bool weight of
+    # ones was widened by weight.float() and the oracle returned a full set of
+    # plausible values, so the reference answered where the implementations it
+    # defines would have raised.
     if weight.dtype not in _SUPPORTED_DTYPES:
         raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {weight.dtype}.")
     if weight.dim() != 1 or weight.shape[0] != hidden:
