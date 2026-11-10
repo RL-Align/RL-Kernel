@@ -164,8 +164,10 @@ inputs, routing and process group, and an identity expert:
   bit on every rank, and the gradient reaching the exchange's rows equals `dy`.
 - **Statistics:** warm-up rounds, then the first measured round reported apart and the
   median, minimum, maximum and all samples of the rest. Each round starts behind a barrier
-  and each time is the slowest rank's. Phase scopes synchronize at every boundary. Peak
-  allocated memory is the largest over ranks.
+  and each time is the slowest rank's. Phase scopes synchronize at every boundary.
+- **Peak memory:** the peak of memory allocated through PyTorch while one shape runs, the
+  largest over ranks. It covers the pre-timing checks and every measured scope of that
+  shape, so it is not the exchange's own cost.
 
 ```bash
 PYTHONPATH=. torchrun --nproc-per-node=8 --master-addr=127.0.0.1 --master-port=29500 \
@@ -227,7 +229,7 @@ The exchange is slower than the native baseline at every size.
 times at 32768. With `strict=False` it takes 5.18 to 5.77 and 1.20 to 1.28 times at the
 same ends. The strict echo adds 0.31 to 0.57 ms.
 
-| EP | Tokens per rank | Payload per rank | Transport | Native | Exchange, strict | Exchange, `strict=False` | Strict / native time | `strict=False` / native time | Strict echo | Peak memory |
+| EP | Tokens per rank | Payload per rank | Transport | Native | Exchange, strict | Exchange, `strict=False` | Strict / native time | `strict=False` / native time | Strict echo | Benchmark peak memory |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 2 | 1 | 0.0308 MiB | 0.04 | 0.43 | 2.74 | 2.35 | 6.44 | 5.53 | 0.39 | < 0.01 GB |
 | 2 | 16 | 0.492 MiB | 0.03 | 0.42 | 2.77 | 2.39 | 6.65 | 5.74 | 0.38 | < 0.01 GB |
@@ -255,7 +257,7 @@ same ends. The strict echo adds 0.31 to 0.57 ms.
 baseline's time at 64 and 1024 tokens per rank, 1.63 to 1.72 times at 8192 and 1.26 to 1.33
 times at 32768.
 
-| EP | Tokens per rank | Payload per rank | Transport | Native | Exchange, public path | Exchange / native time | Direct | Direct / native time | Public − direct | `build_route` | Peak memory |
+| EP | Tokens per rank | Payload per rank | Transport | Native | Exchange, public path | Exchange / native time | Direct | Direct / native time | Public − direct | `build_route` | Benchmark peak memory |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 2 | 64 | 1.97 MiB | 0.04 | 0.66 | 3.83 | 5.78 | 3.40 | 5.13 | 0.43 | 1.68 | 0.02 GB |
 | 2 | 1024 | 31.5 MiB | 0.10 | 1.21 | 4.35 | 3.59 | 4.01 | 3.31 | 0.33 | 1.85 | 0.39 GB |
@@ -275,7 +277,10 @@ forward with `strict=False`. "Direct" compares the direct implementation with th
 hand-written baseline, extra checks, metadata and allocation included. "Public − direct" is
 a difference of two medians: an approximate increment of the public path (autograd, call
 layer checks, graph and signature preparation, the injector) over the direct one, not a
-measurement of autograd alone; it came out between 0.15 and 0.93 ms.
+measurement of autograd alone; it came out between 0.15 and 0.93 ms. "Benchmark peak
+memory" is the peak of memory allocated through PyTorch during that shape, the largest over
+ranks, including the pre-timing checks and all measured scopes; it is not the exchange's own
+cost.
 
 Small batches pay a nearly fixed cost: 2.3 to 2.4 ms more than the baseline in the forward,
 where `build_route` alone takes 1.7 ms and the agreement before each step synchronizes with

@@ -40,8 +40,11 @@ reaching the candidate's rows with ``dy``. Every round starts behind a barrier a
 device synchronize; each reported time is the slowest rank's for that round. Full scopes
 synchronize only at the end. Phase scopes synchronize at every phase boundary, which
 removes overlap between phases, so their sum can exceed the full time. The first round
-after warm-up is reported apart as ``first_ms``. ``--backend gloo`` runs the same checks
-on CPU as a smoke test; its times mean nothing.
+after warm-up is reported apart as ``first_ms``. ``peak_allocated_bytes_max_rank`` is the
+peak of memory allocated through PyTorch while one shape runs, the largest over ranks. It
+covers the pre-timing checks and every measured scope of that shape, so it is not the
+exchange's own cost. ``--backend gloo`` runs the same checks on CPU as a smoke test; its
+times mean nothing.
 """
 
 from __future__ import annotations
@@ -472,6 +475,8 @@ def main() -> None:
     parser.add_argument("--backend", choices=("nccl", "gloo"), default="nccl")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.rounds <= 0:
+        parser.error("--rounds must be positive")
 
     if args.backend == "nccl":
         torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", "0")))
