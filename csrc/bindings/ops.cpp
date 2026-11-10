@@ -373,6 +373,11 @@ std::vector<torch::Tensor> fused_add_norm_forward(
   fused_add_norm_check_device(hidden, "hidden", post_w, "post_weight");
   fused_add_norm_check_device(hidden, "hidden", pre_w, "pre_weight");
   TORCH_CHECK(hidden.dim() == 2, "hidden must be 2D [T, H]");
+  // A zero feature dimension passes every other check -- dim 2, weight 1-D, 0 == 0 --
+  // and reaches the kernel, where the row mean is div_rn(sum, 0.0f) and every rstd
+  // comes back NaN. Measured through this entry point: rstd_post was [nan, nan, nan,
+  // nan]. The Python wrapper rejects it first; this binding is public.
+  TORCH_CHECK(hidden.size(1) > 0, "hidden.size(1) must be non-zero");
   TORCH_CHECK(post_w.dim() == 1, "post_weight must be 1D [H]");
   TORCH_CHECK(hidden.size(1) == post_w.size(0), "hidden.size(1) must equal weight size");
 
@@ -408,6 +413,7 @@ std::vector<torch::Tensor> fused_add_norm_backward(
               "grad_pre_normed must have hidden's dtype, got ", g_pre.scalar_type(),
               " and ", hidden.scalar_type());
   TORCH_CHECK(hidden.dim() == 2, "hidden must be 2D [T, H]");
+  TORCH_CHECK(hidden.size(1) > 0, "hidden.size(1) must be non-zero");  // see the forward
   // The forward checked the weight rank and length and the backward did not, so a
   // weight shorter than the width was read past its allocation for every column:
   // the kernel indexes post_w + col and pre_w + col for all col < H. Measured with

@@ -296,7 +296,7 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
         if w.dim() != 1 or w.shape[0] != width:
             raise ValueError(
                 f"{name} must be 1-D of size x.shape[-1]={width}, "
-                f"got tuple({name}.shape)={tuple(w.shape)}"
+                f"got {name}.shape={tuple(w.shape)}"
             )
         # The weights were checked for rank and size only, while the CUDA binding
         # checks their dtype and requires the two to agree (csrc/bindings/ops.cpp).
@@ -422,7 +422,7 @@ def fused_add_norm_triton_backward(
         if r.dim() != 1 or r.shape[0] != rows_expected:
             raise ValueError(
                 f"{name} must be 1-D with one entry per row ({rows_expected}), "
-                f"got tuple({name}.shape)={tuple(r.shape)}"
+                f"got {name}.shape={tuple(r.shape)}"
             )
 
     hidden_2d = hidden.contiguous().view(-1, width)

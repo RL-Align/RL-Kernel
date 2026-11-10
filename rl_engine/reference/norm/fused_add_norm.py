@@ -62,8 +62,32 @@ def _validate_weight(weight: Tensor, hidden: int, name: str) -> None:
     if weight.dim() != 1 or weight.shape[0] != hidden:
         raise ValueError(
             f"{name} must be 1-D of size x.shape[-1]={hidden}, "
-            f"got tuple({name}.shape)={tuple(weight.shape)}"
+            f"got {name}.shape={tuple(weight.shape)}"
         )
+
+
+def _validate_backward(
+    rows: tuple[tuple[Tensor, str], ...], weights: tuple[tuple[Tensor, str], ...]
+) -> None:
+    """The same bar the forward applies, on the closed-form backward.
+
+    The forward validated and the backward did not, and the backward is the oracle
+    the kernels are measured against, so a silently wrong answer here is worse than
+    an exception anywhere else. Measured: a ``post_weight`` of length 1 broadcast
+    through ``1.0 + post_weight.float()`` and the call returned four tensors of the
+    right shapes carrying gradients for the wrong per-column gain, with nothing
+    raised, while the forward rejected the same input.
+    """
+    reference, reference_name = rows[0]
+    for tensor, name in rows:
+        _validate_row(tensor, name)
+        if tensor.shape != reference.shape:
+            raise ValueError(
+                f"{name} must share {reference_name}'s shape, got "
+                f"{tuple(tensor.shape)} and {tuple(reference.shape)}."
+            )
+    for tensor, name in weights:
+        _validate_weight(tensor, reference.shape[-1], name)
 
 
 def _centered_norm(x_f: Tensor, weight: Tensor, eps: float) -> Tensor:
@@ -265,6 +289,15 @@ def fused_add_norm_backward(
     identity and this is the gradient of ``forward_fp32``.
     """
     dtype = hidden.dtype if grad_dtype is None else grad_dtype
+    _validate_backward(
+        (
+            (hidden, "hidden"),
+            (residual, "residual"),
+            (grad_residual_out, "grad_residual_out"),
+            (grad_pre_normed, "grad_pre_normed"),
+        ),
+        ((post_weight, "post_weight"), (pre_weight, "pre_weight")),
+    )
     hidden_f = hidden.float()
     residual_f = residual.float()
     post_gain = 1.0 + post_weight.float()
@@ -298,6 +331,7 @@ def final_norm_backward(
     Separate from the decoder-norm path because the gain is ``w`` rather than
     ``1 + w`` and the statistic is spelled ``pow_neg_half``.
     """
+    _validate_backward(((x, "x"), (grad_output, "grad_output")), ((weight, "weight"),))
     x_f = x.float()
     rstd = ((shape_invariant_meansq(x_f) + float(eps)) ** -0.5).unsqueeze(-1)
     return _centered_backward(grad_output.float(), x_f, weight.float(), rstd)

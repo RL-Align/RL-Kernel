@@ -727,3 +727,71 @@ def test_batch_invariance_holds_at_widths_that_are_not_a_multiple_of_32(device, 
                 full_bwd, part_bwd, ("d_hidden", "d_residual", "d_post", "d_pre"), strict=True
             ):
                 assert torch.equal(whole[sl], piece), f"{name} drifted at {where}"
+
+
+@pytest.mark.parametrize(
+    "mutate, exc, match",
+    [
+        (
+            lambda a: a | {"post_weight": a["post_weight"][:1]},
+            ValueError,
+            "post_weight must be 1-D",
+        ),
+        (lambda a: a | {"pre_weight": a["pre_weight"][:1]}, ValueError, "pre_weight must be 1-D"),
+        (lambda a: a | {"residual": a["residual"][:1]}, ValueError, "must share hidden's shape"),
+        (
+            lambda a: a | {"grad_pre_normed": a["grad_pre_normed"][:1]},
+            ValueError,
+            "must share hidden's shape",
+        ),
+        (
+            lambda a: a | {"hidden": a["hidden"].to(torch.float64)},
+            TypeError,
+            "fp16, bf16, or fp32",
+        ),
+    ],
+)
+def test_closed_form_backward_fails_loudly_on_bad_input(mutate, exc, match):
+    """The oracle has to raise rather than broadcast, because it is the oracle.
+
+    ``_run`` validated and ``fused_add_norm_backward`` did not. Measured before the
+    fix: a ``post_weight`` of length 1 broadcast through ``1.0 + weight.float()``
+    and the call returned four tensors of the right shapes carrying gradients for
+    the wrong per-column gain, with nothing raised, while the forward rejected the
+    same input. A silently wrong answer from the function the kernels are measured
+    against is worse than an exception anywhere else in the operator.
+    """
+    width = 64
+    rows = 4
+    args = {
+        "grad_residual_out": _rand((rows, width), seed=200, dtype=torch.float32),
+        "grad_pre_normed": _rand((rows, width), seed=201, dtype=torch.float32),
+        "hidden": _rand((rows, width), seed=202, dtype=torch.float32),
+        "residual": _rand((rows, width), seed=203, dtype=torch.float32),
+        "post_weight": _rand((width,), seed=204, dtype=torch.float32),
+        "pre_weight": _rand((width,), seed=205, dtype=torch.float32),
+    }
+    fused_add_norm_backward(**args)  # the good call still works
+    with pytest.raises(exc, match=match):
+        fused_add_norm_backward(**mutate(args))
+
+
+@pytest.mark.parametrize(
+    "mutate, exc, match",
+    [
+        (lambda a: a | {"weight": a["weight"][:1]}, ValueError, "weight must be 1-D"),
+        (lambda a: a | {"grad_output": a["grad_output"][:1]}, ValueError, "must share x's shape"),
+    ],
+)
+def test_final_norm_backward_fails_loudly_on_bad_input(mutate, exc, match):
+    """Same gap, same reasoning, on the final norm's closed form."""
+    width = 64
+    rows = 4
+    args = {
+        "grad_output": _rand((rows, width), seed=210, dtype=torch.float32),
+        "x": _rand((rows, width), seed=211, dtype=torch.float32),
+        "weight": _rand((width,), seed=212, dtype=torch.float32),
+    }
+    final_norm_backward(**args)
+    with pytest.raises(exc, match=match):
+        final_norm_backward(**mutate(args))

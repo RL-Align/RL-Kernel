@@ -417,6 +417,15 @@ def test_cuda_binding_backward_validates_weights_and_statistics():
     _C.fused_add_norm_backward(*good)
 
     short = torch.randn(H // 2, **kw)
+    # A zero feature dimension passed every other check and reached the kernel,
+    # where the row mean is a division by zero: measured, rstd_post came back
+    # [nan, nan, nan, nan] through this entry point.
+    zero = torch.zeros(T, 0, **kw)
+    with pytest.raises(RuntimeError, match="must be non-zero"):
+        _C.fused_add_norm_forward(
+            zero, zero, torch.zeros(0, **kw), torch.zeros(0, **kw), POST_NORM_EPS, RMS_NORM_EPS
+        )
+
     with pytest.raises(RuntimeError, match="must equal weight size"):
         _C.fused_add_norm_backward(g, g, hidden, res_out, short, short, rstd_post, rstd_pre)
 
