@@ -28,9 +28,14 @@ older ``ratio`` tokens read channel half 0 and the newer half 1)::
     n_c   = (x_c * r) * w_c
     RoPE on the last rope_dim channels, GPT-J pairs, position (pos // ratio) * ratio:
           n0' = n0 cos - n1 sin,  n1' = n1 cos + n0 sin   (products rounded, no FMA)
-    BF16 round, then the indexer FP8 cache entry: amax (NaN ignored),
-    s = max(amax, 1e-4) * fp32(1/448) rounded up to 2^(e-127) from its bits,
-    q = e4m3 satfinite(value * 2^-(e-127)), scale 2^(e-127) stored as FP32.
+    BF16 round, then one of two cache entry formats. Scale rule (both): amax
+    (NaN ignored), s = max(amax, 1e-4) * fp32(1/448) rounded up to 2^(e-127)
+    from its bits, q = e4m3 satfinite(value * 2^-(e-127)).
+      indexer (head 128): one scale over all 128 values, stored as FP32.
+      fp8_ds_mla (head 512, main KV, FlashMLA's layout): the 448 nope values
+      in 7 blocks of 64, each with its UE8M0 byte e; the 64 RoPE values stay
+      BF16; per token 448 FP8 bytes + 64 BF16 (576 bytes), and 8 scale bytes
+      (7 + a zero pad) after all token rows of the cache block.
 
 Each entry reads only its own request's state, so the compressor is
 batch-invariant and per-request block boundaries never cross requests.
@@ -161,16 +166,69 @@ def quant_fp8_entry(values: Tensor) -> tuple[Tensor, Tensor]:
     """One power-of-two FP8 scale per row (the indexer cache entry format)."""
     full = values.float()
     mag = full.abs()
-    amax = torch.where(mag.isnan(), 0.0, mag).amax(dim=-1)
-    floor = torch.tensor(AMAX_FLOOR, dtype=torch.float32, device=full.device)
-    inv_max = torch.tensor(1.0 / FP8_MAX, dtype=torch.float32, device=full.device)
-    s = torch.maximum(amax, floor) * inv_max
-    bits = s.view(torch.int32).to(torch.int64) & 0xFFFFFFFF
-    exponent = ((bits + 0x7FFFFF) >> 23) & 0xFF
+    exponent = _pow2_scale(torch.where(mag.isnan(), 0.0, mag).amax(dim=-1))
     scale = (exponent << 23).to(torch.int32).view(torch.float32)
     inverse = ((254 - exponent) << 23).to(torch.int32).view(torch.float32)
     q = (full * inverse[:, None]).clamp(-FP8_MAX, FP8_MAX).to(torch.float8_e4m3fn)
     return q, scale
+
+
+def _pow2_scale(amax: Tensor) -> Tensor:
+    """Biased exponent e of 2^ceil(log2(max(amax, 1e-4) / 448)), from the bits."""
+    floor = torch.tensor(AMAX_FLOOR, dtype=torch.float32, device=amax.device)
+    inv_max = torch.tensor(1.0 / FP8_MAX, dtype=torch.float32, device=amax.device)
+    s = torch.maximum(amax, floor) * inv_max
+    bits = s.view(torch.int32).to(torch.int64) & 0xFFFFFFFF
+    return ((bits + 0x7FFFFF) >> 23) & 0xFF
+
+
+def quant_ds_mla(values: Tensor, nope: int = 448, block: int = 64) -> tuple[Tensor, Tensor, Tensor]:
+    """fp8_ds_mla entry of BF16 ``[N, 512]``.
+
+    Returns (FP8 ``[N, 448]``, UE8M0 bytes ``[N, 8]``, BF16 ``[N, 64]``).
+    """
+    full = values.float()
+    head = full[:, :nope].reshape(len(full), -1, block)
+    mag = head.abs()
+    exponent = _pow2_scale(torch.where(mag.isnan(), 0.0, mag).amax(dim=-1))  # [N, 7]
+    inverse = ((254 - exponent) << 23).to(torch.int32).view(torch.float32)
+    q = (head * inverse[..., None]).clamp(-FP8_MAX, FP8_MAX).to(torch.float8_e4m3fn)
+    scales = torch.zeros(len(full), 8, dtype=torch.uint8, device=values.device)
+    scales[:, : exponent.shape[1]] = exponent.to(torch.uint8)
+    return q.reshape(len(full), nope), scales, values[:, nope:].to(torch.bfloat16)
+
+
+def dequant_ds_mla(q: Tensor, scales: Tensor, rope: Tensor, block: int = 64) -> Tensor:
+    """BF16 ``[N, 512]`` from an fp8_ds_mla entry (exact: e4m3 * 2^k fits BF16)."""
+    n, nope = q.shape
+    factor = (scales[:, : nope // block].long() << 23).to(torch.int32).view(torch.float32)
+    head = q.float().reshape(n, -1, block) * factor[..., None]
+    return torch.cat([head.reshape(n, nope).to(torch.bfloat16), rope.to(torch.bfloat16)], -1)
+
+
+def compress_main(
+    state_cache: Tensor,
+    block_table: Tensor,
+    token_to_req: Tensor,
+    positions: Tensor,
+    rms_weight: Tensor,
+    eps: float,
+    cos_sin_cache: Tensor,
+    ratio: int,
+    head_dim: int = 512,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    """Main-KV compressor entries (C4 with overlap, C128 without), fp8_ds_mla format.
+
+    Returns ``(fp8 [N, 448], scale bytes [N, 8], rope bf16 [N, 64], token_index [N])``.
+    """
+    if not state_cache.is_cuda:
+        raise RuntimeError("the compressor golden is defined on CUDA (libdevice expf)")
+    x, tokens = compress_window(
+        state_cache, block_table, token_to_req, positions, ratio, ratio == 4, head_dim
+    )
+    values = norm_rope(x, positions[tokens], ratio, rms_weight, eps, cos_sin_cache)
+    q, scales, rope = quant_ds_mla(values, nope=head_dim - cos_sin_cache.shape[1])
+    return q, scales, rope, tokens
 
 
 def compress_indexer(

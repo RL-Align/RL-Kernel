@@ -36,25 +36,20 @@ CASES = (  # (label, requests, tokens per request)
 )
 
 
-def _load_vllm(path):
+def _load_vllm(path, name="_fused_kv_compress_norm_rope_insert_indexer_attn"):
     import triton  # noqa: F401
 
     text = open(path).read()
-    fn = next(
-        n
-        for n in ast.parse(text).body
-        if isinstance(n, ast.FunctionDef)
-        and n.name == "_fused_kv_compress_norm_rope_insert_indexer_attn"
-    )
+    fn = next(n for n in ast.parse(text).body if isinstance(n, ast.FunctionDef) and n.name == name)
     lines = text.splitlines()
     body = "\n".join(lines[fn.decorator_list[0].lineno - 1 : fn.end_lineno])
-    tmp = os.path.join(tempfile.mkdtemp(), "vllm_indexer_compress.py")
+    tmp = os.path.join(tempfile.mkdtemp(), f"vllm_{name.strip('_')}.py")
     with open(tmp, "w") as f:
         f.write("import triton\nimport triton.language as tl\n\n" + body + "\n")
-    spec = importlib.util.spec_from_file_location("vllm_indexer_compress", tmp)
+    spec = importlib.util.spec_from_file_location(f"vllm_{name.strip('_')}", tmp)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod._fused_kv_compress_norm_rope_insert_indexer_attn
+    return getattr(mod, name)
 
 
 def _graph_us(fn, iters=30):
@@ -169,5 +164,97 @@ def main():
         print(line)
 
 
+MAIN_CASES = (  # (label, ratio, requests, tokens per request)
+    ("C4 decode b256", 4, 256, 1),
+    ("C4 prefill 1 x 8192", 4, 1, 8192),
+    ("C128 decode b256", 128, 256, 1),
+    ("C128 prefill 1 x 32768", 128, 1, 32768),
+)
+
+
+def main_kv(vllm_src):
+    """Head-512 main compressor (fp8_ds_mla) against vLLM's Triton head-512 kernel."""
+    from rl_engine.kernels.ops.cuda.compressor import compress_main_cuda
+
+    vllm = (
+        _load_vllm(vllm_src, "_fused_kv_compress_norm_rope_insert_sparse_attn")
+        if vllm_src
+        else None
+    )
+    d, rope, row = 512, 64, 576 + 8
+    inv = 1.0 / (10000 ** (torch.arange(0, rope, 2, device="cuda").double() / rope))
+    ang = torch.arange(1 << 16, device="cuda").double()[:, None] * inv
+    cos_sin = torch.cat([ang.cos(), ang.sin()], -1).float()
+    w = (1 + 0.1 * torch.randn(d, device="cuda")).float()
+    print(f"{'main KV case':<24}{'ours us':>10}" + (f"{'vllm us':>10}{'ratio':>8}" if vllm else ""))
+    for label, ratio, reqs, per in MAIN_CASES:
+        coff = 2 if ratio == 4 else 1
+        ctx = 8192 if per == 1 else per
+        nsb = reqs * (ctx // STATE_BS)
+        state = torch.randn(nsb, STATE_BS, 2 * coff * d, device="cuda")
+        table = torch.randperm(nsb, device="cuda").int().view(reqs, -1)
+        if per == 1:
+            pos = torch.full((reqs,), ctx - 1, device="cuda", dtype=torch.long)
+            req = torch.arange(reqs, device="cuda", dtype=torch.int32)
+        else:
+            pos = torch.arange(per, device="cuda").repeat(reqs)
+            req = torch.arange(reqs, device="cuda", dtype=torch.int32).repeat_interleave(per)
+        entries = reqs * (ctx // ratio)
+        k_slots = torch.where(
+            (pos + 1) % ratio == 0, req.long() * (ctx // ratio) + pos // ratio, -1
+        )
+        cache = torch.zeros(-(-entries // K_BS), K_BS * row, dtype=torch.uint8, device="cuda")
+        ref_cache = torch.zeros_like(cache)
+        token_slots = torch.zeros_like(pos)
+
+        def ours():
+            compress_main_cuda(
+                state, table, req, pos, w, 1e-6, cos_sin, cache, K_BS, k_slots, ratio
+            )
+
+        line = f"{label:<24}{_graph_us(ours):>10.1f}"
+        if vllm:
+
+            def ref():
+                vllm[(pos.shape[0],)](
+                    state,
+                    state.stride(0),
+                    state.stride(1),
+                    req,
+                    pos,
+                    token_slots,
+                    table,
+                    table.stride(0),
+                    STATE_BS,
+                    w,
+                    1e-6,
+                    cos_sin,
+                    cos_sin.stride(0),
+                    ref_cache,
+                    k_slots,
+                    K_BS,
+                    HEAD_SIZE=d,
+                    TRITON_BLOCK_SIZE=d,
+                    STATE_WIDTH=coff * d,
+                    COMPRESS_RATIO=ratio,
+                    OVERLAP=ratio == 4,
+                    ROPE_HEAD_DIM=rope,
+                    FP8_MAX=448.0,
+                    QUANT_BLOCK=64,
+                    TOKEN_STRIDE=576,
+                    SCALE_DIM=8,
+                    KV_BLOCK_STRIDE=ref_cache.stride(0),
+                    num_warps=4,
+                )
+
+            ref_us = _graph_us(ref)
+            line += f"{ref_us:>10.1f}{_graph_us(ours) / ref_us:>8.2f}"
+        print(line)
+
+
 if __name__ == "__main__":
     main()
+    import sys
+
+    src = sys.argv[sys.argv.index("--vllm-src") + 1] if "--vllm-src" in sys.argv else None
+    main_kv(src)

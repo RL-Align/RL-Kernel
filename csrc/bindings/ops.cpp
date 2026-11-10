@@ -548,6 +548,11 @@ void compress_indexer_fp8_cuda(torch::Tensor state_cache, torch::Tensor block_ta
                                torch::Tensor cos_sin_cache, torch::Tensor k_cache,
                                int64_t k_block_size, torch::Tensor k_slots, int64_t ratio,
                                bool overlap);
+void compress_main_ds_mla_cuda(torch::Tensor state_cache, torch::Tensor block_table,
+                               torch::Tensor token_to_req, torch::Tensor positions,
+                               torch::Tensor rms_weight, double eps,
+                               torch::Tensor cos_sin_cache, torch::Tensor k_cache,
+                               int64_t k_block_size, torch::Tensor k_slots, int64_t ratio);
 // DSv4 indexer stable per-row top-k (csrc/cuda/topk/stable_topk.cu)
 void stable_topk_per_row_out(torch::Tensor logits, torch::Tensor row_starts,
                              torch::Tensor row_ends, torch::Tensor indices, int64_t top_k,
@@ -582,6 +587,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "DSv4 indexer Q: RoPE + per-(token, head) FP8 quant, vLLM CuTe-DSL numerics");
     m.def("compress_indexer_fp8", &compress_indexer_fp8_cuda,
           "DSv4 indexer compressor: window softmax, RMSNorm, RoPE, FP8 entry into the K cache");
+    m.def("compress_main_ds_mla", &compress_main_ds_mla_cuda,
+          "DSv4 main-KV compressor (C4/C128): fp8_ds_mla entries into the paged KV cache");
     m.def("stable_topk_per_row_out", &stable_topk_per_row_out,
           "DSv4 indexer top-k: (score, local index) descending, vLLM ds4_bi order",
           py::arg("logits"), py::arg("row_starts"), py::arg("row_ends"),
