@@ -441,6 +441,16 @@ def test_cuda_binding_backward_validates_weights_and_statistics():
     with pytest.raises(RuntimeError, match=r"rstd_post must be \[T\]"):
         _C.fused_add_norm_backward(g, g, hidden, res_out, post_w, pre_w, rstd_post[:-1], rstd_pre)
 
+    # The launcher dispatches on hidden's dtype and then casts the cotangent
+    # pointer, so a mismatch used to surface from data_ptr with a message about the
+    # cast rather than about the input.
+    # Both cotangents FP32, so this reaches the comparison against hidden rather
+    # than the earlier "must share dtype" one between the two of them.
+    with pytest.raises(RuntimeError, match="grad_residual_out must have hidden's dtype"):
+        _C.fused_add_norm_backward(
+            g.float(), g.float(), hidden, res_out, post_w, pre_w, rstd_post, rstd_pre
+        )
+
 
 @requires_cuda_kernel
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two GPUs")

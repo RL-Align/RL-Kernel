@@ -107,6 +107,15 @@ gradients come back as per-row FP32 contributions and are folded with
   | divide by the width | Triton's `/` is `div.full.f32`, approximate; CUDA's is `div.rn.f32` | `tl.div_rn` |
   | reciprocal square root | nvcc's `rsqrtf` is libdevice's refined non-FTZ path; `tl.rsqrt` is `rsqrt.approx.ftz.f32` | the CUDA kernel emits the same instruction |
 
+  The claim does not depend on the build flag. Every float operation on the path is
+  an explicit round-to-nearest intrinsic or `tl.div_rn`, including the row mean,
+  which a plain `/` would have left exposed: measured with the four divisions as
+  `/` and the extension built with `KERNEL_ALIGN_USE_FAST_MATH=1`, 30 of the 54
+  bitwise cases fail, because `--use_fast_math` sets `--prec-div=false` and lowers
+  `/` to `div.approx.f32`. With `__fdiv_rn` the whole operator suite passes under
+  both builds, 250 tests either way. That is the opposite of `swiglu`, whose
+  bitwise test fails 14 of 15 cases on a fast-math build.
+
   Sizes, measured before each fix, so the order of attack is on record: with the
   reduction orders matched but the divide still approximate, the statistics were
   one ULP apart on 22% of rows; the rsqrt difference alone accounted for about 12%

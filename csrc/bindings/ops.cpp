@@ -398,6 +398,15 @@ std::vector<torch::Tensor> fused_add_norm_backward(
   fused_add_norm_check_pair(hidden, "hidden", res_out, "residual_out");
   fused_add_norm_check_pair(post_w, "post_weight", pre_w, "pre_weight");
   TORCH_CHECK(g_res.sizes() == hidden.sizes(), "cotangents and hidden must share shape");
+  // The launcher dispatches on hidden.scalar_type() and then takes
+  // g_res.data_ptr<x_t>(), so FP32 cotangents against BF16 hidden raised from the
+  // pointer cast with a message about the cast and not about the input.
+  TORCH_CHECK(g_res.scalar_type() == hidden.scalar_type(),
+              "grad_residual_out must have hidden's dtype, got ", g_res.scalar_type(),
+              " and ", hidden.scalar_type());
+  TORCH_CHECK(g_pre.scalar_type() == hidden.scalar_type(),
+              "grad_pre_normed must have hidden's dtype, got ", g_pre.scalar_type(),
+              " and ", hidden.scalar_type());
   TORCH_CHECK(hidden.dim() == 2, "hidden must be 2D [T, H]");
   // The forward checked the weight rank and length and the backward did not, so a
   // weight shorter than the width was read past its allocation for every column:

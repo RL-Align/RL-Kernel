@@ -37,6 +37,19 @@ def _require_cuda_fused_add_norm() -> None:
 
 
 def cuda_fused_add_norm_available() -> bool:
+    """Whether the CUDA kernel is built, present, and the one this row claims.
+
+    False on ROCm even when the symbols exist. The source is in the shared
+    ``cuda_sources`` list, so a ROCm build hipifies it and ``_C`` does carry
+    ``fused_add_norm_forward``/``_backward`` -- but ``rsqrt_approx_ftz`` falls back
+    to ``rsqrtf`` there, because hipcc cannot assemble the one line of NVIDIA PTX
+    that makes the kernel bitwise equal to the Triton one. Reporting the kernel as
+    available on ROCm would let an availability-gated caller, and this operator's
+    own bitwise test, select a path that does not meet the claim the test asserts.
+    The registry's rocm table never dispatches this backend anyway.
+    """
+    if getattr(torch.version, "hip", None) is not None:
+        return False
     return bool(
         _EXT_AVAILABLE and _C is not None and all(hasattr(_C, n) for n in _REQUIRED_SYMBOLS)
     )

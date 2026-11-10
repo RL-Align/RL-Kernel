@@ -98,6 +98,14 @@ __device__ __forceinline__ float rsqrt_approx_ftz(float x) {
 __device__ __forceinline__ float mul_rn(float a, float b) { return __fmul_rn(a, b); }
 __device__ __forceinline__ float add_rn(float a, float b) { return __fadd_rn(a, b); }
 __device__ __forceinline__ float sub_rn(float a, float b) { return __fsub_rn(a, b); }
+// The row mean, as a division the build flag cannot reinterpret. A plain ``/`` is
+// div.rn.f32 by default, but --use_fast_math sets --prec-div=false and lowers it to
+// div.approx.f32, and the Triton side is pinned to div.rn.f32 through tl.div_rn.
+// Measured: with the four divisions left as ``/`` and the extension built with
+// KERNEL_ALIGN_USE_FAST_MATH=1, 30 of the 54 bitwise cases fail. The reciprocal
+// square root was already made flag-independent through inline PTX; the divide was
+// not, so the bitwise claim held only for a default build.
+__device__ __forceinline__ float div_rn(float a, float b) { return __fdiv_rn(a, b); }
 
 template <typename scalar_t>
 __device__ __forceinline__ float load_as_float(const scalar_t* ptr) {
@@ -190,7 +198,7 @@ __global__ void fused_add_norm_fwd_kernel(
         const float hv = load_as_float<scalar_t>(h_row + col);
         local = add_rn(local, mul_rn(hv, hv));
     }
-    const float rp = rsqrt_approx_ftz(block_reduce_sum(local) / static_cast<float>(H) + post_eps);
+    const float rp = rsqrt_approx_ftz(div_rn(block_reduce_sum(local), static_cast<float>(H)) + post_eps);
     if (tid == 0) rstd_post[row] = rp;
 
     // post = hidden * rstd * (1 + w), narrowed; res = residual + post, narrowed.
@@ -210,7 +218,7 @@ __global__ void fused_add_norm_fwd_kernel(
         const float rv = load_as_float<scalar_t>(ro_row + col);
         local = add_rn(local, mul_rn(rv, rv));
     }
-    const float rq = rsqrt_approx_ftz(block_reduce_sum(local) / static_cast<float>(H) + pre_eps);
+    const float rq = rsqrt_approx_ftz(div_rn(block_reduce_sum(local), static_cast<float>(H)) + pre_eps);
     if (tid == 0) rstd_pre[row] = rq;
 
     for (int col = tid; col < H; col += blockDim.x) {
@@ -250,7 +258,7 @@ __global__ void fused_add_norm_bwd_kernel(
         const float ro = load_as_float<scalar_t>(res_out + base + col);
         local = add_rn(local, mul_rn(mul_rn(gp, gain), ro));
     }
-    const float dot_pre = block_reduce_sum(local) / static_cast<float>(H);
+    const float dot_pre = div_rn(block_reduce_sum(local), static_cast<float>(H));
 
     // d_res_out is live on two paths: downstream cotangent plus the pre-norm's
     // input gradient. Accumulate them the way eager does: the residual output is
@@ -276,7 +284,7 @@ __global__ void fused_add_norm_bwd_kernel(
         const float pgain = add_rn(1.0f, load_as_float<weight_t>(post_w + col));
         local = add_rn(local, mul_rn(mul_rn(d_ro, pgain), hv));
     }
-    const float dot_post = block_reduce_sum(local) / static_cast<float>(H);
+    const float dot_post = div_rn(block_reduce_sum(local), static_cast<float>(H));
 
     for (int col = tid; col < H; col += blockDim.x) {
         const float d_ro = d_residual[base + col];
