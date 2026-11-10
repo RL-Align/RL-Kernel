@@ -342,3 +342,37 @@ def test_cuda_binding_rejects_fp64_instead_of_silently_narrowing():
         RMS_NORM_EPS,
     )
     assert out[0].dtype == torch.bfloat16
+
+
+@requires_cuda_kernel
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("width", [1, 3, 33, 63, 65, 100, 129, 257, 513, 1000, 8191])
+def test_cuda_and_triton_are_bitwise_equal_at_awkward_widths(dtype, width):
+    """The bitwise claim has to hold where the lane masking actually does work.
+
+    The test above runs at the Muse width only, and 6656 is 13 x 512, so every
+    chunk is full and the mask never fires. These widths are chosen around the
+    thresholds in ``choose_threads`` and ``_reduction_shape`` (64, 128, 256, then
+    512) and deliberately not multiples of the lane count, so the last chunk is
+    partial on one side and the CUDA loop simply stops earlier on the other. That
+    only agrees because a masked lane contributes an exact ``+ 0.0``.
+
+    Forward only: the backward needs the saved statistics and is covered at the
+    Muse width, while what is new here is the masking, which is shared by both
+    kernels' reductions.
+    """
+    triton_mod = pytest.importorskip("rl_engine.backends.shared.triton.norm.fused_add_norm")
+    hidden, residual, post_w, pre_w = _inputs((5, width), dtype)
+    cuda_out = fused_add_norm_cuda_forward(hidden, residual, post_w, pre_w, **_KW)
+    triton_out = triton_mod.fused_add_norm_triton_forward(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )
+    names = ("residual_out", "pre_normed", "rstd_post", "rstd_pre")
+    for name, a, b in zip(names, cuda_out, triton_out, strict=True):
+        a = a.contiguous()
+        b = b.contiguous()
+        differing = int((a.view(torch.uint8) != b.view(torch.uint8)).sum())
+        assert differing == 0, (
+            f"{name}: width {width} at {dtype} differs on {differing} bytes; "
+            f"lanes/chunks {triton_mod._reduction_shape(width)[:2]}"
+        )
