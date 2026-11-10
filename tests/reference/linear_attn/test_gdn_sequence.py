@@ -36,6 +36,7 @@ def test_hand_worked_recurrence_updates_slot_zero_without_mutating_state():
 
 
 def _case(h=2, hv=4, k=3, v=2, dtype=torch.float32, state_dtype=torch.float32):
+    """Build seeded packed inputs with sequence lengths 3/2 and state slots 0/2."""
     generator = torch.Generator().manual_seed(642)
     contract = GDNContract(h, hv, k, v, scale=k**-0.5)
 
@@ -106,6 +107,7 @@ def test_sequence_validates_complete_invocation_before_execution(index, replacem
 
 
 def _bits_equal(left, right):
+    """Compare raw storage bits, including signed zeros and NaN payloads."""
     assert left.dtype == right.dtype
     assert left.shape == right.shape
     assert torch.equal(left.contiguous().view(torch.uint8), right.contiguous().view(torch.uint8))
@@ -234,8 +236,11 @@ def test_packed_unequal_empty_permutation_isolation_and_regrouping():
 
 
 def _oracle(args, contract):
-    # Independent FP64 per-head matrix recurrence, never calling step helpers.
-    # State stores round after each token; output uses the pre-store state.
+    """Evaluate an independent FP64 per-head recurrence without step helpers.
+
+    Round state to its storage dtype after each token; read output before that
+    store. This checks mathematical accuracy, not the FP32 reduction schedule.
+    """
     qkv, a, b, A_log, bias, initial, indices, offsets = args
     bank = list(initial.double().unbind())
     outputs = []
@@ -345,7 +350,7 @@ def test_profile_gating_extremes_keep_gradients_finite_through_public_entry():
 
 
 def _packed_two_chunks(args, contract):
-    # [length3, empty, length2], first chunk [2,0,1], second [1,0,1].
+    """Split lengths [3, 0, 2] into [2, 0, 1] + [1, 0, 1], restoring token order."""
     state, outputs = args[5], []
     for rows, offsets in [([0, 1, 3], [0, 2, 2, 3]), ([2, 4], [0, 1, 1, 2])]:
         chunk = [x[rows] for x in args[:3]] + args[3:5]
@@ -455,8 +460,12 @@ def test_cpu_entry_rejects_non_cpu_requests_without_attempting_execution():
 
 
 def test_profile_33_wide_cancellation_fixture_pins_padded_reduction():
-    # Literal FP32 reduction fixture. The retained 32-wide padded schedule yields
-    # 22 here; a whole-axis torch.sum on this CPU path yields 21.
+    """Distinguish the retained padded schedule from a whole-axis FP32 sum.
+
+    Qualified AVX2/AVX512 paths yield 22; whole-axis and exact sums yield 21.
+    This pins implementation behavior, not a hardware-independent reduction
+    tree. A new PyTorch/device path needs qualification before changing it.
+    """
     values = [
         2**24,
         -4,

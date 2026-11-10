@@ -22,6 +22,7 @@ class GDNContract:
     profile: str = "vllm_decode_v1"
 
     def __post_init__(self) -> None:
+        """Reject invalid geometry and unsupported profiles before tensor validation."""
         for name in ("num_k_heads", "num_v_heads", "key_dim", "value_dim"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
