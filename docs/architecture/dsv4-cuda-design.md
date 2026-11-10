@@ -344,12 +344,16 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         selects, and a decode request alone selects what it selects in a batch
         (`tests/ops/indexer/test_indexer_select.py`). The FP8 indexer K cache it reads is
         written by the compressor (T02)
-  - [ ] Indexer op composition: Q path + logits + `stable_topk_per_row`. vLLM's
+  - [x] Indexer op composition: Q path + logits + `stable_topk_per_row`. vLLM's
         short-context shortcut (`max_seq_len // ratio <= topk`, eager only) fills ascending
         ids `0..n-1` where the top-k path emits score order: same set, different order,
         chosen from the batch's longest request. FlashMLA's accumulation follows index order,
         so the T05 wrapper **must** canonicalize the indices (rule 2); then both orders give
-        the same bytes
+        the same bytes. Done in `Dsv4Attention._indexer` (Q RoPE + FP8, `weights_proj`,
+        indexer compressor, prefill / paged logits, stable top-k) with the ids put in
+        canonical descending order by `dsv4_attention.canonical_ids` before FlashMLA;
+        covered end to end by the C4 layer test (alone = batch = chunked = decode) and the
+        model tests
 - [x] T04 stable top-k: composite key, fixed output slots, one selector for prefill and
       decode; regression covers "all ties + true cutoff". `stable_topk_per_row` (golden
       `rl_engine/kernels/ops/pytorch/topk/`, CUDA `csrc/cuda/topk/stable_topk.cu`;
