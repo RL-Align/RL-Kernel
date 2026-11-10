@@ -7,7 +7,8 @@
 
 * Router: :class:`~rl_engine.models.deepseek_v4.router.Dsv4Router`.
 * Plan / combine: ``rl_engine.kernels.ops.pytorch.moe.route_plan`` (pairs sorted by
-  (expert, token, slot); combine in slot order, P6 policy) with the CUDA slot sum.
+  (expert, token, slot); combine in slot order, P6 policy), built by the CUDA counting
+  sort ``build_plan_cuda`` and summed by the CUDA slot sum.
 * Routed experts: P5 ``Sm90FusedMoeMlp`` (MXFP8 activations x MXFP4 frozen weights on
   FP8 WGMMA, clamp-SwiGLU, ``* p_s`` once); needs the ``KERNEL_ALIGN_MOE_SM90=1``
   build. Each row's bytes depend only on that row and its expert.
@@ -43,8 +44,8 @@ import torch
 import torch.distributed as dist
 from torch import Tensor
 
-from rl_engine.kernels.ops.cuda.moe import combine_cuda, mxfp8_act_quant_fwd_cuda
-from rl_engine.kernels.ops.pytorch.moe.route_plan import RoutePlan, build_plan
+from rl_engine.kernels.ops.cuda.moe import build_plan_cuda, combine_cuda, mxfp8_act_quant_fwd_cuda
+from rl_engine.kernels.ops.pytorch.moe.route_plan import RoutePlan
 from rl_engine.models.deepseek_v4.router import Dsv4Router
 from rl_engine.moe.contract import ExpertBatch
 from rl_engine.moe.mx_format import MXTensor
@@ -274,7 +275,7 @@ class _MoEBlockFn(torch.autograd.Function):
         weights, ids = route_topk_cuda(
             logits, r.bias, r.routed_scaling_factor, input_ids=hash_ids, tid2eid=r.tid2eid
         )
-        plan = build_plan(ids, moe.num_experts)
+        plan = build_plan_cuda(ids, moe.num_experts)
         y_rows, state = moe.routed_rows(x, weights, plan)
         shared, shared_saved = None, None
         if moe._shared is not None:

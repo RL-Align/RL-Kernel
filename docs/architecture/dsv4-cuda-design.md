@@ -605,8 +605,10 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         1.02x, backward 0.44 / 0.44 / 0.65 / 0.74x
 - [ ] P5 `fused` single-launch path: still has serialized WGMMAs and only 2 stages; apply
       the same loop and a BK=64 variant, or drop it
-- [ ] MoE route plan as one counting-sort kernel (now PyTorch sort + searchsorted +
-      scatter: 19-98 us, the slow part of the MoE glue at decode sizes)
+- [x] MoE route plan as a counting sort (was PyTorch sort + searchsorted + scatter:
+      19-98 us, the slow part of the MoE glue at decode sizes). `csrc/cuda/moe/moe_route_plan.cu`
+      (histogram, column scan, warp-ranked stable scatter): equal to the golden plan, no
+      host sync; 9-36 us for T = 1..16384
 - [x] DSv4 attention glue (was: C4 decode 64 x 4K at 5.2 ms, 2.1 ms of it GPU time). CUDA
       `ds_mla_gather` (exact fp8_ds_mla dequantize by slot) and `save_states`
       (`csrc/cuda/attention/dsv4_cache.cu`); index lists by scatter; sizes passed as host

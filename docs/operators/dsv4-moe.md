@@ -298,13 +298,18 @@ the routed part has rel-L2 < 2e-2. With the shared expert's FP8 dgrad included, 
 
 The block glue between the router (`docs/operators/dsv4-router.md`) and the two
 expert halves. Golden: `rl_engine/kernels/ops/pytorch/moe/route_plan.py`; CUDA
-slot sum: `csrc/cuda/moe/moe_slot_sum.cu`; block: `rl_engine/models/deepseek_v4/moe.py`
+slot sum: `csrc/cuda/moe/moe_slot_sum.cu`; CUDA plan: `csrc/cuda/moe/moe_route_plan.cu`
+(`build_plan_cuda`); block: `rl_engine/models/deepseek_v4/moe.py`
 (`Dsv4MoE`, forward).
 
 - **Plan.** The `T * 6` (token, slot) pairs are sorted by `(expert, token, slot)`
-  (stable sort on the expert id, then `searchsorted` for `expert_offsets`); `token` is
-  the global token id, so with expert parallelism an expert's rows keep this order
-  whichever rank sends them. Integer work only, no host sync.
+  (golden: stable sort on the expert id, then `searchsorted` for `expert_offsets`);
+  `token` is the global token id, so with expert parallelism an expert's rows keep this
+  order whichever rank sends them. Integer work only, no host sync. The block builds it
+  with a CUDA counting sort: per-chunk histograms, a column scan, then a stable scatter
+  ranked within each warp by `__match_any_sync`. A stable sort's result is unique, so this
+  equals the golden exactly (tested for T = 0..32768, 256 / 384 experts, int32 / int64 ids,
+  skewed routing). It also returns each row's token id.
 - **Dispatch.** Rows, `p_s` and `output_slot` are gathered in plan order. The MXFP8
   activation is quantized once per token and its codes / scales gathered (row-local,
   so equal to quantizing the rows). P5 applies `p_s` once.
@@ -324,17 +329,17 @@ within 3% of an FP32 reference on the same MX operands.
 Graph-replay time, microseconds (H 4096, 256 experts). Baseline: `index_add_`
 (atomic FP32 scatter, not BI) plus the merge:
 
-| T | plan | combine | index_add | ratio | fan-in | index_add | ratio |
-|---|---|---|---|---|---|---|---|
-| 1 | 18.7 | 8.5 | 20.1 | 0.42 | 8.6 | 9.4 | 0.91 |
-| 64 | 44.7 | 8.5 | 31.1 | 0.27 | 8.5 | 16.1 | 0.53 |
-| 256 | 48.5 | 8.5 | 80.0 | 0.11 | 9.3 | 43.7 | 0.21 |
-| 1024 | 97.8 | 24.7 | 302.6 | 0.08 | 35.1 | 174.3 | 0.20 |
-| 4096 | 86.7 | 77.0 | 1202.3 | 0.06 | 116.4 | 698.5 | 0.17 |
-| 16384 | 92.4 | 283.2 | 4758.7 | 0.06 | 441.2 | 2808.4 | 0.16 |
+| T | plan (golden) | plan (CUDA) | combine | index_add | ratio | fan-in | index_add | ratio |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 18.8 | 9.1 | 8.1 | 19.6 | 0.41 | 8.1 | 8.9 | 0.91 |
+| 64 | 44.4 | 9.5 | 8.0 | 30.5 | 0.26 | 8.0 | 16.0 | 0.50 |
+| 256 | 47.8 | 10.5 | 8.2 | 80.2 | 0.10 | 8.9 | 43.1 | 0.21 |
+| 1024 | 97.6 | 12.1 | 24.6 | 301.7 | 0.08 | 34.1 | 173.7 | 0.20 |
+| 4096 | 86.0 | 16.3 | 76.9 | 1201.5 | 0.06 | 116.1 | 699.8 | 0.17 |
+| 16384 | 92.4 | 35.5 | 283.4 | 4757.5 | 0.06 | 439.9 | 2807.9 | 0.16 |
 
-The plan (PyTorch sort + searchsorted + scatter, several launches) costs 19-98 us and
-is the slow part at decode sizes; a single counting-sort kernel is on the Phase 5 list.
+The CUDA plan (three small kernels) is 2-8x faster than the golden's PyTorch sort +
+searchsorted + scatter.
 
 ## Shared expert
 

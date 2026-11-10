@@ -136,3 +136,39 @@ def test_cuda_fanin_matches_golden_and_is_batch_invariant():
     sub_rows = dx_rows[plan.inv[50:60].reshape(-1)][sub.perm]
     part = dispatch_backward_cuda(sub_rows, sub, dx_shared[50:60].contiguous())
     assert torch.equal(part, full[50:60])
+
+
+def _plan_cuda_ready() -> bool:
+    import rl_engine._C as ext
+
+    return hasattr(ext, "moe_route_plan")
+
+
+@pytest.mark.skipif(not _ready() or not _plan_cuda_ready(), reason="moe_route_plan build")
+@pytest.mark.parametrize("t", [0, 1, 7, 85, 86, 333, 4096, 32768])
+@pytest.mark.parametrize("experts", [256, 384])
+@pytest.mark.parametrize("dtype", [torch.int32, torch.int64])
+def test_cuda_plan_equals_golden(t, experts, dtype):
+    from rl_engine.kernels.ops.cuda.moe import build_plan_cuda
+
+    ids = _ids(t, t + experts, experts).to(dtype)
+    want = build_plan(ids, experts)
+    got = build_plan_cuda(ids, experts)
+    assert torch.equal(got.perm, want.perm)
+    assert torch.equal(got.inv, want.inv)
+    assert torch.equal(got.expert_offsets, want.expert_offsets)
+    assert torch.equal(got.token, want.perm // 6)
+    assert (got.num_tokens, got.num_experts) == (t, experts)
+
+
+@pytest.mark.skipif(not _ready() or not _plan_cuda_ready(), reason="moe_route_plan build")
+def test_cuda_plan_skewed_routing():
+    """Hot experts (every token on experts 0-5) and a hash-like repeated pattern."""
+    from rl_engine.kernels.ops.cuda.moe import build_plan_cuda
+
+    hot = torch.arange(6, device="cuda", dtype=torch.int32).repeat(5000, 1)
+    for ids in (hot, hot.flip(1), torch.randint(256, (777, 6), device="cuda")):
+        want = build_plan(ids, 256)
+        got = build_plan_cuda(ids, 256)
+        assert torch.equal(got.perm, want.perm) and torch.equal(got.inv, want.inv)
+        assert torch.equal(got.expert_offsets, want.expert_offsets)

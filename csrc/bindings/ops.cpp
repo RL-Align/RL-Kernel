@@ -622,6 +622,8 @@ void dsv4_router_backward_dx(torch::Tensor logits, torch::Tensor ids, torch::Ten
 // P5-1 MXFP8 activation quantization (csrc/cuda/moe/mxfp8_act_quant.cu)
 std::vector<torch::Tensor> mxfp8_act_quant_forward_cuda(torch::Tensor x, bool check_finite);
 torch::Tensor mxfp8_act_quant_ste_backward_cuda(torch::Tensor dy);
+// DSv4 MoE route plan (csrc/cuda/moe/moe_route_plan.cu)
+std::vector<torch::Tensor> moe_route_plan(torch::Tensor ids, int64_t num_experts);
 // DSv4 MoE combine / backward fan-in (csrc/cuda/moe/moe_slot_sum.cu)
 void moe_slot_sum(torch::Tensor rows, torch::Tensor inv, std::optional<torch::Tensor> shared,
                   std::optional<torch::Tensor> residual, torch::Tensor out);
@@ -697,6 +699,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("x"), py::arg("check_finite") = true);
     m.def("mxfp8_act_quant_ste_backward", &mxfp8_act_quant_ste_backward_cuda,
           "Straight-through estimator backward for mxfp8_act_quant (dX = dY)");
+    m.def("moe_route_plan", &moe_route_plan,
+          "DSv4 MoE route plan: stable counting sort of (token, slot) pairs by expert"
+          " -> (perm, token, inv, expert_offsets)");
     m.def("moe_slot_sum", &moe_slot_sum,
           "DSv4 MoE combine / dX fan-in: slot-ordered FP32 sum + shared + residual",
           py::arg("rows"), py::arg("inv"), py::arg("shared"), py::arg("residual"),

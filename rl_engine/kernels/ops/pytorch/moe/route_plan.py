@@ -44,11 +44,12 @@ class RoutePlan:
     expert_offsets: Tensor  # int32 [E + 1]
     num_tokens: int
     num_experts: int
+    token_ids: Tensor | None = None  # int64 [P], perm // 6 when a builder provides it
 
     @property
     def token(self) -> Tensor:
         """Source token of each dispatched row, int64 [P]."""
-        return self.perm // TOP_K
+        return self.token_ids if self.token_ids is not None else self.perm // TOP_K
 
     @property
     def rows(self) -> int:

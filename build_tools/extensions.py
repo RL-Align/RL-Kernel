@@ -268,6 +268,8 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/router/dsv4_router.cu")
             # DSv4 MoE combine / backward fan-in (fixed slot order).
             cuda_sources.append("csrc/cuda/moe/moe_slot_sum.cu")
+            # DSv4 MoE route plan (counting sort by expert).
+            cuda_sources.append("csrc/cuda/moe/moe_route_plan.cu")
             # P5-1 MXFP8 activation quantization (was JIT-only).
             cuda_sources.append("csrc/cuda/moe/mxfp8_act_quant.cu")
 

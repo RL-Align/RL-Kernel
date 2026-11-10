@@ -4,7 +4,8 @@
 
 Combine: our slot-ordered kernel (+ shared + residual, BF16 out) against the
 non-invariant ``index_add_`` scatter (atomic FP32 adds) followed by the merge, and
-against the eager golden. Plan: ``build_plan`` (stable sort + searchsorted).
+against the eager golden. Plan: ``build_plan`` (stable sort + searchsorted) and
+``build_plan_cuda`` (counting sort).
 CUDA-graph replay, median, microseconds.
 """
 
@@ -14,7 +15,7 @@ import statistics
 
 import torch
 
-from rl_engine.kernels.ops.cuda.moe import combine_cuda, dispatch_backward_cuda
+from rl_engine.kernels.ops.cuda.moe import build_plan_cuda, combine_cuda, dispatch_backward_cuda
 from rl_engine.kernels.ops.pytorch.moe.route_plan import build_plan, combine
 
 H, E = 4096, 256
@@ -45,7 +46,8 @@ def _graph_us(fn, iters=30):
 def main():
     g = torch.Generator(device="cuda").manual_seed(0)
     print(
-        f"{'T':>6} | {'plan':>7} | {'combine':>8} {'index_add':>9} {'ratio':>5} {'eager':>8} | "
+        f"{'T':>6} | {'plan':>7} {'plan cu':>7} | "
+        f"{'combine':>8} {'index_add':>9} {'ratio':>5} {'eager':>8} | "
         f"{'fan-in':>7} {'index_add':>9} {'ratio':>5}"
     )
     for t in TOKENS:
@@ -68,13 +70,14 @@ def main():
             return acc.index_add_(0, token, dx)
 
         p = _graph_us(lambda: build_plan(ids, E))
+        pc = _graph_us(lambda: build_plan_cuda(ids, E))
         c = _graph_us(lambda: combine_cuda(y, plan, shared, res))
         cb = _graph_us(scatter_combine)
         ce = _graph_us(lambda: combine(y, plan, shared, res))
         f = _graph_us(lambda: dispatch_backward_cuda(dx, plan))
         fb = _graph_us(scatter_fanin)
         print(
-            f"{t:>6} | {p:7.1f} | {c:8.1f} {cb:9.1f} {c / cb:5.2f} {ce:8.1f} | "
+            f"{t:>6} | {p:7.1f} {pc:7.1f} | {c:8.1f} {cb:9.1f} {c / cb:5.2f} {ce:8.1f} | "
             f"{f:7.1f} {fb:9.1f} {f / fb:5.2f}"
         )
 
