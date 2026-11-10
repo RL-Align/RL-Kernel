@@ -346,11 +346,16 @@ def fused_add_norm_backward(
     One asymmetry in the values, stated here because a caller has to know it and a
     comment further down is too late: ``d_residual`` carries a narrowing, having
     been rounded to ``grad_dtype`` and widened again, and ``d_hidden`` is a raw FP32
-    accumulation. Compared against a kernel or against autograd without a cast,
-    ``d_hidden`` is the one that shows ULP-level differences, which is easy to read
-    as a kernel fault. Cast it to the input dtype first, the way the autograd
-    wrappers and the parity tests do. The reason for the asymmetry rather than its
-    consequence is at the return statement.
+    accumulation. So ``d_hidden`` is the entry that shows ULP-level differences
+    against a kernel or against autograd, which is easy to read as a kernel fault.
+
+    That is about values. Dtypes are simpler and were stated carelessly here before:
+    all four entries are FP32 tensors on every path, while autograd stores a narrow
+    leaf's ``.grad`` in the leaf's dtype, so a comparison against autograd needs a
+    cast on all four and not only on ``d_hidden``. ``torch.testing.assert_close``
+    raises on the dtype before it looks at any value. The autograd wrappers and the
+    parity tests cast every entry; the reason for the value asymmetry rather than
+    its consequence is at the return statement.
 
     ``residual_out`` is both an output and the pre-norm's input, so the gradient
     reaching it is the sum of what comes back from downstream and what comes back

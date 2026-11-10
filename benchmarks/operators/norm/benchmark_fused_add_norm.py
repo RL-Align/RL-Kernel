@@ -49,12 +49,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from benchmarks.profiler import PerformanceProfiler  # noqa: E402
-from rl_engine.contracts.numerical import resolve_tolerance_support  # noqa: E402
-from rl_engine.kernels.gtest.tolerance import (  # noqa: E402
-    load_contract,
-    resolve_tolerance,
-    tolerance_contract_fingerprint,
-)
+from rl_engine.kernels.gtest.tolerance import tolerance_contract_fingerprint  # noqa: E402
 from rl_engine.ops.autograd.backward_runtime import (  # noqa: E402
     reset_backward_runtime,
     snapshot_backward_runtime,
@@ -65,6 +60,12 @@ from rl_engine.reference.norm.fused_add_norm import (  # noqa: E402
     RMS_NORM_EPS,
     NativeFusedAddNormOp,
 )
+
+# The accuracy gate has to be the tests' gate, not a second opinion, so the policy
+# comes from where the tests keep it. It reads the contract rows and owns the FP16
+# budget; see the sixteenth round's finding in the commit history for what happened
+# when this file had its own.
+from tests.helpers.fused_add_norm_tolerance import allowance, assert_within  # noqa: E402
 
 DTYPES = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}
 MODES = ("forward", "backward", "forward_backward")
@@ -134,26 +135,6 @@ def _make_workload(op, hidden, residual, post_w, pre_w, g_res, g_pre, mode):
     raise ValueError(f"unknown mode: {mode}")
 
 
-def _one_ulp(reference: torch.Tensor) -> float:
-    peak = float(reference.abs().max())
-    if not math.isfinite(peak):
-        # An inf or a NaN anywhere makes the peak NaN, which would flow into
-        # ``atol = max(atol, _one_ulp(...))``. ``max`` with a NaN is order
-        # dependent and assert_close keyed off a NaN atol can invert the verdict,
-        # so the gate would report a tolerance problem instead of the real one.
-        raise ValueError(
-            f"reference contains a non-finite value (peak {peak}); the accuracy "
-            "gate cannot form a tolerance from it. This is a kernel or input "
-            "problem, not a tolerance problem."
-        )
-    if peak == 0.0:
-        return 0.0
-    hi = torch.nextafter(
-        torch.tensor(peak, dtype=reference.dtype), torch.tensor(float("inf"), dtype=reference.dtype)
-    )
-    return float(hi - peak)
-
-
 def _check_accuracy(native, candidate, hidden, residual, post_w, pre_w, g_res, g_pre):
     """Gate the timed ``forward`` of a candidate against the native ``forward``.
 
@@ -181,40 +162,34 @@ def _check_accuracy(native, candidate, hidden, residual, post_w, pre_w, g_res, g
 
     expected = evaluate(native.forward)
     actual = evaluate(candidate.forward)
-    contract = load_contract()
     errors = {}
     for name, judgment, reference, result in zip(
         OUTPUT_NAMES, OUTPUT_JUDGMENTS, expected, actual, strict=True
     ):
-        tolerance = resolve_tolerance(
-            contract, judgment=judgment, op_class="reduction", dtype=result.dtype
-        )
-        atol = tolerance.atol
-        support = resolve_tolerance_support(
-            contract, judgment=judgment, op_class="reduction", dtype=result.dtype
-        )
-        if support.status != "applicable":
-            atol = max(atol, _one_ulp(reference.to(result.dtype)))
-        torch.testing.assert_close(
-            result.to(torch.float32),
-            reference.to(torch.float32),
-            atol=atol,
-            rtol=tolerance.rtol,
-            msg=lambda built, name=name: f"{name}: {built}",
-        )
+        # The tests' policy, imported rather than re-derived here. This gate used to
+        # build its own FP16 floor as max(contract atol, one ULP at the reference
+        # peak), while the shared policy deliberately adds a quarter of a ULP to the
+        # row: its docstring records that a full ULP reached 125x the contract atol
+        # on the row-summed weight gradients and left 0.3 to 4% of elements with an
+        # allowance at or above their own value, which is why it was abandoned
+        # there. So this gate was looser than the test files on exactly d_post_w and
+        # d_pre_w, and a candidate the tests reject could be recorded here as
+        # accuracy-passing, which is not what the report says it checked.
+        assert_within(judgment, result.dtype, result, reference, f"{name}: ")
+        allowed = allowance(judgment, result.dtype, reference.to(torch.float32))
         error = (result.to(torch.float32) - reference.to(torch.float32)).abs()
         worst = int(error.flatten().argmax())
-        reference_at_worst = float(reference.to(torch.float32).flatten()[worst].abs())
         errors[name] = {
             "max_abs_error": float(error.max()),
-            "atol": atol,
-            "rtol": tolerance.rtol,
-            # The threshold that actually applied at the worst element. Recording
-            # atol and rtol alone made the artifact look as though it had failed:
-            # d_post_w at bf16 and 512 rows shows max_abs_error 0.125 against an
-            # atol of 0.1, on a row the report calls passing, because the rtol term
-            # covered the rest.
-            "threshold_at_worst": atol + tolerance.rtol * reference_at_worst,
+            "judgment": judgment,
+            "policy": "tests/helpers/fused_add_norm_tolerance.py",
+            # The allowance that actually applied at the worst element, read out of
+            # the same elementwise policy the assertion used. A scalar atol and rtol
+            # instead made the artifact look as though it had failed: d_post_w at
+            # bf16 and 512 rows shows max_abs_error 0.125 against an atol of 0.1, on
+            # a row the report calls passing, because the relative term covered the
+            # rest.
+            "threshold_at_worst": float(allowed.flatten()[worst]),
             # A hash of the bytes, because the figures above cannot see a change
             # smaller than one ULP of a narrow dtype and the determinism check
             # compares this dict. A reordered FP32 reduction inside the backward

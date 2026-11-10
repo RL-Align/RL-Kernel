@@ -36,6 +36,8 @@ reached 125x the contract atol for the row-summed weight gradients and left
 
 from __future__ import annotations
 
+import math
+
 import torch
 
 from rl_engine.contracts.numerical import resolve_tolerance_support
@@ -49,6 +51,19 @@ _CONTRACT = load_contract()
 def peak_ulp(reference: torch.Tensor, dtype: torch.dtype) -> float:
     """One ULP of ``dtype`` at the reference tensor's peak magnitude."""
     peak = torch.tensor(float(reference.abs().max()), dtype=dtype)
+    if not math.isfinite(float(peak)):
+        # An inf or a NaN anywhere makes the peak non-finite, nextafter returns NaN
+        # from it, and the allowance becomes NaN: the comparison then fails on the
+        # NaN element with a message full of NaN ratios, which reads as a tolerance
+        # problem. This is the assertion all three [F1] files use to diagnose kernel
+        # bugs, so it has to name the real cause. The benchmark's own gate carried
+        # this check and this helper did not, which is the sort of divergence that
+        # made the benchmark import this policy rather than keep its own.
+        raise ValueError(
+            f"reference contains a non-finite value (peak {float(peak)}); no "
+            "tolerance can be formed from it. That is a kernel or input problem, "
+            "not a tolerance problem."
+        )
     if float(peak) == 0.0:
         return 0.0
     step = torch.nextafter(peak, torch.tensor(float("inf"), dtype=dtype)) - peak
