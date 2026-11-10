@@ -20,7 +20,7 @@ first, then come back for any operator that misses the performance gate.
 
 | Package | Contents | Status | Disposition in this plan |
 |---|---|---|---|
-| P1 | mHC + RMSNorm + fp32_gemm_rms | Done (unfused canonical) | Keep as is |
+| P1 | mHC + RMSNorm + fp32_gemm_rms | Done (unfused canonical) | Keep as is; DSv4 uses its own fused `dsv4-mhc-v1` (Phase 3) |
 | P5 | MXFP8 act quant, MXFP4 routed-expert SM90 fused MLP (`sm90_fused_moe_mlp.cu`), LoRA delta, shared expert, clamp SwiGLU | Done | Routed-expert kernel: keep (optimized and BI). Shared expert: move from the det_gemm K-tree to DeepGEMM FP8 (D2, Phase 3) |
 | P3 | Router: gate GEMM, stable_topk6, routing weights, RoutePlan | Early T01 + T05 were merged but carry almost no usable progress; no `rl_engine/p3` on this branch; T08 (#639) draft | **Redo** on this branch: gate / stable top-k / weights / combine-plan |
 | P2 | Compressed attention: KV compressor C4/C128, FP4 index, paged cache | T01 start kit only | **Critical path**, T02-T07 all open |
@@ -184,7 +184,7 @@ expert is above the gate today and stays merged until its DeepGEMM replacement l
 | Shared expert GEMMs | DeepGEMM `fp8_gemm_nt` (D2, D3) | Provider with a new numeric profile; SwiGLU stays ours |
 | EP dispatch/combine | `zhuzilin/DeepEP@align_fp8_quantization` | P4 adapter + route-metadata capture + fixed-capacity staging |
 | Router gate | DeepGEMM `bf16_gemm_nt`, FP32 output (D4) | Done in the P3 redo (`rl_engine/models/deepseek_v4/router.py`) |
-| mHC / RMSNorm / logprob | Own P1 / linear_logp / #241 | Unchanged |
+| mHC / RMSNorm / logprob | Own `dsv4-mhc-v1` (DeepGEMM TF32 GEMM + own epilogue) / linear_logp / #241 | mHC: fused norm, fixed 16 splits |
 | Sliding-window dense attention | Own #240 or FA3 | Verify split-KV is pinned |
 | Training integration | verl; slime #2262 for methodology | Rollout and actor recompute on the same kernel set; layerwise exact-zero diff gate; logprob CI threshold |
 
@@ -487,6 +487,16 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
   - [ ] Real checkpoint: DSv4 FP4 experts are MXFP4 `[E, 2F, H/2]` + E8M0 `[E, 2F, H/32]`,
         gate rows then up rows (vLLM loader), the P5 layout; check the nibble order and
         P5's per-column scale-residual range ([-8, 6], fail-closed) on real shards
+- [x] DSv4 mHC (`docs/operators/dsv4-mhc.md`, profile `dsv4-mhc-v1`): `mhc_pre` /
+      `mhc_post` / `hc_head` with the attn_norm / ffn_norm / final norm fused, plus the dX
+      backward. Parameters and norm weight are frozen (user decision); RMS is
+      `rsqrt(mean + eps)`. Controller GEMM is DeepGEMM `tf32_hc_prenorm_gemm` with a fixed
+      16 splits; everything after it is our CUDA. H-long dot products use a fixed 128-slice,
+      runs-of-8 FMA partition. Byte-equal to the golden and batch-invariant. H200:
+      pre + norm is 1.09-1.18x of vLLM's `mhc_pre_tilelang` (the gap is the fixed split
+      count; the epilogues are equal), post 0.92-1.02x. A train step (fwd + bwd) is
+      0.07-0.10x of naive PyTorch. vLLM's split count depends on T, so the rollout must run
+      these kernels
 - [ ] P7 redo: sampling gate + M10 selected-token logprob, wired to the #241 vocab-TP
       deterministic reduce
 - [ ] P6 T06 + real EP=2/4/8 collectives (replacing the values-only mock)

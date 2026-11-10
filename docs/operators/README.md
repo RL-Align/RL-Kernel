@@ -41,5 +41,6 @@ Every operator page should include:
 - [DSv4 Indexer Query RoPE + FP8](indexer-q.md)
 - [DSv4 KV Compressor](compressor.md)
 - [DSv4 MoE Router](dsv4-router.md)
+- [DSv4 mHC](dsv4-mhc.md)
 - [Final Logit Softcap](final-logit-softcap.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

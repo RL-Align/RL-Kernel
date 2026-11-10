@@ -476,6 +476,73 @@ def dsv4_save_states(
     state: torch.Tensor,
     slots: torch.Tensor,
 ) -> None: ...
+def dsv4_mhc_pre(
+    res: torch.Tensor,
+    pmix: torch.Tensor,
+    pss: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    rms_eps: float,
+    eps: float,
+    iters: int,
+    post_mult: float,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+) -> list[torch.Tensor]: ...
+def dsv4_mhc_head(
+    res: torch.Tensor,
+    pmix: torch.Tensor,
+    pss: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    rms_eps: float,
+    eps: float,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+) -> list[torch.Tensor]: ...
+def dsv4_mhc_post(
+    x: torch.Tensor, res: torch.Tensor, post: torch.Tensor, comb: torch.Tensor
+) -> torch.Tensor: ...
+def dsv4_mhc_post_backward(
+    dnew: torch.Tensor,
+    x: torch.Tensor,
+    res: torch.Tensor,
+    post: torch.Tensor,
+    comb: torch.Tensor,
+    bf16_out: bool,
+) -> list[torch.Tensor]: ...
+def dsv4_mhc_pre_backward(
+    dy: torch.Tensor,
+    dpost: torch.Tensor,
+    dcomb: torch.Tensor,
+    res: torch.Tensor,
+    fn: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    raw: torch.Tensor,
+    ss: torch.Tensor,
+    rms_eps: float,
+    eps: float,
+    iters: int,
+    post_mult: float,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+    bf16_out: bool,
+) -> torch.Tensor: ...
+def dsv4_mhc_head_backward(
+    dy: torch.Tensor,
+    res: torch.Tensor,
+    fn: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    raw: torch.Tensor,
+    ss: torch.Tensor,
+    rms_eps: float,
+    eps: float,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+    bf16_out: bool,
+) -> torch.Tensor: ...
 def dsv4_router_topk(
     logits: torch.Tensor,
     bias: torch.Tensor | None,

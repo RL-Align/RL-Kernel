@@ -260,6 +260,8 @@ def get_extensions():
             # DSv4 attention query / output side.
             cuda_sources.append("csrc/cuda/attention/dsv4_qo.cu")
             cuda_sources.append("csrc/cuda/attention/dsv4_cache.cu")
+            # DSv4 manifold hyper-connections (dsv4-mhc-v1).
+            cuda_sources.append("csrc/cuda/mhc_dsv4/dsv4_mhc.cu")
             # DSv4 MoE router (top-6 / hash routing and its dX backward).
             cuda_sources.append("csrc/cuda/router/dsv4_router.cu")
             # DSv4 MoE combine / backward fan-in (fixed slot order).

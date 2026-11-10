@@ -580,6 +580,31 @@ void dsv4_ds_mla_gather(torch::Tensor cache, int64_t block_size, torch::Tensor s
                         torch::Tensor out);
 void dsv4_save_states(torch::Tensor kv, torch::Tensor score, torch::Tensor ape,
                       torch::Tensor positions, torch::Tensor state, torch::Tensor slots);
+// DSv4 mHC (csrc/cuda/mhc_dsv4/dsv4_mhc.cu)
+std::vector<torch::Tensor> dsv4_mhc_pre(torch::Tensor res, torch::Tensor pmix, torch::Tensor pss,
+                                        torch::Tensor scale, torch::Tensor base, double rms_eps,
+                                        double eps, int64_t iters, double post_mult,
+                                        std::optional<torch::Tensor> norm_weight, double norm_eps);
+std::vector<torch::Tensor> dsv4_mhc_head(torch::Tensor res, torch::Tensor pmix, torch::Tensor pss,
+                                         torch::Tensor scale, torch::Tensor base, double rms_eps,
+                                         double eps, std::optional<torch::Tensor> norm_weight,
+                                         double norm_eps);
+torch::Tensor dsv4_mhc_post(torch::Tensor x, torch::Tensor res, torch::Tensor post,
+                            torch::Tensor comb);
+std::vector<torch::Tensor> dsv4_mhc_post_backward(torch::Tensor dnew, torch::Tensor x,
+                                                  torch::Tensor res, torch::Tensor post,
+                                                  torch::Tensor comb, bool bf16_out);
+torch::Tensor dsv4_mhc_pre_backward(torch::Tensor dy, torch::Tensor dpost, torch::Tensor dcomb,
+                                    torch::Tensor res, torch::Tensor fn, torch::Tensor scale,
+                                    torch::Tensor base, torch::Tensor raw, torch::Tensor ss,
+                                    double rms_eps, double eps, int64_t iters, double post_mult,
+                                    std::optional<torch::Tensor> norm_weight, double norm_eps,
+                                    bool bf16_out);
+torch::Tensor dsv4_mhc_head_backward(torch::Tensor dy, torch::Tensor res, torch::Tensor fn,
+                                     torch::Tensor scale, torch::Tensor base, torch::Tensor raw,
+                                     torch::Tensor ss, double rms_eps, double eps,
+                                     std::optional<torch::Tensor> norm_weight, double norm_eps,
+                                     bool bf16_out);
 // DSv4 MoE router (csrc/cuda/router/dsv4_router.cu)
 void dsv4_router_topk(torch::Tensor logits, std::optional<torch::Tensor> bias,
                       std::optional<torch::Tensor> input_ids, std::optional<torch::Tensor> tid2eid,
@@ -637,6 +662,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "DSv4: dequantize fp8_ds_mla cache entries by slot into BF16 rows");
     m.def("dsv4_save_states", &dsv4_save_states,
           "DSv4 compressor: write [kv | score + ape] state rows by slot");
+    m.def("dsv4_mhc_pre", &dsv4_mhc_pre,
+          "DSv4 mHC pre (dsv4-mhc-v1): residual + GEMM partials -> (y, post, comb, raw, ss)");
+    m.def("dsv4_mhc_head", &dsv4_mhc_head, "DSv4 mHC head: residual + GEMM partials -> (y, raw, ss)");
+    m.def("dsv4_mhc_post", &dsv4_mhc_post, "DSv4 mHC post: (x, residual, post, comb) -> residual");
+    m.def("dsv4_mhc_post_backward", &dsv4_mhc_post_backward,
+          "DSv4 mHC post backward -> (dx, d_residual, d_post, d_comb)");
+    m.def("dsv4_mhc_pre_backward", &dsv4_mhc_pre_backward,
+          "DSv4 mHC pre backward (frozen params) -> d_residual");
+    m.def("dsv4_mhc_head_backward", &dsv4_mhc_head_backward,
+          "DSv4 mHC head backward (frozen params) -> d_residual");
     m.def("dsv4_router_topk", &dsv4_router_topk,
           "DSv4 router: sqrt-softplus, top-6 (or hash) routing and scaled weights",
           py::arg("logits"), py::arg("bias"), py::arg("input_ids"), py::arg("tid2eid"),
