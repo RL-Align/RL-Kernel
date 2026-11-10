@@ -260,6 +260,31 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 
 - [ ] T02 KV compressor C4/C128 CUDA: block boundaries are per request, never crossing
       requests
+  - What vLLM runs (2026-11-10 reading of `compressor.py`, `save_partial_states.py`,
+    `fused_compress_quant_cache.py`): the score GEMM output is split into `kv` and `score`
+    (`coff * head_dim` each, `coff = 2` for C4 overlap); `save_partial_states` writes
+    `kv` and `score + ape[pos % ratio]` per token into a paged FP32 state cache; at each
+    boundary token (`(pos + 1) % ratio == 0`) the kernel gathers the `coff * ratio` window
+    (C4: the older 4 tokens use channel half 0, the newer 4 half 1; `pos < 0` masked), takes
+    a per-channel softmax over the window, sums `kv * p`, RMSNorm (FP32, `rsqrt`), GPT-J
+    RoPE at `compressed_pos = (pos // ratio) * ratio`, rounds to BF16 and quantizes.
+    Indexer (head 128) on CUDA: Triton `_fused_kv_compress_norm_rope_insert_indexer_attn`,
+    FP8 row + one FP32 power-of-two scale per entry. Main KV (head 512): CuTe-DSL
+    `compress_norm_rope_store_cutedsl` writing the `fp8_ds_mla` layout (448 FP8 nope values
+    with UE8M0 per 64, 64 BF16 rope values) that FlashMLA reads.
+  - Parity measurement (`~/dsv4-work/cute_ref/probe_compressor.py`, not in the repo): a plain
+    FP32 PyTorch version of the indexer compressor matches vLLM's Triton kernel on
+    655359/655360 FP8 bytes and all scales (C4, 5 seeds, magnitudes 3e-5 to 50). FP8 rounding
+    hides most last-bit differences of Triton's approximate exp / divide / rsqrt and its
+    reduction trees, but not all: about 2e-4 mismatching entries, so a full model run would
+    almost surely differ somewhere. **Decision needed**: (a) own CUDA compressor with a
+    defined fixed-order arithmetic (BI and deterministic; rollout parity only if the rollout
+    also runs it), (b) emulate Triton's exact arithmetic (fragile across Triton versions),
+    or (c) reuse vLLM's Triton/CuTe compressor kernels on the training side (bitwise with
+    the vLLM rollout by construction, but a Triton dependency, against "CUDA first").
+    The same question applies to every vLLM Triton/CuTe kernel on the DSv4 path whose
+    output is not hidden behind an exact step (top-k, indexer Q and the probed DeepGEMM
+    kernels are already exact matches)
 - [ ] T03 indexer projection + FP4/FP8 logits: use the GEMM decided in Phase 1; run the
       invariance probe against DeepGEMM `fp8_mqa_logits` (5 seeds x 5 sub-batch sizes x
       production shape)
