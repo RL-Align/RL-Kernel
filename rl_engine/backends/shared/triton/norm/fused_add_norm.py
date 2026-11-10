@@ -270,7 +270,7 @@ def _require_triton() -> None:
         raise RuntimeError("Triton is not available for the fused add-norm kernels")
 
 
-def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -> int:
+def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -> None:
     for name, t in (("hidden", hidden), ("residual", residual)):
         if t.dtype not in _SUPPORTED_DTYPES:
             raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {t.dtype}.")
@@ -284,6 +284,21 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
     if hidden.dtype != residual.dtype:
         raise ValueError(
             f"hidden and residual must share dtype, got {hidden.dtype} and {residual.dtype}."
+        )
+    # Same device as hidden, the way the weights below are checked. The launch
+    # takes its device from hidden and then dereferences residual's pointer there.
+    # Measured on 8 H100s: without peer access Triton rejects the launch itself,
+    # with ValueError("Pointer argument (at 1) cannot be accessed from Triton (cpu
+    # tensor?)"), which names the wrong cause and an argument index; after one
+    # cudaDeviceEnablePeerAccess call, which a multi-GPU process may well have
+    # made, the same launch runs and reads the other device over the peer mapping
+    # without complaint. The CUDA binding refuses both cases in
+    # fused_add_norm_check_pair, and silently accepting a cross-device input is the
+    # wrong failure mode for an operator whose contract is multi-GPU byte-for-byte.
+    if residual.device != hidden.device:
+        raise RuntimeError(
+            f"residual must be on the same device as hidden ({hidden.device}), "
+            f"got {residual.device}."
         )
     width = hidden.shape[-1]
     if width == 0:
@@ -330,6 +345,35 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
             "reduction order stays independent of the batch layout, and the unroll "
             "is what bounds the width."
         )
+
+
+def _validate_cotangents(hidden: Tensor, g_res: Tensor, g_pre: Tensor) -> None:
+    """The cotangent half of the backward's contract, as the CUDA binding states it.
+
+    Split out from the body so the narrowing test can reach the kernel with a
+    cotangent dtype the public entry point no longer accepts; that is the only
+    caller that bypasses it.
+    """
+    for name, g in (("grad_residual_out", g_res), ("grad_pre_normed", g_pre)):
+        # The CUDA binding makes both dtype checks and this side made neither, so
+        # the kernel took whatever arrived and cast it to FP32 on load. Measured at
+        # 4x64 against BF16 hidden: an FP32 cotangent and an FP64 one each raise in
+        # the binding and each returned a full set of gradients here, which is the
+        # same call changing its answer with the backend.
+        if g.dtype not in _SUPPORTED_DTYPES:
+            raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {g.dtype}.")
+        if g.dtype != hidden.dtype:
+            raise TypeError(f"{name} must have hidden's dtype ({hidden.dtype}), got {g.dtype}.")
+        if g.device != hidden.device:
+            raise RuntimeError(
+                f"{name} must be on the same device as hidden ({hidden.device}), "
+                f"got {g.device}."
+            )
+        if g.shape != hidden.shape:
+            raise ValueError(
+                f"{name} must share hidden's shape, got {tuple(g.shape)} "
+                f"and {tuple(hidden.shape)}."
+            )
 
 
 def fused_add_norm_triton_forward(
@@ -420,19 +464,9 @@ def fused_add_norm_triton_backward(
     # CUDA path validates in C++. Mismatched cotangent shapes read and wrote the
     # wrong rows instead of raising.
     _validate(hidden, residual_out, post_weight, pre_weight)
+    _validate_cotangents(hidden, grad_residual_out, grad_pre_normed)
     width = hidden.shape[-1]
     lanes, chunks, levels = _reduction_shape(width)
-    for name, g in (("grad_residual_out", grad_residual_out), ("grad_pre_normed", grad_pre_normed)):
-        if g.device != hidden.device:
-            raise RuntimeError(
-                f"{name} must be on the same device as hidden ({hidden.device}), "
-                f"got {g.device}."
-            )
-        if g.shape != hidden.shape:
-            raise ValueError(
-                f"{name} must share hidden's shape, got {tuple(g.shape)} "
-                f"and {tuple(hidden.shape)}."
-            )
     rows_expected = hidden.numel() // width
     for name, r in (("rstd_post", rstd_post), ("rstd_pre", rstd_pre)):
         # The same four checks the CUDA binding makes. Rank and length alone were

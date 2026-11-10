@@ -211,6 +211,27 @@ def test_forward_differs_from_the_composition_without_the_pre_add_cast(dtype):
             TypeError,
             "fp16, bf16, or fp32",
         ),
+        # A 0-D hidden cleared the dtype and shape checks and then died inside the
+        # body on width = hidden.shape[-1], as "IndexError: tuple index out of
+        # range", which names neither the argument nor the problem.
+        (
+            lambda h, r, pw, vw: (h[0, 0], r[0, 0], pw, vw),
+            ValueError,
+            "at least one dimension",
+        ),
+        # The rows were held to the dtype set and the weights were not, so an
+        # integer weight was widened by weight.float() and the oracle answered
+        # where both kernels raise.
+        (
+            lambda h, r, pw, vw: (h, r, pw.to(torch.int64), vw),
+            TypeError,
+            "post_weight must have dtype",
+        ),
+        (
+            lambda h, r, pw, vw: (h, r, pw, vw.to(torch.bool)),
+            TypeError,
+            "pre_weight must have dtype",
+        ),
     ],
 )
 def test_fused_add_norm_fails_closed(mutate, exc, match):
@@ -749,6 +770,23 @@ def test_batch_invariance_holds_at_widths_that_are_not_a_multiple_of_32(device, 
             TypeError,
             "fp16, bf16, or fp32",
         ),
+        (
+            lambda a: a | {"hidden": a["hidden"][0, 0]},
+            ValueError,
+            "at least one dimension",
+        ),
+        (
+            lambda a: a | {"post_weight": a["post_weight"].to(torch.int64)},
+            TypeError,
+            "post_weight must have dtype",
+        ),
+        # A cotangent in another dtype was upcast and answered here while both
+        # kernels compare it against hidden and raise.
+        (
+            lambda a: a | {"grad_pre_normed": a["grad_pre_normed"].half()},
+            ValueError,
+            "must share hidden's dtype",
+        ),
     ],
 )
 def test_closed_form_backward_fails_loudly_on_bad_input(mutate, exc, match):
@@ -781,6 +819,12 @@ def test_closed_form_backward_fails_loudly_on_bad_input(mutate, exc, match):
     [
         (lambda a: a | {"weight": a["weight"][:1]}, ValueError, "weight must be 1-D"),
         (lambda a: a | {"grad_output": a["grad_output"][:1]}, ValueError, "must share x's shape"),
+        (
+            lambda a: a | {"grad_output": a["grad_output"].half()},
+            ValueError,
+            "must share x's dtype",
+        ),
+        (lambda a: a | {"weight": a["weight"].to(torch.int64)}, TypeError, "must have dtype"),
     ],
 )
 def test_final_norm_backward_fails_loudly_on_bad_input(mutate, exc, match):

@@ -54,11 +54,24 @@ _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 
 
 def _validate_row(x: Tensor, name: str) -> None:
+    # Rank before dtype: a 0-D tensor passed both checks here and the shape
+    # comparison, then died on width = hidden.shape[-1] with "IndexError: tuple
+    # index out of range", which says nothing about the argument. One dimension is
+    # enough, a single row being a shape the oracle does accept.
+    if x.dim() < 1:
+        raise ValueError(f"{name} must have at least one dimension, got a 0-D tensor.")
     if x.dtype not in _SUPPORTED_DTYPES:
         raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {x.dtype}.")
 
 
 def _validate_weight(weight: Tensor, hidden: int, name: str) -> None:
+    # The rows are held to this dtype set and the weights were not, while both
+    # kernels reject anything outside it in fused_add_norm_check_pair and _validate.
+    # Measured: an int64 or bool weight of ones was widened by weight.float() and
+    # the oracle returned a full set of plausible values, so the reference answered
+    # where the implementations it defines would have raised.
+    if weight.dtype not in _SUPPORTED_DTYPES:
+        raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {weight.dtype}.")
     if weight.dim() != 1 or weight.shape[0] != hidden:
         raise ValueError(
             f"{name} must be 1-D of size x.shape[-1]={hidden}, "
@@ -85,6 +98,17 @@ def _validate_backward(
             raise ValueError(
                 f"{name} must share {reference_name}'s shape, got "
                 f"{tuple(tensor.shape)} and {tuple(reference.shape)}."
+            )
+        # One dtype across the call, cotangents included. A cotangent carries the
+        # dtype of the tensor it is a cotangent of, which is what autograd hands
+        # over, and both kernels reject anything else: the CUDA binding compares
+        # against hidden in csrc/bindings/ops.cpp and the Triton wrapper does the
+        # same in _validate_cotangents. The oracle took mixed dtypes and upcast
+        # them, so it answered where the implementations it defines raise.
+        if tensor.dtype != reference.dtype:
+            raise ValueError(
+                f"{name} must share {reference_name}'s dtype, got {tensor.dtype} "
+                f"and {reference.dtype}."
             )
     for tensor, name in weights:
         _validate_weight(tensor, reference.shape[-1], name)

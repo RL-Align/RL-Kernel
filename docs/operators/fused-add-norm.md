@@ -149,10 +149,11 @@ python -m pytest tests/ops/norm/test_fused_add_norm.py tests/ops/norm/test_fused
 ```
 
 Reference: FP64 forward and backward, guards against a dropped offset and swapped
-eps, the eager-composition narrowing check, fail-closed on shape, dtype and weight
-width. Each GPU kernel: forward and backward against the gold at the reduction rows,
-batch invariance bitwise, eps wiring, fail-closed. CUDA against Triton at the
-reduction rows.
+eps, the eager-composition narrowing check, fail-closed on rank, shape, dtype and
+weight width. Each GPU kernel: forward and backward against the gold at the reduction
+rows, batch invariance bitwise, eps wiring, fail-closed. CUDA against Triton at the
+reduction rows. The cross-device checks need two GPUs and skip on a single-device
+box; they were run against two cards of an eight-H100 node.
 
 ## Implementation Files
 
@@ -167,7 +168,13 @@ reduction rows.
 ## Known Limitations
 
 - `hidden` and `residual` must share shape and dtype; no broadcasting. Weights are
-  1-D at the hidden width.
+  1-D at the hidden width, in the same dtype set as the rows, and every tensor in a
+  call belongs to `hidden`'s device rather than merely to some GPU.
+- A cotangent carries the dtype of the tensor it is a cotangent of, in the oracle
+  and in both kernels. Autograd always satisfies that, since cotangents arrive at
+  the output dtype, but a direct caller passing FP32 cotangents against BF16
+  `hidden` is asking for the `forward_fp32` gradient, and gets an error rather than
+  a different computation.
 - A row is folded by one Triton program, and the unroll is what bounds the width:
   `_MAX_CHUNKS` is 128 chunks of 512 lanes, so 65536 is the ceiling, and wider rows
   raise rather than silently splitting. The CUDA kernel loops instead of unrolling

@@ -36,6 +36,7 @@ from tests.helpers.fused_add_norm_tolerance import assert_within
 
 triton = pytest.importorskip("triton")
 
+from rl_engine.backends.shared.triton.norm import fused_add_norm as triton_norm  # noqa: E402
 from rl_engine.backends.shared.triton.norm.fused_add_norm import (  # noqa: E402
     TritonFusedAddNormOp,
     fused_add_norm_triton_backward,
@@ -395,6 +396,19 @@ def test_triton_row_offset_does_not_wrap_at_two_billion_elements():
             "share dtype",
         ),
         (lambda kw: kw | {"hidden": kw["hidden"].cpu()}, RuntimeError, "GPU tensor"),
+        # hidden is BF16 below. The binding rejects both of these, the first from
+        # the comparison against hidden and the second from the supported set, and
+        # this side accepted both and cast them to FP32 on load.
+        (
+            lambda kw: kw | {"grad_residual_out": kw["grad_residual_out"].float()},
+            TypeError,
+            "must have hidden's dtype",
+        ),
+        (
+            lambda kw: kw | {"grad_pre_normed": kw["grad_pre_normed"].double()},
+            TypeError,
+            "fp16, bf16, or fp32",
+        ),
     ],
 )
 def test_triton_backward_validates_its_inputs(mutate, exc, match):
@@ -425,15 +439,19 @@ def test_triton_backward_validates_its_inputs(mutate, exc, match):
 
 
 @requires_cuda
-def test_triton_backward_narrowing_follows_hidden_not_the_cotangent():
+def test_triton_backward_narrowing_follows_hidden_not_the_cotangent(monkeypatch):
     """The accumulation dtype comes from the input, as the reference defines it.
 
     The kernel read ``G_RES.dtype.element_ty``, so an FP32 cotangent against BF16
     ``hidden`` turned both narrowings into the identity and returned the gradient
     of ``forward_fp32`` instead -- a different computation, whose ``d_post_w`` the
-    reference measures as 2.6-2.9x outside the contract row. Autograd never does
-    this because cotangents arrive at the output dtype, but the public function
-    can, and the CUDA path takes the dtype from ``hidden``.
+    reference measures as 2.6-2.9x outside the contract row.
+
+    The public entry point now rejects that cotangent outright, because the CUDA
+    binding does, so the mismatch is fed in one level down with the guard patched
+    out. Asserted both ways: the guard is there, and behind it the kernel still
+    reads its narrowing from ``hidden``. Without the second half the first would
+    just be hiding the old bug rather than fixing it.
     """
     shape = (8, HIDDEN_SIZE)
     dtype = torch.bfloat16
@@ -447,6 +465,11 @@ def test_triton_backward_narrowing_follows_hidden_not_the_cotangent():
     narrow = fused_add_norm_triton_backward(
         g_res, g_pre, hidden, res_out, post_w, pre_w, rstd_post, rstd_pre
     )
+    with pytest.raises(TypeError, match="must have hidden's dtype"):
+        fused_add_norm_triton_backward(
+            g_res.float(), g_pre.float(), hidden, res_out, post_w, pre_w, rstd_post, rstd_pre
+        )
+    monkeypatch.setattr(triton_norm, "_validate_cotangents", lambda *a: None)
     wide = fused_add_norm_triton_backward(
         g_res.float(), g_pre.float(), hidden, res_out, post_w, pre_w, rstd_post, rstd_pre
     )
@@ -515,17 +538,36 @@ def test_triton_backward_rejects_a_strided_rstd():
 
 @requires_cuda
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two GPUs")
-@pytest.mark.parametrize("which", ["post_weight", "pre_weight", "grad_residual_out"])
+@pytest.mark.parametrize("which", ["residual", "post_weight", "pre_weight", "grad_residual_out"])
 def test_triton_rejects_tensors_on_another_device(which):
     """Same device as hidden, not merely some GPU, matching the CUDA binding.
 
-    The launch takes its device and stream from ``hidden``, so a weight or a
-    cotangent on another device is dereferenced as if it lived there. This side
-    checked ``is_cuda`` only while the binding checked the device, which is one more
-    instance of a fix landing on one backend and not the other.
+    The launch takes its device and stream from ``hidden``, so a weight, a
+    cotangent or the residual on another device is dereferenced as if it lived
+    there. This side checked ``is_cuda`` only while the binding checked the device,
+    and each round of this fix reached one argument and not its neighbour.
+
+    What happens without the check, measured on eight H100s: with no peer access
+    Triton refuses the launch itself, reporting ValueError("Pointer argument (at 1)
+    cannot be accessed from Triton (cpu tensor?)") against a tensor that is on a
+    GPU; after a single cudaDeviceEnablePeerAccess call, which a multi-GPU process
+    may well have made, the same launch runs and reads the other device through the
+    peer mapping without a word. The second outcome is the reason this is a check
+    and not a comment.
     """
     shape = (4, HIDDEN_SIZE)
     hidden, residual, post_w, pre_w = _inputs(shape, torch.bfloat16)
+    if which == "residual":
+        with pytest.raises(RuntimeError, match="same device as hidden"):
+            fused_add_norm_triton_forward(
+                hidden,
+                residual.to("cuda:1"),
+                post_w,
+                pre_w,
+                post_eps=POST_NORM_EPS,
+                pre_eps=RMS_NORM_EPS,
+            )
+        return
     if which == "post_weight":
         with pytest.raises(RuntimeError, match="same device as hidden"):
             fused_add_norm_triton_forward(
