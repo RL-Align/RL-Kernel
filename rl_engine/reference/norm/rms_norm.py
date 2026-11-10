@@ -103,9 +103,20 @@ def _pad_to_chunk(x_f: torch.Tensor) -> torch.Tensor:
     This changes ``shape_invariant_rstd`` and so ``NativeRMSNormOp`` and the Ascend
     statistic at widths that are not a multiple of 32, which is a reference
     behaviour change and is called out as one. Verified bit-identical to the old
-    result at 64, 128 and 4096, and different at 33 and 100; every consumer test
-    uses a multiple of 32, so no existing expected value moves. The change is in the
+    result at 64, 128 and 4096, and different at 33 and 100. The change is in the
     direction of the contract: those widths were not batch invariant before.
+
+    An earlier version of this docstring said every consumer test uses a multiple
+    of 32, which is not true and is corrected here rather than quietly dropped.
+    ``test_rms_norm.py`` covers 63, 65, 127, 129, 255 and 257 in the CUDA and Triton
+    layout-invariance test and 1000 in the Ascend tests. What holds is the thing
+    that matters: no expected value is pinned to the old bytes. The only bitwise
+    comparison against this statistic, ``_manual_rms_norm``, computes it by calling
+    ``shape_invariant_rstd``, so it tracks any change here by construction rather
+    than carrying a copy of the result; the layout-invariance test compares a kernel
+    against itself across batch layouts and never against this reduction; and the
+    Ascend tests are tolerance-based against that same manual reference. The widths
+    that reach a bitwise expectation here are 4096 and 128.
 
     Padding with zeros is exact for both a sum of squares and a row sum, and the
     chunk count is ``ceil(width / 32)``, which depends on the width alone. The

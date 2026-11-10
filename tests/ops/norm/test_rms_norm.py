@@ -148,6 +148,37 @@ def test_batch_invariance_slice(N):
     assert torch.equal(op.forward_fp32(x[3:5], w), full[3:5])
 
 
+@pytest.mark.parametrize("device", ["cpu"] + (["cuda"] if torch.cuda.is_available() else []))
+@pytest.mark.parametrize("N", [33, 100, 129])
+def test_batch_invariance_at_widths_that_are_not_a_multiple_of_32(N, device):
+    """Axis A is unconditional, and it used to hold only for multiples of 32.
+
+    ``shape_invariant_meansq`` fell back to a plain ``mean`` when the width was not
+    a multiple of 32, which is the shape-dependent reduction the helper exists to
+    avoid, so ``NativeRMSNormOp`` was not batch invariant at those widths. Measured
+    on CUDA at width 100 with 16 rows before the fix: a row's bytes moved in 3 of 9
+    sub-batch comparisons for the statistic and 23 for the fused operator's whole
+    backward.
+
+    Two things make this sensitive, and both were checked by putting the fallback
+    back. The sweep: the two hand-picked slices in the test above happen to agree at
+    width 100 even with the bug, so they would have gone green on it. And the
+    device: on CPU the plain mean is invariant for these shapes anyway, so a
+    CPU-only version of this test also goes green on the bug. It is the CUDA row
+    that carries it.
+    """
+    op = NativeRMSNormOp()
+    w = _rand((N,), seed=1).to(device)
+    x = _rand((16, N), seed=2).to(device)
+    full = op.forward_fp32(x, w)
+    for count in (1, 2, 7):
+        for start in (0, 1, 16 - count):
+            sl = slice(start, start + count)
+            assert torch.equal(
+                op.forward_fp32(x[sl], w), full[sl]
+            ), f"width {N}: rows {start}:{start + count} moved with the sub-batch"
+
+
 def test_batch_invariance_with_padding():
     """Padding extra rows must not perturb the real rows (bitwise)."""
     op = NativeRMSNormOp()

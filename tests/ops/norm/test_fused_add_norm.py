@@ -898,8 +898,25 @@ def test_the_cotangent_dtype_follows_the_forward_being_differentiated(dtype):
         fused_add_norm_backward(
             g_res.to(dtype), g_pre, hidden, residual, post_w, pre_w, grad_dtype=torch.float32
         )
-    with pytest.raises(ValueError, match="cotangent of"):
+    # And the default rejects FP32 cotangents, since the default is the narrowed
+    # forward. That is the one place a caller differentiating forward_fp32 lands
+    # without meaning to, so the message has to name the way out rather than state
+    # a dtype and stop.
+    with pytest.raises(ValueError, match=r"grad_dtype=torch\.float32"):
         fused_add_norm_backward(g_res, g_pre, hidden, residual, post_w, pre_w)
+
+    # All four returns are FP32, in both modes. The weight entries are declared
+    # FP32 per-row contributions, and d_residual_out carries a narrowed value in an
+    # FP32 tensor: the rounding is in the arithmetic, not in the storage, so a
+    # caller stacking the tuple or inferring a dtype from it sees one dtype.
+    narrow_pair = fused_add_norm_backward(
+        g_res.to(dtype), g_pre.to(dtype), hidden, residual, post_w, pre_w
+    )
+    for tensors, label in ((got, "grad_dtype=fp32"), (narrow_pair, "default")):
+        for tensor, name in zip(
+            tensors, ("d_hidden", "d_residual_out", "d_post_w_rows", "d_pre_w_rows"), strict=True
+        ):
+            assert tensor.dtype is torch.float32, f"{label}: {name} is {tensor.dtype}"
 
     # The final norm takes either, and the wider one cannot change the answer,
     # because the only thing that happens to it is .float() on entry.

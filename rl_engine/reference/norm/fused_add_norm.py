@@ -84,6 +84,7 @@ def _validate_backward(
     weights: tuple[tuple[Tensor, str], ...],
     cotangents: tuple[tuple[Tensor, str], ...] = (),
     cotangent_dtype: torch.dtype | None = None,
+    cotangent_hint: str = "",
 ) -> None:
     """The same bar the forward applies, on the closed-form backward.
 
@@ -122,7 +123,7 @@ def _validate_backward(
         if cotangent_dtype is not None and tensor.dtype != cotangent_dtype:
             raise ValueError(
                 f"{name} must have the dtype of the output it is a cotangent of "
-                f"({cotangent_dtype}), got {tensor.dtype}."
+                f"({cotangent_dtype}), got {tensor.dtype}.{cotangent_hint}"
             )
     for tensor, name in weights:
         _validate_weight(tensor, reference.shape[-1], name)
@@ -342,6 +343,17 @@ def fused_add_norm_backward(
         # sentence of this docstring unreachable, since forward_fp32 on a narrow
         # hidden returns FP32 and so hands FP32 cotangents to autograd.
         cotangent_dtype=dtype,
+        # The default is the narrowed forward, so FP32 cotangents against a narrow
+        # hidden are rejected, and the message has to say what to do about that
+        # rather than leave the caller to find grad_dtype. Defaulting to the
+        # cotangents' own dtype instead was the alternative and is not taken: the
+        # narrowing dtype would then follow the cotangent, which is the kernel bug
+        # test_triton_backward_narrowing_follows_hidden_not_the_cotangent exists to
+        # catch, moved into the oracle.
+        cotangent_hint=(
+            " Pass grad_dtype=torch.float32 for the gradient of forward_fp32, whose"
+            " outputs are FP32 for every input dtype."
+        ),
     )
     hidden_f = hidden.float()
     residual_f = residual.float()

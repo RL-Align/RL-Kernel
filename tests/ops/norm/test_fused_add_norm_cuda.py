@@ -271,6 +271,15 @@ def test_cuda_and_triton_are_bitwise_equal(dtype, shape):
             ValueError,
             "non-zero last dimension",
         ),
+        # A 0-D hidden cleared every check above, since a 0-D residual equals it,
+        # and then died on hidden.shape[-1] as an IndexError about a tuple index.
+        # The oracle names the argument; a wrapper that does not is a failure mode
+        # that differs from the thing it is measured against.
+        (
+            lambda h, r, pw, vw: (h[0, 0], r[0, 0], pw, vw),
+            ValueError,
+            "at least one dimension",
+        ),
     ],
 )
 def test_cuda_fails_closed(mutate, exc, match):

@@ -306,6 +306,14 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
             f"residual must be on the same device as hidden ({hidden.device}), "
             f"got {residual.device}."
         )
+    # Rank before the width, the way the oracle checks it. A 0-D hidden cleared
+    # the dtype, device and shape-equality checks above, since a 0-D residual
+    # equals a 0-D hidden, and then died on hidden.shape[-1] with "IndexError:
+    # tuple index out of range". The reference raises a ValueError naming the
+    # argument, and a wrapper whose failure mode differs from its oracle's is the
+    # one-sided fix this review has already seen six times.
+    if hidden.dim() < 1:
+        raise ValueError("hidden must have at least one dimension, got a 0-D tensor.")
     width = hidden.shape[-1]
     if width == 0:
         # Otherwise the first thing that fails is .view(-1, 0), whose message is
