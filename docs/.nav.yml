@@ -42,6 +42,7 @@ nav:
       - operators/dsv4-router.md
       - operators/dsv4-mhc.md
       - operators/dsv4-model.md
+      - operators/dsv4-logprob.md
       - operators/final-logit-softcap.md
   - Developer Guide:
     - contributing/README.md

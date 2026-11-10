@@ -499,8 +499,16 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       count; the epilogues are equal), post 0.92-1.02x. A train step (fwd + bwd) is
       0.07-0.10x of naive PyTorch. vLLM's split count depends on T, so the rollout must run
       these kernels
-- [ ] P7 redo: sampling gate + M10 selected-token logprob, wired to the #241 vocab-TP
-      deterministic reduce
+- [x] P7 redo, kernels (`docs/operators/dsv4-logprob.md`, profile `dsv4-logprob-v1`): FP32
+      head logits on DeepGEMM `bf16_gemm_nt` (probed BI and vocab-shard invariant), a
+      64-tile fixed-order log-sum-exp in the #241 vocab-TP structure (TP 1/2/4/8 give the
+      same bytes), dhidden backward via DeepGEMM `bf16_gemm_nn` computed in the forward
+      when grad is needed. Byte-equal to the golden; BI. H200: fwd 0.79-1.05x, fwd + bwd
+      0.84-1.04x of naive PyTorch. `Dsv4Model.selected_logprob`. Temperature divides the
+      FP32 logits; with T = 1 it is the raw logprob the T02 sampling gate requires
+- [ ] P7 integration: rollout head patch (vLLM's default head makes BF16 logits; ours are
+      FP32), verl `linear_cross_entropy` hook, entropy output if verl needs it, a
+      `torch.distributed` wrapper for a TP-sharded head, M10 wiring
 - [ ] P6 T06 + real EP=2/4/8 collectives (replacing the values-only mock)
 - [ ] P4: DeepEP `align_fp8_quantization` adapter, route-metadata capture (top-k slot
       order), fixed-capacity staging; empty ranks still join the collective

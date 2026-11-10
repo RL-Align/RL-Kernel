@@ -14,7 +14,8 @@ pre / block / post, ``ISEEKYAN/vllm@1a6542c``)::
         streams       = mhc_post(moe(x, input_ids), streams, post, comb)
     out      = hc_head(streams, hc_head_*, norm)                  BF16 [T, H], final norm fused
 
-The LM head (selected-token log-probs) is P7 and not part of this module.
+The LM head gives selected-token log-probs (:meth:`Dsv4Model.selected_logprob`, profile
+``dsv4-logprob-v1``): FP32 logits on DeepGEMM, a 64-tile fixed-order log-sum-exp.
 
 Every operator is batch-invariant and per-token, so a token's output bytes do not
 depend on which other tokens share its step, nor on whether its request runs as one
@@ -129,3 +130,15 @@ class Dsv4Model:
             seq_lens, query_lens, self.config.sliding_window, self.embed.device
         )
         return self.forward_batch(input_ids, batch, caches)
+
+    def selected_logprob(self, hidden: Tensor, targets: Tensor, temperature: float = 1.0):
+        """``(logp, lse)`` FP32 ``[T]`` of ``targets`` under ``softmax(head(hidden) / T)``.
+
+        ``hidden`` is :meth:`forward_batch`'s output. Differentiable in ``hidden``
+        (the head is frozen).
+        """
+        from rl_engine.kernels.ops.cuda.logprob_dsv4 import selected_logprob
+
+        if self.head is None:
+            raise RuntimeError("the model was loaded without its LM head (load_head=False)")
+        return selected_logprob(hidden, self.head, targets, temperature)

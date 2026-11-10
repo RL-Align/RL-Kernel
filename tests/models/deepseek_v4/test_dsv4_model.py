@@ -141,6 +141,29 @@ def test_model_is_batch_invariant(model):
 
 
 @gpu
+def test_model_logprob_is_batch_invariant(model):
+    """Selected-token log-probs of the next token: batch == alone == decode."""
+    lengths = {0: 150, 1: 260}
+    gen = torch.Generator().manual_seed(7)
+    vocab = model.config.vocab_size
+    ids = {r: torch.randint(vocab, (n + 1,), generator=gen).cuda() for r, n in lengths.items()}
+
+    def logp(hidden, parts):
+        nxt = torch.cat([ids[r][lo + 1 : hi + 1] for r, lo, hi in parts])
+        return model.selected_logprob(hidden, nxt)[0]
+
+    parts = [(r, 0, n) for r, n in lengths.items()]
+    full = logp(Runner(model, ids, [0, 1], seed=1).step(parts), parts)
+    assert torch.isfinite(full).all() and bool((full < 0).all())
+    alone = logp(Runner(model, ids, [1], seed=2).step([(1, 0, 260)]), [(1, 0, 260)])
+    assert torch.equal(alone.view(torch.int32), full[150:].view(torch.int32))
+    dec = Runner(model, ids, [0], seed=3)
+    dec.step([(0, 0, 149)])
+    last = logp(dec.step([(0, 149, 150)]), [(0, 149, 150)])
+    assert torch.equal(last.view(torch.int32), full[149:150].view(torch.int32))
+
+
+@gpu
 def test_layers_are_wired(model):
     """Every layer changes the streams, and stream outputs are reproducible."""
     from rl_engine.models.deepseek_v4.attention import Dsv4Batch

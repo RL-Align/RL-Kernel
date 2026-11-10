@@ -43,5 +43,6 @@ Every operator page should include:
 - [DSv4 MoE Router](dsv4-router.md)
 - [DSv4 mHC](dsv4-mhc.md)
 - [DSv4 Decoder Layer and Model](dsv4-model.md)
+- [DSv4 Selected-Token Log-Probability](dsv4-logprob.md)
 - [Final Logit Softcap](final-logit-softcap.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

@@ -580,6 +580,13 @@ void dsv4_ds_mla_gather(torch::Tensor cache, int64_t block_size, torch::Tensor s
                         torch::Tensor out);
 void dsv4_save_states(torch::Tensor kv, torch::Tensor score, torch::Tensor ape,
                       torch::Tensor positions, torch::Tensor state, torch::Tensor slots);
+// DSv4 selected-token log-probability (csrc/cuda/logprob_dsv4/dsv4_logprob.cu)
+std::vector<torch::Tensor> dsv4_logprob_tile_stats(torch::Tensor z, int64_t tile_len,
+                                                   double temperature);
+std::vector<torch::Tensor> dsv4_logprob_merge(torch::Tensor m, torch::Tensor s, torch::Tensor zt,
+                                              double temperature);
+torch::Tensor dsv4_logprob_backward(torch::Tensor z, torch::Tensor targets, torch::Tensor lse,
+                                    torch::Tensor grad, double temperature, int64_t col_offset);
 // DSv4 mHC (csrc/cuda/mhc_dsv4/dsv4_mhc.cu)
 std::vector<torch::Tensor> dsv4_mhc_pre(torch::Tensor res, torch::Tensor pmix, torch::Tensor pss,
                                         torch::Tensor scale, torch::Tensor base, double rms_eps,
@@ -662,6 +669,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "DSv4: dequantize fp8_ds_mla cache entries by slot into BF16 rows");
     m.def("dsv4_save_states", &dsv4_save_states,
           "DSv4 compressor: write [kv | score + ape] state rows by slot");
+    m.def("dsv4_logprob_tile_stats", &dsv4_logprob_tile_stats,
+          "DSv4 logprob (dsv4-logprob-v1): FP32 logits -> per-tile (max, sumexp) [n, tiles]");
+    m.def("dsv4_logprob_merge", &dsv4_logprob_merge,
+          "DSv4 logprob: 64 tile partials + target logits -> (logp, lse)");
+    m.def("dsv4_logprob_backward", &dsv4_logprob_backward,
+          "DSv4 logprob backward: dL/dlogits as BF16 from (logits, targets, lse, dL/dlogp)");
     m.def("dsv4_mhc_pre", &dsv4_mhc_pre,
           "DSv4 mHC pre (dsv4-mhc-v1): residual + GEMM partials -> (y, post, comb, raw, ss)");
     m.def("dsv4_mhc_head", &dsv4_mhc_head, "DSv4 mHC head: residual + GEMM partials -> (y, raw, ss)");

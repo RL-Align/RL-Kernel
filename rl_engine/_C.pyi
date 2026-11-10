@@ -476,6 +476,20 @@ def dsv4_save_states(
     state: torch.Tensor,
     slots: torch.Tensor,
 ) -> None: ...
+def dsv4_logprob_tile_stats(
+    z: torch.Tensor, tile_len: int, temperature: float
+) -> list[torch.Tensor]: ...
+def dsv4_logprob_merge(
+    m: torch.Tensor, s: torch.Tensor, zt: torch.Tensor, temperature: float
+) -> list[torch.Tensor]: ...
+def dsv4_logprob_backward(
+    z: torch.Tensor,
+    targets: torch.Tensor,
+    lse: torch.Tensor,
+    grad: torch.Tensor,
+    temperature: float,
+    col_offset: int,
+) -> torch.Tensor: ...
 def dsv4_mhc_pre(
     res: torch.Tensor,
     pmix: torch.Tensor,
