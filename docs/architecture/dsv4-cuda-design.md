@@ -437,6 +437,8 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       sequence, reusing vLLM's caches, block tables and slot mappings (our cache formats are
       vLLM's: `fp8_ds_mla`, 132-byte FP8 indexer rows, `[kv | score + ape]` FP32 state).
     - Both patches take one RoPE table built by us, so the two sides cannot diverge there.
+      This also replaces vLLM's YaRN on the window-only layers with plain RoPE, as in
+      DeepSeek's inference code and Megatron-Core (`rl_engine/models/deepseek_v4/rope.py`).
     - Weights: both sides must run the same FP8 bytes. verl's FP8 sync quantizes with plain
       FP32 block scales (`scaled_fp8_blockwise`, Triton) but only for parameters named like
       `q_proj` / `o_proj` / `gate_proj`; DSv4's `wq_a` / `wkv` / `wq_b` / `wo_a` / `wo_b` do not
@@ -555,9 +557,10 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       loader for the DeepSeek-V4-Flash checkpoint layout (spec checked against the real
       headers). Batch / alone / chunked / decode byte-identical. Against DeepSeek's
       inference code on a toy checkpoint: no wiring error (layer-0 attention 4.2%, MoE 2.5%
-      rel L2, from vLLM-style FP8 choices). Open: vLLM applies YaRN to the window-only
-      layers, DeepSeek and Megatron-Core do not; the model follows vLLM for now. Forward
-      only (no SM90 sparse attention backward yet)
+      rel L2, from vLLM-style FP8 choices). RoPE follows DeepSeek and Megatron-Core: plain
+      RoPE on the window-only layers, YaRN on the compressed ones. vLLM applies YaRN to
+      the window-only layers too, so the rollout patch must use our table on every layer.
+      Forward only (no SM90 sparse attention backward yet)
 - [ ] Layerwise exact-zero hidden-state diff gate, advancing one layer at a time from layer 0
 - [ ] #230 cross_config M0-M10 selected-token logprob bitwise; add a logprob threshold to CI
       (target 0; slime's 1.9e-7 MAE is the reference upper bound)

@@ -153,13 +153,6 @@ def main() -> int:
     p.add_argument("--ref", type=pathlib.Path, required=True)
     p.add_argument("--tokens", type=int, default=1024)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument(
-        "--window-rope",
-        choices=("vllm", "plain"),
-        default="vllm",
-        help="RoPE of our sliding-window-only layers: vLLM's YaRN cache (default) or plain "
-        "RoPE as in the reference and Megatron-Core",
-    )
     args = p.parse_args()
     if args.tokens > 2048:
         raise SystemExit("--tokens must be <= 2048 (see the module docstring)")
@@ -169,14 +162,6 @@ def main() -> int:
 
     cfg = json.loads((args.ckpt / "config.json").read_text())
     ours = load_model(args.ckpt, max_model_len=4096, load_head=False)
-    if args.window_rope == "plain":
-        dim, base = cfg["qk_rope_head_dim"], cfg["rope_theta"]
-        inv = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim))
-        ang = torch.outer(torch.arange(4096, dtype=torch.float32), inv)
-        plain = torch.cat([ang.cos(), ang.sin()], -1).cuda()
-        for layer in ours.layers:
-            if layer.attn.c.compress_ratio == 1:
-                layer.attn.cos_sin = plain
     gen = torch.Generator().manual_seed(args.seed)
     ids = torch.randint(cfg["vocab_size"], (args.tokens,), generator=gen).cuda()
     batch = Dsv4Batch.from_lens([args.tokens], [args.tokens], cfg["sliding_window"])
@@ -186,7 +171,7 @@ def main() -> int:
 
     _, m = _reference(args.ref, args.ckpt, cfg, args.tokens)
     r_out, r_streams = _reference_streams(m, ids)
-    print(f"tokens {args.tokens}, window-layer RoPE: {args.window_rope}")
+    print(f"tokens {args.tokens}")
     for i, (a, b) in enumerate(zip(streams, r_streams)):
         print(f"layer {i} (ratio {max(1, cfg['compress_ratios'][i]):>3}) streams: {_err(a, b)}")
     print(f"final hidden (hc_head + norm):    {_err(out, r_out)}")

@@ -51,14 +51,19 @@ prefill, or as decode steps.
 instead sums `hc_attn_fn` over the four streams first. The two are equal in exact
 arithmetic but not in rounding; this model keeps the `dsv4-mhc-v1` contract.
 
-**RoPE.** `rope_cos_sin` reproduces vLLM's `DeepseekV4ScalingRotaryEmbedding` cache op for
-op on the GPU, and it is bit-equal to vLLM's (tested). Layers with a compressor use
-`compress_rope_theta`, the others `rope_theta`.
+**RoPE.** The model follows DeepSeek's inference code and Megatron-Core:
+- **Layers with a compressor (C4 / C128)** use YaRN with `compress_rope_theta`. Their cache
+  reproduces vLLM's `DeepseekV4ScalingRotaryEmbedding` op for op on the GPU and is bit-equal
+  to vLLM's (tested).
+- **Sliding-window-only layers** use plain RoPE with `rope_theta`. Their cache follows
+  `precompute_freqs_cis` of DeepSeek's `model.py` op for op and is bit-equal to it (tested).
+  A 128-token window never reaches the distances YaRN rescales.
 
-vLLM applies YaRN to every layer. DeepSeek's inference code and Megatron-Core use plain
-RoPE on the sliding-window-only layers. This model follows vLLM (the rollout reference) for
-now. Inside a 128-token window the two differ by at most about 0.04 rad on the
-low-frequency dimensions.
+**Difference from vLLM.** vLLM (`ISEEKYAN/vllm@1a6542c`) builds a YaRN rotary embedding
+(factor 16) for the window-only layers as well; this was checked by building
+`build_deepseek_v4_rope` from the checkpoint config. The rollout patch must therefore pass
+this model's RoPE table to every layer. Within a window the two differ by at most about
+0.04 rad on the low-frequency dimensions, but they are not the same model.
 
 ## Loading
 
@@ -89,12 +94,13 @@ low-frequency dimensions.
 
 ## Results (H200)
 
-`tests/models/deepseek_v4/test_dsv4_model.py` (6 tests) uses four layers of the real Flash
+`tests/models/deepseek_v4/test_dsv4_model.py` (7 tests) uses four layers of the real Flash
 types (window, window, C4, C128; hash routing on the first three) with random weights. It
 checks that:
 - the final hidden state is byte-identical across batch / alone / chunked prefill / decode;
 - loading from a sharded safetensors directory equals loading from a mapping;
-- the RoPE cache is bit-equal to vLLM's;
+- the RoPE caches are bit-equal to vLLM's (compressed layers) and to DeepSeek's
+  `precompute_freqs_cis` (window layers);
 - the spec equals the Flash headers;
 - the config check fails closed.
 
@@ -125,8 +131,8 @@ End to end at T = 1024 and 2048, the stream error grows smoothly with no jump at
 | 2 | 14% | 0.990 |
 | 3 | 20% | 0.981 |
 
-The window-layer RoPE choice changes this by about 0.2%. T stays ≤ 2048 so that the
-indexer selects every compressed entry on both sides.
+Using vLLM's YaRN on the window layers instead changes these numbers by about 0.2%. T
+stays ≤ 2048 so that the indexer selects every compressed entry on both sides.
 
 ## Limitations
 

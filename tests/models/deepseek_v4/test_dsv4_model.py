@@ -194,7 +194,8 @@ def test_load_from_directory(tmp_path, ckpt):
 
 
 @gpu
-def test_rope_matches_vllm():
+def test_compressed_rope_matches_vllm():
+    """C4 / C128 layers: YaRN, bit-equal to vLLM's cache."""
     pytest.importorskip("vllm")
     from vllm.config import VllmConfig, set_current_vllm_config
     from vllm.model_executor.layers.rotary_embedding.deepseek_scaling_rope import (
@@ -204,7 +205,8 @@ def test_rope_matches_vllm():
     from rl_engine.models.deepseek_v4.rope import rope_cos_sin
 
     cfg = _config()
-    for ratio, base in ((1, cfg.rope_theta), (4, cfg.compress_rope_theta)):
+    for ratio in (4, 128):
+        base = cfg.compress_rope_theta
         with torch.device("cuda"), set_current_vllm_config(VllmConfig()):
             ref = DeepseekV4ScalingRotaryEmbedding(
                 cfg.head_dim,
@@ -222,6 +224,34 @@ def test_rope_matches_vllm():
         ours = rope_cos_sin(cfg, ratio, MAX_LEN, "cuda")
         assert ours.dtype == ref.dtype == torch.float32
         assert torch.equal(ours.view(torch.int32), ref[:MAX_LEN].view(torch.int32)), ratio
+
+
+@gpu
+def test_window_rope_matches_deepseek():
+    """Sliding-window-only layers: plain RoPE, bit-equal to ``precompute_freqs_cis`` of
+    DeepSeek's inference ``model.py`` (``$DSV4_REF`` holds model.py and kernel.py)."""
+    import sys
+
+    from rl_engine.models.deepseek_v4.rope import rope_cos_sin
+
+    ref_dir = pathlib.Path(os.environ.get("DSV4_REF", "/nonexistent"))
+    if not (ref_dir / "model.py").exists():
+        pytest.skip("set DSV4_REF to DeepSeek-V4's inference directory")
+    pytest.importorskip("tilelang")  # model.py imports kernel.py
+    sys.path.insert(0, str(ref_dir))
+    try:
+        import model as ref
+    finally:
+        sys.path.remove(str(ref_dir))
+    cfg = _config()
+    with torch.device("cuda"):
+        cis = ref.precompute_freqs_cis(
+            cfg.qk_rope_head_dim, MAX_LEN, 0, cfg.rope_theta, ROPE["factor"], 32, 1
+        )
+    want = torch.cat((cis.real, cis.imag), dim=-1)
+    ours = rope_cos_sin(cfg, 1, MAX_LEN, "cuda")
+    assert ours.dtype == want.dtype == torch.float32
+    assert torch.equal(ours.view(torch.int32), want.view(torch.int32))
 
 
 def test_checkpoint_spec_matches_flash_headers():
