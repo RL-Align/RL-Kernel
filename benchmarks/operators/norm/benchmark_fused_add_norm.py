@@ -51,6 +51,10 @@ from rl_engine.kernels.gtest.tolerance import (  # noqa: E402
     resolve_tolerance,
     tolerance_contract_fingerprint,
 )
+from rl_engine.ops.autograd.backward_runtime import (  # noqa: E402
+    reset_backward_runtime,
+    snapshot_backward_runtime,
+)
 from rl_engine.reference.norm.fused_add_norm import (  # noqa: E402
     HIDDEN_SIZE,
     POST_NORM_EPS,
@@ -128,6 +132,16 @@ def _make_workload(op, hidden, residual, post_w, pre_w, g_res, g_pre, mode):
 
 def _one_ulp(reference: torch.Tensor) -> float:
     peak = float(reference.abs().max())
+    if not math.isfinite(peak):
+        # An inf or a NaN anywhere makes the peak NaN, which would flow into
+        # ``atol = max(atol, _one_ulp(...))``. ``max`` with a NaN is order
+        # dependent and assert_close keyed off a NaN atol can invert the verdict,
+        # so the gate would report a tolerance problem instead of the real one.
+        raise ValueError(
+            f"reference contains a non-finite value (peak {peak}); the accuracy "
+            "gate cannot form a tolerance from it. This is a kernel or input "
+            "problem, not a tolerance problem."
+        )
     if peak == 0.0:
         return 0.0
     hi = torch.nextafter(
@@ -398,8 +412,11 @@ def _determinism(passes):
             "compared_rows": 0,
             "memory_mismatches": 0,
             "accuracy_mismatches": 0,
+            "accuracy_detail": [],
             "max_memory_deviation_gib": 0.0,
         }
+
+    accuracy_detail: list[str] = []
 
     def key(row):
         return (row["dtype"], tuple(row["shape"]), row["mode"])
@@ -418,12 +435,24 @@ def _determinism(passes):
                 if round(a, _MEMORY_DECIMALS) != round(b, _MEMORY_DECIMALS):
                     memory += 1
                     break
+            # Exact comparison on purpose. This is a reproducibility check, not an
+            # accuracy check: the question is whether the same computation on the
+            # same inputs produced the same number twice, and a tolerance would
+            # answer a different question. The figures compared are themselves
+            # error magnitudes already gated against the contract before any timing
+            # ran, so a non-zero count here means a run-to-run difference and not a
+            # contract violation, which is what the note below now says.
             if row["accuracy"] != reference["accuracy"]:
                 accuracy += 1
+                accuracy_detail.append(
+                    f"{row['dtype']} {row['shape']} {row['mode']}: "
+                    f"{reference['accuracy']} -> {row['accuracy']}"
+                )
     return {
         "compared_rows": compared,
         "memory_mismatches": memory,
         "accuracy_mismatches": accuracy,
+        "accuracy_detail": accuracy_detail[:8],
         "max_memory_deviation_gib": worst,
     }
 
@@ -533,6 +562,13 @@ def _markdown(report):
         "autograd dispatch. The Triton and CUDA backwards are one kernel each plus the FP32 "
         "row fold for the two weight gradients; the native backward is autograd over two "
         "norms and an add. The backward speedup compares complete paths.",
+        "One asymmetry in that comparison, stated because it is real and small rather "
+        "than left for a reader to find: both candidates call record_backward once per "
+        "backward and the eager baseline has no such bookkeeping. Measured at 0.733 us "
+        "per call, 0.27 to 0.69 percent of the backward timings here, against reported "
+        "speedups of 1.4x and up. The recorder keys one entry per operator and "
+        "overwrites it, so it does not accumulate: 20,000 calls leave one entry, and "
+        "the settling loop cannot grow memory through it.",
         "Speedup = eager PyTorch / candidate; values below 1 mean the candidate was slower. "
         "All reported cases passed both outputs and all four gradient tolerance checks "
         "first, at the contract's reduction rows.",
@@ -593,14 +629,24 @@ def build_arg_parser():
 
 
 def _resolve_candidates(requested):
-    """Build the candidate ops, skipping CUDA when the extension lacks the kernels."""
+    """Build the candidate ops, skipping either backend this build cannot provide.
+
+    Both are gated. Only CUDA was, so ``--candidates cuda`` still raised on a
+    CUDA-only build with no Triton installed, because the Triton import ran
+    unconditionally before the gate had a chance to matter.
+    """
     from rl_engine.backends.cuda.norm.fused_add_norm import (
         CudaFusedAddNormOp,
         cuda_fused_add_norm_available,
     )
-    from rl_engine.backends.shared.triton.norm.fused_add_norm import TritonFusedAddNormOp
 
-    available = {"triton": TritonFusedAddNormOp}
+    available = {}
+    try:
+        from rl_engine.backends.shared.triton.norm.fused_add_norm import TritonFusedAddNormOp
+    except ImportError:
+        pass
+    else:
+        available["triton"] = TritonFusedAddNormOp
     if cuda_fused_add_norm_available():
         available["cuda"] = CudaFusedAddNormOp
     names = requested or list(available)
@@ -628,10 +674,19 @@ def _sweep(args, profiler, native, candidates, device):
             post_w, pre_w = rand((width,)), rand((width,))
             g_res, g_pre = rand(shape), rand(shape)
 
-            accuracy = {
-                name: _check_accuracy(native, op, hidden, residual, post_w, pre_w, g_res, g_pre)
-                for name, op in candidates.items()
-            }
+            accuracy = {}
+            executed = {}
+            for name, op in candidates.items():
+                # One backward per candidate runs here, before any timing. The
+                # recorder keys by operator and overwrites, so resetting around
+                # each candidate is what makes the record per-candidate rather
+                # than "whichever ran last".
+                reset_backward_runtime()
+                accuracy[name] = _check_accuracy(
+                    native, op, hidden, residual, post_w, pre_w, g_res, g_pre
+                )
+                snap = snapshot_backward_runtime().get("fused_post_norm_residual_pre_norm")
+                executed[name] = snap["impl"] if snap else None
             for mode in MODES:
                 measurements = {}
                 for name, op in [("native", native), *candidates.items()]:
@@ -644,6 +699,9 @@ def _sweep(args, profiler, native, candidates, device):
                     "numel": hidden.numel(),
                     "mode": mode,
                     "accuracy": accuracy,
+                    # The implementation each candidate actually executed, not the
+                    # name it was requested under.
+                    "backward_impl": executed,
                     **measurements,
                 }
                 for name in candidates:
@@ -676,6 +734,7 @@ def run_benchmark(args):
             "environment": _environment(device, args, triton.__version__, args.shapes, candidates),
             "results": [],
         }
+        reset_backward_runtime()
         passes = []
         for index in range(args.runs):
             passes.append(_sweep(args, profiler, native, candidates, device))
@@ -683,6 +742,11 @@ def run_benchmark(args):
         report["results"] = passes[-1]
         report["reproducibility"] = _reproducibility(passes)
         report["determinism"] = _determinism(passes)
+        # What ran, not what was asked for. environment["candidates"] holds the
+        # requested names; a backend that routed elsewhere would have been labelled
+        # by the request. The ops already report themselves through
+        # record_backward, so the executed implementation is readable here.
+        report["executed_backward"] = snapshot_backward_runtime()
     return report
 
 
