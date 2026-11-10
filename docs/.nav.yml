@@ -40,6 +40,8 @@ nav:
       - operators/indexer-q.md
       - operators/compressor.md
       - operators/dsv4-router.md
+      - operators/dsv4-mhc.md
+      - operators/dsv4-model.md
       - operators/final-logit-softcap.md
   - Developer Guide:
     - contributing/README.md

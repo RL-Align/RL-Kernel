@@ -550,6 +550,14 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 
 ### Phase 4 - integration and gates
 
+- [x] Decoder layer + model forward (`docs/operators/dsv4-model.md`): embedding -> 4
+      streams -> per layer mHC pre/post around attention and MoE -> `hc_head` + final norm;
+      loader for the DeepSeek-V4-Flash checkpoint layout (spec checked against the real
+      headers). Batch / alone / chunked / decode byte-identical. Against DeepSeek's
+      inference code on a toy checkpoint: no wiring error (layer-0 attention 4.2%, MoE 2.5%
+      rel L2, from vLLM-style FP8 choices). Open: vLLM applies YaRN to the window-only
+      layers, DeepSeek and Megatron-Core do not; the model follows vLLM for now. Forward
+      only (no SM90 sparse attention backward yet)
 - [ ] Layerwise exact-zero hidden-state diff gate, advancing one layer at a time from layer 0
 - [ ] #230 cross_config M0-M10 selected-token logprob bitwise; add a logprob threshold to CI
       (target 0; slime's 1.9e-7 MAE is the reference upper bound)

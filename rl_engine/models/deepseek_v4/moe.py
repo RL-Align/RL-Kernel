@@ -138,6 +138,9 @@ class Dsv4MoE:
     w2: MXTensor  # e2m1 [E_local, H, F], frozen
     shared_fc1: Tensor | None = None  # BF16 [2F_s, H]
     shared_fc2: Tensor | None = None  # BF16 [H, F_s]
+    # Checkpoint FP8 shared expert (used instead of shared_fc1 / shared_fc2):
+    # ``((q [2F_s, H], scale), (q [H, F_s], scale))``, 128x128 FP32 block scales.
+    shared_fp8: tuple | None = None
     ep_group: object = None  # torch.distributed process group; None = EP 1
     path: str = "two_launch"  # P5 path: "two_launch" (faster) | "fused"
     check_finite: bool = True  # MXFP8 quant fail-closed check (one host sync; off for graphs)
@@ -147,7 +150,12 @@ class Dsv4MoE:
 
     def __post_init__(self) -> None:
         self._routed = _routed_backend()
-        if self.shared_fc1 is not None:
+        if self.shared_fp8 is not None:
+            if self.shared_fc1 is not None:
+                raise ValueError("give shared_fc1 / shared_fc2 or shared_fp8, not both")
+            self._shared = _shared_backend()
+            self._shared_w = self._shared.prepare_fp8(*self.shared_fp8)
+        elif self.shared_fc1 is not None:
             self._shared = _shared_backend()
             self._shared_w = self._shared.prepare(self.shared_fc1, self.shared_fc2)
         world = 1 if self.ep_group is None else dist.get_world_size(self.ep_group)
