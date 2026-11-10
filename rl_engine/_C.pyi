@@ -391,6 +391,14 @@ def deterministic_collective_rocm_ipc_all_gather_input(
 ) -> None: ...
 def fp8_group_quant_forward(x: torch.Tensor, scale_ue8m0: bool) -> list[torch.Tensor]: ...
 def fp8_group_quant_tokens_forward(x: torch.Tensor, scale_ue8m0: bool) -> list[torch.Tensor]: ...
+def indexer_q_rope_fp8_forward(
+    q: torch.Tensor,
+    positions: torch.Tensor,
+    cos_sin_cache: torch.Tensor,
+    weights: torch.Tensor,
+    softmax_scale: float,
+    head_scale: float,
+) -> list[torch.Tensor]: ...
 def stable_topk_per_row_out(
     logits: torch.Tensor,
     row_starts: torch.Tensor,

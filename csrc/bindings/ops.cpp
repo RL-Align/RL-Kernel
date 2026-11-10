@@ -536,6 +536,11 @@ at::Tensor prefix_shared_attention(
 // DSv4 per-token-group FP8 activation quantization (csrc/cuda/quant/fp8_group_quant.cu)
 std::vector<torch::Tensor> fp8_group_quant_forward(torch::Tensor x, bool scale_ue8m0);
 std::vector<torch::Tensor> fp8_group_quant_tokens_forward(torch::Tensor x, bool scale_ue8m0);
+// DSv4 indexer query RoPE + FP8 quant (csrc/cuda/indexer/indexer_q_rope_fp8.cu)
+std::vector<torch::Tensor> indexer_q_rope_fp8_forward(torch::Tensor q, torch::Tensor positions,
+                                                      torch::Tensor cos_sin_cache,
+                                                      torch::Tensor weights, double softmax_scale,
+                                                      double head_scale);
 // DSv4 indexer stable per-row top-k (csrc/cuda/topk/stable_topk.cu)
 void stable_topk_per_row_out(torch::Tensor logits, torch::Tensor row_starts,
                              torch::Tensor row_ends, torch::Tensor indices, int64_t top_k,
@@ -566,6 +571,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Per-token 1x128 FP8 E4M3 quantization with DeepGEMM-layout FP32 scales");
     m.def("fp8_group_quant_tokens_forward", &fp8_group_quant_tokens_forward,
           "Token-direction 128-group FP8 quantization of x.T for wgrad");
+    m.def("indexer_q_rope_fp8_forward", &indexer_q_rope_fp8_forward,
+          "DSv4 indexer Q: RoPE + per-(token, head) FP8 quant, vLLM CuTe-DSL numerics");
     m.def("stable_topk_per_row_out", &stable_topk_per_row_out,
           "DSv4 indexer top-k: (score, local index) descending, vLLM ds4_bi order",
           py::arg("logits"), py::arg("row_starts"), py::arg("row_ends"),

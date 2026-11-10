@@ -253,6 +253,8 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/activation/silu_and_mul_clamp.cu")
             # DSv4 indexer stable top-k (uses CUB block radix sort).
             cuda_sources.append("csrc/cuda/topk/stable_topk.cu")
+            # DSv4 indexer query RoPE + FP8 quant (uses cuda_fp8.h).
+            cuda_sources.append("csrc/cuda/indexer/indexer_q_rope_fp8.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         # Rejected on ROCm too: hipcc defines __FAST_MATH__, not nvcc's

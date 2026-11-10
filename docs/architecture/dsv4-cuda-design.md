@@ -278,10 +278,15 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         one WGMMA over K = 128 plus a fixed-order head sum; no split across KV positions.
         Values match `sum_h w_h relu(q_h . k) k_scale` to 1.6e-4 relative (FP8 WGMMA
         accumulation)
-  - [ ] Indexer Q: RoPE (GPT-J interleaved, last 64 dims, BF16 round) + per-(token, head)
-        power-of-two FP8 scale (amax floor 1e-4) and the weight rescale
-        `w * q_scale * softmax_scale * n_head**-0.5`, byte-equal to vLLM's
-        `fused_indexer_q_rope_quant`
+  - [x] Indexer Q: RoPE (GPT-J interleaved, last 64 dims, BF16 round) + per-(token, head)
+        power-of-two FP8 scale (amax floor 1e-4) folded into the per-head weights.
+        `indexer_q_rope_fp8` (golden `rl_engine/kernels/ops/pytorch/indexer/`, CUDA
+        `csrc/cuda/indexer/indexer_q_rope_fp8.cu`; `docs/operators/indexer-q.md`) is
+        byte-equal to vLLM's **CuTe-DSL** `IndexerQFp8Kernel`, which the CUDA rollout runs
+        (`nvidia-cutlass-dsl` is a hard dependency of the vLLM CUDA build); vLLM's Triton
+        fallback rounds differently in three places and is not the target. FMA contraction
+        found by running the compiled CuTe kernel (`scripts/check_indexer_q_vllm_parity.py`,
+        50/50 cases). 0.011-0.015x of the eager golden; 1.0-1.14x of vLLM's kernel
   - [ ] `weights_proj` (BF16 [hidden -> 64], unquantized): needs a batch-invariant BF16 GEMM
   - [ ] Indexer op composition: Q path + logits + `stable_topk_per_row`; vLLM's
         short-context shortcut (`max_seq_len // ratio <= topk` fills indices directly, eager
