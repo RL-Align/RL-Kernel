@@ -7,19 +7,22 @@ DSv4's sparse attention on Hopper runs FlashMLA's ``flash_mla_sparse_fwd``
 with ``VLLM_DS4_DECODE_KERNEL=sparse`` under ``VLLM_BATCH_INVARIANT=1``.
 
 vLLM (``ISEEKYAN/vllm@1a6542c``) pins ``vllm-project/FlashMLA@a8f794d1``, which
-builds against torch's stable ABI (torch >= 2.10). We build its parent line at
-``b70aff3`` instead: the five commits in between change only the Python /
-torch binding layer and SM100 code, and ``csrc/sm90`` and ``csrc/smxx`` are
-byte-identical, so the SM90 kernels are the pinned ones. Install (SM90 only;
-``CUDA_HOME`` pointing at CUDA 12.8+)::
+builds only against torch's stable ABI (torch >= 2.10; the vLLM fork's own
+environment is torch 2.13 + CUDA 13.0, where we build exactly that commit). On
+older torch we build ``b70aff3`` instead: the five commits in between change
+only the Python / torch binding layer and SM100 code, and ``csrc/sm90`` and
+``csrc/smxx`` are byte-identical, so the SM90 kernels are the pinned ones.
+Install (SM90 only; ``CUDA_HOME`` pointing at CUDA 12.8+)::
 
-    git -C FlashMLA checkout b70aff3 && git -C FlashMLA submodule update --init --recursive
+    git -C FlashMLA checkout a8f794d1   # or b70aff3 on torch < 2.10
+    git -C FlashMLA submodule update --init --recursive
     FLASH_MLA_DISABLE_SM100=1 pip install --no-build-isolation --no-deps ./FlashMLA
 
 :func:`require_flashmla` refuses to hand out the module unless the GPU is SM90,
-the installed build is that commit (package version ``1.0.0+b70aff3``) and the
-sparse entry point exists. ``RL_KERNEL_FLASHMLA_ALLOW_UNPINNED=1`` accepts another
-build for development only; re-run ``scripts/probe_dsv4_flashmla_bi.py`` first.
+the installed build is one of those commits (package version ``1.0.0+a8f794d``
+or ``1.0.0+b70aff3``) and the sparse entry point exists.
+``RL_KERNEL_FLASHMLA_ALLOW_UNPINNED=1`` accepts another build for development
+only; re-run ``scripts/probe_dsv4_flashmla_bi.py`` first.
 """
 
 from __future__ import annotations
@@ -36,8 +39,9 @@ from types import ModuleType
 import torch
 
 FLASHMLA_REPO = "https://github.com/vllm-project/FlashMLA.git"
-FLASHMLA_COMMIT = "b70aff3"  # SM90 kernels identical to vLLM's pin a8f794d1
-FLASHMLA_VERSION = f"1.0.0+{FLASHMLA_COMMIT}"
+FLASHMLA_COMMIT = "a8f794d"  # vLLM's pin (torch >= 2.10)
+FLASHMLA_SM90_EQUIVALENT = "b70aff3"  # same csrc/sm90 and csrc/smxx, builds on older torch
+FLASHMLA_VERSIONS = (f"1.0.0+{FLASHMLA_COMMIT}", f"1.0.0+{FLASHMLA_SM90_EQUIVALENT}")
 ALLOW_UNPINNED_ENV = "RL_KERNEL_FLASHMLA_ALLOW_UNPINNED"
 REQUIRED_SYMBOLS = ("flash_mla_sparse_fwd",)
 
@@ -94,12 +98,13 @@ def _require(device_index: int) -> tuple[ModuleType, FlashMlaCapability]:
     except importlib.metadata.PackageNotFoundError as exc:
         raise FlashMlaUnavailable(
             f"flash_mla is not installed; build {FLASHMLA_REPO}@{FLASHMLA_COMMIT} "
+            f"(or {FLASHMLA_SM90_EQUIVALENT} on torch < 2.10) "
             "with FLASH_MLA_DISABLE_SM100=1"
         ) from exc
-    pinned = version == FLASHMLA_VERSION
+    pinned = version in FLASHMLA_VERSIONS
     if not pinned and not _allow_unpinned():
         raise FlashMlaUnavailable(
-            f"flash_mla {version} is installed, but DSv4 is validated against {FLASHMLA_VERSION}; "
+            f"flash_mla {version} is installed, but DSv4 is validated against {FLASHMLA_VERSIONS}; "
             f"set {ALLOW_UNPINNED_ENV}=1 only for development"
         )
     try:

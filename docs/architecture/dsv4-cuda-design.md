@@ -408,7 +408,21 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       (`benchmarks/benchmark_dsv4_attention_layer.py`): prefill 1 x 4096 tokens 4.8 / 3.7 /
       2.5 ms (C4 / C128 / window-only), decode 64 requests at 4K context 5.2 / 2.7 / 1.6 ms;
       after the glue rewrite (Phase 5) 3.0 / 2.2 / 1.8 ms and 0.47 / 0.52 / 0.22 ms
-- [ ] Wire the verl training-side recompute path to the same kernel set (forward only)
+- [ ] Wire the verl training-side recompute path to the same kernel set (forward only).
+      Decisions (2026-11-10): the actor side is verl's **Megatron (mcore)** worker; verl's
+      **vLLM rollout is patched too**, so both run this kernel set (D6; needed for bitwise
+      rollout = recompute under decision (a)); and the work moves to the vLLM fork's
+      environment: **torch 2.13.0 + CUDA 13.0, Python 3.12** (`_C`, DeepGEMM and FlashMLA
+      rebuilt there, FlashMLA at vLLM's exact pin `a8f794d1`; every probe re-run). The layer
+      itself already gives rollout-style prefill + decode the same bytes as full-sequence
+      recompute (T07 tests)
+  - [x] Environment moved (conda env `dsv4-t213`): torch 2.13.0+cu130, CUDA 13.0, Python
+        3.12; FlashMLA at vLLM's exact pin `a8f794d1` (host compile needs
+        `CPLUS_INCLUDE_PATH=$CUDA_HOME/include/cccl`: CUDA 13 moved libcu++ under `cccl/`).
+        Full regression 1149 passed, 0 failed; every probe passes again
+        (`docs/validation/*-torch213-cuda13-2026-11-10.json`: DeepGEMM FP8 87/87 cases,
+        BF16, MQA logits, FlashMLA). The torch 2.9 env (`dsv4`, FlashMLA `b70aff3`) stays as a
+        fallback; `require_flashmla` accepts both builds
 
 ### Phase 3 - MoE and sampling
 
