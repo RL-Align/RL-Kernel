@@ -80,7 +80,10 @@ def _validate_weight(weight: Tensor, hidden: int, name: str) -> None:
 
 
 def _validate_backward(
-    rows: tuple[tuple[Tensor, str], ...], weights: tuple[tuple[Tensor, str], ...]
+    rows: tuple[tuple[Tensor, str], ...],
+    weights: tuple[tuple[Tensor, str], ...],
+    cotangents: tuple[tuple[Tensor, str], ...] = (),
+    cotangent_dtype: torch.dtype | None = None,
 ) -> None:
     """The same bar the forward applies, on the closed-form backward.
 
@@ -90,6 +93,11 @@ def _validate_backward(
     through ``1.0 + post_weight.float()`` and the call returned four tensors of the
     right shapes carrying gradients for the wrong per-column gain, with nothing
     raised, while the forward rejected the same input.
+
+    ``rows`` are inputs and share one dtype, which is what the forward requires of
+    them. ``cotangents`` are checked for shape against the same reference and for
+    dtype only when ``cotangent_dtype`` is given, because which dtype is correct
+    there depends on which forward is being differentiated; the callers say.
     """
     reference, reference_name = rows[0]
     for tensor, name in rows:
@@ -99,16 +107,22 @@ def _validate_backward(
                 f"{name} must share {reference_name}'s shape, got "
                 f"{tuple(tensor.shape)} and {tuple(reference.shape)}."
             )
-        # One dtype across the call, cotangents included. A cotangent carries the
-        # dtype of the tensor it is a cotangent of, which is what autograd hands
-        # over, and both kernels reject anything else: the CUDA binding compares
-        # against hidden in csrc/bindings/ops.cpp and the Triton wrapper does the
-        # same in _validate_cotangents. The oracle took mixed dtypes and upcast
-        # them, so it answered where the implementations it defines raise.
         if tensor.dtype != reference.dtype:
             raise ValueError(
                 f"{name} must share {reference_name}'s dtype, got {tensor.dtype} "
                 f"and {reference.dtype}."
+            )
+    for tensor, name in cotangents:
+        _validate_row(tensor, name)
+        if tensor.shape != reference.shape:
+            raise ValueError(
+                f"{name} must share {reference_name}'s shape, got "
+                f"{tuple(tensor.shape)} and {tuple(reference.shape)}."
+            )
+        if cotangent_dtype is not None and tensor.dtype != cotangent_dtype:
+            raise ValueError(
+                f"{name} must have the dtype of the output it is a cotangent of "
+                f"({cotangent_dtype}), got {tensor.dtype}."
             )
     for tensor, name in weights:
         _validate_weight(tensor, reference.shape[-1], name)
@@ -310,17 +324,24 @@ def fused_add_norm_backward(
     sum does not help; the eager accumulation brings it to 0.125 and then 0.000.
     The forward narrowing is where the value is rounded; this is where its
     gradient is. With ``grad_dtype=torch.float32`` both roundings are the
-    identity and this is the gradient of ``forward_fp32``.
+    identity and this is the gradient of ``forward_fp32``, whose cotangents are
+    FP32 for any input dtype; the two go together, and the cotangents are checked
+    against ``grad_dtype`` rather than against ``hidden`` for that reason.
     """
     dtype = hidden.dtype if grad_dtype is None else grad_dtype
     _validate_backward(
-        (
-            (hidden, "hidden"),
-            (residual, "residual"),
+        ((hidden, "hidden"), (residual, "residual")),
+        ((post_weight, "post_weight"), (pre_weight, "pre_weight")),
+        cotangents=(
             (grad_residual_out, "grad_residual_out"),
             (grad_pre_normed, "grad_pre_normed"),
         ),
-        ((post_weight, "post_weight"), (pre_weight, "pre_weight")),
+        # Not hidden's dtype: the outputs these are cotangents of are whatever the
+        # differentiated forward returns, and grad_dtype is how the caller says
+        # which forward that is. Tying them to hidden instead made the last
+        # sentence of this docstring unreachable, since forward_fp32 on a narrow
+        # hidden returns FP32 and so hands FP32 cotangents to autograd.
+        cotangent_dtype=dtype,
     )
     hidden_f = hidden.float()
     residual_f = residual.float()
@@ -362,8 +383,18 @@ def final_norm_backward(
 
     Separate from the decoder-norm path because the gain is ``w`` rather than
     ``1 + w`` and the statistic is spelled ``pow_neg_half``.
+
+    ``grad_output`` may arrive in any supported dtype, including one that differs
+    from ``x``. There is no narrowing inside this form, so the cotangent is upcast
+    on entry and its storage dtype does not reach the answer: FP32 is what
+    differentiating ``forward_fp32`` on a narrow ``x`` actually hands over, and a
+    narrow cotangent is the same values pre-rounded by the caller. The decoder-norm
+    backward does pin this, because there the accumulation dtype is part of the
+    contract.
     """
-    _validate_backward(((x, "x"), (grad_output, "grad_output")), ((weight, "weight"),))
+    _validate_backward(
+        ((x, "x"),), ((weight, "weight"),), cotangents=((grad_output, "grad_output"),)
+    )
     x_f = x.float()
     rstd = ((shape_invariant_meansq(x_f) + float(eps)) ** -0.5).unsqueeze(-1)
     return _centered_backward(grad_output.float(), x_f, weight.float(), rstd)

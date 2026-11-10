@@ -547,13 +547,14 @@ def test_triton_rejects_tensors_on_another_device(which):
     there. This side checked ``is_cuda`` only while the binding checked the device,
     and each round of this fix reached one argument and not its neighbour.
 
-    What happens without the check, measured on eight H100s: with no peer access
+    What happens without the check, measured on two H100s: with peer access off
     Triton refuses the launch itself, reporting ValueError("Pointer argument (at 1)
     cannot be accessed from Triton (cpu tensor?)") against a tensor that is on a
-    GPU; after a single cudaDeviceEnablePeerAccess call, which a multi-GPU process
-    may well have made, the same launch runs and reads the other device through the
-    peer mapping without a word. The second outcome is the reason this is a check
-    and not a comment.
+    GPU, and with it on the launch runs, reads the other device through the peer
+    mapping, and returns an answer bitwise equal to the same-device one. One
+    cross-device copy earlier in the process is enough to turn peer access on, which
+    is usually how a tensor ends up on the wrong device, so the silent outcome is
+    the likely one and is the reason this is a check and not a comment.
     """
     shape = (4, HIDDEN_SIZE)
     hidden, residual, post_w, pre_w = _inputs(shape, torch.bfloat16)

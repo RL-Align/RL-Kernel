@@ -287,14 +287,20 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
         )
     # Same device as hidden, the way the weights below are checked. The launch
     # takes its device from hidden and then dereferences residual's pointer there.
-    # Measured on 8 H100s: without peer access Triton rejects the launch itself,
+    # Measured on two H100s, and which of the two outcomes you get depends on the
+    # process rather than on the call: Triton validates the pointer with
+    # cuPointerGetAttribute, which fails only while peer access is off, and one
+    # cross-device .to() copy anywhere earlier turns it on (allocating on both
+    # devices does not; cudaDeviceEnablePeerAccess answers 0 after two allocations
+    # and 704, already enabled, after a single copy). Off, Triton refuses the launch
     # with ValueError("Pointer argument (at 1) cannot be accessed from Triton (cpu
-    # tensor?)"), which names the wrong cause and an argument index; after one
-    # cudaDeviceEnablePeerAccess call, which a multi-GPU process may well have
-    # made, the same launch runs and reads the other device over the peer mapping
-    # without complaint. The CUDA binding refuses both cases in
-    # fused_add_norm_check_pair, and silently accepting a cross-device input is the
-    # wrong failure mode for an operator whose contract is multi-GPU byte-for-byte.
+    # tensor?)"), which names the wrong cause and an argument index. On, the launch
+    # runs, reads the other device through the peer mapping, and returns an answer
+    # bitwise equal to the same-device one. A stray tensor usually arrives on the
+    # wrong device by way of a copy, so the silent path is the likely one. The CUDA
+    # binding refuses both in fused_add_norm_check_pair, and silently accepting a
+    # cross-device input is the wrong failure mode for an operator whose contract is
+    # multi-GPU byte-for-byte.
     if residual.device != hidden.device:
         raise RuntimeError(
             f"residual must be on the same device as hidden ({hidden.device}), "

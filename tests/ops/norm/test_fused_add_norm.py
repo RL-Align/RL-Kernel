@@ -552,8 +552,17 @@ def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows,
         # 0.17 against 3.85 at 2048; fp16 0.64 against 22.6 and 0.74 against 40.6.
         # FP16 is the stronger discriminator of the two, which is why it is
         # parametrised here rather than left out.
+        # The cotangents widen with grad_dtype, since they are cotangents of
+        # forward_fp32's outputs once the roundings are the identity. Same values
+        # either way, so this stays a one-variable comparison.
         fp32 = fused_add_norm_backward(
-            g_res, g_pre, hidden, residual, post_w, pre_w, grad_dtype=torch.float32
+            g_res.float(),
+            g_pre.float(),
+            hidden,
+            residual,
+            post_w,
+            pre_w,
+            grad_dtype=torch.float32,
         )
         with pytest.raises(AssertionError):
             assert_within(
@@ -781,11 +790,12 @@ def test_batch_invariance_holds_at_widths_that_are_not_a_multiple_of_32(device, 
             "post_weight must have dtype",
         ),
         # A cotangent in another dtype was upcast and answered here while both
-        # kernels compare it against hidden and raise.
+        # kernels compare it against hidden and raise. Checked against grad_dtype,
+        # which defaults to hidden's dtype, rather than against hidden itself.
         (
             lambda a: a | {"grad_pre_normed": a["grad_pre_normed"].half()},
             ValueError,
-            "must share hidden's dtype",
+            "cotangent of",
         ),
     ],
 )
@@ -819,11 +829,6 @@ def test_closed_form_backward_fails_loudly_on_bad_input(mutate, exc, match):
     [
         (lambda a: a | {"weight": a["weight"][:1]}, ValueError, "weight must be 1-D"),
         (lambda a: a | {"grad_output": a["grad_output"][:1]}, ValueError, "must share x's shape"),
-        (
-            lambda a: a | {"grad_output": a["grad_output"].half()},
-            ValueError,
-            "must share x's dtype",
-        ),
         (lambda a: a | {"weight": a["weight"].to(torch.int64)}, TypeError, "must have dtype"),
     ],
 )
@@ -839,3 +844,69 @@ def test_final_norm_backward_fails_loudly_on_bad_input(mutate, exc, match):
     final_norm_backward(**args)
     with pytest.raises(exc, match=match):
         final_norm_backward(**mutate(args))
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
+def test_the_cotangent_dtype_follows_the_forward_being_differentiated(dtype):
+    """``grad_dtype`` says which forward, and the cotangents come with it.
+
+    The one-dtype rule added for the weights was extended to the cotangents, and
+    tying them to ``hidden`` made the documented wide path unreachable: on a narrow
+    ``hidden``, ``forward_fp32`` returns FP32, so autograd hands FP32 cotangents to
+    exactly the call that ``grad_dtype=torch.float32`` exists to serve, and the
+    check rejected them. Both directions are asserted here so the rule cannot drift
+    back: the wide pair is accepted and agrees with autograd, and each cotangent in
+    the other dtype raises.
+
+    The final norm is the other half of the same question and is left free, since
+    it has no narrowing inside and upcasts on entry; the last block here is that
+    half.
+    """
+    shape = (8, 128)
+    hidden = _rand(shape, seed=250, dtype=dtype)
+    residual = _rand(shape, seed=251, dtype=dtype)
+    post_w = _rand((shape[-1],), seed=252, dtype=dtype)
+    pre_w = _rand((shape[-1],), seed=253, dtype=dtype)
+
+    leaves = [t.clone().requires_grad_(True) for t in (hidden, residual, post_w, pre_w)]
+    out_res, out_pre = NativeFusedAddNormOp().forward_fp32(*leaves)
+    assert out_res.dtype is torch.float32, "forward_fp32 stopped returning FP32"
+    g_res = _rand(shape, seed=254, dtype=torch.float32)
+    g_pre = _rand(shape, seed=255, dtype=torch.float32)
+    torch.autograd.backward((out_res, out_pre), grad_tensors=(g_res, g_pre))
+
+    got = fused_add_norm_backward(
+        g_res, g_pre, hidden, residual, post_w, pre_w, grad_dtype=torch.float32
+    )
+    # Compared at the input's resolution, under the shared policy rather than
+    # numbers written in here. autograd stores a narrow leaf's .grad in the leaf's
+    # dtype, so ``want`` is already rounded to BF16 or FP16 while the closed form
+    # returns FP32: measured, that rounding alone is 3.3e-3 to 3.7e-3 relative at
+    # BF16, against 1.4e-5 when the inputs are FP32 and no rounding happens.
+    lead = (0,)
+    for g, want, name in zip(
+        (got[0], got[1], got[2].sum(dim=lead), got[3].sum(dim=lead)),
+        (leaf.grad for leaf in leaves),
+        ("d_hidden", "d_residual", "d_post_w", "d_pre_w"),
+        strict=True,
+    ):
+        assert_within("gradient_accuracy", dtype, g.to(dtype), want.float(), f"{name}: ")
+
+    # Narrow cotangents are what the narrowed forward hands over, so they are the
+    # wrong pair for this call and for its mirror.
+    with pytest.raises(ValueError, match="cotangent of"):
+        fused_add_norm_backward(
+            g_res.to(dtype), g_pre, hidden, residual, post_w, pre_w, grad_dtype=torch.float32
+        )
+    with pytest.raises(ValueError, match="cotangent of"):
+        fused_add_norm_backward(g_res, g_pre, hidden, residual, post_w, pre_w)
+
+    # The final norm takes either, and the wider one cannot change the answer,
+    # because the only thing that happens to it is .float() on entry.
+    x = _rand(shape, seed=256, dtype=dtype)
+    weight = _rand((shape[-1],), seed=257, dtype=dtype)
+    narrow_cotangent = _rand(shape, seed=258, dtype=dtype)
+    wide = final_norm_backward(narrow_cotangent.float(), x, weight)
+    narrow = final_norm_backward(narrow_cotangent, x, weight)
+    for a, b, name in zip(wide, narrow, ("dx", "dweight_rows"), strict=True):
+        assert torch.equal(a, b), f"{name} changed with the cotangent's storage dtype"
