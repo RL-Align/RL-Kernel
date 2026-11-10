@@ -27,6 +27,7 @@ nav:
       - operators/lm_head.md
       - operators/ratio-kl.md
       - operators/pack-and-pad.md
+      - operators/packed-index-copy.md
       - operators/video-patch-pack-unpack.md
       - operators/video-input-projection-fp32.md
       - operators/video-output-projection-fp32.md

@@ -446,6 +446,17 @@ OP_SPECS = {
         },
         grad_input_names=("x",),
     ),
+    "packed_index_copy": OperatorSpec(
+        name="packed_index_copy",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+            "cuda": "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp",
+        },
+        grad_input_names=("text", "video", "audio"),
+    ),
     "video_patch_pack_unpack": OperatorSpec(
         name="video_patch_pack_unpack",
         op_class="elementwise",
