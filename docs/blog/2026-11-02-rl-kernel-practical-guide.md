@@ -198,7 +198,11 @@ Finish preparation for the same backend:
 
     ROCm validates inputs during run and manages its own Ray instance. Keep
     the profile's Ray ports free. The CUDA prepare and doctor commands do not
-    support this ROCm profile.
+    support this ROCm profile; standalone validate, report and verify are also
+    CUDA-only. For the first check, keep rollout CP at 1, temperature positive
+    and top-k disabled. See the
+    [CUDA and ROCm support audit](../usage/cuda-rocm-consistency-audit.md)
+    for supported settings.
 
 ## 3. Preview and run
 
@@ -271,6 +275,8 @@ not prove consistency. Review the complete validation report.
 
 The reports also check execution evidence and source records. CUDA and ROCm use
 different evidence formats, so retain the original reports and the machine profile.
+If the report is missing or passed is false, check the run log and report errors.
+Keep the profile and source revisions when reporting a failure.
 
 ## 5. Compare with native execution
 
@@ -296,24 +302,6 @@ For a longer consistency run, reuse the same settings:
 ```bash
 ./rlk run --mode consistency "${RUN_ARGS[@]}" --steps 200
 ```
-
-## Troubleshooting
-
-| Symptom | Next step |
-|---|---|
-| Extension import or build fails | Check that Python, PyTorch and the CUDA or ROCm toolchain match the installation requirements. |
-| Profile already exists or plan shows the wrong paths | Inspect .rlk-profile.json and RLK\_REPRO\_PROFILE. Keep a working profile rather than overwriting it. |
-| CUDA doctor fails | Fix the named path, version or Ray connection before launching. |
-| ROCm companion checks fail | Check the patched vime, Megatron and vLLM sources and their installed builds. |
-| ROCm finds an unrelated Ray cluster | Coordinate use of the node. Do not stop another user's job. |
-| Output directory already exists | Choose a new run ID. |
-| Report is missing or passed is false | Inspect the backend's run log and all report errors. Keep the profile and source revisions when reporting the issue. |
-
-ROCm supports plan and run with validation inside run. prepare, doctor, validate,
-report and the weight-update verify workflow are CUDA-only. For the initial ROCm
-check, keep rollout CP at 1, temperature positive and top-k disabled. See the
-[CUDA and ROCm support audit](../usage/cuda-rocm-consistency-audit.md) before changing
-these settings.
 
 ## What we are building next
 
