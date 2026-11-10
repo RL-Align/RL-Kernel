@@ -490,9 +490,15 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         - H200, EP 8 shapes: 0.44 / 0.44 / 0.65 / 0.74x of a per-expert cuBLAS BF16 loop at
           256 / 2048 / 8192 / 32768 rows (with the faster forward fc1).
         - The EP = 2 block backward is bitwise equal to EP = 1.
-  - [ ] Real checkpoint: DSv4 FP4 experts are MXFP4 `[E, 2F, H/2]` + E8M0 `[E, 2F, H/32]`,
+  - [x] Real checkpoint: DSv4 FP4 experts are MXFP4 `[E, 2F, H/2]` + E8M0 `[E, 2F, H/32]`,
         gate rows then up rows (vLLM loader), the P5 layout; check the nibble order and
-        P5's per-column scale-residual range ([-8, 6], fail-closed) on real shards
+        P5's per-column scale-residual range ([-8, 6], fail-closed) on real shards.
+        Scale range (`scripts/check_dsv4_fp4_scales.py`, HTTP range reads of
+        DeepSeek-V4-Flash): layers 0/5/10/21/32/42 x experts 0/37/64/128/200/255, w1/w3/w2,
+        294912 weight rows; the widest per-row E8M0 spread is 4 (P5 accepts up to 14), so
+        no row is refused. Nibble order: DeepSeek's own `fp4_gemm` reads bytes written low
+        nibble = even column the same way P5 does (`scripts/check_dsv4_model_ref.py`: MoE
+        2.5% rel L2, cosine 0.9997; swapped nibbles would permute the input features)
 - [x] DSv4 mHC (`docs/operators/dsv4-mhc.md`, profile `dsv4-mhc-v1`): `mhc_pre` /
       `mhc_post` / `hc_head` with the attn_norm / ffn_norm / final norm fused, plus the dX
       backward. Parameters and norm weight are frozen (user decision); RMS is
