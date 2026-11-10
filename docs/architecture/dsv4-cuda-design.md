@@ -359,7 +359,7 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       `p2/oracle.topk512`) stays unchanged as a separate contract. 0.31-0.96x of
       `torch.topk` on H200 (decode and causal prefill, k = 512 and 2048), 1.4-3.7x
       faster than vLLM's own BI kernel
-- [ ] T05 FlashMLA sparse wrapper: canonicalize indices, pin num_splits/workspace from
+- [x] T05 FlashMLA sparse wrapper: canonicalize indices, pin num_splits/workspace from
       config, stable addresses under CUDA graphs; test `fwd(x)[t] == fwd(x[t:t+1])`
       byte-equal. Confirmed (2026-11-10): index canonicalization and config-fixed
       num_splits / workspace are hard requirements, not tuning choices
@@ -394,8 +394,20 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         as one `fp8_gemm_nt` per group + `wo_b` (`Fp8Linear`). Byte-equal to the goldens,
         batch-invariant, 8% of FP32 at FP8 (`tests/ops/attention_dsv4/test_qo.py`). The `qr` /
         `kv` RMSNorms use the existing batch-invariant `rmsnorm_cuda` (P1)
-- [ ] T06 sliding window: confirm split-KV is pinned on the #240 / FA3 path
-- [ ] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x)
+- [x] T06 sliding window: confirm split-KV is pinned on the #240 / FA3 path. Not needed:
+      as in vLLM's FlashMLA backend, the window runs through the same FlashMLA sparse kernel
+      (window positions appended to each query's index list; sliding-window-only layers have
+      no compressed part), covered by the T05 / T07 tests for ratio 1
+- [x] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x).
+      `rl_engine/models/deepseek_v4/attention.py` (`Dsv4Attention`, forward only) composes the
+      byte-verified operators (FP8 / BF16 DeepGEMM projections, P1 RMSNorm, q / KV kernel,
+      compressors, indexer, FlashMLA core, output projection). For C4, C128 and
+      sliding-window-only layers a request's output bytes are the same in a batch, alone, as
+      chunked prefill and token by token in decode next to another request
+      (`tests/models/test_dsv4_attention_layer.py`). H200, eager
+      (`benchmarks/benchmark_dsv4_attention_layer.py`): prefill 1 x 4096 tokens 4.8 / 3.7 /
+      2.5 ms (C4 / C128 / window-only), decode 64 requests at 4K context 5.2 / 2.7 / 1.6 ms.
+      Every kernel is within D7; the layer-level cost is the PyTorch glue (Phase 5)
 - [ ] Wire the verl training-side recompute path to the same kernel set (forward only)
 
 ### Phase 3 - MoE and sampling
@@ -472,6 +484,12 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 ### Phase 5 - performance debt
 
 - [ ] Operators that exceeded the Phase 4 performance table
+- [ ] DSv4 attention glue (T07 profile, C4 decode 64 x 4K: 2.1 ms of 5.2 ms is CUDA time, the
+      rest host overhead): CUDA kernels for the fp8_ds_mla gather / dequantize into the
+      workspace, the index build and the indexer K gather; no host syncs (`int(...max())`,
+      `.tolist()`) so the layer is CUDA-graph capturable; for decode, slabs holding only the
+      selected rows instead of all `max_model_len // ratio` entries (byte-neutral: the
+      FlashMLA probe showed the slab position does not matter)
 - [ ] DCP attention (single comparator across local and global selection; separate issue)
 
 ### Deferred - vLLM golden
