@@ -26,6 +26,7 @@ Every operator page should include:
 - [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
 - [Nemotron Nano Router and Dispatch](nemotron-router.md)
+- [Nemotron Nano Expert-Parallel Transport](nemotron-ep-all-to-all.md)
 - [RoPE](rope.md)
 - [LM Head](lm_head.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
