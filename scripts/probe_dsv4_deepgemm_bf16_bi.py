@@ -8,7 +8,8 @@ compressed-attention layer (vLLM ``_run_parallel_input_projections``):
 * ``weights_proj``: indexer per-head weights, ``[T, 4096] -> [T, 64]`` BF16;
 * indexer compressor ``fused_wkv_wgate``: ``-> [T, 512]`` with FP32 output;
 * main compressor ``fused_wkv_wgate``: ``-> [T, 2048]`` (C4) or ``[T, 1024]``
-  (C128) with FP32 output.
+  (C128) with FP32 output;
+* MoE router gate (every layer): ``-> [T, 256]`` with FP32 output.
 
 cuBLAS picks kernels (and split-K) by M, so it is not batch-invariant. This
 checks whether unmodified pinned DeepGEMM ``bf16_gemm_nt`` is, with BF16 and
@@ -34,6 +35,7 @@ SHAPES = (  # (name, N, K, output dtype)
     ("indexer_compressor_wkv_wgate", 512, 4096, torch.float32),
     ("compressor_c128_wkv_wgate", 1024, 4096, torch.float32),
     ("compressor_c4_wkv_wgate", 2048, 4096, torch.float32),
+    ("moe_router_gate", 256, 4096, torch.float32),
 )
 M_MAX = 4096
 M_LIST = (1, 3, 8, 64, 129, 256, 1000)

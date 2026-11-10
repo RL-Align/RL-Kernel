@@ -451,6 +451,23 @@ def dsv4_save_states(
     state: torch.Tensor,
     slots: torch.Tensor,
 ) -> None: ...
+def dsv4_router_topk(
+    logits: torch.Tensor,
+    bias: torch.Tensor | None,
+    input_ids: torch.Tensor | None,
+    tid2eid: torch.Tensor | None,
+    routed_scaling_factor: float,
+    weights: torch.Tensor,
+    ids: torch.Tensor,
+) -> None: ...
+def dsv4_router_backward_dx(
+    logits: torch.Tensor,
+    ids: torch.Tensor,
+    d_weights: torch.Tensor,
+    gate_weight: torch.Tensor,
+    routed_scaling_factor: float,
+    dx: torch.Tensor,
+) -> None: ...
 def stable_topk_per_row_out(
     logits: torch.Tensor,
     row_starts: torch.Tensor,

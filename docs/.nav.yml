@@ -39,6 +39,7 @@ nav:
       - operators/stable-topk.md
       - operators/indexer-q.md
       - operators/compressor.md
+      - operators/dsv4-router.md
       - operators/final-logit-softcap.md
   - Developer Guide:
     - contributing/README.md

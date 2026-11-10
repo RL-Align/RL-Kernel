@@ -126,8 +126,11 @@ training backend's kernels.
 
 vLLM can use `torch.mm` only because `VLLM_BATCH_INVARIANT=1` makes `batch_invariant.py`
 override `aten.mm/addmm` with a fixed-tile Triton matmul. A bare cuBLAS FP32 sgemm chooses
-split-K on its own at small M and is not BI. RL-Kernel uses det_gemm's FP32-output path
-(`det_gemm_fwd_fp32`).
+split-K on its own at small M and is not BI. RL-Kernel runs the gate (`[T, 4096] x [256,
+4096]`, FP32 out) on pinned DeepGEMM `bf16_gemm_nt`, like the compressor score GEMMs: BI
+probe passed at N=256 (prefixes, single rows, window, 3 seeds; rel. error 4.4e-6; the
+cuBLAS control varies at M = 1/3/8/64), 0.96-1.13x of cuBLAS. det_gemm is not used: its
+`det_gemm_fwd_fp32` returns BF16 and is not bound in `rl_engine._C`.
 
 ### D5. Backward is relaxed
 
@@ -180,7 +183,7 @@ expert is above the gate today and stays merged until its DeepGEMM replacement l
 | Routed expert, MX act quant, SwiGLU, LoRA | Own P5 (routed: `sm90_fused_moe_mlp.cu`) | Unchanged |
 | Shared expert GEMMs | DeepGEMM `fp8_gemm_nt` (D2, D3) | Provider with a new numeric profile; SwiGLU stays ours |
 | EP dispatch/combine | `zhuzilin/DeepEP@align_fp8_quantization` | P4 adapter + route-metadata capture + fixed-capacity staging |
-| Router gate | det_gemm FP32 output (`det_gemm_fwd_fp32`) | Wire into the redone P3 provider |
+| Router gate | DeepGEMM `bf16_gemm_nt`, FP32 output (D4) | Done in the P3 redo (`rl_engine/models/deepseek_v4/router.py`) |
 | mHC / RMSNorm / logprob | Own P1 / linear_logp / #241 | Unchanged |
 | Sliding-window dense attention | Own #240 or FA3 | Verify split-KV is pinned |
 | Training integration | verl; slime #2262 for methodology | Rollout and actor recompute on the same kernel set; layerwise exact-zero diff gate; logprob CI threshold |
@@ -443,9 +446,22 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 
 ### Phase 3 - MoE and sampling
 
-- [ ] P3 redo: gate GEMM on det_gemm FP32 output (never bare `torch.mm`), `stable_topk6`
-      with the comparator shared with the indexer top-k, routing-weights CUDA, combine-plan
-      live provider; re-evaluate the T08 draft (#639) against the redo
+- [ ] P3 redo: gate GEMM, top-6 / hash routing, routing weights, combine-plan live
+      provider; re-evaluate the T08 draft (#639) against the redo
+  - [x] Gate GEMM on DeepGEMM `bf16_gemm_nt` FP32 output (D4), batch-invariant
+  - [x] Routing (`docs/operators/dsv4-router.md`): own fixed arithmetic (vLLM writes
+        softplus differently in its hash and scored kernels, with fast-math exp/log/sqrt);
+        one formula `sqrt(max(x,0) + log1pf(expf(-|x|)))` for both; top-6 of `s + bias`,
+        ties to the smallest expert id (the router's order, not the indexer's), NaN last;
+        hash layers take `tid2eid[input_ids]`; weights `s / sum * 1.5` summed in slot order.
+        Golden `rl_engine/kernels/ops/pytorch/router/`, CUDA `csrc/cuda/router/dsv4_router.cu`,
+        byte-equal; the rollout patch runs the same kernel
+  - [x] Backward with the gate and bias frozen (user decision): dX only, as a six-row
+        FP32 gather over the gate (exact in slot order; byte-equal CUDA/golden)
+  - [x] Performance (H200, graph replay, T = 1..16384): forward 1.03-1.22x of cuBLAS +
+        vLLM's Triton `dsv4_topk`; dX 0.48-1.03x of the dense dgrad
+  - [ ] RoutePlan (dispatch order by (expert, token, slot); combine in slot order) wired to
+        P5 / P6; then compare with #639
 - [ ] P7 redo: sampling gate + M10 selected-token logprob, wired to the #241 vocab-TP
       deterministic reduce
 - [ ] P6 T06 + real EP=2/4/8 collectives (replacing the values-only mock)

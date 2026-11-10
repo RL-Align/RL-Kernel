@@ -260,6 +260,8 @@ def get_extensions():
             # DSv4 attention query / output side.
             cuda_sources.append("csrc/cuda/attention/dsv4_qo.cu")
             cuda_sources.append("csrc/cuda/attention/dsv4_cache.cu")
+            # DSv4 MoE router (top-6 / hash routing and its dX backward).
+            cuda_sources.append("csrc/cuda/router/dsv4_router.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         # Rejected on ROCm too: hipcc defines __FAST_MATH__, not nvcc's

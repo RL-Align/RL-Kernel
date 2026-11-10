@@ -565,6 +565,13 @@ void dsv4_ds_mla_gather(torch::Tensor cache, int64_t block_size, torch::Tensor s
                         torch::Tensor out);
 void dsv4_save_states(torch::Tensor kv, torch::Tensor score, torch::Tensor ape,
                       torch::Tensor positions, torch::Tensor state, torch::Tensor slots);
+// DSv4 MoE router (csrc/cuda/router/dsv4_router.cu)
+void dsv4_router_topk(torch::Tensor logits, std::optional<torch::Tensor> bias,
+                      std::optional<torch::Tensor> input_ids, std::optional<torch::Tensor> tid2eid,
+                      double routed_scaling_factor, torch::Tensor weights, torch::Tensor ids);
+void dsv4_router_backward_dx(torch::Tensor logits, torch::Tensor ids, torch::Tensor d_weights,
+                             torch::Tensor gate_weight, double routed_scaling_factor,
+                             torch::Tensor dx);
 // DSv4 indexer stable per-row top-k (csrc/cuda/topk/stable_topk.cu)
 void stable_topk_per_row_out(torch::Tensor logits, torch::Tensor row_starts,
                              torch::Tensor row_ends, torch::Tensor indices, int64_t top_k,
@@ -609,6 +616,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "DSv4: dequantize fp8_ds_mla cache entries by slot into BF16 rows");
     m.def("dsv4_save_states", &dsv4_save_states,
           "DSv4 compressor: write [kv | score + ape] state rows by slot");
+    m.def("dsv4_router_topk", &dsv4_router_topk,
+          "DSv4 router: sqrt-softplus, top-6 (or hash) routing and scaled weights",
+          py::arg("logits"), py::arg("bias"), py::arg("input_ids"), py::arg("tid2eid"),
+          py::arg("routed_scaling_factor"), py::arg("weights"), py::arg("ids"));
+    m.def("dsv4_router_backward_dx", &dsv4_router_backward_dx,
+          "DSv4 router backward: dL/dweights -> dX through the frozen gate (six-row gather)");
     m.def("stable_topk_per_row_out", &stable_topk_per_row_out,
           "DSv4 indexer top-k: (score, local index) descending, vLLM ds4_bi order",
           py::arg("logits"), py::arg("row_starts"), py::arg("row_ends"),
