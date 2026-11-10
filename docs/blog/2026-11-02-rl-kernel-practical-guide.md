@@ -1,48 +1,47 @@
 # RL-Kernel Train–Rollout Consistency: A Practical Guide
 
-In RL post-training, one engine generates responses and another trains on them.
-Both assign probabilities to the generated tokens. Before the weights change,
-the same tokens should receive the same scores under the same policy. Different
-execution paths can break that agreement, even when the model weights match.
+In RL post-training, a rollout engine generates responses and a training engine
+learns from them. Both score the generated tokens. Before the weights change,
+those scores should agree when the engines use the same policy and inputs. In
+practice, different numerical paths can produce different scores.
 
-RL-Kernel aligns these computations across training and rollout. This guide
-explains why that matters, then runs a short Qwen3-8B consistency check with
-vime, vLLM and Megatron-LM on NVIDIA H100 or AMD MI300X.
+RL-Kernel works to align those paths. This guide explains the problem and walks
+through a short Qwen3-8B check using vime, vLLM and Megatron-LM on NVIDIA H100
+or AMD MI300X.
 
 ## Why exact consistency matters in post-training
 
-Rollout records a log probability, or LogP, for each generated token.
-Training independently recomputes LogP for those tokens. Differences between the
-two can enter policy ratios and KL-related measurements. They can make the policy
-appear to have changed before an optimizer update and, if large enough, alter
-which tokens reach a clipping threshold.
+Rollout records a log probability (LogP) for each generated token. Training
+recomputes LogP for the same tokens. RL algorithms use these scores to compare
+policies. If the two engines disagree before a weight update, numerical
+differences can look like a policy change. That can affect policy ratios, KL
+measurements and whether a token is clipped during training.
 
-Bitwise train–rollout consistency means the independently computed LogP
-values have identical bits at the declared comparison point. The comparison must
-use the same weights, tokens, positions, masks and probability definition,
-including any temperature or sampling transformations. Training does not simply
-reuse rollout's stored scores.
+Bitwise train–rollout consistency means the two independently computed LogP
+values have the same bits at a specified comparison point. To make that test
+meaningful, both sides must use the same model weights, tokens and context,
+along with the same definition of token probability. That includes any
+temperature or sampling adjustments. Training recomputes its scores; it does
+not copy the scores saved by rollout.
 
-For post-training, that means:
+This gives us three useful checks:
 
-- The policy comparison is free of score differences caused by the two execution
-  paths at the same policy version.
-- Zero mismatch is a concrete check when changing kernels, engine versions or
-  supported parallel configurations.
-- Faster implementations can be measured against a numerical requirement, with
-  end-to-end cost measured separately.
+- Compare the same policy version without score differences caused by the two
+  execution paths.
+- Check whether a kernel or engine change breaks the numerical agreement.
+- Measure a faster implementation while keeping the same numerical requirement.
 
-Batch invariance (BI) asks whether changing a batch changes a computation's
-result. It is one part of this problem. Post-training also needs agreement across
-two engines and execution phases, with aligned policy versions and token
-state. BI inside one engine alone does not establish that agreement.
+Batch invariance (BI) asks whether changing the batch changes a result. It is
+related, but this check spans the rollout and training engines. The policy
+version and token inputs must also match. BI within one engine does not establish
+train–rollout consistency.
 
-Exact scores remove one source of numerical mismatch. They do not by themselves
-guarantee higher rewards, faster convergence or identical training trajectories.
-Those outcomes need separate experiments. This guide checks training against
-rollout within each tested platform; it does not compare NVIDIA outputs with
-AMD outputs. See the [technical explanation and published results](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md)
-for the comparison boundaries and evidence.
+Matching scores removes one source of error in the RL comparison. It does not
+by itself prove higher rewards, faster convergence or identical training runs.
+This guide compares training and rollout on each tested platform separately;
+it does not compare NVIDIA results with AMD results. The
+[technical article](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md)
+explains the numerical details and published results.
 
 ## Requirements
 
@@ -218,8 +217,9 @@ RUN_ARGS=(
 ```
 
 Check the resolved paths and runner\_command in the printed JSON. plan does
-not start a GPU job. These settings use training TP4 with CP2 and rollout TP4
-with CP1 on the same eight-GPU node. Keep the topology fixed for the first check.
+not start a GPU job. TP and CP describe how the eight GPUs share model and
+sequence work. This example uses training TP4 with CP2 and rollout TP4 with
+CP1. Keep these settings for the first check.
 
 Run three steps with a unique output name:
 
@@ -261,8 +261,8 @@ if report.get("passed") is not True:
 PY
 ```
 
-The top-level passed field must be true. A completed training process or
-one zero-looking metric is insufficient. Review the complete validation report.
+The top-level passed field must be true. A completed training run alone does
+not prove consistency. Review the complete validation report.
 
 | Backend | Consistency evidence | Report and log |
 |---|---|---|
@@ -325,8 +325,8 @@ training and rollout consistency checks across models, RL frameworks and hardwar
   [MiniMax-H3](https://github.com/RL-Align/RL-Kernel/issues/420), whose
   video and audio trajectories need their own consistency checks. The
   [Gemma](https://github.com/RL-Align/RL-Kernel/issues/415) and
-  [Qwen3-Next](https://github.com/RL-Align/RL-Kernel/issues/428) RFCs expand
-  model coverage too.
+  [Qwen3-Next](https://github.com/RL-Align/RL-Kernel/issues/428) are also
+  proposed model targets.
 - RL frameworks: Connect RL-Kernel to verl and AReaL, and advance the
   [miles integration](https://github.com/RL-Align/RL-Kernel/issues/642) for
   Qwen3.6 MoE. Each integration needs a reproducible training and rollout run and
