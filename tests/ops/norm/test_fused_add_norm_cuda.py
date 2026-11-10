@@ -394,6 +394,43 @@ _BOTH_BACKWARDS_REJECT = [
 
 
 @requires_cuda_kernel
+@pytest.mark.parametrize("shape", [(4, HIDDEN_SIZE), (2, 3, HIDDEN_SIZE)], ids=["2d", "3d"])
+def test_both_backwards_return_the_same_shapes_and_dtypes(shape):
+    """The two public backwards are now a pair, so their returns have to match too.
+
+    Values are compared bitwise elsewhere, in the CUDA-against-Triton test. This is
+    the part a caller trips over before it gets to values: both flatten a 3-D input
+    to rows by width and both return FP32, so swapping one for the other cannot
+    change the shape or the dtype of anything downstream.
+    """
+    triton_mod = pytest.importorskip("rl_engine.backends.shared.triton.norm.fused_add_norm")
+    hidden, residual, post_w, pre_w = _inputs(shape, torch.bfloat16)
+    cuda_fwd = fused_add_norm_cuda_forward(hidden, residual, post_w, pre_w, **_KW)
+    triton_fwd = triton_mod.fused_add_norm_triton_forward(hidden, residual, post_w, pre_w, **_KW)
+    g = torch.randn_like(hidden)
+    cuda_bwd = fused_add_norm_cuda_backward(
+        g, g, hidden, cuda_fwd[0], post_w, pre_w, cuda_fwd[2], cuda_fwd[3]
+    )
+    triton_bwd = triton_mod.fused_add_norm_triton_backward(
+        g, g, hidden, triton_fwd[0], post_w, pre_w, triton_fwd[2], triton_fwd[3]
+    )
+    for got, want, name in zip(
+        cuda_bwd,
+        triton_bwd,
+        ("d_hidden", "d_residual", "partial_post_w", "partial_pre_w"),
+        strict=True,
+    ):
+        assert (
+            got.shape == want.shape
+        ), f"{name}: CUDA {tuple(got.shape)}, Triton {tuple(want.shape)}"
+        assert got.dtype is want.dtype is torch.float32, f"{name}: {got.dtype} and {want.dtype}"
+    for got, want, name in zip(cuda_fwd, triton_fwd, ("residual_out", "pre_normed"), strict=False):
+        assert (
+            got.shape == want.shape
+        ), f"{name}: CUDA {tuple(got.shape)}, Triton {tuple(want.shape)}"
+
+
+@requires_cuda_kernel
 @pytest.mark.parametrize("mutate, exc, match", _BOTH_BACKWARDS_REJECT)
 def test_both_backwards_fail_closed_identically(mutate, exc, match):
     """The backward pair, held to the same bar as the forward pair.

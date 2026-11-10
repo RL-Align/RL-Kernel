@@ -140,6 +140,37 @@ def test_constant_lm_head_inputs_match_operator_contract():
     assert operator_shape_name("lm_head", args) == "1x2x128x17"
 
 
+def test_the_harness_eps_defaults_match_the_reference_constants():
+    """The two eps live in two files and must not drift apart.
+
+    ``operator_inputs.py`` carries its own ``MUSE_POST_NORM_EPS`` and
+    ``MUSE_RMS_NORM_EPS`` rather than importing them, so the harness and the
+    operator each hold a copy of a value that comes from the #558 fingerprint.
+    Nothing tied them together. They are equal today; if the reference's value were
+    corrected and this one were not, the harness would keep validating at an eps the
+    model does not use, and every candidate would agree with the gold while all of
+    them were measured at the wrong number. Found by reading the file rather than by
+    a failure, which is why the check is cheap and the comment is long.
+    """
+    from rl_engine.reference.norm.fused_add_norm import POST_NORM_EPS, RMS_NORM_EPS
+    from rl_engine.validation.operators.operator_inputs import MUSE_POST_NORM_EPS, MUSE_RMS_NORM_EPS
+
+    assert (MUSE_POST_NORM_EPS, MUSE_RMS_NORM_EPS) == (POST_NORM_EPS, RMS_NORM_EPS), (
+        f"harness eps {(MUSE_POST_NORM_EPS, MUSE_RMS_NORM_EPS)} against reference "
+        f"{(POST_NORM_EPS, RMS_NORM_EPS)}"
+    )
+    # And the builder actually uses them, rather than naming them and passing
+    # something else.
+    inputs = make_operator_inputs(
+        "fused_post_norm_residual_pre_norm",
+        _args(),
+        torch.float32,
+        torch.device("cpu"),
+    )
+    assert inputs["post_eps"] == POST_NORM_EPS
+    assert inputs["pre_eps"] == RMS_NORM_EPS
+
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
 def test_the_fused_add_norm_gold_is_checked_against_an_independent_recomputation(dtype):
     """The harness's gold for [F1] is the pytorch candidate, so this checks it elsewhere.
