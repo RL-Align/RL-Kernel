@@ -6,25 +6,28 @@
 The caller routes tokens, runs its experts on ``x_rows`` and combines the unweighted
 ``(token, slot)`` rows that come back. Weighted combine and expert kernels live outside
 this module. Every rank must make the same calls in the same order, including ranks
-with no tokens. This is the forward exchange only and runs under ``no_grad``.
+with no tokens, and must use ``ep_backward`` for training.
 """
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 
+from rl_engine.distributed.ep.autograd import EpDispatch, EpReturn
+from rl_engine.distributed.ep.backward import EpGradExchange
 from rl_engine.distributed.ep.cuda_transport import SUPPORTED_EP_SIZES, CudaNcclAllToAll
-from rl_engine.distributed.ep.exchange import EpExchange, EpRoute
+from rl_engine.distributed.ep.exchange import EpRoute
 from rl_engine.distributed.ep.plan import EP_MAPPING_SCHEMA, EpIdentity, EpPlacement, EpPlanError
 
 HIDDEN_SIZE = 2688
 TOP_K = 6
 NUM_EXPERTS = 128
 MAX_TOKENS = 65536
-_OP_CALL = 21
+_OP_CALL, _OP_BACKWARD = 21, 22
 
 
 def _require(ok: bool, message: str) -> None:
@@ -77,7 +80,7 @@ class NemotronEpExchange:
             placement.num_ranks in SUPPORTED_EP_SIZES,
             f"EP size {placement.num_ranks} is outside {SUPPORTED_EP_SIZES}",
         )
-        self.exchange = EpExchange(
+        self.exchange = EpGradExchange(
             group,
             placement,
             strict=strict,
@@ -118,8 +121,8 @@ class NemotronEpExchange:
             "expert ids must be unique and ascending per token",
         )
         _require(
-            not torch.is_grad_enabled(),
-            "the forward exchange has no backward; run it under no_grad",
+            not torch.is_grad_enabled() or self.exchange.strict,
+            "training needs strict=True; use no_grad for a non-strict exchange",
         )
         batch = invocation.key[:2]
         seen = self._seen if batch == self._batch else set()
@@ -141,11 +144,16 @@ class NemotronEpExchange:
             error = exc
         # Training and strict both change which collectives follow, so all ranks agree on them.
         mode = int(training) | int(exchange.strict) << 1
-        exchange._agree(_OP_CALL, run_tag=tag, width=mode, error=error)
+        exchange.agree(_OP_CALL, run_tag=tag, width=mode, error=error)
 
         route = exchange.build_route(ids, identity)
-        rows = exchange.dispatch_tokens(route, x.detach())
-        return NemotronEpCall(self, route, rows)
+        holder: dict[str, Any] = {}
+        if not training:
+            rows = exchange.dispatch_tokens(route, x.detach())
+            return NemotronEpCall(self, route, rows, None, holder)
+        anchor = torch.zeros((), dtype=torch.float32, device=x.device, requires_grad=True)
+        rows, link = EpDispatch.apply(x, anchor, exchange, route, holder)
+        return NemotronEpCall(self, route, rows, link, holder)
 
 
 @dataclass(eq=False)
@@ -153,6 +161,8 @@ class NemotronEpCall:
     owner: NemotronEpExchange
     route: EpRoute
     x_rows: torch.Tensor  # BF16 [R, H], (local expert, source, token, slot)
+    link: torch.Tensor | None
+    holder: dict[str, Any]
     rows: torch.Tensor | None = None
 
     @property
@@ -179,7 +189,10 @@ class NemotronEpCall:
                 y_rows.shape == self.x_rows.shape,
                 f"y_rows must match x_rows {tuple(self.x_rows.shape)}, got {tuple(y_rows.shape)}",
             )
-        self.rows = exchange.return_outputs(self.route, y_rows.detach()).rows
+        if self.link is None:
+            self.rows = exchange.return_outputs(self.route, y_rows.detach()).rows
+        else:
+            self.rows = EpReturn.apply(y_rows, self.link, exchange, self.route, self.holder)
         return self.rows
 
     def provenance(self) -> dict[str, Any]:
@@ -200,6 +213,48 @@ class NemotronEpCall:
         }
 
 
+def _reachable(root) -> set:
+    seen, stack = set(), [root]
+    while stack:
+        node = stack.pop()
+        if node is not None and node not in seen:
+            seen.add(node)
+            stack.extend(next_node for next_node, _ in node.next_functions)
+    return seen
+
+
+def ep_backward_preflight(
+    exchange: NemotronEpExchange, loss: torch.Tensor, calls: list[NemotronEpCall]
+) -> None:
+    """Every rank checks that its nodes reach the loss, then all agree before any payload."""
+    error = None
+    tags = [call.route.send.run_tag for call in calls]
+    try:
+        _require(loss.ndim == 0 and loss.grad_fn is not None, "loss must be a graph scalar")
+        reached = _reachable(loss.grad_fn)
+        for call in calls:
+            run_id = call.route.send.identity.run_id
+            if call.link is None or call.rows is None:
+                raise EpPlanError(f"{run_id} has no returned training outputs")
+            _require(
+                call.rows.grad_fn in reached and call.link.grad_fn in reached,
+                f"{run_id} does not reach the loss on this rank",
+            )
+    except EpPlanError as exc:
+        error = exc
+    digest = hashlib.sha256(repr(tags).encode("utf-8")).digest()
+    tag = int.from_bytes(digest[:8], "little") & (2**63 - 1)
+    exchange.exchange.agree(_OP_BACKWARD, run_tag=tag, width=len(calls), error=error)
+
+
+def ep_backward(
+    exchange: NemotronEpExchange, loss: torch.Tensor, calls: list[NemotronEpCall]
+) -> None:
+    """Preflight, then ``loss.backward()``; all ranks call this, with calls in the same order."""
+    ep_backward_preflight(exchange, loss, calls)
+    loss.backward()
+
+
 __all__ = [
     "HIDDEN_SIZE",
     "MAX_TOKENS",
@@ -208,4 +263,6 @@ __all__ = [
     "EpInvocation",
     "NemotronEpCall",
     "NemotronEpExchange",
+    "ep_backward",
+    "ep_backward_preflight",
 ]

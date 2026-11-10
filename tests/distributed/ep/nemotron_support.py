@@ -18,6 +18,7 @@ from rl_engine.distributed.ep.nemotron import (
     TOP_K,
     EpInvocation,
     NemotronEpExchange,
+    ep_backward,
 )
 
 H = HIDDEN_SIZE
@@ -120,6 +121,14 @@ def run_layer(ep_exchange, x, ids, weights, target, scales, invocation=None):
     return call, out, loss
 
 
+def train_rank(ep_exchange, x, ids, weights, target, scales):
+    """Forward and backward for one rank; returns BF16 ``out`` and ``dx``."""
+    x = x.clone().requires_grad_(True)
+    call, out, loss = run_layer(ep_exchange, x, ids, weights, target, scales)
+    ep_backward(ep_exchange, loss, [call])
+    return out.detach(), x.grad
+
+
 def reference_forward(x, ids, weights, scales) -> torch.Tensor:
     """No exchange: the per-slot expert and combine evaluated token by token."""
     total = []
@@ -128,6 +137,15 @@ def reference_forward(x, ids, weights, scales) -> torch.Tensor:
         y = stand_in_expert(row, ids[token], scales)
         total.append(fixed_order_combine(y, weights[token : token + 1]))
     return torch.cat(total) if total else x[:0]
+
+
+def reference_dx_fp64(x, ids, weights, target, scales) -> torch.Tensor:
+    """Closed form in FP64: ``sum_s w_s * (scale_e + x / 2) * target``, sharing no code."""
+    f = x.to(torch.float64)
+    t = target.to(torch.float64)
+    a = scales.to(torch.float64)[ids]
+    w = weights.to(torch.float64)
+    return (w[:, :, None] * (a[:, :, None] + f[:, None] * 0.5)).sum(dim=1) * t
 
 
 def bits(tensor: torch.Tensor) -> torch.Tensor:

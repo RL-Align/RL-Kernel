@@ -23,7 +23,13 @@ import torch.distributed as dist
 
 from rl_engine.distributed.ep import EpPlacement, TorchAllToAll
 from rl_engine.distributed.ep.cuda_transport import CudaNcclAllToAll
-from rl_engine.distributed.ep.nemotron import MAX_TOKENS, NUM_EXPERTS, TOP_K, EpInvocation
+from rl_engine.distributed.ep.nemotron import (
+    MAX_TOKENS,
+    NUM_EXPERTS,
+    TOP_K,
+    EpInvocation,
+    ep_backward,
+)
 from tests.distributed.ep.nemotron_support import (
     H,
     LoopbackTransport,
@@ -37,6 +43,7 @@ from tests.distributed.ep.nemotron_support import (
     run_layer,
     shuffled_placement,
     split_sizes,
+    train_rank,
 )
 
 
@@ -88,41 +95,39 @@ class Check:
     def local_inputs(self, total, sizes):
         return [rank_slice(t, sizes, self.rank).to(self.device) for t in global_inputs(total)]
 
-    def forward(self, exchange, x, ids, weights, target):
-        with torch.no_grad():
-            return run_layer(exchange, x, ids, weights, target, self.scales)[1]
-
     def ep1(self, x, ids, weights, target):
         exchange = make_exchange(contiguous_placement(1), LoopbackTransport(self.device))
-        return self.forward(exchange, x, ids, weights, target)
+        return train_rank(exchange, x, ids, weights, target, self.scales)
 
-    def compare(self, name, placement, sizes):
+    def forward_and_backward(self, name, placement, sizes):
         x, ids, weights, target = self.local_inputs(self.args.tokens, sizes)
-        out = self.forward(self.exchange(placement), x, ids, weights, target)
-        assert torch.equal(bits(out), bits(self.ep1(x, ids, weights, target))), name
+        out, dx = train_rank(self.exchange(placement), x, ids, weights, target, self.scales)
+        ref_out, ref_dx = self.ep1(x, ids, weights, target)
+        assert torch.equal(bits(out), bits(ref_out)), f"{name}: forward bits"
+        assert torch.equal(bits(dx), bits(ref_dx)), f"{name}: gradient bits"
         self.results[name] = "pass"
 
-    def f1_topologies(self):
+    def f1_b1_topologies(self):
         tokens = self.args.tokens
         balanced = split_sizes(tokens, self.ep, empty_rank=None)
         cases = {
-            "f1_contiguous": (contiguous_placement(self.ep), balanced),
-            "f4_shuffled": (shuffled_placement(self.ep), balanced),
-            "f4_empty_source": (
+            "f1_b1_contiguous": (contiguous_placement(self.ep), balanced),
+            "f4_b1_shuffled": (shuffled_placement(self.ep), balanced),
+            "f4_b5_empty_source": (
                 contiguous_placement(self.ep),
                 split_sizes(tokens, self.ep),
             ),
-            "f4_one_owner": (
+            "f4_b5_one_owner": (
                 EpPlacement.from_owners([0] * NUM_EXPERTS, self.ep),
                 balanced,
             ),
-            "f4_one_source": (
+            "f4_b5_one_source": (
                 contiguous_placement(self.ep),
                 [tokens] + [0] * (self.ep - 1),
             ),
         }
         for name, (placement, sizes) in cases.items():
-            self.compare(name, placement, sizes)
+            self.forward_and_backward(name, placement, sizes)
 
     def f1_reference(self):
         sizes = split_sizes(self.args.tokens, self.ep)
@@ -133,21 +138,24 @@ class Check:
         assert torch.equal(bits(out), bits(ref)), "f1: reference"
         self.results["f1_reference"] = "pass"
 
-    def f2_position(self):
+    def f2_b4_position(self):
         tokens = self.args.tokens
         x, ids, weights, target = global_inputs(tokens)
         perm = torch.randperm(tokens, generator=torch.Generator().manual_seed(3))
         sizes = split_sizes(tokens, self.ep, empty_rank=None)
         shuffled = (x[perm], ids[perm], weights[perm], target[perm])
         local = [rank_slice(t, sizes, self.rank).to(self.device) for t in shuffled]
-        out = self.forward(self.exchange(), *local)
+        out, dx = train_rank(self.exchange(), *local, self.scales)
         one = perm[sum(sizes[: self.rank]) : sum(sizes[: self.rank + 1])]
-        ref_out = []
+        ref_out, ref_dx = [], []
         for token in one.tolist():
             single = [t[token : token + 1].to(self.device) for t in (x, ids, weights, target)]
-            ref_out.append(self.ep1(*single))
+            a, b = self.ep1(*single)
+            ref_out.append(a)
+            ref_dx.append(b)
         assert torch.equal(bits(out), bits(torch.cat(ref_out))), "f2: forward"
-        self.results["f2_batch_and_position"] = "pass"
+        assert torch.equal(bits(dx), bits(torch.cat(ref_dx))), "b4: gradient"
+        self.results["f2_b4_batch_and_position"] = "pass"
 
     def f3_bit_patterns(self):
         patterns = torch.tensor(
@@ -181,10 +189,87 @@ class Check:
             expect_rejected("f7_wrong_dtype", wrong_dtype, "failed")
             self.results["f7_one_rank_wrong_dtype"] = "pass"
 
+    def b5_unused_output(self):
+        if self.ep == 1:
+            return
+        tokens = self.args.tokens
+        x, ids, weights, target = self.local_inputs(
+            tokens, split_sizes(tokens, self.ep, empty_rank=None)
+        )
+        leaf = x.clone().requires_grad_(True)
+        exchange = self.exchange()
+        call, _, loss = run_layer(exchange, leaf, ids, weights, target, self.scales)
+        if self.rank == 0:
+            loss = torch.ones((), device=self.device, requires_grad=True) * 2
+        expect_rejected(
+            "b5_unused",
+            lambda: ep_backward(exchange, loss, [call]),
+            "reach the loss" if self.rank == 0 else "failed",
+        )
+        self.results["b5_unused_output_rejected"] = "pass"
+
+    def b7_reversed_layers(self):
+        if self.ep == 1:
+            return
+        tokens = self.args.tokens
+        x, ids, weights, target = self.local_inputs(
+            tokens, split_sizes(tokens, self.ep, empty_rank=None)
+        )
+        exchange = self.exchange()
+        made = []
+        for layer in range(2):
+            leaf = x.clone().requires_grad_(True)
+            made.append(
+                run_layer(
+                    exchange,
+                    leaf,
+                    ids,
+                    weights,
+                    target,
+                    self.scales,
+                    EpInvocation(0, 0, layer),
+                )
+            )
+        order = made if self.rank == 0 else made[::-1]
+        expect_rejected(
+            "b7_reversed",
+            lambda: ep_backward(exchange, order[0][2], [order[0][0]]),
+            "disagree",
+        )
+        self.results["b7_reversed_layers_rejected"] = "pass"
+
+    def stacked_layers(self):
+        tokens = self.args.tokens
+        x, ids, weights, target = self.local_inputs(tokens, split_sizes(tokens, self.ep))
+
+        def run(exchange):
+            leaf = x.clone().requires_grad_(True)
+            hidden, calls = leaf, []
+            for layer in range(3):
+                call, hidden, loss = run_layer(
+                    exchange,
+                    hidden,
+                    ids,
+                    weights,
+                    target,
+                    self.scales,
+                    EpInvocation(0, 0, layer),
+                )
+                calls.append(call)
+            ep_backward(exchange, loss, calls)
+            return hidden.detach(), leaf.grad
+
+        out, dx = run(self.exchange())
+        ref = make_exchange(contiguous_placement(1), LoopbackTransport(self.device))
+        ref_out, ref_dx = run(ref)
+        assert torch.equal(bits(out), bits(ref_out)), "stacked: forward"
+        assert torch.equal(bits(dx), bits(ref_dx)), "stacked: gradient"
+        self.results["stacked_layers"] = "pass"
+
     def router_comparison(self):
-        """F5 against the real SM90 router, one local device, EP size 1."""
+        """F5 and B3a against the real SM90 router, one local device, EP size 1."""
         if self.args.backend != "nccl":
-            self.results["f5_router"] = "skipped: needs SM90"
+            self.results["f5_b3a_router"] = "skipped: needs SM90"
             return
         from rl_engine.runtime.registry import KernelRegistry
 
@@ -193,13 +278,22 @@ class Check:
         x = torch.randn(tokens, H, generator=g).to(self.device, torch.bfloat16)
         w = torch.randn(NUM_EXPERTS, H, generator=g).to(self.device, torch.float32)
         bias = torch.zeros(NUM_EXPERTS, device=self.device)
-        with torch.no_grad():
-            op = KernelRegistry().get_op("nemotron_router_dispatch", device=x.device)
-            ids, _, _, _, packed = op(x, w, bias)
-            exchange = make_exchange(contiguous_placement(1), LoopbackTransport(self.device))
-            call = exchange.dispatch(x, ids, EpInvocation(0, 0, 0))
-        assert torch.equal(bits(call.x_rows), bits(packed)), "f5"
+        router_x = x.clone().requires_grad_(True)
+        op = KernelRegistry().get_op("nemotron_router_dispatch", device=x.device)
+        ids, _, permutation, _, packed = op(router_x, w, bias)
+
+        ep_x = x.clone().requires_grad_(True)
+        exchange = make_exchange(contiguous_placement(1), LoopbackTransport(self.device))
+        call = exchange.dispatch(ep_x, ids.detach(), EpInvocation(0, 0, 0))
+        assert torch.equal(bits(call.x_rows.detach()), bits(packed.detach())), "f5"
         self.results["f5_router_packed"] = "pass"
+
+        grad = torch.randn(tokens * TOP_K, H, generator=g).to(self.device, torch.bfloat16)
+        packed.backward(grad)
+        rows = call.return_outputs(call.x_rows * 1)
+        rows.backward(grad[torch.argsort(permutation.detach())])
+        assert torch.equal(bits(ep_x.grad), bits(router_x.grad)), "b3a"
+        self.results["b3a_router_payload_branch"] = "pass"
 
     def f6_bits(self, rank):
         g = torch.Generator(device=self.device).manual_seed(31 + rank)
@@ -278,10 +372,13 @@ def main():
     dist.init_process_group(args.backend, timeout=timedelta(minutes=5))
     check = Check(args)
     check.f1_reference()
-    check.f1_topologies()
-    check.f2_position()
+    check.f1_b1_topologies()
+    check.f2_b4_position()
     check.f3_bit_patterns()
     check.f7_faults()
+    check.b5_unused_output()
+    check.b7_reversed_layers()
+    check.stacked_layers()
     check.router_comparison()
     if args.scale:
         check.f6_scale()
