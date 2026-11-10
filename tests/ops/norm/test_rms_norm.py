@@ -12,7 +12,7 @@ from rl_engine.backends.shared.triton.norm.rmsnorm import (
     rmsnorm_triton,
 )
 from rl_engine.platforms.device import device_ctx
-from rl_engine.reference.norm.rms_norm import NativeRMSNormOp, _pad_to_chunk
+from rl_engine.reference.norm.rms_norm import NativeRMSNormOp, _pad_to_chunk, shape_invariant_meansq
 
 try:
     from rl_engine.backends.extension import _C, _EXT_AVAILABLE
@@ -171,6 +171,48 @@ def test_chunking_is_allocation_free_at_the_widths_the_model_uses(N):
     ), f"width {N} is a multiple of 32 and still copied"
 
 
+@pytest.mark.parametrize("N", [33, 100, 129])
+def test_pad_to_chunk_pads_a_width_that_is_not_a_multiple_of_32(N):
+    """The fix itself, asserted where it can fail without a GPU.
+
+    The test below checks batch invariance, and its CUDA row is the only one that
+    goes red if the old ``if hidden % 32: return mean(...)`` fallback comes back,
+    because on CPU a plain mean is invariant at these shapes anyway. So on a
+    CPU-only runner that regression would have shipped green. This test is the
+    CPU-visible half: the padding branch has to pad, has to copy, and has to change
+    the arithmetic.
+
+    The last assertion is the regression detector. Restoring the fallback makes
+    ``shape_invariant_meansq`` exactly ``x.pow(2).sum(-1) / N``, and a two-stage sum
+    over 32-wide chunks associates the additions differently from a single sum over
+    N, so the two disagree in the last bits: measured on CPU with ``randn`` inputs,
+    1.19e-07 at widths 33 and 100 and 5.96e-08 at 129. Asserting they differ pins
+    the chunked path without asserting any particular bit pattern.
+    """
+    x = _rand((4, N), seed=11)
+    assert N % 32 != 0, "this test is about the widths that need padding"
+
+    chunked = _pad_to_chunk(x)
+    assert chunked.shape == (4, -(-N // 32), 32), f"width {N} chunked to {tuple(chunked.shape)}"
+    assert (
+        chunked.untyped_storage().data_ptr() != x.untyped_storage().data_ptr()
+    ), f"width {N} is not a multiple of 32 and did not copy, so nothing was padded"
+
+    # Zero padding has to be exact for a sum of squares: the same two-stage sum over
+    # an explicitly padded copy, built here rather than borrowed, must agree bitwise.
+    padded = torch.zeros(4, -(-N // 32) * 32)
+    padded[:, :N] = x
+    manual = padded.pow(2).reshape(4, -1, 32).sum(dim=-1).sum(dim=-1) / float(N)
+    assert torch.equal(shape_invariant_meansq(x), manual), "the padding is not exact"
+
+    plain = x.pow(2).sum(dim=-1) / float(N)
+    assert not torch.equal(shape_invariant_meansq(x), plain), (
+        f"width {N}: the chunked statistic equals a plain mean bitwise, which is what "
+        "the removed fallback did, so either the fallback is back or this input no "
+        "longer distinguishes the two associations"
+    )
+
+
 @pytest.mark.parametrize("device", ["cpu"] + (["cuda"] if torch.cuda.is_available() else []))
 @pytest.mark.parametrize("N", [33, 100, 129])
 def test_batch_invariance_at_widths_that_are_not_a_multiple_of_32(N, device):
@@ -188,7 +230,8 @@ def test_batch_invariance_at_widths_that_are_not_a_multiple_of_32(N, device):
     width 100 even with the bug, so they would have gone green on it. And the
     device: on CPU the plain mean is invariant for these shapes anyway, so a
     CPU-only version of this test also goes green on the bug. It is the CUDA row
-    that carries it.
+    that carries it, which means this test alone would let the regression through a
+    CPU-only runner; the test above it is the CPU-visible guard and fails there.
     """
     op = NativeRMSNormOp()
     w = _rand((N,), seed=1).to(device)

@@ -167,6 +167,8 @@ __device__ __forceinline__ float narrow_to(float v) {
 __device__ __forceinline__ float block_reduce_sum(float v) {
     extern __shared__ float smem[];
     const int tid = threadIdx.x;
+    // Debug-build only; NDEBUG removes it. choose_threads carries the TORCH_CHECK
+    // that holds in a release build.
     assert((blockDim.x & (blockDim.x - 1)) == 0);
 
     smem[tid] = v;
@@ -182,11 +184,27 @@ __device__ __forceinline__ float block_reduce_sum(float v) {
     return total;
 }
 
+// The lane count per row. These four thresholds are a cross-file contract: the
+// Triton kernel's _reduction_shape re-encodes the same <=64 / <=128 / <=256 / else
+// 512 boundaries, and the CUDA == Triton bitwise claim holds only while the two
+// agree, since the lane count is what fixes the fold order. Nothing in either
+// language can enforce that, so it is pinned by a test that reads the constants out
+// of this function and compares them to the Python table across a width sweep; see
+// test_the_lane_thresholds_match_the_triton_table in tests/ops/norm.
 int choose_threads(int H) {
-    if (H <= 64) return 64;
-    if (H <= 128) return 128;
-    if (H <= 256) return 256;
-    return 512;
+    const int threads = (H <= 64) ? 64 : (H <= 128) ? 128 : (H <= 256) ? 256 : 512;
+    // The stride-halving tree in block_reduce_sum starts at blockDim.x / 2 and
+    // needs a power of two: at 96 lanes, say, stride 48 would leave lanes 96..95
+    // unread and the row's sum would be wrong rather than merely differently
+    // ordered. block_reduce_sum asserts it too, but assert is compiled out under
+    // NDEBUG and torch's release extension builds define NDEBUG, so the only guard
+    // that survives in a shipped build is this one. A wrong reduction here is a
+    // wrong result, not a slow one, which is why it is checked rather than
+    // documented.
+    TORCH_CHECK((threads & (threads - 1)) == 0,
+                "choose_threads returned ", threads,
+                ", which is not a power of two; the block reduction requires one");
+    return threads;
 }
 
 template <typename scalar_t, typename weight_t>

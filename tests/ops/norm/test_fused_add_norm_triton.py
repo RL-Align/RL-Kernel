@@ -261,6 +261,11 @@ def test_the_triton_op_refuses_to_construct_without_triton(monkeypatch):
         triton_norm.TritonFusedAddNormOp()
 
 
+# Gated, which it was not: _inputs allocates on cuda, so every case here failed at
+# setup on a CPU-only runner rather than skipping. It had been that way since the
+# file was written, and the round that asked about CPU-only coverage is what sent me
+# looking.
+@requires_cuda
 @pytest.mark.parametrize(
     "mutate, exc, match",
     [

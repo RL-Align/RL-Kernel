@@ -13,6 +13,7 @@ reasons in the Triton module docstring.
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 import pytest
 import torch
@@ -318,6 +319,63 @@ _BOTH_WRAPPERS_REJECT = [
     (lambda h, r, pw, vw: (h, r, pw.cpu(), vw), RuntimeError, "GPU tensor"),
     (lambda h, r, pw, vw: (h, r, pw.to(torch.bfloat16), vw), ValueError, "share dtype"),
 ]
+
+
+def test_the_lane_thresholds_match_the_triton_table():
+    """The one cross-file contract the bitwise claim rests on, pinned.
+
+    ``choose_threads`` in ``csrc/cuda/norm/fused_add_norm.cu`` and
+    ``_reduction_shape`` in the Triton module encode the same four boundaries, and
+    the lane count is what fixes the fold order, so CUDA == Triton bitwise holds
+    only while they agree. Neither language can enforce that and the two files are
+    edited independently: raising the CUDA cap to 1024 on its own would break parity
+    at every width above 256, with no compile-time or run-time error and no hint in
+    the bitwise failures as to why.
+
+    So this reads the constants out of the ``.cu`` and compares them against the
+    Python table across a width sweep. It needs no GPU and no built extension, which
+    is the point: a desync is caught on any runner, including the CPU-only ones where
+    the bitwise tests do not run at all. A parse that stops matching fails rather
+    than passing, because a silently vacuous coupling test is worse than none.
+    """
+    import importlib
+    import re
+
+    source_path = (
+        Path(__file__).resolve().parents[3] / "csrc" / "cuda" / "norm" / "fused_add_norm.cu"
+    )
+    source = source_path.read_text(encoding="utf-8")
+    body = re.search(r"int choose_threads\(int H\) \{(.*?)^\}", source, re.S | re.M)
+    assert body, f"choose_threads is no longer where {source_path.name} had it"
+    expression = re.search(r"const int threads =(.*?);", body.group(1), re.S)
+    assert expression, "choose_threads no longer assigns threads from one expression"
+    text = expression.group(1)
+
+    thresholds = [(int(h), int(lanes)) for h, lanes in re.findall(r"H <= (\d+)\) \? (\d+)", text)]
+    fallback = re.search(r":\s*(\d+)\s*$", text.strip())
+    assert len(thresholds) == 3 and fallback, (
+        f"parsed {thresholds} and {fallback} out of {text!r}; the shape of "
+        "choose_threads changed, so update this test alongside the Python table"
+    )
+    tail = int(fallback.group(1))
+
+    def cuda_lanes(width):
+        for bound, lanes in thresholds:
+            if width <= bound:
+                return lanes
+        return tail
+
+    triton_module = importlib.import_module("rl_engine.backends.shared.triton.norm.fused_add_norm")
+    widths = list(range(1, 600)) + [1000, 4096, 6656, 8191, 16384, 65536]
+    mismatched = [
+        (w, cuda_lanes(w), triton_module._reduction_shape(w)[0])
+        for w in widths
+        if cuda_lanes(w) != triton_module._reduction_shape(w)[0]
+    ]
+    assert not mismatched, (
+        "the two lane tables disagree at (width, cuda, triton): "
+        f"{mismatched[:6]}{' ...' if len(mismatched) > 6 else ''}"
+    )
 
 
 def test_the_cuda_op_refuses_to_construct_without_the_extension(monkeypatch):
