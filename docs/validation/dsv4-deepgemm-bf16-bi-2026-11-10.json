@@ -1,0 +1,339 @@
+{
+ "device": "NVIDIA H200",
+ "num_sms": 132,
+ "cases": [
+  {
+   "name": "indexer_weights_proj",
+   "n": 64,
+   "k": 4096,
+   "out": "torch.bfloat16",
+   "seed": 0,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 0.0016616578213870525
+  },
+  {
+   "name": "indexer_weights_proj",
+   "n": 64,
+   "k": 4096,
+   "out": "torch.bfloat16",
+   "seed": 1,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 0.001663853763602674
+  },
+  {
+   "name": "indexer_weights_proj",
+   "n": 64,
+   "k": 4096,
+   "out": "torch.bfloat16",
+   "seed": 2,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 0.0016616458306089044
+  },
+  {
+   "name": "indexer_compressor_wkv_wgate",
+   "n": 512,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 0,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 4.420155619300203e-06
+  },
+  {
+   "name": "indexer_compressor_wkv_wgate",
+   "n": 512,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 1,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 4.417863237904385e-06
+  },
+  {
+   "name": "indexer_compressor_wkv_wgate",
+   "n": 512,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 2,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 4.425066890689777e-06
+  },
+  {
+   "name": "compressor_c128_wkv_wgate",
+   "n": 1024,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 0,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 4.44556735601509e-06
+  },
+  {
+   "name": "compressor_c128_wkv_wgate",
+   "n": 1024,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 1,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 4.442329100129427e-06
+  },
+  {
+   "name": "compressor_c128_wkv_wgate",
+   "n": 1024,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 2,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 4.449275820661569e-06
+  },
+  {
+   "name": "compressor_c4_wkv_wgate",
+   "n": 2048,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 0,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 4.446011644176906e-06
+  },
+  {
+   "name": "compressor_c4_wkv_wgate",
+   "n": 2048,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 1,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 4.444284513738239e-06
+  },
+  {
+   "name": "compressor_c4_wkv_wgate",
+   "n": 2048,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 2,
+   "passed": true,
+   "failed": [],
+   "rel_err_vs_fp32": 4.448513209354132e-06
+  }
+ ],
+ "negative_control": [
+  {
+   "name": "indexer_weights_proj",
+   "n": 64,
+   "k": 4096,
+   "out": "torch.bfloat16",
+   "seed": 0,
+   "passed": false,
+   "failed": [
+    "prefix_m3",
+    "prefix_m8",
+    "prefix_m64",
+    "prefix_m129",
+    "prefix_m256",
+    "prefix_m1000",
+    "window"
+   ],
+   "rel_err_vs_fp32": 0.0016616578213870525
+  },
+  {
+   "name": "indexer_compressor_wkv_wgate",
+   "n": 512,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 0,
+   "passed": false,
+   "failed": [
+    "prefix_m1",
+    "prefix_m3",
+    "prefix_m8",
+    "prefix_m64",
+    "prefix_m129",
+    "prefix_m256",
+    "row0_alone",
+    "row1_alone",
+    "row127_alone",
+    "row128_alone",
+    "row129_alone",
+    "row2047_alone",
+    "row4095_alone",
+    "window"
+   ],
+   "rel_err_vs_fp32": 4.420155619300203e-06
+  },
+  {
+   "name": "compressor_c128_wkv_wgate",
+   "n": 1024,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 0,
+   "passed": false,
+   "failed": [
+    "prefix_m1",
+    "prefix_m3",
+    "prefix_m8",
+    "prefix_m64",
+    "prefix_m129",
+    "row0_alone",
+    "row1_alone",
+    "row127_alone",
+    "row128_alone",
+    "row129_alone",
+    "row2047_alone",
+    "row4095_alone",
+    "window"
+   ],
+   "rel_err_vs_fp32": 4.44556735601509e-06
+  },
+  {
+   "name": "compressor_c4_wkv_wgate",
+   "n": 2048,
+   "k": 4096,
+   "out": "torch.float32",
+   "seed": 0,
+   "passed": false,
+   "failed": [
+    "prefix_m1",
+    "prefix_m3",
+    "prefix_m8",
+    "prefix_m64",
+    "row0_alone",
+    "row1_alone",
+    "row127_alone",
+    "row128_alone",
+    "row129_alone",
+    "row2047_alone",
+    "row4095_alone"
+   ],
+   "rel_err_vs_fp32": 4.446011644176906e-06
+  }
+ ],
+ "perf": [
+  {
+   "name": "indexer_weights_proj",
+   "m": 1,
+   "deepgemm_us": 10.27199998497963,
+   "cublas_us": 9.936000220477581
+  },
+  {
+   "name": "indexer_weights_proj",
+   "m": 64,
+   "deepgemm_us": 10.56000031530857,
+   "cublas_us": 10.33599954098463
+  },
+  {
+   "name": "indexer_weights_proj",
+   "m": 256,
+   "deepgemm_us": 10.71999967098236,
+   "cublas_us": 10.495999827980995
+  },
+  {
+   "name": "indexer_weights_proj",
+   "m": 1024,
+   "deepgemm_us": 14.14399966597557,
+   "cublas_us": 11.008000001311302
+  },
+  {
+   "name": "indexer_weights_proj",
+   "m": 4096,
+   "deepgemm_us": 15.776000916957855,
+   "cublas_us": 13.008000329136848
+  },
+  {
+   "name": "indexer_compressor_wkv_wgate",
+   "m": 1,
+   "deepgemm_us": 10.991999879479408,
+   "cublas_us": 10.4479999281466
+  },
+  {
+   "name": "indexer_compressor_wkv_wgate",
+   "m": 64,
+   "deepgemm_us": 10.863999836146832,
+   "cublas_us": 10.816000401973724
+  },
+  {
+   "name": "indexer_compressor_wkv_wgate",
+   "m": 256,
+   "deepgemm_us": 11.296000331640244,
+   "cublas_us": 11.807999573647976
+  },
+  {
+   "name": "indexer_compressor_wkv_wgate",
+   "m": 1024,
+   "deepgemm_us": 17.08799973130226,
+   "cublas_us": 15.519999898970127
+  },
+  {
+   "name": "indexer_compressor_wkv_wgate",
+   "m": 4096,
+   "deepgemm_us": 30.271999537944794,
+   "cublas_us": 28.991999104619026
+  },
+  {
+   "name": "compressor_c128_wkv_wgate",
+   "m": 1,
+   "deepgemm_us": 10.89600007981062,
+   "cublas_us": 10.351999662816525
+  },
+  {
+   "name": "compressor_c128_wkv_wgate",
+   "m": 64,
+   "deepgemm_us": 11.231999844312668,
+   "cublas_us": 10.879999957978725
+  },
+  {
+   "name": "compressor_c128_wkv_wgate",
+   "m": 256,
+   "deepgemm_us": 12.256000190973282,
+   "cublas_us": 13.423999771475792
+  },
+  {
+   "name": "compressor_c128_wkv_wgate",
+   "m": 1024,
+   "deepgemm_us": 22.048000246286392,
+   "cublas_us": 21.344000473618507
+  },
+  {
+   "name": "compressor_c128_wkv_wgate",
+   "m": 4096,
+   "deepgemm_us": 53.328000009059906,
+   "cublas_us": 50.11200159788132
+  },
+  {
+   "name": "compressor_c4_wkv_wgate",
+   "m": 1,
+   "deepgemm_us": 13.423999771475792,
+   "cublas_us": 12.016000226140022
+  },
+  {
+   "name": "compressor_c4_wkv_wgate",
+   "m": 64,
+   "deepgemm_us": 11.504000052809715,
+   "cublas_us": 12.272000312805176
+  },
+  {
+   "name": "compressor_c4_wkv_wgate",
+   "m": 256,
+   "deepgemm_us": 14.576000161468983,
+   "cublas_us": 16.127999871969223
+  },
+  {
+   "name": "compressor_c4_wkv_wgate",
+   "m": 1024,
+   "deepgemm_us": 29.61600013077259,
+   "cublas_us": 28.36799994111061
+  },
+  {
+   "name": "compressor_c4_wkv_wgate",
+   "m": 4096,
+   "deepgemm_us": 117.74400249123573,
+   "cublas_us": 95.21600231528282
+  }
+ ]
+}

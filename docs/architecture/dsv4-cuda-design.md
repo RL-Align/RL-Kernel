@@ -287,10 +287,20 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         fallback rounds differently in three places and is not the target. FMA contraction
         found by running the compiled CuTe kernel (`scripts/check_indexer_q_vllm_parity.py`,
         50/50 cases). 0.011-0.015x of the eager golden; 1.0-1.14x of vLLM's kernel
-  - [ ] `weights_proj` (BF16 [hidden -> 64], unquantized): needs a batch-invariant BF16 GEMM
-  - [ ] Indexer op composition: Q path + logits + `stable_topk_per_row`; vLLM's
-        short-context shortcut (`max_seq_len // ratio <= topk` fills indices directly, eager
-        only) decides per batch and must be checked against the BI contract
+  - [x] `weights_proj` (BF16 [hidden -> 64], unquantized) and the two compressor
+        `fused_wkv_wgate` score GEMMs (FP32 output; N = 512 indexer, 1024 C128, 2048 C4) use
+        unmodified DeepGEMM `bf16_gemm_nt` (`scripts/probe_dsv4_deepgemm_bf16_bi.py`,
+        `docs/validation/dsv4-deepgemm-bf16-bi-2026-11-10.json`): batch-invariant at all four
+        shapes (prefixes, single rows, window, run to run; 3 seeds; BF16 and FP32 output),
+        cuBLAS negative control varies on all four; 0.90-1.28x of cuBLAS; FP32-output error
+        4.4e-6 (FP32 accumulation). det_gemm is not used here: its K-tree rounds partial sums
+        to BF16. Backward (dX / dW determinism) not probed yet
+  - [ ] Indexer op composition: Q path + logits + `stable_topk_per_row`. vLLM's
+        short-context shortcut (`max_seq_len // ratio <= topk`, eager only) fills ascending
+        ids `0..n-1` where the top-k path emits score order: same set, different order,
+        chosen from the batch's longest request. FlashMLA's accumulation follows index order,
+        so the T05 wrapper **must** canonicalize the indices (rule 2); then both orders give
+        the same bytes
 - [x] T04 stable top-k: composite key, fixed output slots, one selector for prefill and
       decode; regression covers "all ties + true cutoff". `stable_topk_per_row` (golden
       `rl_engine/kernels/ops/pytorch/topk/`, CUDA `csrc/cuda/topk/stable_topk.cu`;
