@@ -1,47 +1,14 @@
 # RL-Kernel Train–Rollout Consistency: A Practical Guide
 
-In RL post-training, a rollout engine generates responses and a training engine
-learns from them. Both score the generated tokens. Before the weights change,
-those scores should agree when the engines use the same policy and inputs. In
-practice, different numerical paths can produce different scores.
+In RL post-training, rollout generates responses and records a log probability
+(LogP) for each token. Training recomputes those scores before updating the
+weights. RL-Kernel checks whether the two independently computed scores have
+identical bits when the weights and inputs match.
 
-RL-Kernel works to align those paths. This guide explains the problem and walks
-through a short Qwen3-8B check using vime, vLLM and Megatron-LM on NVIDIA H100
-or AMD MI300X.
-
-## Why exact consistency matters in post-training
-
-Rollout records a log probability (LogP) for each generated token. Training
-recomputes LogP for the same tokens. RL algorithms use these scores to compare
-policies. If the two engines disagree before a weight update, numerical
-differences can look like a policy change. That can affect policy ratios, KL
-measurements and whether a token is clipped during training.
-
-Bitwise train–rollout consistency means the two independently computed LogP
-values have the same bits at a specified comparison point. To make that test
-meaningful, both sides must use the same model weights, tokens and context,
-along with the same definition of token probability. That includes any
-temperature or sampling adjustments. Training recomputes its scores; it does
-not copy the scores saved by rollout.
-
-This gives us three useful checks:
-
-- Compare the same policy version without score differences caused by the two
-  execution paths.
-- Check whether a kernel or engine change breaks the numerical agreement.
-- Measure a faster implementation while keeping the same numerical requirement.
-
-Batch invariance (BI) asks whether changing the batch changes a result. It is
-related, but this check spans the rollout and training engines. The policy
-version and token inputs must also match. BI within one engine does not establish
-train–rollout consistency.
-
-Matching scores removes one source of error in the RL comparison. It does not
-by itself prove higher rewards, faster convergence or identical training runs.
-This guide compares training and rollout on each tested platform separately;
-it does not compare NVIDIA results with AMD results. The
-[technical article](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md)
-explains the numerical details and published results.
+This guide runs a short Qwen3-8B check with vime, vLLM and Megatron-LM on
+NVIDIA H100 or AMD MI300X. It compares training and rollout on each platform
+separately. For the numerical background and published results, see the
+[technical article](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md).
 
 ## Requirements
 
