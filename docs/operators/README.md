@@ -39,5 +39,6 @@ Every operator page should include:
 - [DSv4 FP8 Group Quant](fp8-group-quant.md)
 - [DSv4 Indexer Stable Top-K](stable-topk.md)
 - [DSv4 Indexer Query RoPE + FP8](indexer-q.md)
+- [DSv4 KV Compressor](compressor.md)
 - [Final Logit Softcap](final-logit-softcap.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

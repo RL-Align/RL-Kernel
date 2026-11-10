@@ -399,6 +399,20 @@ def indexer_q_rope_fp8_forward(
     softmax_scale: float,
     head_scale: float,
 ) -> list[torch.Tensor]: ...
+def compress_indexer_fp8(
+    state_cache: torch.Tensor,
+    block_table: torch.Tensor,
+    token_to_req: torch.Tensor,
+    positions: torch.Tensor,
+    rms_weight: torch.Tensor,
+    eps: float,
+    cos_sin_cache: torch.Tensor,
+    k_cache: torch.Tensor,
+    k_block_size: int,
+    k_slots: torch.Tensor,
+    ratio: int,
+    overlap: bool,
+) -> None: ...
 def stable_topk_per_row_out(
     logits: torch.Tensor,
     row_starts: torch.Tensor,

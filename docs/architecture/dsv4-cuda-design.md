@@ -287,6 +287,14 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
     The same question applies to every vLLM Triton/CuTe kernel on the DSv4 path whose
     output is not hidden behind an exact step (top-k, indexer Q and the probed DeepGEMM
     kernels are already exact matches)
+  - [x] Indexer compressor (head 128, C4 overlap): golden
+        `rl_engine/kernels/ops/pytorch/compressor/`, CUDA `csrc/cuda/compressor/compress_fp8.cu`
+        (`docs/operators/compressor.md`). Byte-equal golden/CUDA (5 magnitude regimes, both
+        rotary dtypes), batch-invariant, chunked prefill equals one pass; writes DeepGEMM's
+        paged FP8 indexer cache. 1.05-1.14x of vLLM's Triton kernel, 99.999% of FP8 bytes
+        equal to it. vLLM stores `rotate=True` but applies no Hadamard; neither do we
+  - [ ] Main compressor (head 512, C4 and C128): output is FlashMLA's KV layout, so it is
+        built together with T05
 - [ ] T03 indexer projection + FP4/FP8 logits: use the GEMM decided in Phase 1; run the
       invariance probe against DeepGEMM `fp8_mqa_logits` (5 seeds x 5 sub-batch sizes x
       production shape)

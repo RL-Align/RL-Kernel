@@ -38,6 +38,7 @@ nav:
       - operators/fp8-group-quant.md
       - operators/stable-topk.md
       - operators/indexer-q.md
+      - operators/compressor.md
       - operators/final-logit-softcap.md
   - Developer Guide:
     - contributing/README.md
