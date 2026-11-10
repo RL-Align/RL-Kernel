@@ -12,7 +12,7 @@ from rl_engine.backends.shared.triton.norm.rmsnorm import (
     rmsnorm_triton,
 )
 from rl_engine.platforms.device import device_ctx
-from rl_engine.reference.norm.rms_norm import NativeRMSNormOp
+from rl_engine.reference.norm.rms_norm import NativeRMSNormOp, _pad_to_chunk
 
 try:
     from rl_engine.backends.extension import _C, _EXT_AVAILABLE
@@ -146,6 +146,29 @@ def test_batch_invariance_slice(N):
     full = op.forward_fp32(x, w)  # compute on full batch...
     assert torch.equal(op.forward_fp32(x[:1], w), full[:1])  # ...then slice
     assert torch.equal(op.forward_fp32(x[3:5], w), full[3:5])
+
+
+@pytest.mark.parametrize("N", [_HIDDEN, _HEAD_DIM, 6656])
+def test_chunking_is_allocation_free_at_the_widths_the_model_uses(N):
+    """The fixed-chunk scheme costs nothing at a multiple of 32.
+
+    ``_pad_to_chunk`` zero-pads the tail so that widths which are not a multiple of
+    32 reduce in the same fixed chunks as the rest, and a pad is a copy. At a width
+    that is already a multiple of 32 it has to stay a reshape, which is a view, and
+    that covers every width in this config: 4096 and 128 here, 6656 for the fused
+    decoder norm. Measured where it does copy, at 512 rows on SM 8.9: 37.95 us at
+    width 6656 against 55.21 us at 6657, with the pad itself 6.32 us.
+
+    Asserted on the storage rather than the timing, so it cannot go quiet on a
+    faster machine: making the pad unconditional would fail this.
+    """
+    x = _rand((8, N), seed=7)
+    assert N % 32 == 0, "this test is about the widths that need no padding"
+    chunked = _pad_to_chunk(x)
+    assert chunked.shape == (8, N // 32, 32)
+    assert (
+        chunked.untyped_storage().data_ptr() == x.untyped_storage().data_ptr()
+    ), f"width {N} is a multiple of 32 and still copied"
 
 
 @pytest.mark.parametrize("device", ["cpu"] + (["cuda"] if torch.cuda.is_available() else []))

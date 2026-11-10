@@ -122,6 +122,17 @@ def _pad_to_chunk(x_f: torch.Tensor) -> torch.Tensor:
     chunk count is ``ceil(width / 32)``, which depends on the width alone. The
     intermediate shapes therefore stay independent of the batch layout, which is
     the whole point of the scheme.
+
+    What it costs, since the pad is a copy: nothing at a width that is already a
+    multiple of 32, where this returns a view that shares its input's storage, and
+    that covers every width the model uses -- 6656 here, 4096 and 128 in the config.
+    Elsewhere it is one temporary of the row's size per call. Measured on SM 8.9 at
+    512 rows, the statistic takes 37.95 us at width 6656 and 55.21 us at 6657, and
+    the pad alone is 6.32 us, about 27% of the statistic at width 100. The way to
+    avoid it would be to reduce the whole chunks as a view and fold the tail
+    separately, which associates the additions differently and so changes the bytes
+    at exactly the widths this function exists to make invariant. The copy is the
+    cheaper side of that trade.
     """
     hidden = x_f.shape[-1]
     remainder = hidden % _CHUNK

@@ -303,10 +303,19 @@ def fused_add_norm_backward(
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """Gradients of ``NativeFusedAddNormOp.forward``, closed form.
 
-    Returns ``(d_hidden, d_residual, d_post_weight_rows, d_pre_weight_rows)``. The
-    two weight entries are per-row FP32 contributions, not sums, matching
-    ``parameter_vjp_contributions_fp32`` elsewhere in the repo; the caller folds
-    them with ``reduce_rows_fp32``.
+    Returns ``(d_hidden, d_residual, d_post_weight_rows, d_pre_weight_rows)``. All
+    four are FP32 tensors. The two weight entries are per-row FP32 contributions,
+    not sums, matching ``parameter_vjp_contributions_fp32`` elsewhere in the repo;
+    the caller folds them with ``reduce_rows_fp32``.
+
+    One asymmetry in the values, stated here because a caller has to know it and a
+    comment further down is too late: ``d_residual`` carries a narrowing, having
+    been rounded to ``grad_dtype`` and widened again, and ``d_hidden`` is a raw FP32
+    accumulation. Compared against a kernel or against autograd without a cast,
+    ``d_hidden`` is the one that shows ULP-level differences, which is easy to read
+    as a kernel fault. Cast it to the input dtype first, the way the autograd
+    wrappers and the parity tests do. The reason for the asymmetry rather than its
+    consequence is at the return statement.
 
     ``residual_out`` is both an output and the pre-norm's input, so the gradient
     reaching it is the sum of what comes back from downstream and what comes back
