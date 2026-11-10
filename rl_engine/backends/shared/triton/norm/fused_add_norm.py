@@ -11,20 +11,30 @@ One program per row, one block per row, so the reduction order is fixed by
 ``BLOCK_H`` and never depends on the batch layout. That is what makes Axis-A batch
 invariance hold here.
 
-A note on the reduction, because it limits what this file can claim. RFC #501 asks
-for CUDA == Triton bitwise. For an elementwise operator that is reachable, and
-``activation/swiglu.py`` does it. For a row reduction it is not reachable by
-writing the same source in both languages: the fold is exactly reproducible when
-fed precomputed squares, but once the square is in-kernel the optimiser reshapes
-the reduction chain, and an inline-asm barrier that removes every ``fma`` from the
-PTX still leaves the result differing from a hand-written tree on a few rows in
-sixty-four. The repo's own position matches: ``tests/ops/norm/test_rms_norm.py``
-compares backends with a tolerance ``NOT torch.equal, precisely because the
-reduction order is allowed to differ``, and the vendor-exact sequences in
-``attention/deterministic_attn.py`` needed hand-written assembly. So the tests for
-this operator hold CUDA and Triton to the tolerance contract and to identical
-batch invariance, and the bitwise question is raised in the PR rather than
-answered here.
+RFC #501 asks for CUDA == Triton bitwise, and this operator meets it on all six
+outputs at all three dtypes. A row reduction does not get there by writing the
+same source in both languages; three specific things had to be made to agree, and
+each is load-bearing here rather than incidental:
+
+* **the reduction order.** ``tl.sum`` picks its own tree, so the fold is written
+  out instead: lane ``t`` accumulates ``x[t + k*LANES]`` over ``k`` ascending,
+  then a stride-halving tree over the lanes. That is the order
+  ``csrc/cuda/norm/fused_add_norm.cu`` already used, and ``_reduction_shape``
+  below owns the lane counts jointly with ``choose_threads`` there. Change one
+  without the other and the backends come apart.
+* **the divide by the width.** Triton's ``/`` lowers to ``div.full.f32``, an
+  approximate division; the CUDA kernel's is ``div.rn.f32``. With the orders
+  already matched, that difference alone left the statistics one ULP apart on 22%
+  of rows. Hence ``tl.div_rn``.
+* **the reciprocal square root.** nvcc's ``rsqrtf`` is libdevice's refined
+  non-FTZ sequence, ``tl.rsqrt`` is the bare ``rsqrt.approx.ftz.f32``, and they
+  disagree on about 12% of inputs. The CUDA side emits the same instruction now.
+
+``tests/ops/norm/test_fused_add_norm_cuda.py::test_cuda_and_triton_are_bitwise_equal``
+holds all three. ``tests/ops/norm/test_rms_norm.py`` still compares its backends
+with a tolerance, "NOT torch.equal, precisely because the reduction order is
+allowed to differ", which is the older position; this row shows the order can be
+pinned instead, at no measurable cost.
 """
 
 from __future__ import annotations
@@ -48,6 +58,26 @@ _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
 _MAX_BLOCK = 1 << 16
 
 
+def _reduction_shape(width: int) -> tuple[int, int, int]:
+    """Lane count, chunk count and tree depth, matching the CUDA kernel exactly.
+
+    RFC #501 asks for CUDA == Triton bitwise. For a row reduction that is only
+    reachable if both sides execute the same sequence of adds, so the order is
+    fixed here rather than left to ``tl.sum``, and it is fixed to the order
+    ``csrc/cuda/norm/fused_add_norm.cu`` already uses: lane ``t`` folds
+    ``x[t + k*LANES]`` over ``k`` ascending, then a stride-halving tree over the
+    lanes. ``choose_threads`` in that file is the source of the lane counts, so
+    the two must be changed together.
+
+    Lanes beyond the width load as 0.0 and a chunk past the end contributes an
+    exact ``+ 0.0``, which is why a width that is not a multiple of the lane count
+    still matches: the CUDA loop simply stops earlier for those threads.
+    """
+    lanes = 64 if width <= 64 else 128 if width <= 128 else 256 if width <= 256 else 512
+    chunks = -(-width // lanes)
+    return lanes, chunks, lanes.bit_length() - 1
+
+
 if _TRITON_AVAILABLE:
 
     @triton.jit
@@ -63,41 +93,72 @@ if _TRITON_AVAILABLE:
         H: tl.constexpr,
         POST_EPS: tl.constexpr,
         PRE_EPS: tl.constexpr,
-        BLOCK_H: tl.constexpr,
+        LANES: tl.constexpr,
+        CHUNKS: tl.constexpr,
+        LEVELS: tl.constexpr,
     ):
         row = tl.program_id(0)
-        offs = tl.arange(0, BLOCK_H)
-        mask = offs < H
         # int64 before the multiply, not after. tl.program_id is int32 and H is a
         # constexpr int, so ``row * H`` is a 32-bit multiply that wraps at 2**31 and
         # the generated PTX widens the already-wrapped product. At H=6656 that is
         # row 322,639, about 17 GB of bf16 activations, reachable on one 80 GB card
         # in a long-context or large-batch rollout, and it faults rather than
-        # returning wrong numbers. The CUDA kernel already casts to size_t before
-        # multiplying, so this was also a CUDA/Triton divergence.
+        # returning wrong numbers.
         base = row.to(tl.int64) * H
-
-        hidden = tl.load(HIDDEN + base + offs, mask=mask, other=0.0).to(tl.float32)
-        residual = tl.load(RESIDUAL + base + offs, mask=mask, other=0.0).to(tl.float32)
-        post_w = tl.load(POST_W + offs, mask=mask, other=0.0).to(tl.float32)
-        pre_w = tl.load(PRE_W + offs, mask=mask, other=0.0).to(tl.float32)
-
-        # Masked lanes load as 0.0 and contribute nothing to the sum of squares.
-        rstd_post = tl.rsqrt(tl.sum(hidden * hidden, axis=0) / H + POST_EPS)
-        post = hidden * rstd_post * (1.0 + post_w)
-
-        # First narrowing: the post-norm's cast is its last step.
+        lanes = tl.arange(0, LANES)
         narrow = RES_OUT.dtype.element_ty
-        res_out = residual + post.to(narrow).to(tl.float32)
-        # Second narrowing: the pre-norm reads the rounded sum, as eager does.
-        res_narrow = res_out.to(narrow)
-        res_f = res_narrow.to(tl.float32)
 
-        rstd_pre = tl.rsqrt(tl.sum(res_f * res_f, axis=0) / H + PRE_EPS)
-        pre = res_f * rstd_pre * (1.0 + pre_w)
+        # Post-norm statistic, in the order _reduction_shape documents: every add
+        # is written out so neither compiler picks a tree of its own.
+        acc = tl.zeros((LANES,), dtype=tl.float32)
+        for k in tl.static_range(CHUNKS):
+            idx = k * LANES + lanes
+            v = tl.load(HIDDEN + base + idx, mask=idx < H, other=0.0).to(tl.float32)
+            acc = acc + v * v
+        for _ in tl.static_range(LEVELS):
+            acc = tl.sum(tl.reshape(acc, (2, acc.shape[0] // 2)), axis=0)
+        # tl.div_rn, not ``/``: Triton's divide lowers to div.full.f32, an
+        # approximate division about two ULPs wide, while the CUDA kernel's
+        # ``/ (float)H`` is div.rn.f32. That alone put the two statistics one ULP
+        # apart on 22% of rows after the reduction orders already matched.
+        rstd_post = tl.rsqrt(tl.div_rn(tl.sum(acc, axis=0), H) + POST_EPS)
 
-        tl.store(RES_OUT + base + offs, res_narrow, mask=mask)
-        tl.store(PRE_OUT + base + offs, pre.to(PRE_OUT.dtype.element_ty), mask=mask)
+        # Post-norm, both narrowings, and the pre-norm statistic in one pass. The
+        # statistic accumulates the narrowed value as it is produced, in the same
+        # ascending-chunk order, so the second reduction needs no re-read and no
+        # barrier against the store below.
+        acc2 = tl.zeros((LANES,), dtype=tl.float32)
+        for k in tl.static_range(CHUNKS):
+            idx = k * LANES + lanes
+            m = idx < H
+            hv = tl.load(HIDDEN + base + idx, mask=m, other=0.0).to(tl.float32)
+            rv = tl.load(RESIDUAL + base + idx, mask=m, other=0.0).to(tl.float32)
+            pw = tl.load(POST_W + idx, mask=m, other=0.0).to(tl.float32)
+            # First narrowing: the post-norm's cast is its last step.
+            post = hv * rstd_post * (1.0 + pw)
+            res = rv + post.to(narrow).to(tl.float32)
+            # Second narrowing: the pre-norm reads the rounded sum, as eager does.
+            res_narrow = res.to(narrow)
+            rn = res_narrow.to(tl.float32)
+            acc2 = acc2 + tl.where(m, rn * rn, 0.0)
+            tl.store(RES_OUT + base + idx, res_narrow, mask=m)
+        for _ in tl.static_range(LEVELS):
+            acc2 = tl.sum(tl.reshape(acc2, (2, acc2.shape[0] // 2)), axis=0)
+        rstd_pre = tl.rsqrt(tl.div_rn(tl.sum(acc2, axis=0), H) + PRE_EPS)
+
+        # The pre-norm reads the narrowed residual back from memory, as the CUDA
+        # kernel does. Lane ``t`` reads the address lane ``t`` wrote above, so the
+        # dependency is within a thread; the barrier states it rather than relying
+        # on the compiler not reordering a load across an aliasing store.
+        tl.debug_barrier()
+        for k in tl.static_range(CHUNKS):
+            idx = k * LANES + lanes
+            m = idx < H
+            rv = tl.load(RES_OUT + base + idx, mask=m, other=0.0).to(tl.float32)
+            vw = tl.load(PRE_W + idx, mask=m, other=0.0).to(tl.float32)
+            pre = rv * rstd_pre * (1.0 + vw)
+            tl.store(PRE_OUT + base + idx, pre.to(PRE_OUT.dtype.element_ty), mask=m)
+
         tl.store(RSTD_POST + row, rstd_post)
         tl.store(RSTD_PRE + row, rstd_pre)
 
@@ -116,36 +177,16 @@ if _TRITON_AVAILABLE:
         PARTIAL_POST_W,
         PARTIAL_PRE_W,
         H: tl.constexpr,
-        BLOCK_H: tl.constexpr,
+        LANES: tl.constexpr,
+        CHUNKS: tl.constexpr,
+        LEVELS: tl.constexpr,
     ):
         row = tl.program_id(0)
-        offs = tl.arange(0, BLOCK_H)
-        mask = offs < H
-        # int64 before the multiply, not after. tl.program_id is int32 and H is a
-        # constexpr int, so ``row * H`` is a 32-bit multiply that wraps at 2**31 and
-        # the generated PTX widens the already-wrapped product. At H=6656 that is
-        # row 322,639, about 17 GB of bf16 activations, reachable on one 80 GB card
-        # in a long-context or large-batch rollout, and it faults rather than
-        # returning wrong numbers. The CUDA kernel already casts to size_t before
-        # multiplying, so this was also a CUDA/Triton divergence.
+        # int64 before the multiply; see the forward kernel.
         base = row.to(tl.int64) * H
-
-        g_res = tl.load(G_RES + base + offs, mask=mask, other=0.0).to(tl.float32)
-        g_pre = tl.load(G_PRE + base + offs, mask=mask, other=0.0).to(tl.float32)
-        hidden = tl.load(HIDDEN + base + offs, mask=mask, other=0.0).to(tl.float32)
-        res_out = tl.load(RES_OUT + base + offs, mask=mask, other=0.0).to(tl.float32)
-        post_gain = 1.0 + tl.load(POST_W + offs, mask=mask, other=0.0).to(tl.float32)
-        pre_gain = 1.0 + tl.load(PRE_W + offs, mask=mask, other=0.0).to(tl.float32)
+        lanes = tl.arange(0, LANES)
         rstd_post = tl.load(RSTD_POST + row).to(tl.float32)
         rstd_pre = tl.load(RSTD_PRE + row).to(tl.float32)
-
-        # Pre-norm backward, then fold in the cotangent the residual output gets
-        # from downstream. It is live on both paths; dropping either is silent.
-        # Accumulate the two the way eager does: the residual output is a
-        # model-dtype tensor, so autograd rounds the arriving gradient to that
-        # dtype and adds in that dtype. Keeping this in FP32 is one ULP per
-        # element and puts the post-norm weight gradient 2.6-2.9x outside the
-        # contract row at 512 and 2048 rows; see the reference's docstring.
         # From hidden, not from the cotangent. The reference derives it from the
         # input (dtype = hidden.dtype) and the CUDA kernel from the dispatch on
         # hidden.scalar_type(), so taking it from G_RES made an FP32 cotangent with
@@ -154,19 +195,61 @@ if _TRITON_AVAILABLE:
         # reach that -- cotangents arrive at the output dtype -- but the public
         # fused_add_norm_triton_backward can.
         narrow = HIDDEN.dtype.element_ty
-        scaled_pre = g_pre * pre_gain
-        dot_pre = tl.sum(scaled_pre * res_out, axis=0) / H
-        d_from_pre = rstd_pre * scaled_pre - res_out * rstd_pre * rstd_pre * rstd_pre * dot_pre
-        d_res_out = (g_res + d_from_pre.to(narrow).to(tl.float32)).to(narrow).to(tl.float32)
 
-        scaled_post = d_res_out * post_gain
-        dot_post = tl.sum(scaled_post * hidden, axis=0) / H
-        d_hidden = rstd_post * scaled_post - hidden * rstd_post * rstd_post * rstd_post * dot_post
+        # Pre-norm dot product, in the order _reduction_shape documents.
+        acc = tl.zeros((LANES,), dtype=tl.float32)
+        for k in tl.static_range(CHUNKS):
+            idx = k * LANES + lanes
+            m = idx < H
+            gp = tl.load(G_PRE + base + idx, mask=m, other=0.0).to(tl.float32)
+            gain = 1.0 + tl.load(PRE_W + idx, mask=m, other=0.0).to(tl.float32)
+            ro = tl.load(RES_OUT + base + idx, mask=m, other=0.0).to(tl.float32)
+            acc = acc + tl.where(m, (gp * gain) * ro, 0.0)
+        for _ in tl.static_range(LEVELS):
+            acc = tl.sum(tl.reshape(acc, (2, acc.shape[0] // 2)), axis=0)
+        dot_pre = tl.div_rn(tl.sum(acc, axis=0), H)
 
-        tl.store(D_HIDDEN + base + offs, d_hidden, mask=mask)
-        tl.store(D_RESIDUAL + base + offs, d_res_out, mask=mask)
-        tl.store(PARTIAL_PRE_W + base + offs, g_pre * res_out * rstd_pre, mask=mask)
-        tl.store(PARTIAL_POST_W + base + offs, d_res_out * hidden * rstd_post, mask=mask)
+        # The residual output's two cotangents, accumulated the way eager does: it
+        # is a model-dtype tensor, so autograd rounds each arrival to that dtype
+        # and adds in that dtype. Keeping this in FP32 is one ULP per element and
+        # puts the post-norm weight gradient 2.6-2.9x outside the contract row at
+        # 512 and 2048 rows; see the reference's docstring. The post-norm dot
+        # product accumulates in the same pass, in the same ascending-chunk order.
+        acc2 = tl.zeros((LANES,), dtype=tl.float32)
+        for k in tl.static_range(CHUNKS):
+            idx = k * LANES + lanes
+            m = idx < H
+            gp = tl.load(G_PRE + base + idx, mask=m, other=0.0).to(tl.float32)
+            gain = 1.0 + tl.load(PRE_W + idx, mask=m, other=0.0).to(tl.float32)
+            ro = tl.load(RES_OUT + base + idx, mask=m, other=0.0).to(tl.float32)
+            gr = tl.load(G_RES + base + idx, mask=m, other=0.0).to(tl.float32)
+            hv = tl.load(HIDDEN + base + idx, mask=m, other=0.0).to(tl.float32)
+            pgain = 1.0 + tl.load(POST_W + idx, mask=m, other=0.0).to(tl.float32)
+
+            scaled_pre = gp * gain
+            d_from_pre = rstd_pre * scaled_pre - ro * rstd_pre * rstd_pre * rstd_pre * dot_pre
+            d_ro = (gr + d_from_pre.to(narrow).to(tl.float32)).to(narrow).to(tl.float32)
+
+            tl.store(D_RESIDUAL + base + idx, d_ro, mask=m)
+            tl.store(PARTIAL_PRE_W + base + idx, gp * ro * rstd_pre, mask=m)
+            acc2 = acc2 + tl.where(m, (d_ro * pgain) * hv, 0.0)
+        for _ in tl.static_range(LEVELS):
+            acc2 = tl.sum(tl.reshape(acc2, (2, acc2.shape[0] // 2)), axis=0)
+        dot_post = tl.div_rn(tl.sum(acc2, axis=0), H)
+
+        # The hidden gradient reads the accumulated residual gradient back, as the
+        # CUDA kernel does. Lane ``t`` reads the address lane ``t`` wrote above.
+        tl.debug_barrier()
+        for k in tl.static_range(CHUNKS):
+            idx = k * LANES + lanes
+            m = idx < H
+            d_ro = tl.load(D_RESIDUAL + base + idx, mask=m, other=0.0).to(tl.float32)
+            hv = tl.load(HIDDEN + base + idx, mask=m, other=0.0).to(tl.float32)
+            pgain = 1.0 + tl.load(POST_W + idx, mask=m, other=0.0).to(tl.float32)
+            scaled_post = d_ro * pgain
+            d_hidden = rstd_post * scaled_post - hv * rstd_post * rstd_post * rstd_post * dot_post
+            tl.store(D_HIDDEN + base + idx, d_hidden, mask=m)
+            tl.store(PARTIAL_POST_W + base + idx, d_ro * hv * rstd_post, mask=m)
 
 
 def _require_triton() -> None:
@@ -241,8 +324,9 @@ def fused_add_norm_triton_forward(
     cannot drift from what the forward actually used.
     """
     _require_triton()
-    block = _validate(hidden, residual, post_weight, pre_weight)
+    _validate(hidden, residual, post_weight, pre_weight)
     width = hidden.shape[-1]
+    lanes, chunks, levels = _reduction_shape(width)
 
     hidden_2d = hidden.contiguous().view(-1, width)
     residual_2d = residual.contiguous().view(-1, width)
@@ -265,7 +349,9 @@ def fused_add_norm_triton_forward(
         H=width,
         POST_EPS=float(post_eps),
         PRE_EPS=float(pre_eps),
-        BLOCK_H=block,
+        LANES=lanes,
+        CHUNKS=chunks,
+        LEVELS=levels,
         enable_fp_fusion=False,
     )
     return (
@@ -297,8 +383,9 @@ def fused_add_norm_triton_backward(
     # public backward had no dtype, device, shape or _MAX_BLOCK check while the
     # CUDA path validates in C++. Mismatched cotangent shapes read and wrote the
     # wrong rows instead of raising.
-    block = _validate(hidden, residual_out, post_weight, pre_weight)
+    _validate(hidden, residual_out, post_weight, pre_weight)
     width = hidden.shape[-1]
+    lanes, chunks, levels = _reduction_shape(width)
     for name, g in (("grad_residual_out", grad_residual_out), ("grad_pre_normed", grad_pre_normed)):
         if g.shape != hidden.shape:
             raise ValueError(
@@ -338,7 +425,9 @@ def fused_add_norm_triton_backward(
         partial_post,
         partial_pre,
         H=width,
-        BLOCK_H=block,
+        LANES=lanes,
+        CHUNKS=chunks,
+        LEVELS=levels,
         enable_fp_fusion=False,
     )
     return d_hidden, d_residual, partial_post, partial_pre

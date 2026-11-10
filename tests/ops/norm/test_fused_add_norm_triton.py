@@ -3,11 +3,16 @@
 
 """Triton [F1] kernels against the reference, plus the invariants the RFC asks for.
 
-Correctness here is tolerance-based against the native gold, which is what the
-repo does for norms: ``test_rms_norm.py`` says so in as many words, "NOT
-torch.equal, precisely because the reduction order is allowed to differ". What is
-asserted bitwise is batch invariance, because that one is a property of a single
-implementation and does not depend on anyone else's float order.
+Correctness against the native gold is tolerance-based, which is what the repo
+does for norms: ``test_rms_norm.py`` says so in as many words, "NOT torch.equal,
+precisely because the reduction order is allowed to differ". The gold uses a
+different, shape-invariant chunked statistic, so that bar is the right one there.
+
+Two things here are asserted bitwise instead. Batch invariance, because it is a
+property of a single implementation. And CUDA against Triton, in
+``test_fused_add_norm_cuda.py``, because this row does pin the reduction order
+across the two backends; see this module's kernel docstring for the three
+differences that had to be closed.
 """
 
 from __future__ import annotations

@@ -199,14 +199,26 @@ def test_cuda_backward_is_batch_invariant_bitwise(dtype):
 @requires_cuda_kernel
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("shape", SHAPES, ids=lambda s: "x".join(map(str, s)))
-def test_cuda_and_triton_agree_within_contract(dtype, shape):
-    """The two GPU backends inside the reduction tolerance row, forward and backward.
+def test_cuda_and_triton_are_bitwise_equal(dtype, shape):
+    """RFC #501's CUDA == Triton requirement, asserted on all six outputs.
 
-    Not bitwise. The element-wise arithmetic is written in the same order in both
-    kernels, so what differs between them is the row reduction: a shared-memory
-    tree in CUDA against whatever ``tl.sum`` lowers to in Triton. The size of that
-    difference is measured and reported in the PR; here the two are held to the
-    same contract row each is already held to against the gold.
+    Bitwise, not tolerance. Three things had to line up, each measured on the way:
+
+    * the row reduction order. ``tl.sum`` picks its own tree, so Triton now folds
+      in the order the CUDA kernel already used -- lane ``t`` over ``x[t + k*LANES]``
+      with ``k`` ascending, then a stride-halving tree over the lanes. See
+      ``_reduction_shape`` in the Triton module, which owns the lane counts jointly
+      with ``choose_threads`` in the .cu.
+    * the divide by the width. Triton's ``/`` lowers to ``div.full.f32``, an
+      approximate division; the CUDA kernel's is ``div.rn.f32``. That one
+      difference alone left the statistics a ULP apart on 22% of rows after the
+      orders already matched. Triton now uses ``tl.div_rn``.
+    * the reciprocal square root. nvcc's ``rsqrtf`` is libdevice's refined non-FTZ
+      sequence and ``tl.rsqrt`` is the bare ``rsqrt.approx.ftz.f32``; they disagree
+      on about 12% of inputs. The CUDA kernel now emits the same instruction.
+
+    This is the test that keeps all three. If it starts failing, one of the three
+    moved, and the message above says where to look first.
     """
     triton_mod = pytest.importorskip("rl_engine.backends.shared.triton.norm.fused_add_norm")
     hidden, residual, post_w, pre_w = _inputs(shape, dtype)
@@ -231,12 +243,15 @@ def test_cuda_and_triton_agree_within_contract(dtype, shape):
     triton_out = run(triton_mod.TritonFusedAddNormOp)
     for field in dataclasses.fields(_Outputs):
         name = field.name
-        _assert_against_gold(
-            _JUDGMENTS[name],
-            dtype,
-            getattr(cuda_out, name),
-            getattr(triton_out, name),
-            f"{name}: ",
+        a = getattr(cuda_out, name).contiguous()
+        b = getattr(triton_out, name).contiguous()
+        # Byte views, not ``==``: that treats +0 and -0 as equal and NaN as unequal
+        # to itself, so it is the wrong comparison for an exactness claim.
+        differing = int((a.view(torch.uint8) != b.view(torch.uint8)).sum())
+        assert differing == 0, (
+            f"{name}: CUDA and Triton differ on {differing} of {a.numel() * a.element_size()} "
+            f"bytes at {dtype}, shape {tuple(a.shape)}; max |difference| "
+            f"{(a.float() - b.float()).abs().max().item():.3e}"
         )
 
 

@@ -68,7 +68,7 @@ halves of that so the rounding cannot be removed as a simplification.
 | Backend | Class | Notes |
 | --- | --- | --- |
 | PyTorch | `NativeFusedAddNormOp` | gold; `shape_invariant_meansq` reduction |
-| Triton | `TritonFusedAddNormOp` | one program per row, `tl.sum` |
+| Triton | `TritonFusedAddNormOp` | one program per row, explicit fold in the CUDA kernel's order |
 | CUDA | `CudaFusedAddNormOp` | one block per row, shared-memory tree |
 
 Both GPU kernels save the two per-row statistics from the forward and reuse them in
@@ -93,27 +93,29 @@ gradients come back as per-row FP32 contributions and are folded with
   required BF16 bar catches.
 - **Axis A, batch invariance.** Asserted bitwise for both kernels, forward and
   backward: a row's bytes do not change with batch size or position.
-- **CUDA vs Triton.** Held to the same reduction rows against each other, forward
-  and all four gradients. **Not bitwise equal, and not claimed.** The element-wise
-  arithmetic is written in the same association order in both kernels, so what
-  differs is the row reduction alone: a shared-memory tree against whatever
-  `tl.sum` lowers to. Measured at 64x6656:
+- **CUDA vs Triton.** **Bitwise equal** on both outputs and all four gradients, at
+  FP32, BF16 and FP16, which is what RFC #501 asks for. A row reduction does not
+  get there by writing the same source twice; three things had to be made to agree
+  and all three are load-bearing:
 
-  | dtype | `rstd` rows differing | output elements differing | max abs diff |
-  | --- | ---: | ---: | ---: |
-  | FP32 | 42-45%, by 1 ULP | 22-50% | 3.8e-6 |
-  | BF16 | 31% | 4-35 of 425,984 | 1 BF16 ULP |
-  | FP16 | 22% | 8-107 of 425,984 | 1 FP16 ULP |
+  | what differed | why | how it is pinned |
+  | --- | --- | --- |
+  | reduction order | `tl.sum` picks its own tree | Triton folds in the CUDA kernel's order: lane `t` over `x[t + k*LANES]`, `k` ascending, then a stride-halving tree. `_reduction_shape` and `choose_threads` share the lane counts |
+  | divide by the width | Triton's `/` is `div.full.f32`, approximate; CUDA's is `div.rn.f32` | `tl.div_rn` |
+  | reciprocal square root | nvcc's `rsqrtf` is libdevice's refined non-FTZ path; `tl.rsqrt` is `rsqrt.approx.ftz.f32` | the CUDA kernel emits the same instruction |
 
-  The fold is exactly reproducible in Triton when fed precomputed squares, but once
-  the square is in-kernel the optimiser reshapes the reduction chain; an inline-asm
-  barrier removes every `fma` from the PTX and the result still differs on a few
-  rows in sixty-four. The repo's existing position matches: `test_rms_norm.py`
-  compares backends with a tolerance "precisely because the reduction order is
-  allowed to differ", and the vendor-exact sequences in
-  `attention/deterministic_attn.py` needed hand-written assembly. RFC #501 asks
-  for CUDA == Triton bitwise; for this row that question is raised in the PR with
-  the numbers above rather than answered here.
+  Sizes, measured before each fix, so the order of attack is on record: with the
+  reduction orders matched but the divide still approximate, the statistics were
+  one ULP apart on 22% of rows; the rsqrt difference alone accounted for about 12%
+  of inputs. FP contraction had to be off first, otherwise the compiler folded the
+  square into the first level of the fold.
+
+  `test_cuda_and_triton_are_bitwise_equal` holds all three, over five shapes and
+  three dtypes, and compares byte views rather than `==` so that a signed zero or
+  a NaN cannot pass. `test_rms_norm.py` still compares its backends with a
+  tolerance, "precisely because the reduction order is allowed to differ"; that is
+  the older position and this row is evidence the order can be pinned instead, at
+  no cost that shows above measurement noise.
 
 ## Ground-truth harness
 
@@ -156,6 +158,5 @@ reduction rows.
   1-D at the hidden width.
 - A row must fit one Triton program (`BLOCK_H` up to 65536), so the reduction order
   stays independent of batch layout. Wider rows raise rather than silently splitting.
-- CUDA and Triton are not bitwise equal; see Accuracy.
 - The model's final norm (`rmsnorm_times_weight`, `pow_neg_half`) is the reference
   `NativeFinalNormOp` only; it has no GPU kernel in this row.

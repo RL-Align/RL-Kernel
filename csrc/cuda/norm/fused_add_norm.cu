@@ -14,10 +14,12 @@
 //     the second reduction reads that back rather than the FP32 sum.
 //
 // One block per row, strided columns, block_reduce_sum in a fixed tree, so a
-// row's result does not depend on how many rows share the launch. That is
-// what makes Axis-A batch invariance hold here; it is not the same tree the
-// Triton kernel's tl.sum lowers to, and this file does not claim CUDA ==
-// Triton bitwise for that reason (see the Triton module docstring).
+// row's result does not depend on how many rows share the launch. That is what
+// makes Axis-A batch invariance hold here, and the Triton kernel now folds in
+// this same order, so CUDA == Triton holds bitwise on all six outputs. The lane
+// counts in choose_threads below are shared with _reduction_shape in the Triton
+// module and the two must be changed together. See that module's docstring for
+// the other two things that had to agree, the divide and the rsqrt.
 //
 // Both launchers take a CUDAGuard on the input's device before reading the
 // current stream, and check the launch, which rmsnorm.cu only does in its
@@ -56,6 +58,28 @@ namespace {
 // Per-expression intrinsics rather than ``--fmad=false``, because nvcc_flags in
 // build_tools/extensions.py is one list shared by every .cu in the extension and
 // would change the numerics of already-merged operators.
+// The one reciprocal square root per row, as a single hardware instruction.
+//
+// nvcc's ``rsqrtf`` is libdevice's refined non-FTZ sequence; Triton's ``tl.rsqrt``
+// lowers to the bare ``rsqrt.approx.ftz.f32``. The two are different
+// approximations and disagree by one ULP on about 12% of inputs, which was the
+// last thing standing between the two backends after the reduction orders were
+// matched. Measured: with the orders matched, the raw row sums agree on 32 of 32
+// rows and only the rsqrt tail differed.
+//
+// Emitting the same instruction here removes that. It also lines the kernels up
+// with the gold rather than away from it: ``torch.rsqrt``, which the reference
+// uses, is bitwise equal to ``rsqrt.approx.ftz.f32`` over 8192 sampled inputs,
+// while neither matches a correctly-rounded reciprocal square root (25% of inputs
+// differ by a ULP). Inline PTX is confined to this file, which is the CUDA
+// backend; the RFC's "no platform-specific kernel code" applies to the Triton
+// kernel that ROCm also runs.
+__device__ __forceinline__ float rsqrt_approx_ftz(float x) {
+    float r;
+    asm("rsqrt.approx.ftz.f32 %0, %1;" : "=f"(r) : "f"(x));
+    return r;
+}
+
 __device__ __forceinline__ float mul_rn(float a, float b) { return __fmul_rn(a, b); }
 __device__ __forceinline__ float add_rn(float a, float b) { return __fadd_rn(a, b); }
 __device__ __forceinline__ float sub_rn(float a, float b) { return __fsub_rn(a, b); }
@@ -151,7 +175,7 @@ __global__ void fused_add_norm_fwd_kernel(
         const float hv = load_as_float<scalar_t>(h_row + col);
         local = add_rn(local, mul_rn(hv, hv));
     }
-    const float rp = rsqrtf(block_reduce_sum(local) / static_cast<float>(H) + post_eps);
+    const float rp = rsqrt_approx_ftz(block_reduce_sum(local) / static_cast<float>(H) + post_eps);
     if (tid == 0) rstd_post[row] = rp;
 
     // post = hidden * rstd * (1 + w), narrowed; res = residual + post, narrowed.
@@ -171,7 +195,7 @@ __global__ void fused_add_norm_fwd_kernel(
         const float rv = load_as_float<scalar_t>(ro_row + col);
         local = add_rn(local, mul_rn(rv, rv));
     }
-    const float rq = rsqrtf(block_reduce_sum(local) / static_cast<float>(H) + pre_eps);
+    const float rq = rsqrt_approx_ftz(block_reduce_sum(local) / static_cast<float>(H) + pre_eps);
     if (tid == 0) rstd_pre[row] = rq;
 
     for (int col = tid; col < H; col += blockDim.x) {
