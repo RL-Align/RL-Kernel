@@ -169,6 +169,22 @@ def shape_invariant_meansq(x_f: torch.Tensor) -> torch.Tensor:
     both have to share this reduction or batch invariance goes with it.
     """
     hidden = x_f.shape[-1]
+    if hidden == 0:
+        # A mean of no elements is 0/0. Reported as a regression from writing the
+        # chunk count out, and it is not: measured against the version on
+        # test-museglimmer, a (4, 0) input returns NaN there too, because
+        # reshape(4, -1, 32) can solve -1 as zero when the other dimensions do not
+        # multiply to zero. So this is older than the row and the chunk change did
+        # not touch it. It is still wrong: both GPU wrappers and the C++ binding
+        # reject a zero last dimension with a message that names it, the Ascend path
+        # hands this statistic straight back to its caller, and a NaN rstd
+        # propagates into whatever reads it. Raising is what the rest of the
+        # operator already does.
+        raise ValueError(
+            "shape_invariant_meansq needs a non-zero last dimension; a mean over no "
+            "elements is 0/0, and the GPU wrappers reject this shape rather than "
+            "returning NaN."
+        )
     sq = _pad_to_chunk(x_f.pow(2))
     partial = sq.sum(dim=-1)  # [*, C] — fixed 32-wide chunks
     sumsq = partial.sum(dim=-1)  # [*lead]
@@ -181,6 +197,11 @@ def shape_invariant_rowsum(x_f: torch.Tensor) -> torch.Tensor:
     The backward pass reduces a per-row dot product, and it has to use the same
     chunking as ``shape_invariant_meansq`` or gradients stop being batch invariant
     even though the forward still is.
+
+    No zero-width guard here, unlike the mean, and the asymmetry is deliberate: a
+    sum over no elements is 0, which is the right answer and is what this returns,
+    while a mean over no elements is 0/0. The caller that would reach either with a
+    zero width is rejected earlier anyway, by the wrappers and the binding.
     """
     return _pad_to_chunk(x_f).sum(dim=-1).sum(dim=-1)
 

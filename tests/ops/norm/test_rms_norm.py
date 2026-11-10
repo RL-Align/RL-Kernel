@@ -17,6 +17,7 @@ from rl_engine.reference.norm.rms_norm import (
     _pad_to_chunk,
     shape_invariant_meansq,
     shape_invariant_rowsum,
+    shape_invariant_rstd,
 )
 
 try:
@@ -174,6 +175,32 @@ def test_chunking_is_allocation_free_at_the_widths_the_model_uses(N):
     assert (
         chunked.untyped_storage().data_ptr() == x.untyped_storage().data_ptr()
     ), f"width {N} is a multiple of 32 and still copied"
+
+
+def test_a_zero_width_row_is_rejected_rather_than_returning_nan():
+    """A mean over no elements is 0/0, and it used to come back as NaN.
+
+    Measured against the version on ``test-museglimmer``: a ``(4, 0)`` input returns
+    NaN there as well, because ``reshape(4, -1, 32)`` can solve the ``-1`` as zero
+    when the other dimensions do not multiply to zero. So this is older than this
+    row rather than a regression from writing the chunk count out, which is what it
+    was reported as. It is still wrong: both GPU wrappers and the C++ binding reject
+    a zero last dimension with a message that names it, and the Ascend path hands
+    this statistic straight back to its caller, so a NaN rstd travels.
+
+    ``shape_invariant_rowsum`` is deliberately not guarded: a sum over no elements
+    is 0, which is the right answer, and there is no division to make it NaN.
+    """
+    empty_width = torch.zeros(4, 0)
+    with pytest.raises(ValueError, match="non-zero last dimension"):
+        shape_invariant_meansq(empty_width)
+    with pytest.raises(ValueError, match="non-zero last dimension"):
+        shape_invariant_rstd(empty_width, _EPS)
+    assert torch.equal(shape_invariant_rowsum(empty_width), torch.zeros(4))
+
+    # Zero rows at a real width still works, which is the other degenerate shape and
+    # the one that has to keep reducing.
+    assert shape_invariant_meansq(torch.zeros(0, 64)).shape == (0,)
 
 
 @pytest.mark.parametrize("N", [64, 100, _HIDDEN])
