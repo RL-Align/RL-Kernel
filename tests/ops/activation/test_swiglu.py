@@ -608,6 +608,109 @@ def test_cuda_triton_swiglu_rejects_cross_device_inputs(impl):
 
 @requires_cuda
 @requires_triton_activation
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires at least two CUDA devices")
+@pytest.mark.parametrize("dtype", (torch.float16, torch.bfloat16, torch.float32))
+@pytest.mark.parametrize("method", ("forward", "forward_fp32"))
+@pytest.mark.parametrize("strided", (False, True), ids=("contiguous", "strided"))
+def test_triton_swiglu_noncurrent_device(dtype, method, strided):
+    """Issue #664: public train/infer paths preserve the caller's device and results."""
+    device = torch.device("cuda:1")
+    stream = torch.cuda.Stream(device=device)
+    op = getattr(TritonSwiGLUOp(), method)
+    with torch.cuda.device(0), torch.cuda.stream(stream):
+        gate = _rand((3, 1025), seed=664, dtype=dtype, device=device)
+        up = _rand(gate.shape, seed=665, dtype=dtype, device=device)
+        if strided:
+            gate, up = gate.T, up.T
+        gate.requires_grad_(True)
+        up.requires_grad_(True)
+        upstream = _rand(gate.shape, seed=666, dtype=dtype, device=device)
+        if method == "forward_fp32":
+            upstream = upstream.float()
+
+        # Establish the same operator's result with the input device current.
+        expected = op(gate, up)
+        expected_grads = torch.autograd.grad(expected, (gate, up), upstream)
+        gate_ref = gate.detach().float().requires_grad_(True)
+        up_ref = up.detach().float().requires_grad_(True)
+        native = NativeSwiGLUOp().forward_fp32(gate_ref, up_ref)
+        native_grads = torch.autograd.grad(native, (gate_ref, up_ref), upstream.float())
+
+        torch.cuda.set_device(0)
+        actual = op(gate, up)
+        assert torch.cuda.current_device() == 0
+        actual_grads = torch.autograd.grad(actual, (gate, up), upstream)
+        assert torch.cuda.current_device() == 0
+        with torch.inference_mode():
+            inference = op(gate, up)
+        assert torch.cuda.current_device() == 0
+        assert torch.cuda.current_stream(device) == stream
+    stream.synchronize()
+
+    assert torch.equal(actual, inference)
+    atol, rtol = _dtype_tolerance(dtype)
+    for result, matched_device, reference in zip(
+        (actual, *actual_grads), (expected, *expected_grads), (native, *native_grads), strict=True
+    ):
+        assert result.device == device
+        assert torch.equal(result, matched_device)
+        torch.testing.assert_close(result.float(), reference, atol=atol, rtol=rtol)
+
+
+@requires_cuda
+@requires_triton_activation
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires at least two CUDA devices")
+@pytest.mark.parametrize("dtype", (torch.float16, torch.bfloat16, torch.float32))
+@pytest.mark.parametrize("target", (0, 1))
+def test_triton_swiglu_launchers_use_input_device_and_stream(monkeypatch, dtype, target):
+    """Direct backward must also be guarded, without relying on autograd's device switch."""
+    from rl_engine.backends.shared.triton.activation import swiglu
+
+    device = torch.device("cuda", target)
+    caller = 1 - target
+    stream = torch.cuda.Stream(device=device)
+    launches = []
+
+    def record_launch(kernel):
+        original_run = kernel.run
+
+        def run(*args, **kwargs):
+            launches.append((torch.cuda.current_device(), torch.cuda.current_stream()))
+            return original_run(*args, **kwargs)
+
+        monkeypatch.setattr(kernel, "run", run)
+
+    for kernel in (
+        swiglu._swiglu_fwd_kernel,
+        swiglu._swiglu_bwd_kernel,
+        swiglu._swiglu_dgate_kernel,
+    ):
+        record_launch(kernel)
+
+    with torch.cuda.device(caller), torch.cuda.stream(stream):
+        gate = _rand((3, 1025), seed=664, dtype=dtype, device=device)
+        up = _rand(gate.shape, seed=665, dtype=dtype, device=device)
+        dy = _rand(gate.shape, seed=666, dtype=dtype, device=device)
+        expected = swiglu._launch_swiglu_fwd(gate, up)
+        expected_grads = swiglu._launch_swiglu_bwd(dy, gate, up)
+        launches.clear()
+
+        torch.cuda.set_device(caller)
+        actual = swiglu._launch_swiglu_fwd(gate, up)
+        assert torch.cuda.current_device() == caller
+        gradients = swiglu._launch_swiglu_bwd(dy, gate, up)
+        assert torch.cuda.current_device() == caller
+        assert torch.cuda.current_stream(device) == stream
+    stream.synchronize()
+
+    assert launches == [(target, stream)] * 3
+    for result, reference in zip((actual, *gradients), (expected, *expected_grads), strict=True):
+        assert result.device == device
+        assert torch.equal(result, reference)
+
+
+@requires_cuda
+@requires_triton_activation
 def test_triton_activation_kernels_index_past_int32_numel():
     """Issue #640: an int32 pid * BLOCK wrapped negative past 2**31 elements,
     passed the mask and read/wrote outside the buffers."""
