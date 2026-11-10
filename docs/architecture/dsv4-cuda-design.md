@@ -295,6 +295,13 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         cuBLAS negative control varies on all four; 0.90-1.28x of cuBLAS; FP32-output error
         4.4e-6 (FP32 accumulation). det_gemm is not used here: its K-tree rounds partial sums
         to BF16. Backward (dX / dW determinism) not probed yet
+  - [x] KV selection: `rl_engine/kernels/ops/cuda/indexer/select.py`
+        (`indexer_select_prefill` / `indexer_select_decode`: DeepGEMM FP8 MQA logits fed
+        row-strided into `stable_topk_per_row`, as vLLM's BI path does). Ids equal the golden
+        selector on the logits, are batch-invariant, decode selects exactly what prefill
+        selects, and a decode request alone selects what it selects in a batch
+        (`tests/ops/indexer/test_indexer_select.py`). The FP8 indexer K cache it reads is
+        written by the compressor (T02)
   - [ ] Indexer op composition: Q path + logits + `stable_topk_per_row`. vLLM's
         short-context shortcut (`max_seq_len // ratio <= topk`, eager only) fills ascending
         ids `0..n-1` where the top-k path emits score order: same set, different order,
