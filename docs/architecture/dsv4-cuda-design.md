@@ -263,6 +263,29 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 - [ ] T03 indexer projection + FP4/FP8 logits: use the GEMM decided in Phase 1; run the
       invariance probe against DeepGEMM `fp8_mqa_logits` (5 seeds x 5 sub-batch sizes x
       production shape)
+  - On SM90 the indexer is FP8 end to end: DeepGEMM's FP4 MQA-logits paths assert
+    `arch_major == 10`, so vLLM's `use_fp4_indexer_cache` cannot be on for Hopper; the P2
+    start kit's MXFP4 index cache is not the Hopper rollout format. FP8 cache row: 128 E4M3
+    bytes + one FP32 scale per token (vLLM's V3.2 layout).
+  - [x] Logits probe (`scripts/probe_dsv4_indexer_logits_bi.py`,
+        `docs/validation/dsv4-indexer-logits-bi-2026-11-09.json`): unmodified pinned DeepGEMM,
+        64 heads x 128, FP32 logits, 3 seeds. `fp8_fp4_mqa_logits` (prefill) is byte-identical
+        run to run, for prefixes, single queries, windows, a request packed at another KV
+        offset next to other requests, and the `max_seqlen_k` layout;
+        `fp8_fp4_paged_mqa_logits` (decode) is byte-identical for a request alone vs in
+        batches of 8/64 (different SM schedules) and under a permuted block table; and **paged
+        decode logits equal prefill logits** for the same query and KV bytes. Each logit is
+        one WGMMA over K = 128 plus a fixed-order head sum; no split across KV positions.
+        Values match `sum_h w_h relu(q_h . k) k_scale` to 1.6e-4 relative (FP8 WGMMA
+        accumulation)
+  - [ ] Indexer Q: RoPE (GPT-J interleaved, last 64 dims, BF16 round) + per-(token, head)
+        power-of-two FP8 scale (amax floor 1e-4) and the weight rescale
+        `w * q_scale * softmax_scale * n_head**-0.5`, byte-equal to vLLM's
+        `fused_indexer_q_rope_quant`
+  - [ ] `weights_proj` (BF16 [hidden -> 64], unquantized): needs a batch-invariant BF16 GEMM
+  - [ ] Indexer op composition: Q path + logits + `stable_topk_per_row`; vLLM's
+        short-context shortcut (`max_seq_len // ratio <= topk` fills indices directly, eager
+        only) decides per batch and must be checked against the BI contract
 - [x] T04 stable top-k: composite key, fixed output slots, one selector for prefill and
       decode; regression covers "all ties + true cutoff". `stable_topk_per_row` (golden
       `rl_engine/kernels/ops/pytorch/topk/`, CUDA `csrc/cuda/topk/stable_topk.cu`;
