@@ -247,3 +247,74 @@ def test_the_fused_add_norm_gold_is_checked_against_an_independent_recomputation
     assert_within(
         "forward_accuracy", dtype, got_pre2, pre_normed2.double(), "pre_normed, wide eps: "
     )
+
+    # Negative controls, in the test rather than in a commit message, because a
+    # comparison that cannot fail is the thing this test exists to replace. Each
+    # mutation is applied to the recomputation, not to the operator, so the
+    # assertion is that the oracle does *not* match a wrong reading of the frozen
+    # semantics.
+    def missing_offset(x, weight, eps):
+        rstd = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + eps)
+        return x * rstd * weight.double()  # w, not 1 + w
+
+    wrong_post = missing_offset(hidden64, inputs["post_weight"], inputs["post_eps"])
+    wrong_res = (inputs["residual"].double() + wrong_post.to(dtype).double()).to(dtype)
+    with pytest.raises(AssertionError):
+        assert_within("forward_accuracy", dtype, got_res, wrong_res.double(), "no offset: ")
+
+    swapped_post = norm64(hidden64, inputs["post_weight"], pre_eps)
+    swapped_res = (inputs["residual"].double() + swapped_post.to(dtype).double()).to(dtype)
+    with pytest.raises(AssertionError):
+        assert_within("forward_accuracy", dtype, got_res2, swapped_res.double(), "swapped eps: ")
+
+    # And the builder's own defaults, not only the overrides above, since the point
+    # is to follow the harness's inputs wherever they go.
+    default_inputs = make_operator_inputs(
+        "fused_post_norm_residual_pre_norm", _args(), dtype, torch.device("cpu")
+    )
+    d_res, d_pre = NativeFusedAddNormOp().forward(
+        default_inputs["hidden"],
+        default_inputs["residual"],
+        default_inputs["post_weight"],
+        default_inputs["pre_weight"],
+        post_eps=default_inputs["post_eps"],
+        pre_eps=default_inputs["pre_eps"],
+    )
+    d_hidden64 = default_inputs["hidden"].double()
+    d_post = norm64(d_hidden64, default_inputs["post_weight"], default_inputs["post_eps"])
+    d_residual_out = (default_inputs["residual"].double() + d_post.to(dtype).double()).to(dtype)
+    d_pre_normed = norm64(
+        d_residual_out.double(), default_inputs["pre_weight"], default_inputs["pre_eps"]
+    ).to(dtype)
+    assert_within("forward_accuracy", dtype, d_res, d_residual_out.double(), "default shape: ")
+    assert_within("forward_accuracy", dtype, d_pre, d_pre_normed.double(), "default shape pre: ")
+
+
+def test_the_harness_calls_the_gold_method_the_spec_names():
+    """``gold_method`` has to be read, not just declared.
+
+    This row is the only spec whose gold is ``forward`` rather than ``forward_fp32``,
+    for the reason in that file, and the whole comparison depends on the harness
+    honouring it: if it called ``forward_fp32`` anyway, the narrowed candidates would
+    be measured against the widened reference, which that spec's own comment puts at
+    1.8e-01 on BF16. Asked as a question in review, so it is a test now rather than
+    an answer: both gold resolution paths, ``make_operator_case`` here and
+    ``load_adapter_gold`` for the gradient adapters, read ``spec.gold_method``.
+    """
+    import argparse
+
+    from rl_engine.validation.operators.operator_specs import OP_SPECS, make_operator_case
+
+    spec = OP_SPECS["fused_post_norm_residual_pre_norm"]
+    assert spec.gold_method == "forward", "this row's gold is forward on purpose"
+
+    args = _args()
+    args.op = "fused_post_norm_residual_pre_norm"
+    args.candidate = "pytorch"
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    assert case.gold_fn.__name__ == "forward", (
+        f"the harness resolved the gold to {case.gold_fn.__name__}, not the "
+        f"{spec.gold_method} the spec names"
+    )
+    assert type(case.gold_fn.__self__).__name__ == "NativeFusedAddNormOp"
+    assert isinstance(args, argparse.Namespace)
