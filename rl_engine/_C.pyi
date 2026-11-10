@@ -426,6 +426,20 @@ def compress_main_ds_mla(
     k_slots: torch.Tensor,
     ratio: int,
 ) -> None: ...
+def dsv4_q_norm_rope_kv_insert(
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    positions: torch.Tensor,
+    cos_sin_cache: torch.Tensor,
+    cache: torch.Tensor,
+    cache_block_size: int,
+    slots: torch.Tensor,
+    padded_heads: int,
+    eps: float,
+) -> torch.Tensor: ...
+def dsv4_inv_rope_fp8(
+    o: torch.Tensor, positions: torch.Tensor, cos_sin_cache: torch.Tensor, groups: int
+) -> list[torch.Tensor]: ...
 def stable_topk_per_row_out(
     logits: torch.Tensor,
     row_starts: torch.Tensor,

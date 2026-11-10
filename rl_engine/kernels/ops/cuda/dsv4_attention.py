@@ -30,12 +30,15 @@ operations done with PyTorch indexing.
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 
 import torch
 from torch import Tensor
 
+from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
 from rl_engine.kernels.ops.cuda.flashmla import require_flashmla
+from rl_engine.kernels.ops.cuda.fp8_linear import Fp8BlockWeight, Fp8Linear
 from rl_engine.kernels.ops.pytorch.compressor import dequant_ds_mla
 
 HEAD_DIM = 512
@@ -173,3 +176,86 @@ def sparse_attention(
     fm, _ = require_flashmla(q.device)
     out, lse = fm.flash_mla_sparse_fwd(q, workspace, indices, scale, HEAD_DIM, sink, lens)[:2]
     return out, lse
+
+
+# Query / output side -------------------------------------------------------
+
+
+def _ext():
+    ext = importlib.import_module("rl_engine._C")
+    missing = [
+        n for n in ("dsv4_q_norm_rope_kv_insert", "dsv4_inv_rope_fp8") if not hasattr(ext, n)
+    ]
+    if missing:
+        raise RuntimeError(f"rl_engine._C lacks {missing}; rebuild the CUDA extension")
+    return ext
+
+
+def q_norm_rope_kv_insert(
+    q: Tensor,
+    kv: Tensor,
+    positions: Tensor,
+    cos_sin_cache: Tensor,
+    swa_cache: Tensor,
+    swa_block_size: int,
+    swa_slots: Tensor,
+    padded_heads: int,
+    eps: float,
+) -> Tensor:
+    """Query heads -> weightless RMSNorm + RoPE (BF16, padded); KV -> RoPE + fp8_ds_mla insert.
+
+    Byte-equal to ``rl_engine.kernels.ops.pytorch.attention_dsv4`` (``q_norm_rope`` /
+    ``kv_entry``). ``swa_slots[t] < 0`` skips token ``t``'s cache write.
+    """
+    return _ext().dsv4_q_norm_rope_kv_insert(
+        q,
+        kv,
+        positions,
+        cos_sin_cache,
+        swa_cache.view(swa_cache.shape[0], -1),
+        int(swa_block_size),
+        swa_slots,
+        int(padded_heads),
+        float(eps),
+    )
+
+
+def inv_rope_fp8(o: Tensor, positions: Tensor, cos_sin_cache: Tensor, groups: int):
+    """Attention output -> (FP8 A ``[G, T, K]``, FP32 scales ``[G, T, K/128]`` MN-major)."""
+    a, scales = _ext().dsv4_inv_rope_fp8(o, positions, cos_sin_cache, int(groups))
+    return a, scales
+
+
+class OutputProjection:
+    """``wo_b(wo_a_grouped(inv_rope_fp8(o)))`` on DeepGEMM FP8 (forward).
+
+    ``wo_a``: FP8 ``[groups * o_lora_rank, heads_per_group * 512]`` with 128x128
+    block scales (checkpoint layout); each group is one ``fp8_gemm_nt`` (the
+    ``wo_a_group`` shape the Phase 1 probe found batch-invariant). ``wo_b`` is an
+    :class:`Fp8Linear` ``[hidden, groups * o_lora_rank]``.
+    """
+
+    def __init__(self, wo_a: Fp8BlockWeight, wo_b: Fp8Linear, groups: int) -> None:
+        self._dg, _ = require_deepgemm(wo_a.q.device)
+        self.groups = groups
+        rank = wo_a.shape[0] // groups
+        self.o_lora_rank = rank
+        self.wo_a = [
+            Fp8BlockWeight(
+                wo_a.q[g * rank : (g + 1) * rank].contiguous(),
+                wo_a.scale[g * rank // 128 : (g + 1) * rank // 128].contiguous(),
+            )
+            for g in range(groups)
+        ]
+        self.wo_b = wo_b
+
+    def __call__(self, o: Tensor, positions: Tensor, cos_sin_cache: Tensor) -> Tensor:
+        tokens = o.shape[0]
+        a, scales = inv_rope_fp8(o, positions, cos_sin_cache, self.groups)
+        z = torch.empty(
+            self.groups, tokens, self.o_lora_rank, dtype=torch.bfloat16, device=o.device
+        )
+        if tokens:
+            for g, w in enumerate(self.wo_a):
+                self._dg.fp8_gemm_nt((a[g], scales[g]), w.pair(), z[g], disable_ue8m0_cast=True)
+        return self.wo_b(z.transpose(0, 1).reshape(tokens, -1))

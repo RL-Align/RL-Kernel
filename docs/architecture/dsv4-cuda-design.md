@@ -385,6 +385,15 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         attention, a request gives the same bytes alone or in another batch order, decode
         equals prefill and a chunked-prefill suffix, and a permuted top-k gives the same bytes
         (`tests/ops/attention_dsv4/test_sparse_core.py`)
+  - [x] Query / output side (`csrc/cuda/attention/dsv4_qo.cu`, golden
+        `rl_engine/kernels/ops/pytorch/attention_dsv4/`, same fixed-order contract as the
+        compressor): q weightless RMSNorm + RoPE (padded heads zeroed) and KV RoPE + fp8_ds_mla
+        insert into the sliding-window cache (vLLM's `fused_deepseek_v4_qnorm_rope_kv_insert`);
+        attention output inverse RoPE + per-128 FP8 into per-group DeepGEMM A operands with
+        MN-major scales (vLLM's `fused_inv_rope_fp8_quant`); `OutputProjection` = that + `wo_a`
+        as one `fp8_gemm_nt` per group + `wo_b` (`Fp8Linear`). Byte-equal to the goldens,
+        batch-invariant, 8% of FP32 at FP8 (`tests/ops/attention_dsv4/test_qo.py`). The `qr` /
+        `kv` RMSNorms use the existing batch-invariant `rmsnorm_cuda` (P1)
 - [ ] T06 sliding window: confirm split-KV is pinned on the #240 / FA3 path
 - [ ] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x)
 - [ ] Wire the verl training-side recompute path to the same kernel set (forward only)
