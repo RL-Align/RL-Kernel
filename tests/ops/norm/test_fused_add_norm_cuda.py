@@ -608,6 +608,58 @@ def test_cuda_binding_rejects_fp64_instead_of_silently_narrowing():
 
 
 @requires_cuda_kernel
+def test_cuda_and_triton_are_bitwise_equal_on_a_subnormal_intermediate():
+    """The bitwise claim at the one input class a build flag can still break.
+
+    ``--use_fast_math`` implies ``--ftz=true``, and nvcc applies it to the explicit
+    rounding intrinsics as well: measured on CUDA 12.8 at ``-arch=sm_89 -O3``, the
+    same source gives ``mul.rn.f32`` by default and ``mul.rn.ftz.f32`` with the
+    flag, and the same for ``add``, ``sub`` and ``div``. The Triton side stays
+    non-FTZ -- its generated PTX for this kernel has ``add.rn.f32``,
+    ``mul.rn.f32`` and ``div.rn.f32``, and the only ``.ftz`` in it is the
+    ``rsqrt.approx.ftz.f32`` the CUDA side matches on purpose. So the two agree on
+    every normal intermediate under either build, and diverge under fast math on a
+    subnormal one, where CUDA flushes to zero and Triton does not. ``__fdiv_rn``
+    closed the approximate-divide half of the flag's effect in a2148d1 and not this
+    half.
+
+    The inputs below put a normal FP32 input through a near-zero gain and land in
+    the subnormal window: ``1 + w`` is 2**-20, the row statistic is about 1.008, and
+    ``(hidden * rstd) * gain`` is 9.61e-43, which FP32 can only represent
+    subnormally. FP32 is also the dtype where the narrowing casts are the identity,
+    so the value reaches the output instead of being rounded away. ``randn`` inputs
+    never get here, which is why the tables above pass under fast math and this does
+    not.
+
+    A failure here on a ``KERNEL_ALIGN_USE_FAST_MATH=1`` build is the truth and not
+    a regression: the claim is scoped to a default build in the operator doc.
+    """
+    triton_mod = pytest.importorskip("rl_engine.backends.shared.triton.norm.fused_add_norm")
+    width = 64
+    hidden = torch.ones(1, width, device="cuda", dtype=torch.float32)
+    hidden[0, 0] = 1e-36
+    residual = torch.zeros(1, width, device="cuda", dtype=torch.float32)
+    post_w = torch.zeros(width, device="cuda", dtype=torch.float32)
+    post_w[0] = -1.0 + 2.0**-20
+    pre_w = torch.zeros(width, device="cuda", dtype=torch.float32)
+
+    cuda_out = fused_add_norm_cuda_forward(hidden, residual, post_w, pre_w, **_KW)
+    triton_out = triton_mod.fused_add_norm_triton_forward(hidden, residual, post_w, pre_w, **_KW)
+
+    probe = float(cuda_out[0][0, 0])
+    assert 0.0 < abs(probe) < torch.finfo(torch.float32).smallest_normal, (
+        f"the intermediate is no longer subnormal ({probe:.3e}), so this test has "
+        "stopped testing what it says"
+    )
+    for got, want, name in zip(cuda_out[:2], triton_out[:2], ("residual_out", "pre_normed")):
+        assert torch.equal(got.view(torch.int32), want.view(torch.int32)), (
+            f"{name}: CUDA {got[0, 0].view(torch.int32).item():#010x}, "
+            f"Triton {want[0, 0].view(torch.int32).item():#010x}; a flush-to-zero "
+            "difference here means the build set --use_fast_math"
+        )
+
+
+@requires_cuda_kernel
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("width", [1, 3, 33, 63, 65, 100, 129, 257, 513, 1000, 8191])
 def test_cuda_and_triton_are_bitwise_equal_at_awkward_widths(dtype, width):

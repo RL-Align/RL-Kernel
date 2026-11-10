@@ -17,17 +17,21 @@ The Triton and CUDA backwards are one kernel each plus the FP32 row fold for the
 two weight gradients; the native backward is whatever autograd records over two
 norms and an add. The backward speedup compares those complete paths.
 
-Reporting is shared with ``benchmark_swiglu.py``: a clock-settling phase before
-each measurement, repeated passes with a 95% interval and a verdict only when the
-interval excludes parity, a generated spread note, and a determinism check over
-memory and accuracy. The reasons for each are recorded there and in the commit
-history; this file only states what applies to this operator.
+Reporting follows the shape worked out for the SwiGLU row: a clock-settling phase
+before each measurement, repeated passes with a 95% interval and a verdict only
+when the interval excludes parity, a generated spread note, and a determinism check
+over memory and accuracy. That file is not on this branch or on the base -- it
+lives on the unmerged ``feat/museglimmer-swiglu-ffn`` -- so the reasons are stated
+here rather than pointed at, and the pointer an earlier version of this docstring
+carried has been removed because following it led nowhere.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import gc
+import hashlib
 import json
 import math
 import platform
@@ -198,13 +202,27 @@ def _check_accuracy(native, candidate, hidden, residual, post_w, pre_w, g_res, g
             rtol=tolerance.rtol,
             msg=lambda built, name=name: f"{name}: {built}",
         )
+        error = (result.to(torch.float32) - reference.to(torch.float32)).abs()
+        worst = int(error.flatten().argmax())
+        reference_at_worst = float(reference.to(torch.float32).flatten()[worst].abs())
         errors[name] = {
-            "max_abs_error": (result.to(torch.float32) - reference.to(torch.float32))
-            .abs()
-            .max()
-            .item(),
+            "max_abs_error": float(error.max()),
             "atol": atol,
             "rtol": tolerance.rtol,
+            # The threshold that actually applied at the worst element. Recording
+            # atol and rtol alone made the artifact look as though it had failed:
+            # d_post_w at bf16 and 512 rows shows max_abs_error 0.125 against an
+            # atol of 0.1, on a row the report calls passing, because the rtol term
+            # covered the rest.
+            "threshold_at_worst": atol + tolerance.rtol * reference_at_worst,
+            # A hash of the bytes, because the figures above cannot see a change
+            # smaller than one ULP of a narrow dtype and the determinism check
+            # compares this dict. A reordered FP32 reduction inside the backward
+            # moves this even when max_abs_error, which lands on the BF16 lattice,
+            # does not.
+            "result_sha256_16": hashlib.sha256(
+                result.detach().contiguous().cpu().view(torch.uint8).numpy().tobytes()
+            ).hexdigest()[:16],
         }
     return errors
 
@@ -229,21 +247,39 @@ def _settle_clocks(profiler, fn):
         profiler._sync()
 
 
-def _measure(profiler, fn):
+def _measure(profiler, make_fn):
+    """Time ``make_fn()``'s closure, then measure one call's memory from scratch.
+
+    Takes a factory rather than a closure so the memory window can start before the
+    workload is built. In ``backward`` mode the workload runs the forward at
+    construction time, so with a ready-made closure everything that forward retained
+    -- for the eager path, several FP32 rows-by-width intermediates held by the
+    autograd graph -- sat inside the baseline and was subtracted away, while in
+    ``forward_backward`` mode the same graph is built inside the timed call and was
+    counted. The column therefore meant different things in different rows and the
+    direction was backwards: measured at bf16 and 512 rows, the native read 0.0620
+    GiB in the backward row against 0.1075 in forward_backward, so a reader saw the
+    eager path as the cheaper one in the backward exactly where it is holding the
+    most. Building inside the window in both modes makes the number comparable.
+    """
+    fn = make_fn()
     _settle_clocks(profiler, fn)
     _, median_ms, std_ms = profiler._time_kernel(fn)
     if not math.isfinite(median_ms) or median_ms <= 0:
         raise RuntimeError(f"invalid accelerator-event latency: {median_ms}")
-    # Collect before reading the baseline. An autograd graph from an earlier cell
-    # can sit in a reference cycle, get freed inside fn(), and leave the peak below
-    # where the baseline said it started.
+    # Drop the timing closure first, then collect. An autograd graph from an earlier
+    # cell can sit in a reference cycle, get freed inside fn(), and leave the peak
+    # below where the baseline said it started.
+    del fn
     gc.collect()
     profiler._sync()
     baseline = torch.cuda.memory_allocated(profiler.device)
     torch.cuda.reset_peak_memory_stats(profiler.device)
-    fn()
+    measured = make_fn()
+    measured()
     profiler._sync()
     extra = torch.cuda.max_memory_allocated(profiler.device) - baseline
+    del measured
     if extra < 0:
         raise RuntimeError(f"peak allocation fell below the live baseline: {extra} bytes")
     return {"median_ms": median_ms, "std_ms": std_ms, "peak_extra_gib": extra / 1024**3}
@@ -293,7 +329,8 @@ def _environment(device, args, triton_version, shapes, candidates):
         "seed": args.seed,
         "tolerance_contract_sha256": tolerance_contract_fingerprint(),
         "baseline": (
-            "eager NativeFusedAddNormOp.forward on the same GPU; every side emits the input dtype"
+            "NativeFusedAddNormOp.forward on the same GPU, the operator's gold rather than "
+            "an idiomatic eager spelling; every side emits the input dtype"
         ),
         "accuracy": (
             "candidate forward vs native forward (same narrowing contract), reduction rows, "
@@ -334,12 +371,16 @@ def _noise_note(report):
     return (
         f"Spread: {noisy} of {len(spreads)} timed samples have a standard deviation "
         f"above {NOISY_STD_FRACTION:.0%} of their median, the worst at {worst:.0%}, and "
-        f"{heavy_tail} exceed 100%. Latencies are positive and the median is central, "
-        f"so a standard deviation above 100% of the median means a handful of stalled "
-        f"iterations out of {repeat}, not broad jitter: each median stays usable, but "
-        f"do not read the standard deviation as a confidence interval on it. These are "
-        f"launch-overhead-bound sizes, so treat the table as shape qualification rather "
-        f"than a performance claim."
+        f"{heavy_tail} exceed 100%, over {repeat} repetitions each. A deviation that "
+        f"size means the samples are not symmetric around the median, which is why the "
+        f"median is reported and the deviation is not an interval on it. Which shape "
+        f"of asymmetry it is -- a few stalled iterations or broad jitter -- is not "
+        f"something the deviation alone can say, and an earlier version of this note "
+        f"asserted the first; the per-iteration samples would be needed to tell them "
+        f"apart. Whether a row is launch-bound or bandwidth-bound likewise depends on "
+        f"the shape rather than on this table: at one row it is launch overhead, and "
+        f"the 512-row bf16 native forward on an RTX 4090 moves about 0.15 GB in "
+        f"0.196 ms, which is near that card's rated bandwidth."
     )
 
 
@@ -360,6 +401,38 @@ def _mean_ci95(values):
     return mean, mean - half, mean + half
 
 
+def _across_shapes(summary):
+    """Geometric mean of the per-shape speedups, for each dtype, mode and candidate.
+
+    Geometric because these are ratios: 4.0x on one shape and 0.5x on another is
+    1.0x, not the 2.25x an arithmetic mean reports. No interval, because a spread
+    over shapes is not a measurement error; the range of the shapes it covers is
+    given instead, with the shape each end came from.
+    """
+    groups = {}
+    for item in summary:
+        groups.setdefault((item["dtype"], item["mode"], item["candidate"]), []).append(item)
+    out = []
+    for (dtype, mode, cand), items in groups.items():
+        ratios = [i["mean_speedup"] for i in items]
+        worst = min(items, key=lambda i: i["mean_speedup"])
+        best = max(items, key=lambda i: i["mean_speedup"])
+        out.append(
+            {
+                "dtype": dtype,
+                "mode": mode,
+                "candidate": cand,
+                "shapes": len(items),
+                "geometric_mean_speedup": statistics.geometric_mean(ratios),
+                "worst_shape": worst["shape"],
+                "worst_speedup": worst["mean_speedup"],
+                "best_shape": best["shape"],
+                "best_speedup": best["mean_speedup"],
+            }
+        )
+    return out
+
+
 def _verdict(low, high):
     if low is None or high is None:
         return "single pass, no interval"
@@ -371,24 +444,35 @@ def _verdict(low, high):
 
 
 def _reproducibility(passes):
-    """Speedup per (dtype, mode, candidate) across passes, one sample per pass."""
+    """Speedup per (dtype, shape, mode, candidate) across passes, one sample per pass.
+
+    The shape is in the key, and that is the whole point of this function's shape.
+    It used to average the per-shape speedups inside each pass, so one row covered
+    every shape at once: measured on this box, 2.74x at 1x6656 and 1.14x at
+    512x6656 were reported as a single 1.873x, a number that occurs at neither
+    shape, and the min and max columns described pass-to-pass movement rather than
+    the spread across shapes, so nothing in the table revealed the 1.14x. An
+    arithmetic mean of ratios is biased upward on top of that, and _verdict then
+    read "faster" off the interval of that mean. One row per shape instead; the
+    cross-shape figure is in _across_shapes, as a geometric mean, labelled.
+    """
     groups = {}
     for rows in passes:
-        per_group = {}
         for row in rows:
             for cand in ("triton", "cuda"):
                 key = f"speedup_{cand}"
                 if key in row:
-                    per_group.setdefault((row["dtype"], row["mode"], cand), []).append(row[key])
-        for key, values in per_group.items():
-            groups.setdefault(key, []).append(statistics.mean(values))
+                    groups.setdefault(
+                        (row["dtype"], tuple(row["shape"]), row["mode"], cand), []
+                    ).append(row[key])
 
     summary = []
-    for (dtype, mode, cand), per_pass in groups.items():
+    for (dtype, shape, mode, cand), per_pass in groups.items():
         mean, low, high = _mean_ci95(per_pass)
         summary.append(
             {
                 "dtype": dtype,
+                "shape": list(shape),
                 "mode": mode,
                 "candidate": cand,
                 "passes": len(per_pass),
@@ -410,6 +494,7 @@ def _determinism(passes):
     if len(passes) < 2:
         return {
             "compared_rows": 0,
+            "compared_accuracy_measurements": 0,
             "memory_mismatches": 0,
             "accuracy_mismatches": 0,
             "accuracy_detail": [],
@@ -423,18 +508,29 @@ def _determinism(passes):
 
     base = {key(row): row for row in passes[0]}
     memory = accuracy = compared = 0
+    accuracy_compared = 0
+    # The accuracy dict is measured once per (dtype, shape) and attached to all
+    # three mode rows, so comparing it per row counted each measurement three
+    # times: the note said "6 row comparisons" where 2 measurements existed.
+    seen_accuracy = set()
     worst = 0.0
     for rows in passes[1:]:
         for row in rows:
             reference = base[key(row)]
             compared += 1
+            # Every side, then record. This used to break out of the loop on the
+            # first mismatch, after updating ``worst`` for that side only, so a
+            # 0.0002 GiB move in the first side counted and a 2 GiB move in the
+            # next was never read: the report then printed the small number as
+            # "the largest raw memory deviation".
+            moved = False
             for side in _sides(row):
                 a = row[side]["peak_extra_gib"]
                 b = reference[side]["peak_extra_gib"]
                 worst = max(worst, abs(a - b))
-                if round(a, _MEMORY_DECIMALS) != round(b, _MEMORY_DECIMALS):
-                    memory += 1
-                    break
+                moved = moved or round(a, _MEMORY_DECIMALS) != round(b, _MEMORY_DECIMALS)
+            if moved:
+                memory += 1
             # Exact comparison on purpose. This is a reproducibility check, not an
             # accuracy check: the question is whether the same computation on the
             # same inputs produced the same number twice, and a tolerance would
@@ -442,6 +538,11 @@ def _determinism(passes):
             # error magnitudes already gated against the contract before any timing
             # ran, so a non-zero count here means a run-to-run difference and not a
             # contract violation, which is what the note below now says.
+            accuracy_key = (id(rows), row["dtype"], tuple(row["shape"]))
+            if accuracy_key in seen_accuracy:
+                continue
+            seen_accuracy.add(accuracy_key)
+            accuracy_compared += 1
             if row["accuracy"] != reference["accuracy"]:
                 accuracy += 1
                 accuracy_detail.append(
@@ -450,6 +551,7 @@ def _determinism(passes):
                 )
     return {
         "compared_rows": compared,
+        "compared_accuracy_measurements": accuracy_compared,
         "memory_mismatches": memory,
         "accuracy_mismatches": accuracy,
         "accuracy_detail": accuracy_detail[:8],
@@ -502,38 +604,71 @@ def _reproducibility_lines(report):
     lines = [
         f"### Reproducibility across {passes} independent passes",
         "",
-        "Each pass re-runs the whole matrix on the same commit and GPU. One sample per "
-        "pass, so the interval below describes how much the reported figure moves "
-        "between runs. A verdict is only given when the interval excludes parity.",
+        "Each pass re-runs the whole matrix on the same commit and GPU. One row per "
+        "shape, because a speedup is a property of a shape: the mean and the interval "
+        "below describe how much that shape's figure moves between runs, and the min "
+        "and max are that shape's extremes across passes. A verdict is only given when "
+        "the interval excludes parity. With two passes the t multiplier is 12.7, so "
+        "the interval is very wide and can reach below zero; that is a statement about "
+        "having two samples, not about the speedup, and it is why most rows at two "
+        "passes read indeterminate.",
         "",
-        "| Input | Mode | Candidate | Mean speedup | 95% CI | Min | Max | Verdict |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
+        "| Input | Shape | Mode | Candidate | Mean speedup | 95% CI | Min | Max | Verdict |",
+        "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
     ]
     order = {"fp16": 0, "bf16": 1, "fp32": 2}
     modes = {"forward": 0, "backward": 1, "forward_backward": 2}
     cands = {"triton": 0, "cuda": 1}
-    for item in sorted(
-        summary,
-        key=lambda d: (
+
+    def sort_key(d):
+        return (
             order.get(d["dtype"], 9),
             modes.get(d["mode"], 9),
             cands.get(d["candidate"], 9),
-        ),
-    ):
+            d.get("shape", []),
+        )
+
+    for item in sorted(summary, key=sort_key):
         lines.append(
-            f"| {item['dtype']} | {item['mode']} | {item['candidate']} | "
+            f"| {item['dtype']} | {'x'.join(map(str, item['shape']))} | {item['mode']} | "
+            f"{item['candidate']} | "
             f"{item['mean_speedup']:.3f}x | {_interval(item)} | "
             f"{item['min_speedup']:.3f}x | {item['max_speedup']:.3f}x | {item['verdict']} |"
         )
+    across = report.get("speedup_across_shapes") or []
+    if across:
+        lines += [
+            "",
+            "Collapsed over shapes, for one figure per dtype and mode. Geometric, "
+            "because these are ratios: 4.0x on one shape and 0.5x on another is 1.0x, "
+            "not the 2.25x an arithmetic mean gives. No interval, since a spread over "
+            "shapes is not a measurement error; the ends are named instead.",
+            "",
+            "| Input | Mode | Candidate | Shapes | Geometric mean | Worst shape | Best shape |",
+            "| --- | --- | --- | ---: | ---: | --- | --- |",
+        ]
+        for item in sorted(across, key=sort_key):
+            lines.append(
+                f"| {item['dtype']} | {item['mode']} | {item['candidate']} | "
+                f"{item['shapes']} | {item['geometric_mean_speedup']:.3f}x | "
+                f"{'x'.join(map(str, item['worst_shape']))} at "
+                f"{item['worst_speedup']:.3f}x | "
+                f"{'x'.join(map(str, item['best_shape']))} at {item['best_speedup']:.3f}x |"
+            )
     if det.get("compared_rows"):
         lines += [
             "",
             f"Memory and accuracy hold still: across {det['compared_rows']} row "
-            f"comparisons between passes, {det['memory_mismatches']} peak-memory and "
-            f"{det['accuracy_mismatches']} accuracy figures differed at the printed "
-            f"precision, with a largest raw memory deviation of "
-            f"{det['max_memory_deviation_gib']:.2e} GiB. The detail table below is the "
-            f"last pass.",
+            f"comparisons between passes, {det['memory_mismatches']} peak-memory "
+            f"figures differed at the printed precision, with a largest raw deviation "
+            f"of {det['max_memory_deviation_gib']:.2e} GiB over every side of every "
+            f"row. Accuracy is measured once per dtype and shape rather than once per "
+            f"mode, so it is "
+            f"{det.get('compared_accuracy_measurements', det['compared_rows'])} "
+            f"comparisons, {det['accuracy_mismatches']} of which differed; each one "
+            f"covers all six outputs by error magnitude and by a hash of the result "
+            f"bytes, so a reordered reduction below one narrow ULP shows up too. The "
+            f"detail table below is the last pass.",
         ]
     lines += [
         "",
@@ -544,24 +679,48 @@ def _reproducibility_lines(report):
     return lines + [""]
 
 
+def _tracked(env):
+    """ "unknown" and "none" are different answers, and both used to print as "none".
+
+    ``git_tracked_changes`` is None when the subprocess failed -- no checkout, no
+    git on PATH, or the 10s timeout -- and the empty string when the tree is
+    genuinely clean, so the provenance line asserted a clean tree that had never
+    been checked.
+    """
+    value = env["git_tracked_changes"]
+    if value is None:
+        return "unknown"
+    return value or "none"
+
+
 def _markdown(report):
     env = report["environment"]
     lines = [
         _title(env),
         "",
-        f"GPU: {env['gpu']}; PyTorch: {env['torch']}; Triton: {env['triton']}; "
+        f"GPU: {env['gpu']}; PyTorch: {env['torch']}; "
+        f"Triton: {env['triton'] or 'not installed'}; "
         f"{env['backend']} runtime: {env['runtime']}.",
-        f"Commit: `{env['git_commit']}`; tracked changes: "
-        f"`{env['git_tracked_changes'] or 'none'}`.",
+        # "unknown" and "none" are different answers. git_tracked_changes is None
+        # when the subprocess failed -- no checkout, no git on PATH, or the 10s
+        # timeout -- and the empty string when the tree is genuinely clean, and both
+        # used to print as "none", so the provenance line asserted a clean tree that
+        # had never been checked.
+        f"Commit: `{env['git_commit'] or 'unknown'}`; tracked changes: `{_tracked(env)}`.",
         f"Candidates: {', '.join(env['candidates'])}. Warmup: {env['warmup']} iterations "
         f"after a {env['clock_settle_seconds']}s clock-settling phase; measured "
         f"repetitions: {env['repeat']}.",
         "",
         "Every side is timed through the public `forward`, which returns the input dtype. "
-        "Median accelerator-event latency for public wrappers, including allocation and "
-        "autograd dispatch. The Triton and CUDA backwards are one kernel each plus the FP32 "
-        "row fold for the two weight gradients; the native backward is autograd over two "
-        "norms and an add. The backward speedup compares complete paths.",
+        "Median accelerator-event latency for public wrappers, including allocation. The "
+        "`forward` rows run under `torch.no_grad()`, so autograd dispatch is in the "
+        "`backward` and `forward_backward` rows only; measured at 1x6656 bf16, leaving "
+        "grad on costs the native 140.3 us against 117.8 and the CUDA candidate 21.5 "
+        "against 19.5, so the reported forward speedup of 6.05x would have been 6.52x. "
+        "The no_grad figure is the conservative one. The Triton and CUDA backwards are "
+        "one kernel each plus the FP32 row fold for the two weight gradients; the native "
+        "backward is autograd over two norms and an add. The backward speedup compares "
+        "complete paths.",
         "One asymmetry in that comparison, stated because it is real and small rather "
         "than left for a reader to find: both candidates call record_backward once per "
         "backward and the eager baseline has no such bookkeeping. Measured at 0.733 us "
@@ -569,7 +728,17 @@ def _markdown(report):
         "speedups of 1.4x and up. The recorder keys one entry per operator and "
         "overwrites it, so it does not accumulate: 20,000 calls leave one entry, and "
         "the settling loop cannot grow memory through it.",
-        "Speedup = eager PyTorch / candidate; values below 1 mean the candidate was slower. "
+        "Speedup = the reference / candidate; values below 1 mean the candidate was "
+        "slower. The reference is `NativeFusedAddNormOp.forward`, which is the operator's "
+        "gold and not an idiomatic eager spelling: its statistic goes through "
+        "`shape_invariant_meansq`, which zero-pads to 32-wide chunks and sums in two "
+        "stages so that a row's bytes do not depend on the batch layout. That costs "
+        "something, and comparing against the gold is the right comparison, so the cost "
+        "is stated rather than removed. Measured on an RTX 4090 at bf16 with the cast "
+        "structure held byte-identical and only the reduction replaced by `mean(-1)`: "
+        "the gold is 1.28x slower at 1x6656 and 1.07x at 512x6656 on the forward. So "
+        "the forward speedups here are larger than they would be against a plain eager "
+        "spelling, by about that factor, most of it at the small shapes. "
         "All reported cases passed both outputs and all four gradient tolerance checks "
         "first, at the contract's reduction rows.",
         "",
@@ -690,9 +859,23 @@ def _sweep(args, profiler, native, candidates, device):
             for mode in MODES:
                 measurements = {}
                 for name, op in [("native", native), *candidates.items()]:
-                    fn = _make_workload(op, hidden, residual, post_w, pre_w, g_res, g_pre, mode)
-                    measurements[name] = _measure(profiler, fn)
-                    del fn
+                    # partial, not a lambda: the tensors are deleted at the end of
+                    # this shape's iteration, and binding them by value keeps the
+                    # factory from closing over names that go away.
+                    measurements[name] = _measure(
+                        profiler,
+                        functools.partial(
+                            _make_workload,
+                            op,
+                            hidden,
+                            residual,
+                            post_w,
+                            pre_w,
+                            g_res,
+                            g_pre,
+                            mode,
+                        ),
+                    )
                 row = {
                     "dtype": dtype_name,
                     "shape": list(shape),
@@ -724,14 +907,22 @@ def run_benchmark(args):
         raise RuntimeError(
             "This benchmark requires an NVIDIA CUDA or AMD ROCm GPU; no CPU fallback is timed"
         )
-    import triton
+    # Imported for the version string only, so a box without Triton can still run
+    # --candidates cuda: _resolve_candidates gates the backend itself, and this
+    # unconditional import defeated that by raising first.
+    try:
+        import triton
+
+        triton_version = triton.__version__
+    except ImportError:
+        triton_version = None
 
     native = NativeFusedAddNormOp()
     candidates = _resolve_candidates(args.candidates)
     with torch.cuda.device(device):
         profiler = PerformanceProfiler(device=device, warmup=args.warmup, repeat=args.repeat)
         report = {
-            "environment": _environment(device, args, triton.__version__, args.shapes, candidates),
+            "environment": _environment(device, args, triton_version, args.shapes, candidates),
             "results": [],
         }
         reset_backward_runtime()
@@ -741,12 +932,19 @@ def run_benchmark(args):
             print(f"--- pass {index + 1}/{args.runs} complete", flush=True)
         report["results"] = passes[-1]
         report["reproducibility"] = _reproducibility(passes)
+        report["speedup_across_shapes"] = _across_shapes(report["reproducibility"])
         report["determinism"] = _determinism(passes)
-        # What ran, not what was asked for. environment["candidates"] holds the
-        # requested names; a backend that routed elsewhere would have been labelled
-        # by the request. The ops already report themselves through
-        # record_backward, so the executed implementation is readable here.
-        report["executed_backward"] = snapshot_backward_runtime()
+        # What ran, not what was asked for, per candidate. This used to be
+        # snapshot_backward_runtime() taken after the whole sweep, and
+        # record_backward keys on the operator alone, so the entry was whichever
+        # candidate ran last carrying an execution_count that every candidate had
+        # contributed to: one run reported 13373 calls against the CUDA impl with
+        # Triton absent, having run just as many. The per-row backward_impl was
+        # always right, so this field is built from those instead.
+        report["executed_backward"] = {
+            name: sorted({row["backward_impl"].get(name) for row in passes[-1]} - {None})
+            for name in candidates
+        }
     return report
 
 

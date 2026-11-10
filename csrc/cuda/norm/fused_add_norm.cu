@@ -57,7 +57,10 @@ namespace {
 //
 // Per-expression intrinsics rather than ``--fmad=false``, because nvcc_flags in
 // build_tools/extensions.py is one list shared by every .cu in the extension and
-// would change the numerics of already-merged operators.
+// would change the numerics of already-merged operators. These intrinsics pin the
+// rounding mode and the absence of contraction; they do not pin the denormal mode,
+// which --use_fast_math changes. See div_rn below for the measurement and for what
+// that leaves exposed.
 // The one reciprocal square root per row, as a single hardware instruction.
 //
 // nvcc's ``rsqrtf`` is libdevice's refined non-FTZ sequence; Triton's ``tl.rsqrt``
@@ -98,13 +101,28 @@ __device__ __forceinline__ float rsqrt_approx_ftz(float x) {
 __device__ __forceinline__ float mul_rn(float a, float b) { return __fmul_rn(a, b); }
 __device__ __forceinline__ float add_rn(float a, float b) { return __fadd_rn(a, b); }
 __device__ __forceinline__ float sub_rn(float a, float b) { return __fsub_rn(a, b); }
-// The row mean, as a division the build flag cannot reinterpret. A plain ``/`` is
-// div.rn.f32 by default, but --use_fast_math sets --prec-div=false and lowers it to
-// div.approx.f32, and the Triton side is pinned to div.rn.f32 through tl.div_rn.
-// Measured: with the four divisions left as ``/`` and the extension built with
-// KERNEL_ALIGN_USE_FAST_MATH=1, 30 of the 54 bitwise cases fail. The reciprocal
-// square root was already made flag-independent through inline PTX; the divide was
-// not, so the bitwise claim held only for a default build.
+// The row mean, as a division whose rounding the build flag cannot reinterpret. A
+// plain ``/`` is div.rn.f32 by default, but --use_fast_math sets --prec-div=false
+// and lowers it to div.approx.f32, and the Triton side is pinned to div.rn.f32
+// through tl.div_rn. Measured: with the four divisions left as ``/`` and the
+// extension built with KERNEL_ALIGN_USE_FAST_MATH=1, 30 of the 54 bitwise cases
+// fail.
+//
+// What this does not pin, corrected from an earlier version of this comment that
+// claimed the flag could not reinterpret the divide at all: --use_fast_math also
+// implies --ftz=true, and nvcc applies that to these intrinsics. Measured on CUDA
+// 12.8 at -arch=sm_89 -O3 over a faithful copy of this kernel: default gives
+// mul.rn.f32 / add.rn.f32 / sub.rn.f32 / div.rn.f32, and the flag gives the same
+// four with .ftz, while fma.rn stays absent in both so the anti-contraction part
+// above does hold either way. Triton's PTX for its kernel is non-FTZ --
+// add.rn.f32, mul.rn.f32, div.rn.f32, with rsqrt.approx.ftz.f32 as the only .ftz
+// in it, which is the instruction below matches on purpose. So under fast math the
+// two backends agree on every normal intermediate and differ on a subnormal one,
+// where this side flushes to zero. A counter-flag cannot be added for one source
+// because nvcc_flags is shared, so the bitwise claim is scoped to a default build
+// in the operator doc, and
+// test_cuda_and_triton_are_bitwise_equal_on_a_subnormal_intermediate is the case
+// that goes red if someone sets the flag.
 __device__ __forceinline__ float div_rn(float a, float b) { return __fdiv_rn(a, b); }
 
 template <typename scalar_t>

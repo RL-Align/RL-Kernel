@@ -107,14 +107,33 @@ gradients come back as per-row FP32 contributions and are folded with
   | divide by the width | Triton's `/` is `div.full.f32`, approximate; CUDA's is `div.rn.f32` | `tl.div_rn` |
   | reciprocal square root | nvcc's `rsqrtf` is libdevice's refined non-FTZ path; `tl.rsqrt` is `rsqrt.approx.ftz.f32` | the CUDA kernel emits the same instruction |
 
-  The claim does not depend on the build flag. Every float operation on the path is
-  an explicit round-to-nearest intrinsic or `tl.div_rn`, including the row mean,
-  which a plain `/` would have left exposed: measured with the four divisions as
-  `/` and the extension built with `KERNEL_ALIGN_USE_FAST_MATH=1`, 30 of the 54
-  bitwise cases fail, because `--use_fast_math` sets `--prec-div=false` and lowers
-  `/` to `div.approx.f32`. With `__fdiv_rn` the whole operator suite passes under
-  both builds, 250 tests either way. That is the opposite of `swiglu`, whose
-  bitwise test fails 14 of 15 cases on a fast-math build.
+  The claim is scoped to a default build, and the scope is narrower than it used to
+  say here. Every float operation on the path is an explicit round-to-nearest
+  intrinsic or `tl.div_rn`, including the row mean, which a plain `/` would have
+  left exposed: measured with the four divisions as `/` and the extension built
+  with `KERNEL_ALIGN_USE_FAST_MATH=1`, 30 of the 54 bitwise cases fail, because
+  `--use_fast_math` sets `--prec-div=false` and lowers `/` to `div.approx.f32`.
+  With `__fdiv_rn` the whole operator suite passes under both builds, 250 tests
+  either way.
+
+  What those intrinsics do not pin is the denormal mode. `--use_fast_math` also
+  implies `--ftz=true` and nvcc applies it to them: measured on CUDA 12.8 at
+  `-arch=sm_89 -O3`, the same source gives `mul.rn.f32`, `add.rn.f32`, `sub.rn.f32`
+  and `div.rn.f32` by default and all four with `.ftz` under the flag, while
+  `fma.rn` is absent either way so the anti-contraction property is unaffected.
+  Triton's PTX for this kernel is non-FTZ, with `rsqrt.approx.ftz.f32` as the only
+  `.ftz` instruction in it, which is the one the CUDA side matches deliberately. So
+  on a fast-math build the two backends agree on every normal intermediate and
+  differ on a subnormal one, where the CUDA side flushes to zero. A counter-flag
+  cannot be added for a single source, since `nvcc_flags` in
+  `build_tools/extensions.py` is one list shared by every `.cu`.
+  `test_cuda_and_triton_are_bitwise_equal_on_a_subnormal_intermediate` holds that
+  boundary: it passes on a default build and is the case that goes red if the flag
+  is set. `randn` inputs never reach the subnormal window, which is why the rest of
+  the bitwise table passes under both builds.
+
+  For comparison, `swiglu`'s bitwise test fails 14 of 15 cases on a fast-math
+  build, so this row is still the better-behaved of the two by a wide margin.
 
   Sizes, measured before each fix, so the order of attack is on record: with the
   reduction orders matched but the divide still approximate, the statistics were
@@ -189,5 +208,17 @@ box; they were run against two cards of an eight-H100 node.
   which `rms_norm` uses, are both invariant. Making it hold for every width means
   chunking recursively, which changes the bytes of a statistic `rms_norm` and
   `qk_norm` already ship, so it is raised rather than done here.
+- The CUDA and Triton kernels are bitwise equal on a default build. Under
+  `KERNEL_ALIGN_USE_FAST_MATH=1` they agree on every normal intermediate and differ
+  on a subnormal one, because the flag adds flush-to-zero to the CUDA side's
+  arithmetic and not to Triton's; see the bitwise section for the PTX and the test
+  that holds the boundary.
+- `rsqrt.approx.ftz.f32` is bounded by PTX at 2^-22.9 but its result is not
+  architecturally specified, so the cross-GPU byte-for-byte claim rests on that
+  instruction being bit-stable across SM generations. In practice the question does
+  not arise for a given binary: `build_tools/extensions.py` emits only
+  `code=sm_<build host>` with no `compute_` PTX fallback, so one build runs on one
+  architecture. Across two builds on two architectures it is an assumption, and it
+  is measured rather than argued on the two this row was run on, SM 8.9 and SM 9.0.
 - The model's final norm (`rmsnorm_times_weight`, `pow_neg_half`) is the reference
   `NativeFinalNormOp` only; it has no GPU kernel in this row.
