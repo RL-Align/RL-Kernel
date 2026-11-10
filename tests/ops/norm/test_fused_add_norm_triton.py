@@ -380,8 +380,17 @@ def test_triton_row_offset_does_not_wrap_at_two_billion_elements():
     dtype = torch.bfloat16
     post_w = torch.randn(HIDDEN_SIZE, device="cuda", dtype=dtype)
     pre_w = torch.randn_like(post_w)
-    hidden = torch.randn(_OVERFLOW_ROWS, HIDDEN_SIZE, device="cuda", dtype=dtype)
-    residual = torch.randn_like(hidden)
+    try:
+        hidden = torch.randn(_OVERFLOW_ROWS, HIDDEN_SIZE, device="cuda", dtype=dtype)
+        residual = torch.randn_like(hidden)
+    except torch.OutOfMemoryError as exc:
+        # The free-memory check above can be stale by the time the allocation
+        # lands: another process on the same card, or this one's own allocator
+        # fragmenting, is enough. Seen once in a file-alone run that four replays
+        # could not reproduce. Not being able to allocate is an environment fact
+        # and not a defect in the index arithmetic this test exists for, so it
+        # skips rather than failing and says which it was.
+        pytest.skip(f"could not allocate {_OVERFLOW_GIB:.0f} GiB after the check: {exc}")
     try:
         res_out = fused_add_norm_triton_forward(
             hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
