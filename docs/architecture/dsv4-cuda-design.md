@@ -423,6 +423,23 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         (`docs/validation/*-torch213-cuda13-2026-11-10.json`: DeepGEMM FP8 87/87 cases,
         BF16, MQA logits, FlashMLA). The torch 2.9 env (`dsv4`, FlashMLA `b70aff3`) stays as a
         fallback; `require_flashmla` accepts both builds
+  - Integration plan and findings (2026-11-10), to settle on the installed stack:
+    - Actor: verl's DSv4 Megatron path uses `experimental_attention_variant="dsv4_hybrid"`,
+      which exists only on Megatron-LM `main`
+      (`megatron/core/transformer/experimental_attention_variant/deepseek_v4_hybrid_attention.py`),
+      not in the `core_v0.19.2` verl pins: a BF16 training module (TE linears, TP = 1, no
+      inference path). The patch replaces its forward on the recompute path (no grad) with
+      `Dsv4Attention` over packed sequences (`cu_seqlens`) and temporary caches.
+    - Rollout: replace the vLLM fork's `DeepseekV4Attention.forward` with the same operator
+      sequence, reusing vLLM's caches, block tables and slot mappings (our cache formats are
+      vLLM's: `fp8_ds_mla`, 132-byte FP8 indexer rows, `[kv | score + ape]` FP32 state).
+    - Both patches take one RoPE table built by us, so the two sides cannot diverge there.
+    - Weights: both sides must run the same FP8 bytes. verl's FP8 sync quantizes with plain
+      FP32 block scales (`scaled_fp8_blockwise`, Triton) but only for parameters named like
+      `q_proj` / `o_proj` / `gate_proj`; DSv4's `wq_a` / `wkv` / `wq_b` / `wo_a` / `wo_b` do not
+      match, and vLLM may re-quantize block scales to UE8M0 for DeepGEMM
+      (`requant_weight_ue8m0_inplace`). Trace the real chain on the installed stack, then
+      have the actor patch call the same functions on the same BF16 master weights
 
 ### Phase 3 - MoE and sampling
 
