@@ -307,6 +307,16 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
             raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {w.dtype}.")
         if not w.is_cuda:
             raise RuntimeError(f"{name} must be a GPU tensor, got device '{w.device}'.")
+        # Same device as hidden, not merely "some GPU". The launch takes its device
+        # and stream from hidden, so a weight on another one is dereferenced as if
+        # it lived there. The CUDA binding checks this; this side checked is_cuda
+        # only, which is the fourth time in this review that I had fixed one of the
+        # two backends and left the other.
+        if w.device != hidden.device:
+            raise RuntimeError(
+                f"{name} must be on the same device as hidden ({hidden.device}), "
+                f"got {w.device}."
+            )
     if post_w.dtype != pre_w.dtype:
         raise ValueError(
             f"post_weight and pre_weight must share dtype, got {post_w.dtype} "
@@ -350,6 +360,19 @@ def fused_add_norm_triton_forward(
     rstd_post = torch.empty(rows, device=hidden.device, dtype=torch.float32)
     rstd_pre = torch.empty(rows, device=hidden.device, dtype=torch.float32)
 
+    if rows == 0:
+        # Explicit, not because this version needs it. Measured on Triton 3.6.0:
+        # kernel[(0,)] is a no-op and the context survives, and the zero-row test
+        # passes. But that is an undocumented launcher detail, the H100 used for the
+        # benchmark runs 3.3.1, and the CUDA launcher has to guard it because a
+        # zero-block grid is a sticky cudaErrorInvalidConfiguration there. Two lines
+        # make the behaviour the same on both backends and independent of either.
+        return (
+            res_out.view_as(hidden),
+            pre_out.view_as(hidden),
+            rstd_post,
+            rstd_pre,
+        )
     _fused_add_norm_fwd_kernel[(rows,)](
         hidden_2d,
         residual_2d,
@@ -400,6 +423,11 @@ def fused_add_norm_triton_backward(
     width = hidden.shape[-1]
     lanes, chunks, levels = _reduction_shape(width)
     for name, g in (("grad_residual_out", grad_residual_out), ("grad_pre_normed", grad_pre_normed)):
+        if g.device != hidden.device:
+            raise RuntimeError(
+                f"{name} must be on the same device as hidden ({hidden.device}), "
+                f"got {g.device}."
+            )
         if g.shape != hidden.shape:
             raise ValueError(
                 f"{name} must share hidden's shape, got {tuple(g.shape)} "
@@ -415,6 +443,11 @@ def fused_add_norm_triton_backward(
         # avoid, one argument over.
         if not r.is_cuda:
             raise RuntimeError(f"{name} must be a GPU tensor, got device '{r.device}'.")
+        if r.device != hidden.device:
+            raise RuntimeError(
+                f"{name} must be on the same device as hidden ({hidden.device}), "
+                f"got {r.device}."
+            )
         if not r.is_contiguous():
             raise ValueError(f"{name} must be contiguous.")
         if r.dtype != torch.float32:
@@ -436,6 +469,8 @@ def fused_add_norm_triton_backward(
     partial_post = torch.empty_like(d_hidden)
     partial_pre = torch.empty_like(d_hidden)
 
+    if rows == 0:
+        return d_hidden, d_residual, partial_post, partial_pre  # see the forward
     _fused_add_norm_bwd_kernel[(rows,)](
         g_res_2d,
         g_pre_2d,
@@ -474,6 +509,13 @@ class _FusedAddNormTriton(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_residual_out, grad_pre_normed):
+        # Both cotangents are always tensors, never None. This Function does not
+        # call ctx.set_materialize_grads(False), so autograd materialises zeros for
+        # an output the caller did not consume. Measured: pre_normed.sum().backward()
+        # succeeds on both backends and fills every input gradient. The None guard
+        # in logprob/linear_logp.py exists because that Function does opt out, at
+        # its line 1362. If this one ever opts out for the allocation, the two
+        # .contiguous() calls below become the crash site.
         hidden, res_out, post_w, pre_w, rstd_post, rstd_pre = ctx.saved_tensors
         d_hidden, d_residual, partial_post, partial_pre = fused_add_norm_triton_backward(
             grad_residual_out,

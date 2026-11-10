@@ -511,3 +511,75 @@ def test_triton_backward_rejects_a_strided_rstd():
     g = torch.randn_like(res_out)
     with pytest.raises(ValueError, match="rstd_post must be contiguous"):
         fused_add_norm_triton_backward(g, g, hidden, res_out, post_w, pre_w, strided, rstd_pre)
+
+
+@requires_cuda
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two GPUs")
+@pytest.mark.parametrize("which", ["post_weight", "pre_weight", "grad_residual_out"])
+def test_triton_rejects_tensors_on_another_device(which):
+    """Same device as hidden, not merely some GPU, matching the CUDA binding.
+
+    The launch takes its device and stream from ``hidden``, so a weight or a
+    cotangent on another device is dereferenced as if it lived there. This side
+    checked ``is_cuda`` only while the binding checked the device, which is one more
+    instance of a fix landing on one backend and not the other.
+    """
+    shape = (4, HIDDEN_SIZE)
+    hidden, residual, post_w, pre_w = _inputs(shape, torch.bfloat16)
+    if which == "post_weight":
+        with pytest.raises(RuntimeError, match="same device as hidden"):
+            fused_add_norm_triton_forward(
+                hidden,
+                residual,
+                post_w.to("cuda:1"),
+                pre_w,
+                post_eps=POST_NORM_EPS,
+                pre_eps=RMS_NORM_EPS,
+            )
+        return
+    if which == "pre_weight":
+        with pytest.raises(RuntimeError, match="same device as hidden"):
+            fused_add_norm_triton_forward(
+                hidden,
+                residual,
+                post_w,
+                pre_w.to("cuda:1"),
+                post_eps=POST_NORM_EPS,
+                pre_eps=RMS_NORM_EPS,
+            )
+        return
+    res_out, _, rstd_post, rstd_pre = fused_add_norm_triton_forward(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )
+    g = torch.randn_like(res_out)
+    with pytest.raises(RuntimeError, match="same device as hidden"):
+        fused_add_norm_triton_backward(
+            g.to("cuda:1"), g, hidden, res_out, post_w, pre_w, rstd_post, rstd_pre
+        )
+
+
+@requires_cuda
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_triton_zero_rows_takes_the_explicit_guard(dtype):
+    """An empty batch returns without launching, on both backends.
+
+    Triton 3.6.0 makes ``kernel[(0,)]`` a no-op, which I measured, so this passed
+    before the guard existed. It is explicit now because that is an undocumented
+    launcher detail, the H100 used for the benchmark runs Triton 3.3.1, and the CUDA
+    launcher has to guard the same case because a zero-block grid there is a sticky
+    cudaErrorInvalidConfiguration. The probe at the end is the assertion that
+    matters either way.
+    """
+    hidden, residual, post_w, pre_w = _inputs((0, HIDDEN_SIZE), dtype)
+    res_out, pre_out, rstd_post, rstd_pre = fused_add_norm_triton_forward(
+        hidden, residual, post_w, pre_w, post_eps=POST_NORM_EPS, pre_eps=RMS_NORM_EPS
+    )
+    assert res_out.shape == (0, HIDDEN_SIZE)
+    assert rstd_post.shape == (0,)
+    grads = fused_add_norm_triton_backward(
+        hidden, hidden, hidden, res_out, post_w, pre_w, rstd_post, rstd_pre
+    )
+    assert all(g.shape == (0, HIDDEN_SIZE) for g in grads)
+    torch.cuda.synchronize()
+    probe = torch.ones(16, 16, device="cuda")
+    assert float(probe.sum()) == 256.0, "the CUDA context did not survive the empty call"

@@ -117,6 +117,13 @@ class _FusedAddNormCuda(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_residual_out, grad_pre_normed):
+        # Both cotangents are always tensors, never None. This Function does not
+        # call ctx.set_materialize_grads(False), so autograd materialises zeros for
+        # an output the caller did not consume. Measured: pre_normed.sum().backward()
+        # succeeds on both backends and fills every input gradient. The None guard
+        # in logprob/linear_logp.py exists because that Function does opt out, at
+        # its line 1362. If this one ever opts out for the allocation, the two
+        # .contiguous() calls below become the crash site.
         hidden, res_out, post_w, pre_w, rstd_post, rstd_pre = ctx.saved_tensors
         width = hidden.shape[-1]
         d_hidden, d_residual, partial_post, partial_pre = _C.fused_add_norm_backward(

@@ -320,6 +320,14 @@ def fused_add_norm_backward(
     d_hidden, d_post_weight_rows = _centered_backward(
         d_residual_out, hidden_f, post_gain, rstd_post
     )
+    # d_hidden comes back in FP32 while d_residual_out carries a narrowing, and the
+    # asymmetry is deliberate rather than an oversight. The narrowing on
+    # d_residual_out is observable inside this function: it is the value the
+    # post-norm backward above consumes, so rounding it where eager rounds it
+    # changes d_post_weight_rows. d_hidden is a return value with no consumer here,
+    # so it stays an FP32 accumulation and the caller rounds it where its own
+    # contract says to -- the kernels' autograd wrappers cast to the input dtype,
+    # and the parity test compares g.to(dtype) against autograd.
     return d_hidden, d_residual_out, d_post_weight_rows, d_pre_weight_rows
 
 

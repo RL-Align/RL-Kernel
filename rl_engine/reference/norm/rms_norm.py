@@ -100,6 +100,13 @@ def _pad_to_chunk(x_f: torch.Tensor) -> torch.Tensor:
     operator's own tests never saw it. Axis A in RFC #501 is unconditional, so the
     fallback had to go rather than be documented.
 
+    This changes ``shape_invariant_rstd`` and so ``NativeRMSNormOp`` and the Ascend
+    statistic at widths that are not a multiple of 32, which is a reference
+    behaviour change and is called out as one. Verified bit-identical to the old
+    result at 64, 128 and 4096, and different at 33 and 100; every consumer test
+    uses a multiple of 32, so no existing expected value moves. The change is in the
+    direction of the contract: those widths were not batch invariant before.
+
     Padding with zeros is exact for both a sum of squares and a row sum, and the
     chunk count is ``ceil(width / 32)``, which depends on the width alone. The
     intermediate shapes therefore stay independent of the batch layout, which is
