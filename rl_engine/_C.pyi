@@ -468,6 +468,15 @@ def dsv4_router_backward_dx(
     routed_scaling_factor: float,
     dx: torch.Tensor,
 ) -> None: ...
+def mxfp8_act_quant_forward(x: torch.Tensor, check_finite: bool = True) -> list[torch.Tensor]: ...
+def mxfp8_act_quant_ste_backward(dy: torch.Tensor) -> torch.Tensor: ...
+def moe_slot_sum(
+    rows: torch.Tensor,
+    inv: torch.Tensor,
+    shared: torch.Tensor | None,
+    residual: torch.Tensor | None,
+    out: torch.Tensor,
+) -> None: ...
 def stable_topk_per_row_out(
     logits: torch.Tensor,
     row_starts: torch.Tensor,

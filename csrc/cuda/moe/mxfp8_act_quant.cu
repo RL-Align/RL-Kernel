@@ -368,7 +368,7 @@ torch::Tensor mxfp8_act_quant_ste_backward_cuda(torch::Tensor dy) {
 
 // Standalone pybind module for the JIT path (see
 // rl_engine/kernels/ops/cuda/moe/mxfp8_act_quant.py). The ahead-of-time build
-// binds these symbols from csrc/ops.cpp instead, so the macro stays off there.
+// binds these symbols from csrc/bindings/ops.cpp instead, so the macro stays off there.
 #ifdef RL_KERNEL_P5_STANDALONE
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.doc() = "P5-1 MXFP8 activation quantization (standalone JIT build)";

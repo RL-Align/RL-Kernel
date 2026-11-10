@@ -262,6 +262,10 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/attention/dsv4_cache.cu")
             # DSv4 MoE router (top-6 / hash routing and its dX backward).
             cuda_sources.append("csrc/cuda/router/dsv4_router.cu")
+            # DSv4 MoE combine / backward fan-in (fixed slot order).
+            cuda_sources.append("csrc/cuda/moe/moe_slot_sum.cu")
+            # P5-1 MXFP8 activation quantization (was JIT-only).
+            cuda_sources.append("csrc/cuda/moe/mxfp8_act_quant.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         # Rejected on ROCm too: hipcc defines __FAST_MATH__, not nvcc's

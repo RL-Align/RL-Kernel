@@ -460,8 +460,18 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         FP32 gather over the gate (exact in slot order; byte-equal CUDA/golden)
   - [x] Performance (H200, graph replay, T = 1..16384): forward 1.03-1.22x of cuBLAS +
         vLLM's Triton `dsv4_topk`; dX 0.48-1.03x of the dense dgrad
-  - [ ] RoutePlan (dispatch order by (expert, token, slot); combine in slot order) wired to
-        P5 / P6; then compare with #639
+  - [x] RoutePlan, EP = 1 (`docs/operators/dsv4-moe.md`, "Route plan and combine"):
+        dispatch by (expert, global token, slot), combine / dX fan-in in slot order (P6
+        policy) on a CUDA slot-sum kernel, byte-equal to the golden; the whole MoE block
+        (router -> plan -> P5 -> combine + DeepGEMM shared expert + residual) is
+        batch-invariant on one H200. Combine 0.06-0.42x and fan-in 0.16-0.91x of an
+        `index_add_` scatter. P5-1 MXFP8 activation quant is now in the AOT build
+  - [ ] EP = 2/4/8 (NCCL all-to-all in plan order, then DeepEP), multi-GPU test: output
+        bitwise equal across EP sizes; then compare with #639
+  - [ ] Routed-expert backward on SM90 (P5 has forward only; the FP32 oracle has it)
+  - [ ] Real checkpoint: DSv4 FP4 experts are MXFP4 `[E, 2F, H/2]` + E8M0 `[E, 2F, H/32]`,
+        gate rows then up rows (vLLM loader), the P5 layout; check the nibble order and
+        P5's per-column scale-residual range ([-8, 6], fail-closed) on real shards
 - [ ] P7 redo: sampling gate + M10 selected-token logprob, wired to the #241 vocab-TP
       deterministic reduce
 - [ ] P6 T06 + real EP=2/4/8 collectives (replacing the values-only mock)
@@ -531,6 +541,8 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 ### Phase 5 - performance debt
 
 - [ ] Operators that exceeded the Phase 4 performance table
+- [ ] MoE route plan as one counting-sort kernel (now PyTorch sort + searchsorted +
+      scatter: 19-98 us, the slow part of the MoE glue at decode sizes)
 - [x] DSv4 attention glue (was: C4 decode 64 x 4K at 5.2 ms, 2.1 ms of it GPU time). CUDA
       `ds_mla_gather` (exact fp8_ds_mla dequantize by slot) and `save_states`
       (`csrc/cuda/attention/dsv4_cache.cu`); index lists by scatter; sizes passed as host

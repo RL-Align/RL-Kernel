@@ -190,6 +190,48 @@ output round).
 4. Not implemented: LoRA deltas, backward (`z` is never written), Blackwell block-scaled
    MMA (would remove the FP4 conversion and the promote entirely).
 
+## Route plan and combine (EP = 1)
+
+The block glue between the router (`docs/operators/dsv4-router.md`) and the two
+expert halves. Golden: `rl_engine/kernels/ops/pytorch/moe/route_plan.py`; CUDA
+slot sum: `csrc/cuda/moe/moe_slot_sum.cu`; block: `rl_engine/models/deepseek_v4/moe.py`
+(`Dsv4MoE`, forward).
+
+- **Plan.** The `T * 6` (token, slot) pairs are sorted by `(expert, token, slot)`
+  (stable sort on the expert id, then `searchsorted` for `expert_offsets`); `token` is
+  the global token id, so with expert parallelism an expert's rows keep this order
+  whichever rank sends them. Integer work only, no host sync.
+- **Dispatch.** Rows, `p_s` and `output_slot` are gathered in plan order. The MXFP8
+  activation is quantized once per token and its codes / scales gathered (row-local,
+  so equal to quantizing the rows). P5 applies `p_s` once.
+- **Combine** (P6 policy). Per token in FP32: copy the slot-0 row, add slots 1..5 in
+  order, add the shared expert once and the residual once, round to BF16.
+- **Backward.** `dy` goes to every row of its token (exact); the expert-input gradient
+  fans back in with the same slot-sum kernel (FP32 out, + the shared expert's `dx`);
+  `dL/dweights = dp_s[inv]` (exact). The routed-expert backward itself is not
+  implemented on SM90 yet (see above).
+
+Checks (H200, `tests/ops/moe/test_route_plan.py`, `tests/models/test_dsv4_moe_layer.py`):
+CUDA slot sum byte-equal to the golden for every dtype combination (signed zero
+included); the whole block (router -> plan -> P5 -> combine + DeepGEMM shared expert +
+residual) is batch-invariant across splits and run to run, fused == two-launch, and
+within 3% of an FP32 reference on the same MX operands.
+
+Graph-replay time, microseconds (H 4096, 256 experts). Baseline: `index_add_`
+(atomic FP32 scatter, not BI) plus the merge:
+
+| T | plan | combine | index_add | ratio | fan-in | index_add | ratio |
+|---|---|---|---|---|---|---|---|
+| 1 | 18.7 | 8.5 | 20.1 | 0.42 | 8.6 | 9.4 | 0.91 |
+| 64 | 44.7 | 8.5 | 31.1 | 0.27 | 8.5 | 16.1 | 0.53 |
+| 256 | 48.5 | 8.5 | 80.0 | 0.11 | 9.3 | 43.7 | 0.21 |
+| 1024 | 97.8 | 24.7 | 302.6 | 0.08 | 35.1 | 174.3 | 0.20 |
+| 4096 | 86.7 | 77.0 | 1202.3 | 0.06 | 116.4 | 698.5 | 0.17 |
+| 16384 | 92.4 | 283.2 | 4758.7 | 0.06 | 441.2 | 2808.4 | 0.16 |
+
+The plan (PyTorch sort + searchsorted + scatter, several launches) costs 19-98 us and
+is the slow part at decode sizes; a single counting-sort kernel is on the Phase 5 list.
+
 ## Shared expert
 
 Every valid token runs `fc1 -> one-round SwiGLU -> fc2` once, on BF16 frozen

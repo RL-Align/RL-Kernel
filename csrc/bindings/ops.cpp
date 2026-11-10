@@ -572,6 +572,12 @@ void dsv4_router_topk(torch::Tensor logits, std::optional<torch::Tensor> bias,
 void dsv4_router_backward_dx(torch::Tensor logits, torch::Tensor ids, torch::Tensor d_weights,
                              torch::Tensor gate_weight, double routed_scaling_factor,
                              torch::Tensor dx);
+// P5-1 MXFP8 activation quantization (csrc/cuda/moe/mxfp8_act_quant.cu)
+std::vector<torch::Tensor> mxfp8_act_quant_forward_cuda(torch::Tensor x, bool check_finite);
+torch::Tensor mxfp8_act_quant_ste_backward_cuda(torch::Tensor dy);
+// DSv4 MoE combine / backward fan-in (csrc/cuda/moe/moe_slot_sum.cu)
+void moe_slot_sum(torch::Tensor rows, torch::Tensor inv, std::optional<torch::Tensor> shared,
+                  std::optional<torch::Tensor> residual, torch::Tensor out);
 // DSv4 indexer stable per-row top-k (csrc/cuda/topk/stable_topk.cu)
 void stable_topk_per_row_out(torch::Tensor logits, torch::Tensor row_starts,
                              torch::Tensor row_ends, torch::Tensor indices, int64_t top_k,
@@ -622,6 +628,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("routed_scaling_factor"), py::arg("weights"), py::arg("ids"));
     m.def("dsv4_router_backward_dx", &dsv4_router_backward_dx,
           "DSv4 router backward: dL/dweights -> dX through the frozen gate (six-row gather)");
+    m.def("mxfp8_act_quant_forward", &mxfp8_act_quant_forward_cuda,
+          "MXFP8 (E4M3 + block-32 E8M0) activation quantization; "
+          "returns {codes, scales, nonfinite_flag}",
+          py::arg("x"), py::arg("check_finite") = true);
+    m.def("mxfp8_act_quant_ste_backward", &mxfp8_act_quant_ste_backward_cuda,
+          "Straight-through estimator backward for mxfp8_act_quant (dX = dY)");
+    m.def("moe_slot_sum", &moe_slot_sum,
+          "DSv4 MoE combine / dX fan-in: slot-ordered FP32 sum + shared + residual",
+          py::arg("rows"), py::arg("inv"), py::arg("shared"), py::arg("residual"),
+          py::arg("out"));
     m.def("stable_topk_per_row_out", &stable_topk_per_row_out,
           "DSv4 indexer top-k: (score, local index) descending, vLLM ds4_bi order",
           py::arg("logits"), py::arg("row_starts"), py::arg("row_ends"),
