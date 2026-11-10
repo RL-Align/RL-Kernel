@@ -376,6 +376,15 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         same index set **does** change the bytes, so canonicalization is required (vLLM's BI
         path sorts the top-k ids descending). 1.9e-3 relative to an eager reference with the
         sink; 9-24x faster than the eager gather + softmax
+  - [x] Attention core: `rl_engine/kernels/ops/cuda/dsv4_attention.py` (vLLM's BI sparse path):
+        per-request workspace slabs of `N + G` rows (`N = max_model_len // ratio`, fixed;
+        dequantized compressed entries, then the dequantized window), canonical index lists
+        (top-k ids sorted descending, then the window ascending, `-1` padded to a multiple of
+        128), `flash_mla_sparse_fwd` with the sink. Gather / dequantize / indices are exact
+        PyTorch indexing. For C4, C128 and sliding-window-only layers: values match eager
+        attention, a request gives the same bytes alone or in another batch order, decode
+        equals prefill and a chunked-prefill suffix, and a permuted top-k gives the same bytes
+        (`tests/ops/attention_dsv4/test_sparse_core.py`)
 - [ ] T06 sliding window: confirm split-KV is pinned on the #240 / FA3 path
 - [ ] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x)
 - [ ] Wire the verl training-side recompute path to the same kernel set (forward only)
