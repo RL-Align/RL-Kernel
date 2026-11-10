@@ -16,9 +16,13 @@ only), 4 (C4: compressor + indexer) or 128 (C128: compressor, all entries)::
     o       = FlashMLA sparse over [compressed | window] with the sink
     y       = wo_b(wo_a_grouped(inverse RoPE + FP8(o)))
 
-Every operator is batch-invariant (each was probed or tested on its own);
-prefill and decode run the same path. Caches are paged per request; the
-caller owns block tables and slot assignment (:class:`LayerCaches`).
+Every operator is batch-invariant (each was probed or tested on its own).
+A decode step (one token per request) reads the paged indexer cache and builds
+a per-token workspace; other steps pack indexer entries and build per-request
+slabs. Both give the same bytes for the same token, and a decode step reads
+nothing back to the host, so it can be captured in a CUDA graph. Caches are
+paged per request; the caller owns block tables and slot assignment
+(:class:`LayerCaches`) and builds each step's :class:`Dsv4Batch`.
 This module is forward-only (rollout and actor recompute).
 """
 
@@ -30,11 +34,18 @@ import torch
 from torch import Tensor
 
 from rl_engine.kernels.ops.cuda import dsv4_attention as core
-from rl_engine.kernels.ops.cuda.compressor import compress_indexer_cuda, compress_main_cuda
+from rl_engine.kernels.ops.cuda.compressor import (
+    compress_indexer_cuda,
+    compress_main_cuda,
+    save_states_cuda,
+)
 from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
 from rl_engine.kernels.ops.cuda.fp8_linear import Fp8BlockWeight, Fp8Linear
-from rl_engine.kernels.ops.cuda.indexer import indexer_q_rope_fp8_cuda, indexer_select_prefill
-from rl_engine.kernels.ops.pytorch.compressor import save_states
+from rl_engine.kernels.ops.cuda.indexer import (
+    indexer_q_rope_fp8_cuda,
+    indexer_select_decode,
+    indexer_select_prefill,
+)
 
 STATE_BLOCK = 16
 KV_BLOCK = 64
@@ -112,23 +123,64 @@ def _bf16_gemm(x: Tensor, w: Tensor, out_dtype: torch.dtype) -> Tensor:
     return d
 
 
-def _gather_indexer_k(caches: LayerCaches, seq_lens: Tensor, ratio: int):
-    """Pack each request's indexer entries: (FP8 [sum n_r, 128], FP32 [sum n_r], offsets [R])."""
-    counts = (seq_lens.long() // ratio).tolist()
-    offsets = [0]
-    for n in counts:
-        offsets.append(offsets[-1] + n)
-    device = seq_lens.device
-    req = torch.cat([torch.full((n,), r, device=device) for r, n in enumerate(counts)]).long()
-    e = torch.cat([torch.arange(n, device=device) for n in counts]).long()
-    slots = _slots(caches.idx_k_table, req, e, KV_BLOCK)
-    blocks = caches.idx_k.view(caches.idx_k.shape[0], -1)
+@dataclass
+class Dsv4Batch:
+    """One step's token layout, built on the host (like vLLM's attention metadata).
+
+    Every size the forward needs is a host integer here, so the forward reads
+    nothing back from the GPU and a decode step can be captured in a CUDA graph.
+    """
+
+    positions: Tensor  # int64 [T]
+    token_req: Tensor  # int64 [T], request of each token (cache-table row)
+    seq_lens: Tensor  # int32 [R], length after this step
+    query_lens: Tensor  # int32 [R]
+    gather_lens: Tensor  # int32 [R], window rows a request's slab holds
+    decode: bool  # every request has exactly one token
+    max_gather: int
+    idx_offsets: Tensor  # int32 [R], start of each request's indexer entries (prefill)
+    idx_entry_req: Tensor  # int64 [E]
+    idx_entry_id: Tensor  # int64 [E]
+
+    @classmethod
+    def from_lens(cls, seq_lens: list[int], query_lens: list[int], window: int, device="cuda"):
+        dev = torch.device(device)
+        positions = torch.cat([torch.arange(s - q, s) for s, q in zip(seq_lens, query_lens)]).to(
+            dev
+        )
+        token_req = torch.cat(
+            [torch.full((q,), r, dtype=torch.long) for r, q in enumerate(query_lens)]
+        ).to(dev)
+        gather = [q + min(max(s - q, 0), window - 1) for s, q in zip(seq_lens, query_lens)]
+        counts = [s // 4 for s in seq_lens]
+        offsets = [0]
+        for n in counts[:-1]:
+            offsets.append(offsets[-1] + n)
+        return cls(
+            positions=positions,
+            token_req=token_req,
+            seq_lens=torch.tensor(seq_lens, dtype=torch.int32, device=dev),
+            query_lens=torch.tensor(query_lens, dtype=torch.int32, device=dev),
+            gather_lens=torch.tensor(gather, dtype=torch.int32, device=dev),
+            decode=all(q == 1 for q in query_lens),
+            max_gather=max(gather),
+            idx_offsets=torch.tensor(offsets, dtype=torch.int32, device=dev),
+            idx_entry_req=torch.cat(
+                [torch.full((n,), r, dtype=torch.long) for r, n in enumerate(counts)]
+            ).to(dev),
+            idx_entry_id=torch.cat([torch.arange(n) for n in counts]).long().to(dev),
+        )
+
+
+def _gather_indexer_k(caches: LayerCaches, batch: Dsv4Batch):
+    """Pack each request's indexer entries (prefill): FP8 ``[E, 128]`` and FP32 scales ``[E]``."""
+    slots = _slots(caches.idx_k_table, batch.idx_entry_req, batch.idx_entry_id, KV_BLOCK)
+    rows = caches.idx_k.view(caches.idx_k.shape[0], -1)
+    stride = rows.stride(0)
     b, i = slots // KV_BLOCK, slots % KV_BLOCK
-    cols = (i * 128)[:, None] + torch.arange(128, device=device)
-    k = blocks[b[:, None], cols].contiguous().view(torch.float8_e4m3fn)
-    sc_cols = (KV_BLOCK * 128 + i * 4)[:, None] + torch.arange(4, device=device)
-    scale = blocks[b[:, None], sc_cols].contiguous().view(torch.float32).reshape(-1)
-    return k, scale, torch.tensor(offsets[:-1], device=device, dtype=torch.int32)
+    data = rows.as_strided((rows.shape[0], KV_BLOCK, 128), (stride, 128, 1))  # no copy
+    scales = rows[:, KV_BLOCK * 128 : KV_BLOCK * 132].view(torch.float32)  # [blocks, 64]
+    return data[b, i].contiguous().view(torch.float8_e4m3fn), scales[b, i].contiguous()
 
 
 class Dsv4Attention:
@@ -150,16 +202,25 @@ class Dsv4Attention:
         query_lens: Tensor,
         caches: LayerCaches,
     ) -> Tensor:
-        """``hidden`` BF16 ``[T, hidden]`` for tokens grouped by request (``token_req`` in
-        ``[0, R)``, each request's tokens contiguous and ascending in position);
-        ``seq_lens[r]`` is the request's length after this step and ``query_lens[r]`` its
-        token count in the batch. Returns BF16 ``[T, hidden]``."""
+        """Convenience form: builds the :class:`Dsv4Batch` from device tensors (one host read)."""
+        batch = Dsv4Batch.from_lens(
+            seq_lens.tolist(), query_lens.tolist(), self.c.window, hidden.device
+        )
+        return self.forward_batch(hidden, batch, caches)
+
+    def forward_batch(self, hidden: Tensor, batch: Dsv4Batch, caches: LayerCaches) -> Tensor:
+        """``hidden`` BF16 ``[T, hidden]``, tokens grouped by request in ascending position.
+
+        Decode steps (one token per request) use the paged indexer and a per-token
+        workspace; other steps use packed indexer entries and per-request slabs.
+        Both give the same bytes for the same token. Returns BF16 ``[T, hidden]``.
+        """
         c, w = self.c, self.w
         ratio = c.compress_ratio
         tokens = hidden.shape[0]
-        positions = positions.long().contiguous()
-        req = token_req.long()
-        req32 = token_req.int().contiguous()
+        positions = batch.positions
+        req = batch.token_req
+        req32 = req.int()
 
         qr_kv = w.fused_wqa_wkv(hidden)
         qr = self._rmsnorm(qr_kv[:, : c.q_lora_rank].contiguous(), w.q_norm, c.eps)
@@ -174,7 +235,7 @@ class Dsv4Attention:
         if ratio > 1:
             score = _bf16_gemm(hidden, w.wkv_wgate, torch.float32)
             width = c.coff * c.head_dim
-            save_states(
+            save_states_cuda(
                 score[:, :width],
                 score[:, width:],
                 w.ape,
@@ -200,32 +261,55 @@ class Dsv4Attention:
                 ratio,
             )
         if ratio == 4:
-            topk = self._indexer(hidden, qr, positions, req, req32, seq_lens, caches)
+            topk = self._indexer(hidden, qr, batch, req, req32, caches)
 
-        gather = query_lens + torch.clamp(seq_lens - query_lens, max=c.window - 1)
-        layout = core.SlabLayout(c.max_model_len // ratio if ratio > 1 else 0, int(gather.max()))
-        ws = core.build_workspace(
-            layout,
-            seq_lens,
-            gather,
-            caches.swa,
-            caches.swa_table,
-            KV_BLOCK,
-            caches.kv,
-            caches.kv_table,
-            KV_BLOCK,
-            ratio,
-        )
         top_k = c.index_topk if ratio == 4 else (c.max_model_len // ratio if ratio > 1 else 0)
-        idx, lens = core.build_indices(
-            layout, req, positions, seq_lens - gather, c.window, max(ratio, 1), top_k, topk
-        )
+        if batch.decode:
+            ws, idx, lens = core.build_compact(
+                req,
+                positions,
+                c.window,
+                max(ratio, 1),
+                top_k,
+                caches.swa,
+                caches.swa_table,
+                KV_BLOCK,
+                caches.kv,
+                caches.kv_table,
+                KV_BLOCK,
+                topk,
+            )
+        else:
+            layout = core.SlabLayout(c.max_model_len // ratio if ratio > 1 else 0, batch.max_gather)
+            ws = core.build_workspace(
+                layout,
+                batch.seq_lens,
+                batch.gather_lens,
+                caches.swa,
+                caches.swa_table,
+                KV_BLOCK,
+                caches.kv,
+                caches.kv_table,
+                KV_BLOCK,
+                ratio,
+            )
+            idx, lens = core.build_indices(
+                layout,
+                req,
+                positions,
+                batch.seq_lens - batch.gather_lens,
+                c.window,
+                max(ratio, 1),
+                top_k,
+                topk,
+            )
         out, _ = core.sparse_attention(q_pad, ws, idx, lens, w.attn_sink, self.scale)
         return w.o_proj(out[:, : c.heads], positions, self.cos_sin)
 
-    def _indexer(self, hidden, qr, positions, req, req32, seq_lens, caches) -> Tensor:
+    def _indexer(self, hidden, qr, batch: Dsv4Batch, req, req32, caches) -> Tensor:
         c, w = self.c, self.w
         tokens = hidden.shape[0]
+        positions = batch.positions
         weights = _bf16_gemm(hidden, w.idx_weights_proj, torch.bfloat16)
         iq = w.idx_wq_b(qr).view(tokens, c.index_heads, c.index_head_dim)
         q8, w_out = indexer_q_rope_fp8_cuda(
@@ -233,7 +317,7 @@ class Dsv4Attention:
         )
         score = _bf16_gemm(hidden, w.idx_wkv_wgate, torch.float32)
         width = 2 * c.index_head_dim
-        save_states(
+        save_states_cuda(
             score[:, :width],
             score[:, width:],
             w.idx_ape,
@@ -256,11 +340,23 @@ class Dsv4Attention:
             KV_BLOCK,
             k_slots,
         )
-        k, k_scale, offsets = _gather_indexer_k(caches, seq_lens, 4)
-        ks = offsets[req].contiguous()
-        ke = (ks + ((positions + 1) // 4).int()).contiguous()
-        if k.shape[0] == 0:
+        if batch.decode:
+            # Paged logits over each request's entries: same selection as prefill.
+            context = (batch.seq_lens // 4).view(-1, 1).contiguous()
+            return indexer_select_decode(
+                q8.view(tokens, 1, c.index_heads, c.index_head_dim).contiguous(),
+                w_out,
+                caches.idx_k.view(caches.idx_k.shape[0], KV_BLOCK, 1, 132),
+                context,
+                caches.idx_k_table,
+                c.max_model_len // 4,
+                c.index_topk,
+            )
+        if batch.idx_entry_id.shape[0] == 0:
             return torch.full((tokens, c.index_topk), -1, dtype=torch.int32, device=hidden.device)
+        k, k_scale = _gather_indexer_k(caches, batch)
+        ks = batch.idx_offsets[req].contiguous()
+        ke = (ks + ((positions + 1) // 4).int()).contiguous()
         return indexer_select_prefill(q8.contiguous(), w_out, k, k_scale, ks, ke, c.index_topk)
 
 

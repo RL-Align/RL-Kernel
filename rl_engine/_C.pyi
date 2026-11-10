@@ -440,6 +440,17 @@ def dsv4_q_norm_rope_kv_insert(
 def dsv4_inv_rope_fp8(
     o: torch.Tensor, positions: torch.Tensor, cos_sin_cache: torch.Tensor, groups: int
 ) -> list[torch.Tensor]: ...
+def dsv4_ds_mla_gather(
+    cache: torch.Tensor, block_size: int, slots: torch.Tensor, out: torch.Tensor
+) -> None: ...
+def dsv4_save_states(
+    kv: torch.Tensor,
+    score: torch.Tensor,
+    ape: torch.Tensor,
+    positions: torch.Tensor,
+    state: torch.Tensor,
+    slots: torch.Tensor,
+) -> None: ...
 def stable_topk_per_row_out(
     logits: torch.Tensor,
     row_starts: torch.Tensor,

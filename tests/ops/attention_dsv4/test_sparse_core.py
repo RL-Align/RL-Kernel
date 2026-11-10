@@ -206,3 +206,72 @@ def test_index_layout():
     win = row[175:n]
     assert bool((win[1:] - win[:-1] == 1).all())
     assert bool((row[n:] == -1).all())
+
+
+def test_gather_and_save_states_match_goldens():
+    from rl_engine.kernels.ops.cuda.compressor import save_states_cuda
+    from rl_engine.kernels.ops.cuda.dsv4_attention import ds_mla_gather
+    from rl_engine.kernels.ops.pytorch.compressor import dequant_ds_mla, save_states
+
+    gen = torch.Generator().manual_seed(9)
+    vals = (
+        (torch.randn(300, D, generator=gen) * torch.logspace(-6, 4, 300)[:, None])
+        .to(torch.bfloat16)
+        .cuda()
+    )
+    cache, table = _paged_ds_mla([vals], 3)
+    slots = (
+        table[0, torch.arange(300, device="cuda") // BS].long() * BS
+        + torch.arange(300, device="cuda") % BS
+    )
+    slots[7] = -1
+    out = ds_mla_gather(cache, BS, slots)
+    q, sc, rope = quant_ds_mla(vals)
+    want = dequant_ds_mla(q, sc, rope)
+    want[7] = 0
+    assert torch.equal(out.view(torch.int16), want.view(torch.int16))
+
+    width = 256
+    kv = torch.randn(50, 2 * width, generator=gen).cuda()
+    ape = torch.randn(4, width, generator=gen).cuda()
+    pos = torch.randint(0, 1000, (50,), generator=gen).cuda()
+    slots = torch.randperm(64, generator=gen)[:50].cuda()
+    slots[3] = -1
+    a = torch.zeros(4, 16, 2 * width, device="cuda")
+    b = torch.zeros_like(a)
+    save_states(kv[:, :width], kv[:, width:], ape, pos, a, slots)
+    save_states_cuda(kv[:, :width], kv[:, width:], ape, pos, b, slots)
+    assert torch.equal(a.view(torch.int32), b.view(torch.int32))
+
+
+@pytest.mark.parametrize("ratio", [4, 128, 1])
+def test_compact_workspace_equals_slab(ratio):
+    from rl_engine.kernels.ops.cuda import dsv4_attention as core
+
+    seq_lens = [9, 300, 700] if ratio != 128 else [130, 300, 700]
+    s = Setup(seq_lens, ratio, seed=13)
+    reqs = [0, 1, 2]
+    ranges = [(n - 1, n) for n in seq_lens]
+    slab_out, slab_lse, *_ = s.run(reqs, ranges)
+    token_req = torch.arange(3, device="cuda")
+    token_pos = torch.tensor([n - 1 for n in seq_lens], device="cuda")
+    q = torch.cat([s.q[r][lo:hi] for r, (lo, hi) in zip(reqs, ranges)])
+    topk = None
+    if ratio == 4:
+        topk = torch.cat([s.topk[r][lo:hi] for r, (lo, hi) in zip(reqs, ranges)])
+    ws, idx, lens = core.build_compact(
+        token_req,
+        token_pos,
+        WINDOW,
+        max(ratio, 1),
+        s.top_k,
+        s.swa,
+        s.swa_table,
+        BS,
+        s.comp,
+        s.comp_table,
+        BS,
+        topk,
+    )
+    out, lse = core.sparse_attention(q, ws, idx, lens, s.sink, SCALE)
+    assert _same(out, slab_out) and torch.equal(lse, slab_lse)

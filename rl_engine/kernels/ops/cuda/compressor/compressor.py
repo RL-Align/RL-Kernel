@@ -103,3 +103,21 @@ def compress_main_cuda(
         k_slots,
         int(ratio),
     )
+
+
+def save_states_cuda(
+    kv: Tensor, score: Tensor, ape: Tensor, positions: Tensor, state_cache: Tensor, slots: Tensor
+) -> None:
+    """CUDA ``save_states``: ``state[slot] = [kv | score + ape[pos % ratio]]``, skips ``slot < 0``.
+
+    Equal to the golden ``rl_engine.kernels.ops.pytorch.compressor.save_states``
+    (one FP32 add), without its host-side masking.
+    """
+    importlib.import_module("rl_engine._C").dsv4_save_states(
+        kv,
+        score,
+        ape.contiguous(),
+        positions.long().contiguous(),
+        state_cache,
+        slots.long().contiguous(),
+    )

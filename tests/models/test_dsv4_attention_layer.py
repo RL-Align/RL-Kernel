@@ -106,3 +106,30 @@ def test_layer_is_batch_invariant(ratio):
         out = dec.step([(0, n0 - k, n0 - k + 1), (2, n2 - k, n2 - k + 1)])
         assert _same(out[0:1], rows[0][n0 - k : n0 - k + 1]), k
         assert _same(out[1:2], rows[2][n2 - k : n2 - k + 1]), k
+
+
+@pytest.mark.parametrize("ratio", [4, 128, 1])
+def test_decode_step_is_cuda_graph_capturable(ratio):
+    from rl_engine.models.deepseek_v4.attention import Dsv4Batch, new_caches
+
+    config, layer = _layer(ratio)
+    lengths = [37, 300, 1000] if ratio != 128 else [200, 300, 1000]
+    gen = torch.Generator().manual_seed(21)
+    caches = new_caches(config, len(lengths), MAX_LEN, seed=6)
+    prefill = Dsv4Batch.from_lens([n - 1 for n in lengths], [n - 1 for n in lengths], config.window)
+    hidden = torch.randn(sum(lengths), config.hidden, generator=gen).to(torch.bfloat16).cuda()
+    layer.forward_batch(hidden[: sum(lengths) - len(lengths)].contiguous(), prefill, caches)
+    step = Dsv4Batch.from_lens(lengths, [1] * len(lengths), config.window)
+    h = torch.randn(len(lengths), config.hidden, generator=gen).to(torch.bfloat16).cuda()
+    eager = layer.forward_batch(h, step, caches)
+    stream = torch.cuda.Stream()
+    stream.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(stream):
+        layer.forward_batch(h, step, caches)
+    torch.cuda.current_stream().wait_stream(stream)
+    graph = torch.cuda.CUDAGraph()
+    with torch.cuda.graph(graph):
+        captured = layer.forward_batch(h, step, caches)
+    graph.replay()
+    torch.cuda.synchronize()
+    assert _same(captured, eager)

@@ -406,8 +406,8 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       chunked prefill and token by token in decode next to another request
       (`tests/models/test_dsv4_attention_layer.py`). H200, eager
       (`benchmarks/benchmark_dsv4_attention_layer.py`): prefill 1 x 4096 tokens 4.8 / 3.7 /
-      2.5 ms (C4 / C128 / window-only), decode 64 requests at 4K context 5.2 / 2.7 / 1.6 ms.
-      Every kernel is within D7; the layer-level cost is the PyTorch glue (Phase 5)
+      2.5 ms (C4 / C128 / window-only), decode 64 requests at 4K context 5.2 / 2.7 / 1.6 ms;
+      after the glue rewrite (Phase 5) 3.0 / 2.2 / 1.8 ms and 0.47 / 0.52 / 0.22 ms
 - [ ] Wire the verl training-side recompute path to the same kernel set (forward only)
 
 ### Phase 3 - MoE and sampling
@@ -484,12 +484,14 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 ### Phase 5 - performance debt
 
 - [ ] Operators that exceeded the Phase 4 performance table
-- [ ] DSv4 attention glue (T07 profile, C4 decode 64 x 4K: 2.1 ms of 5.2 ms is CUDA time, the
-      rest host overhead): CUDA kernels for the fp8_ds_mla gather / dequantize into the
-      workspace, the index build and the indexer K gather; no host syncs (`int(...max())`,
-      `.tolist()`) so the layer is CUDA-graph capturable; for decode, slabs holding only the
-      selected rows instead of all `max_model_len // ratio` entries (byte-neutral: the
-      FlashMLA probe showed the slab position does not matter)
+- [x] DSv4 attention glue (was: C4 decode 64 x 4K at 5.2 ms, 2.1 ms of it GPU time). CUDA
+      `ds_mla_gather` (exact fp8_ds_mla dequantize by slot) and `save_states`
+      (`csrc/cuda/attention/dsv4_cache.cu`); index lists by scatter; sizes passed as host
+      integers in `Dsv4Batch`, so a decode step reads nothing back and is CUDA-graph
+      capturable (tested, replay = eager bytes); decode reads the paged indexer cache and
+      builds a per-token workspace of only its selected rows (byte-equal to the slab path,
+      tested). H200: decode 64 x 4K 0.47 / 0.52 / 0.22 ms (C4 / C128 / window-only, graph
+      replay), prefill 1 x 4096 3.0 / 2.2 / 1.8 ms (eager)
 - [ ] DCP attention (single comparator across local and global selection; separate issue)
 
 ### Deferred - vLLM golden

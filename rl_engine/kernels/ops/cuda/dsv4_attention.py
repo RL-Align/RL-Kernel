@@ -39,7 +39,6 @@ from torch import Tensor
 from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
 from rl_engine.kernels.ops.cuda.flashmla import require_flashmla
 from rl_engine.kernels.ops.cuda.fp8_linear import Fp8BlockWeight, Fp8Linear
-from rl_engine.kernels.ops.pytorch.compressor import dequant_ds_mla
 
 HEAD_DIM = 512
 NOPE = 448
@@ -48,19 +47,33 @@ SCALE_BYTES = 8
 INDEX_ALIGN = 128  # FlashMLA sparse prefill needs topk % 128 == 0 (h_q 64 and 128)
 
 
-def read_ds_mla(cache: Tensor, slots: Tensor, block_size: int) -> Tensor:
-    """Dequantize fp8_ds_mla entries at ``slots`` (int64) into BF16 ``[n, 512]``."""
-    blocks = cache.view(cache.shape[0], -1)
-    b, i = slots // block_size, slots % block_size
-    row = (i * ROW_BYTES)[:, None] + torch.arange(ROW_BYTES, device=cache.device)
-    sc = (block_size * ROW_BYTES + i * SCALE_BYTES)[:, None] + torch.arange(
-        SCALE_BYTES, device=cache.device
+def ds_mla_gather(
+    cache: Tensor, block_size: int, slots: Tensor, out: Tensor | None = None
+) -> Tensor:
+    """Dequantize fp8_ds_mla entries at ``slots`` into BF16 ``[n, 512]`` (CUDA kernel).
+
+    ``slots == -1`` gives a zero row; rows with ``slots < -1`` are left untouched
+    (so two gathers from different caches can fill one buffer). Exact: equal to
+    the golden ``dequant_ds_mla``.
+    """
+    if out is None:
+        out = torch.empty(slots.shape[0], HEAD_DIM, dtype=torch.bfloat16, device=slots.device)
+    _ext().dsv4_ds_mla_gather(
+        cache.view(cache.shape[0], -1), int(block_size), slots.long().contiguous(), out
     )
-    data = blocks[b[:, None], row]
-    scales = blocks[b[:, None], sc]
-    q = data[:, :NOPE].contiguous().view(torch.float8_e4m3fn)
-    rope = data[:, NOPE:].contiguous().view(torch.bfloat16)
-    return dequant_ds_mla(q, scales, rope)
+    return out
+
+
+def read_ds_mla(cache: Tensor, slots: Tensor, block_size: int) -> Tensor:
+    """Dequantize fp8_ds_mla entries at ``slots`` into BF16 ``[n, 512]``."""
+    return ds_mla_gather(cache, block_size, slots)
+
+
+def paged_slots(table: Tensor, req: Tensor, index: Tensor, block: int, valid: Tensor) -> Tensor:
+    """Cache slot of logical row ``index`` of request ``req``; ``-1`` where not ``valid``."""
+    safe = torch.where(valid, index, 0)
+    slot = table[req, safe // block].long() * block + safe % block
+    return torch.where(valid, slot, -1)
 
 
 @dataclass(frozen=True)
@@ -87,38 +100,78 @@ def build_workspace(
     compressed_block_size: int = 0,
     ratio: int = 1,
 ) -> Tensor:
-    """BF16 workspace ``[R * M, 1, 512]`` for ``R`` requests (unused rows are zero)."""
+    """BF16 workspace ``[R * M, 1, 512]`` for ``R`` requests (unused rows are zero).
+
+    Shapes come from ``layout`` only, so nothing is read back to the host.
+    """
     requests = seq_lens.shape[0]
     device = seq_lens.device
-    ws = torch.zeros(requests * layout.rows, HEAD_DIM, dtype=torch.bfloat16, device=device)
-    base = torch.arange(requests, device=device, dtype=torch.int64) * layout.rows
+    n, g_rows = layout.compressed_rows, layout.window_rows
+    req = torch.arange(requests, device=device)[:, None]
+    ws = torch.empty(requests * layout.rows, HEAD_DIM, dtype=torch.bfloat16, device=device)
 
     # Sliding-window tokens gather_start .. seq_len - 1 -> rows N + i.
-    g = torch.arange(layout.window_rows, device=device)
+    g = torch.arange(g_rows, device=device)[None]
     gl = gather_lens.long()[:, None]
-    take = g[None] < gl
-    pos = seq_lens.long()[:, None] - gl + g[None]
-    req = torch.arange(requests, device=device)[:, None].expand_as(pos)
-    r, p = req[take], pos[take]
-    slots = swa_block_table[r, p // swa_block_size].long() * swa_block_size + p % swa_block_size
-    ws[(base[:, None] + layout.compressed_rows + g[None])[take]] = read_ds_mla(
-        swa_cache, slots, swa_block_size
-    )
+    pos = seq_lens.long()[:, None] - gl + g
+    window = paged_slots(swa_block_table, req, pos, swa_block_size, g < gl)
+    slots = torch.full((requests, layout.rows), -2, dtype=torch.long, device=device)
+    slots[:, n:] = window
+    ds_mla_gather(swa_cache, swa_block_size, slots.view(-1), ws)
 
-    if compressed_cache is not None:
-        counts = seq_lens.long() // ratio
-        c = torch.arange(layout.compressed_rows, device=device)
-        take = c[None] < counts[:, None]
-        req = torch.arange(requests, device=device)[:, None].expand(-1, layout.compressed_rows)
-        r, e = req[take], c[None].expand(requests, -1)[take]
-        slots = (
-            compressed_block_table[r, e // compressed_block_size].long() * compressed_block_size
-            + e % compressed_block_size
-        )
-        ws[(base[:, None] + c[None])[take]] = read_ds_mla(
-            compressed_cache, slots, compressed_block_size
-        )
+    slots[:, n:] = -2
+    if compressed_cache is not None and n:
+        c = torch.arange(n, device=device)[None]
+        count = (seq_lens.long() // ratio)[:, None]
+        slots[:, :n] = paged_slots(compressed_block_table, req, c, compressed_block_size, c < count)
+    else:
+        slots[:, :n] = -1
+    ds_mla_gather(
+        compressed_cache if compressed_cache is not None else swa_cache,
+        compressed_block_size or swa_block_size,
+        slots.view(-1),
+        ws,
+    )
     return ws.view(-1, 1, HEAD_DIM)
+
+
+def canonical_ids(
+    pos: Tensor, ratio: int, top_k: int, topk_local: Tensor | None
+) -> tuple[Tensor, Tensor]:
+    """Compressed ids per token in canonical (descending) order, ``-1`` last, and their count."""
+    tokens = pos.shape[0]
+    device = pos.device
+    if ratio <= 1:
+        return torch.empty(tokens, 0, dtype=torch.long, device=device), torch.zeros_like(pos)
+    topk_len = torch.clamp((pos + 1) // ratio, max=top_k)
+    if topk_local is None:  # C128: every entry so far
+        ids = torch.arange(top_k, device=device)[None].expand(tokens, -1)
+        ids = torch.where(ids < topk_len[:, None], ids, -1)
+    else:
+        ids = topk_local.long()
+    return torch.sort(ids, dim=-1, descending=True).values, topk_len
+
+
+def _index_lists(
+    compressed_rows: Tensor,
+    topk_len: Tensor,
+    window_first: Tensor,
+    swa_len: Tensor,
+    top_k: int,
+    window: int,
+) -> tuple[Tensor, Tensor]:
+    """``[compressed_rows[:topk_len] | window_first + 0 .. swa_len - 1 | -1 ...]``."""
+    tokens = topk_len.shape[0]
+    device = topk_len.device
+    width = -(-(top_k + window) // INDEX_ALIGN) * INDEX_ALIGN
+    out = torch.full((tokens, width + 1), -1, dtype=torch.long, device=device)
+    k = torch.arange(top_k, device=device)[None]
+    out[:, :top_k] = torch.where(k < topk_len[:, None], compressed_rows, -1)
+    w = torch.arange(window, device=device)[None]
+    keep = w < swa_len[:, None]
+    cols = torch.where(keep, topk_len[:, None] + w, width)  # spare column for the rest
+    out.scatter_(1, cols, torch.where(keep, window_first[:, None] + w, -1))
+    return out[:, :width].to(torch.int32)[:, None, :], (topk_len + swa_len).to(torch.int32)
 
 
 def build_indices(
@@ -131,42 +184,71 @@ def build_indices(
     top_k: int,
     topk_local: Tensor | None = None,
 ) -> tuple[Tensor, Tensor]:
-    """Canonical index lists ``int32 [T, 1, W]`` and valid lengths ``int32 [T]``.
+    """Canonical index lists ``int32 [T, 1, W]`` into a slab workspace, and valid lengths.
 
     ``topk_local``: the C4 indexer's request-local compressed ids ``[T, top_k]``
     (any order, ``-1`` padded). ``None`` with ``ratio > 1`` means C128 (every
     compressed entry so far); ``ratio == 1`` is a sliding-window-only layer.
     """
-    tokens = token_pos.shape[0]
-    device = token_pos.device
     pos = token_pos.long()
     slab = token_req.long() * layout.rows
-    if ratio > 1:
-        topk_len = torch.clamp((pos + 1) // ratio, max=top_k)
-        if topk_local is None:  # C128: every entry so far
-            ids = torch.arange(top_k, device=device)[None].expand(tokens, -1)
-            ids = torch.where(ids < topk_len[:, None], ids, -1)
-        else:
-            ids = topk_local.long()
-        ids = torch.sort(ids, dim=-1, descending=True).values  # canonical order, -1 last
-    else:
-        top_k = 0
-        topk_len = torch.zeros_like(pos)
-        ids = torch.empty(tokens, 0, dtype=torch.long, device=device)
+    ids, topk_len = canonical_ids(pos, ratio, top_k, topk_local)
+    top_k = ids.shape[1]
     swa_len = torch.clamp(pos + 1, max=window)
-    width = -(-(top_k + window) // INDEX_ALIGN) * INDEX_ALIGN
-    out = torch.full((tokens, width), -1, dtype=torch.long, device=device)
-    k = torch.arange(top_k, device=device)[None]
-    out[:, :top_k] = torch.where(k < topk_len[:, None], ids + slab[:, None], -1)
-    # Window rows: N + (p - gather_start) for p in pos - swa_len + 1 .. pos, after topk_len.
+    first = (
+        slab + layout.compressed_rows + pos - swa_len + 1 - gather_starts.long()[token_req.long()]
+    )
+    return _index_lists(ids + slab[:, None], topk_len, first, swa_len, top_k, window)
+
+
+def build_compact(
+    token_req: Tensor,
+    token_pos: Tensor,
+    window: int,
+    ratio: int,
+    top_k: int,
+    swa_cache: Tensor,
+    swa_block_table: Tensor,
+    swa_block_size: int,
+    compressed_cache: Tensor | None = None,
+    compressed_block_table: Tensor | None = None,
+    compressed_block_size: int = 0,
+    topk_local: Tensor | None = None,
+) -> tuple[Tensor, Tensor, Tensor]:
+    """Per-token workspace (``top_k + window`` rows each) with its index lists.
+
+    Token ``t`` owns rows ``t * K .. t * K + K``: its selected compressed entries
+    in canonical order, then its window positions ascending, so its index list
+    visits the same values in the same order as with :func:`build_workspace`
+    (FlashMLA's bytes depend on neither the rows' place nor unused rows). Best
+    for decode, where a request has one query token.
+    """
+    device = token_pos.device
+    pos = token_pos.long()
+    req = token_req.long()
+    tokens = pos.shape[0]
+    ids, topk_len = canonical_ids(pos, ratio, top_k, topk_local)
+    top_k = ids.shape[1]
+    rows = top_k + window
+    swa_len = torch.clamp(pos + 1, max=window)
+    ws = torch.empty(tokens * rows, HEAD_DIM, dtype=torch.bfloat16, device=device)
+    slots = torch.full((tokens, rows), -2, dtype=torch.long, device=device)
     w = torch.arange(window, device=device)[None]
-    first = pos - swa_len + 1 - gather_starts.long()[token_req.long()]
-    win = slab[:, None] + layout.compressed_rows + first[:, None] + w
-    cols = topk_len[:, None] + w
-    keep = w < swa_len[:, None]
-    rows = torch.arange(tokens, device=device)[:, None].expand_as(cols)
-    out[rows[keep], cols[keep]] = win[keep]
-    return out.to(torch.int32)[:, None, :], (topk_len + swa_len).to(torch.int32)
+    win_pos = pos[:, None] - swa_len[:, None] + 1 + w
+    slots[:, top_k:] = paged_slots(
+        swa_block_table, req[:, None], win_pos, swa_block_size, w < swa_len[:, None]
+    )
+    ds_mla_gather(swa_cache, swa_block_size, slots.view(-1), ws)
+    if top_k:
+        slots[:, top_k:] = -2
+        slots[:, :top_k] = paged_slots(
+            compressed_block_table, req[:, None], ids, compressed_block_size, ids >= 0
+        )
+        ds_mla_gather(compressed_cache, compressed_block_size, slots.view(-1), ws)
+    base = torch.arange(tokens, device=device, dtype=torch.long) * rows
+    k = torch.arange(top_k, device=device)[None]
+    idx, lens = _index_lists(base[:, None] + k, topk_len, base + top_k, swa_len, top_k, window)
+    return ws.view(-1, 1, HEAD_DIM), idx, lens
 
 
 def sparse_attention(
@@ -183,9 +265,8 @@ def sparse_attention(
 
 def _ext():
     ext = importlib.import_module("rl_engine._C")
-    missing = [
-        n for n in ("dsv4_q_norm_rope_kv_insert", "dsv4_inv_rope_fp8") if not hasattr(ext, n)
-    ]
+    names = ("dsv4_q_norm_rope_kv_insert", "dsv4_inv_rope_fp8", "dsv4_ds_mla_gather")
+    missing = [n for n in names if not hasattr(ext, n)]
     if missing:
         raise RuntimeError(f"rl_engine._C lacks {missing}; rebuild the CUDA extension")
     return ext

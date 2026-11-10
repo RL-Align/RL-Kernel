@@ -4,8 +4,9 @@
 
 Real DSv4 shapes (hidden 4096, 64 heads x 512, q / o LoRA 1024, 8 output
 groups, window 128, indexer 64 x 128 top-512), random weights in checkpoint
-formats. Eager timing (the layer's glue reads a few sizes on the host, so it
-is not CUDA-graph capturable yet); ``--profile`` prints the top CUDA kernels.
+formats. Prefill is timed eagerly; a decode step is captured in a CUDA graph
+and replayed, as a serving engine runs it. ``--profile`` prints the top CUDA
+kernels.
 
 Usage:
     python benchmarks/benchmark_dsv4_attention_layer.py [--profile]
@@ -20,6 +21,7 @@ import torch
 from rl_engine.models.deepseek_v4.attention import (
     Dsv4Attention,
     Dsv4AttentionConfig,
+    Dsv4Batch,
     new_caches,
     random_layer,
 )
@@ -65,17 +67,26 @@ def main():
                 req = torch.arange(reqs, device="cuda").repeat_interleave(pre)
                 seq = torch.full((reqs,), pre, dtype=torch.int32, device="cuda")
                 layer.forward(h_all[: reqs * pre], pos, req, seq, seq.clone(), caches)
-            pos = torch.arange(pre, ctx, device="cuda").repeat(reqs)
-            req = torch.arange(reqs, device="cuda").repeat_interleave(qlen)
-            seq = torch.full((reqs,), ctx, dtype=torch.int32, device="cuda")
-            ql = torch.full((reqs,), qlen, dtype=torch.int32, device="cuda")
-            h = h_all[: reqs * qlen]
+            batch = Dsv4Batch.from_lens([ctx] * reqs, [qlen] * reqs, config.window)
+            h = h_all[: reqs * qlen].contiguous()
 
             def step():
-                return layer.forward(h, pos, req, seq, ql, caches)
+                return layer.forward_batch(h, batch, caches)
 
-            ms = _time(step)
-            print(f"ratio={ratio:<4} {label:<18} {ms:8.2f} ms")
+            if batch.decode:
+                stream = torch.cuda.Stream()
+                stream.wait_stream(torch.cuda.current_stream())
+                with torch.cuda.stream(stream):
+                    step()
+                torch.cuda.current_stream().wait_stream(stream)
+                graph = torch.cuda.CUDAGraph()
+                with torch.cuda.graph(graph):
+                    step()
+                ms = _time(graph.replay, iters=20)
+            else:
+                ms = _time(step)
+            mode = "graph" if batch.decode else "eager"
+            print(f"ratio={ratio:<4} {label:<18} {ms:8.2f} ms ({mode})")
             if args.profile:
                 with torch.profiler.profile(
                     activities=[torch.profiler.ProfilerActivity.CUDA]

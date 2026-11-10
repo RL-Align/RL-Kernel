@@ -259,6 +259,7 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/compressor/compress_fp8.cu")
             # DSv4 attention query / output side.
             cuda_sources.append("csrc/cuda/attention/dsv4_qo.cu")
+            cuda_sources.append("csrc/cuda/attention/dsv4_cache.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         # Rejected on ROCm too: hipcc defines __FAST_MATH__, not nvcc's

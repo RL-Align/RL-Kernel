@@ -560,6 +560,11 @@ torch::Tensor dsv4_q_norm_rope_kv_insert(torch::Tensor q, torch::Tensor kv,
                                          torch::Tensor slots, int64_t padded_heads, double eps);
 std::vector<torch::Tensor> dsv4_inv_rope_fp8(torch::Tensor o, torch::Tensor positions,
                                              torch::Tensor cos_sin_cache, int64_t groups);
+// DSv4 cache helpers (csrc/cuda/attention/dsv4_cache.cu)
+void dsv4_ds_mla_gather(torch::Tensor cache, int64_t block_size, torch::Tensor slots,
+                        torch::Tensor out);
+void dsv4_save_states(torch::Tensor kv, torch::Tensor score, torch::Tensor ape,
+                      torch::Tensor positions, torch::Tensor state, torch::Tensor slots);
 // DSv4 indexer stable per-row top-k (csrc/cuda/topk/stable_topk.cu)
 void stable_topk_per_row_out(torch::Tensor logits, torch::Tensor row_starts,
                              torch::Tensor row_ends, torch::Tensor indices, int64_t top_k,
@@ -600,6 +605,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "DSv4 q-norm + RoPE (padded heads) and KV RoPE + fp8_ds_mla insert");
     m.def("dsv4_inv_rope_fp8", &dsv4_inv_rope_fp8,
           "DSv4 attention output: inverse RoPE + per-group FP8 A operands for wo_a");
+    m.def("dsv4_ds_mla_gather", &dsv4_ds_mla_gather,
+          "DSv4: dequantize fp8_ds_mla cache entries by slot into BF16 rows");
+    m.def("dsv4_save_states", &dsv4_save_states,
+          "DSv4 compressor: write [kv | score + ape] state rows by slot");
     m.def("stable_topk_per_row_out", &stable_topk_per_row_out,
           "DSv4 indexer top-k: (score, local index) descending, vLLM ds4_bi order",
           py::arg("logits"), py::arg("row_starts"), py::arg("row_ends"),
