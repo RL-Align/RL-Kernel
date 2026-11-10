@@ -94,7 +94,10 @@ gradients come back as per-row FP32 contributions and are folded with
 - **Axis A, batch invariance.** Asserted bitwise for both kernels, forward and
   backward: a row's bytes do not change with batch size or position.
 - **CUDA vs Triton.** **Bitwise equal** on both outputs and all four gradients, at
-  FP32, BF16 and FP16, which is what RFC #501 asks for. A row reduction does not
+  FP32, BF16 and FP16, which is what RFC #501 asks for. On the CUDA build: the
+  matching reciprocal square root is one line of NVIDIA PTX, which hipcc cannot
+  assemble, so a ROCm build compiles a fallback. Nothing reads it, since the rocm
+  priority map lists the Triton and PyTorch backends for this operator. A row reduction does not
   get there by writing the same source twice; three things had to be made to agree
   and all three are load-bearing:
 

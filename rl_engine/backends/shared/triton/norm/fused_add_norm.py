@@ -12,7 +12,10 @@ One program per row, one block per row, so the reduction order is fixed by
 invariance hold here.
 
 RFC #501 asks for CUDA == Triton bitwise, and this operator meets it on all six
-outputs at all three dtypes. A row reduction does not get there by writing the
+outputs at all three dtypes, on the CUDA build. The CUDA kernel reaches it with one
+line of NVIDIA PTX, which a ROCm build cannot assemble and falls back from, so the
+claim is scoped to CUDA; on ROCm the registry dispatches this Triton kernel and the
+PyTorch gold and never the hipified CUDA one. A row reduction does not get there by writing the
 same source in both languages; three specific things had to be made to agree, and
 each is load-bearing here rather than incidental:
 
