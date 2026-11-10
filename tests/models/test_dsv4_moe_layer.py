@@ -75,11 +75,11 @@ def test_moe_block_batch_invariant(moe):
 def test_moe_block_fused_equals_two_launch(moe):
     x, res = _x(129, 2)
     a = moe.forward(x, res)
-    moe.path = "two_launch"
+    moe.path = "fused"
     try:
         b = moe.forward(x, res)
     finally:
-        moe.path = "fused"
+        moe.path = "two_launch"
     assert torch.equal(a.view(torch.int16), b.view(torch.int16))
 
 
@@ -104,3 +104,78 @@ def test_moe_block_close_to_fp32_reference(moe):
     ref = routed + shared.float() + res.float()
     err = (out.float() - ref).abs().max() / ref.abs().max()
     assert err < 3e-2, err
+
+
+def _grad(moe, x, res, dout):
+    x = x.clone().requires_grad_(True)
+    res = res.clone().requires_grad_(True)
+    out = moe.forward(x, res)
+    out.backward(dout)
+    return out, x.grad, res.grad
+
+
+def test_moe_block_backward_batch_invariant_and_deterministic(moe):
+    if not moe._routed.capabilities()["backward"]:
+        pytest.skip("P5 backward kernels not built")
+    x, res = _x(300, 4)
+    dout = torch.randn(300, H, device="cuda").bfloat16()
+    _, dx, dres = _grad(moe, x, res, dout)
+    assert dx.dtype == torch.bfloat16 and torch.equal(dres, dout)
+    _, dx2, _ = _grad(moe, x, res, dout)
+    assert torch.equal(dx.view(torch.int16), dx2.view(torch.int16))
+    for lo, hi in ((0, 1), (7, 8), (64, 193), (299, 300)):
+        _, part, _ = _grad(moe, x[lo:hi], res[lo:hi], dout[lo:hi].contiguous())
+        assert torch.equal(part.view(torch.int16), dx[lo:hi].view(torch.int16))
+
+
+@pytest.mark.parametrize("with_shared", [False, True])
+def test_moe_block_backward_close_to_fp32_reference(moe, with_shared):
+    """Routed + router path: BF16 dgrad on exact weights. With the shared expert its
+    FP8 dgrad (DeepGEMM, tested in its own suite) dominates the error."""
+    if not moe._routed.capabilities()["backward"]:
+        pytest.skip("P5 backward kernels not built")
+    from rl_engine.models.deepseek_v4.moe import Dsv4MoE
+
+    full = moe
+    if not with_shared:
+        moe = Dsv4MoE(full.router, full.w1, full.w2)
+    from rl_engine.kernels.ops.pytorch.router import route_topk
+    from rl_engine.models.deepseek_v4.router import gate_logits
+
+    x, res = _x(48, 5)
+    dout = torch.randn(48, H, device="cuda").bfloat16()
+    _, dx, _ = _grad(moe, x, res, dout)
+
+    _, ids = route_topk(gate_logits(x, moe.router.gate_weight), moe.router.bias, SCALE)
+    w1, w2 = mx_dequantize(moe.w1), mx_dequantize(moe.w2)
+    xr = x.float().requires_grad_(True)
+    xq = mx_dequantize(mx_quantize(x, "e4m3"))
+    a = xr + (xq - xr).detach()  # straight-through quantization
+    logits = xr @ moe.router.gate_weight.float().t()
+    s = torch.sqrt(torch.nn.functional.softplus(logits, threshold=1e9)).gather(1, ids.long())
+    w = s / s.sum(-1, keepdim=True) * SCALE
+    rows = []
+    for t in range(48):
+        acc = torch.zeros(H, device="cuda")
+        for k in range(6):
+            e = int(ids[t, k])
+            z = a[t] @ w1[e].t()
+            g = torch.clamp(z[:F], max=10.0)
+            u = torch.clamp(z[F:], min=-10.0, max=10.0)
+            acc = acc + (g * torch.sigmoid(g) * u * w[t, k]) @ w2[e].t()
+        rows.append(acc)
+    ref = torch.stack(rows)
+    if with_shared:
+        zs = xr @ full.shared_fc1.float().t()
+        gs = torch.clamp(zs[:, :FS], max=10.0)
+        us = torch.clamp(zs[:, FS:], min=-10.0, max=10.0)
+        ref = ref + (gs * torch.sigmoid(gs) * us) @ full.shared_fc2.float().t()
+    ref.backward(dout.float())
+    diff = dx.float() - xr.grad
+    rel_l2 = (diff.norm() / xr.grad.norm()).item()
+    rel_max = (diff.abs().max() / xr.grad.abs().max()).item()
+    print(f"with_shared={with_shared} rel_l2={rel_l2:.3g} rel_max={rel_max:.3g}")
+    if with_shared:
+        assert rel_l2 < 8e-2, (rel_l2, rel_max)
+    else:
+        assert rel_l2 < 2e-2 and rel_max < 5e-2, (rel_l2, rel_max)

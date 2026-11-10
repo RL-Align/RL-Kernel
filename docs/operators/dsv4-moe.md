@@ -93,7 +93,7 @@ y   = BF16(fc3(h_q, W2[e]))
 | Benchmark | `benchmarks/benchmark_sm90_fused_moe_mlp.py` |
 | Build | `KERNEL_ALIGN_MOE_SM90=1` on an SM90 host (compiles the kernel, binds `sm90_moe_*` under `RL_KERNEL_ENABLE_MOE_SM90`, builds for `sm_90a` only, adds `-lcuda` and `RL_KERNEL_ENABLE_SM90`). Other builds do not bind `sm90_moe_*`, so the provider fails closed at construction |
 
-Scope (v1): base weights only (no LoRA), no backward, no combine, no TP, H and F
+Scope (v1): base weights only (no LoRA), no combine, no TP, H and F
 multiples of 128, F ≤ 2048 for the single-launch path. Fail-closed on a batch that
 declares another profile, on CPU tensors, on non-SM90 devices, and on weights whose
 block scales cannot be folded exactly (see below).
@@ -105,24 +105,50 @@ than the kernels it would guard.
 
 ### Design
 
-**Tiles and threads.** BM = 64 tokens, BN = 128 weight rows, BK = 128 K elements
-(four 32-wide MX blocks) per pipeline stage, 4 stages. 384 threads: one producer
-warpgroup and two consumer warpgroups that each own 64 output columns. One CTA per
-SM. Grid = (upper bound on token blocks over all experts) × (N tiles); a CTA maps
-`blockIdx.x` to `(expert, block)` by scanning `expert_offsets` on device, so no host
-sync and no descriptor kernel.
+**Two modes, same bytes.** The two-launch GEMMs run in one of two modes. They differ
+only in where the E4M3 weight operand is built and how the CTAs are tiled. The
+provider picks the mode per call. `Sm90FusedMoeMlp(preexpand=True/False)` forces one;
+the same switch drives the backward.
 
-**Producer.** TMA loads the E4M3 activation tile (64 × 128 B, 128B swizzle) and the
+| | Inline | Pre-expanded |
+|---|---|---|
+| Used when | fewer rows than 256 per expert on average | 256 or more rows per expert, and the scratch is at most 4 GiB |
+| Weight operand | FP4 converted into FP8 in shared memory, once per token tile | `sm90_moe_expand_w8` writes the folded E4M3 `W` (`E x N x K` bytes, freed after the call) for experts that have rows, by the same conversion code |
+| Tile | 64 tokens | 128 tokens |
+| Producer | TMA plus FP4 conversion | one thread issues the A and B TMA loads, 6 stages deep |
+| Consumers | share the 64 rows, each takes 64 B columns (`m64n64k32`) | each takes 64 rows and all 128 B columns (`m64n128k32`); `setmaxnreg` gives 40 registers to the producer and 232 to the consumers |
+| Scheduling | one tile per CTA | persistent |
+
+Both modes promote the same blocks in the same order with the same scales, so they
+give the same bytes. Tests force each mode and compare all three GEMMs and the full
+forward; outputs also match the pre-change build byte for byte.
+
+**Tiles and threads.** BN = 128 weight rows, BK = 128 K elements (four 32-wide MX
+blocks) per pipeline stage. 384 threads: one producer warpgroup and two consumer
+warpgroups. Each CTA maps a tile index to `(expert, token block, n-tile)` by scanning
+`expert_offsets` on device, so there is no host sync and no descriptor kernel.
+
+Tiles are rasterized in groups of 16 token blocks. Inside a group the token block
+varies fastest, then the n-tile, so a wave reuses its A and B tiles from L2.
+
+**Producer (inline).** TMA loads the E4M3 activation tile (64 × 128 B, 128B swizzle) and the
 packed E2M1 weight tile (128 rows × 64 B) for stage g+1 before stage g is converted.
 The 128 producer threads convert the packed nibbles from the raw staging buffer into
 E4M3 bytes in the swizzled B buffer, fold the residual block scale (below), fence the
 generic-proxy writes for the async proxy, and arrive on the stage's `full` barrier.
 Activation scale codes and weight residuals are prefetched one stage ahead.
 
-**Consumer.** Each MX block is one `wgmma.m64n64k32.e4m3.e4m3.f32` into a fresh block
-accumulator. Three rotating block accumulators keep two WGMMAs in flight while a third
-block is promoted into the FP32 running accumulator. The promote is 32 FMAs per thread:
-`acc += blk * 2^(sa - 127)`, the activation scale only.
+**Consumer.** Each MX block is one WGMMA (`k32`) into a fresh block accumulator.
+
+- Two rotating block accumulators keep one WGMMA in flight while the previous block is
+  promoted into the FP32 running accumulator: `acc += blk * 2^(sa - 127)`, the
+  activation scale only.
+- The loop runs stage by stage, four blocks per stage, with the last stage peeled. No
+  WGMMA sits behind a branch that depends on the loop index.
+- That structure matters. An earlier loop issued WGMMAs inside such branches. ptxas then
+  serialized every WGMMA (warning C7518), and this was the main reason the forward was
+  slow.
+- The single-launch `fused` kernel still has that loop and that warning.
 
 **Exact MX scaling with one FMA per element.** Applying both block scales per element
 (`acc += blk * sa * sw`) costs a multiply and an FMA per element per block and caps the
@@ -145,32 +171,43 @@ to promoting both scales per block; `2^(ref_c - 127)` is applied once in the epi
   shared-memory-resident buffer in the WGMMA A layout, then every fc3 tile reading it.
   Bit-identical to the two-launch path.
 
-**Batch invariance.** Tile constants are compile-time and never chosen by shape; every
+**Batch invariance.** Tile constants are compile-time and never chosen by shape (the
+mode may follow the batch size because both modes give the same bytes); every
 output element is reduced over the full K inside one CTA in ascending block order; no
 split-K, no atomics; token blocks are padded with rows whose results are masked. A
 row's bytes depend only on its own row, its expert's weights, and the constants:
 `fwd(x)[t] == fwd(x[t:t+1])` (tested across expert boundaries, fused and two-launch).
 
-### Results (H100 SXM, H=4096, F=2048, E=8)
+### Results (H200, H=4096, F=2048, 32 local experts = EP 8)
 
-Measured on an idle GPU, 30 iterations after 5 warmups (end-to-end FLOPs = 6·M·H·F):
+Times are CUDA-graph replay medians from `benchmarks/benchmark_sm90_fused_moe_mlp.py`; the end-to-end FLOPs are 6·M·H·F.
+The baseline is a per-expert BF16 cuBLAS loop on weights dequantized ahead of time
+(not timed), with the SwiGLU in PyTorch. It is not batch-invariant. The two-launch
+times include the weight expansion when the provider picks it (about 0.36 ms for
+`w1` + `w2` at 32 experts, near HBM bandwidth).
 
-| rows | fc1+SwiGLU+quant | fc3 | two-launch | fused (2 stages) | BF16 cuBLAS loop | two-launch TFLOPS |
-|---|---|---|---|---|---|---|
-| 512 | 0.08 ms | 0.04 ms | **0.12 ms** | 2.68 ms | 0.60 ms | 208 |
-| 2048 | 0.30 ms | 0.15 ms | **0.45 ms** | 2.70 ms | 0.60 ms | 227 |
-| 8192 | 1.18 ms | 0.56 ms | **1.71 ms** | 2.52 ms | 0.85 ms | 242 |
-| 32768 | 4.49 ms | 2.22 ms | **6.74 ms** | 9.75 ms | 3.07 ms | 245 |
+| rows | two-launch | fused | BF16 cuBLAS loop | ratio | two-launch TFLOPS |
+|---|---|---|---|---|---|
+| 256 | 0.41 ms | 2.76 ms | 1.06 ms | 0.39 | 31 |
+| 2048 | 0.45 ms | 2.89 ms | 1.05 ms | 0.43 | 230 |
+| 8192 | 1.12 ms | 2.65 ms | 1.31 ms | 0.86 | 369 |
+| 32768 | 3.17 ms | 10.08 ms | 3.11 ms | 1.02 | 521 |
 
-The two-launch path beats the BF16 cuBLAS loop by 4.8x at 512 rows and 1.3x at 2048,
-where cuBLAS pays per-expert launch overhead on small GEMMs; above that cuBLAS wins by
-about 2x. FP8 dense peak is ≈ 1979 TFLOPS, so the kernel sits near 12% of peak, capped by
-the per-block activation-scale promote.
+How 32768 rows went from 6.2 ms (inline, serialized WGMMAs) to 3.17 ms:
 
-The fused path is flat at ~2.6 ms from 512 to 8192 rows because each CTA walks the whole
-chain serially: 32 fc1 tiles × 32 stages plus 32 fc3 tiles × 16 stages = 1536 stages. Only
-the CTA *count* grows with M, so wall time stays constant until CTAs exceed the 132 SMs;
-at 32768 rows that is 512 CTAs ≈ 4 waves ≈ 4 × 2.5 ms.
+| Change | Two-launch time | Ratio |
+|---|---|---|
+| Inline mode, serialized WGMMAs | 6.2 ms | — |
+| Pre-expanded weights, operands by TMA | 4.36 ms | 1.38 |
+| Grouped rasterization | 4.22 ms | 1.34 |
+| Persistent CTAs | 4.28 ms | 1.37 (no gain on its own) |
+| 128-token tiles with `m64n128k32` | 3.17 ms | 1.02 |
+
+Things that did not help:
+
+- Deeper TMA prefetch in inline mode was slower (4.83 to 5.96 ms for fc1 alone). The
+  TMA thread also converts, so it ended up waiting on the consumers.
+- Grouped rasterization made no difference while the WGMMAs were serialized.
 
 Accuracy against the FP32 reference: `z` max relative error 3e-5; `y` max relative error
 1e-2 (0.2% of `h` codes move by one FP8 ulp because of accumulation order, then the BF16
@@ -178,17 +215,84 @@ output round).
 
 ### Known limits and next steps
 
-1. **Fused path is slower than two launches.** The 128 KB resident `h_q` leaves room for
-   only two 33 KB stages, which exposes TMA latency, and each CTA walks 1536 stages
-   serially. A BK=64 variant (16.5 KB stages, 3–4 deep) is the fix.
-2. **Exact activation-scale promote is the remaining ceiling** (~45% of FP8 peak in this
-   structure). Options: fold activation scales when a row's blocks share exponents (row
-   local, still batch-invariant), or accept a coarser scale granularity as a separate
-   profile.
+1. **Fused path is slower than two launches.**
+   - The 128 KB resident `h_q` leaves room for only two 33 KB stages, which exposes TMA
+     latency.
+   - Each CTA walks 1536 stages serially.
+   - Its consumer loop still has the serialized WGMMAs (C7518).
+   - Fixes: a BK=64 variant (16.5 KB stages, 3–4 deep), plus the straight-line loop of
+     the two-launch kernel.
+2. **The exact activation-scale promote is the remaining ceiling.** It costs one FMA per
+   output element per 32-wide block.
+   - Option 1: fold the activation scales when a row's blocks share exponents. This is
+     row-local, so it stays batch-invariant.
+   - Option 2: accept a coarser scale granularity, as a separate profile.
 3. Weights whose block scales span more than 8 binades within a column are rejected; an
    unfolded fallback kernel could serve them.
-4. Not implemented: LoRA deltas, backward (`z` is never written), Blackwell block-scaled
-   MMA (would remove the FP4 conversion and the promote entirely).
+4. Not implemented: LoRA deltas, Blackwell block-scaled MMA (would remove the FP4
+   conversion and the promote entirely). Backward: see below.
+
+### Backward (SM90, frozen base)
+
+Profile `p5-sm90-bwd-bf16-v1` (`csrc/cuda/moe/sm90_moe_mlp_backward.cu`,
+`Sm90FusedMoeMlp.backward`). No `dW`: the routed experts are frozen. Three steps:
+
+1. Recompute `z = fc1(x_q)` (FP32) with the forward's fc1 kernel, so `z` is the
+   forward's own pre-activation.
+2. `dh = BF16(dy @ W2[e])` on a BF16 WGMMA grouped GEMM. The clamp-SwiGLU backward runs
+   in the epilogue (the oracle's formulas), giving `dz = [dgate | dup]` in BF16 and the
+   per-row `dp_s`. `dp_s` is summed per 128-column tile in a fixed order, then a second
+   kernel adds the tiles in ascending order.
+3. `dx = dz @ W1[e]` (FP32 out) on the same GEMM.
+
+Tiles: 128 tokens x 128 output columns x 64 reduced rows per stage, 5 stages. The
+whole reduction stays inside one CTA (no split-K, no atomics), so a row's bytes depend
+only on that row and its expert: batch-invariant and run-to-run identical (tested on a
+sub-batch across an expert boundary). MXFP4 is expanded to BF16 exactly; scale codes
+must lie in [2, 252] (fail-closed). There are two ways to get the BF16 weight tile,
+and they give the same bytes (tested):
+
+- **Inline**: one producer warpgroup converts the raw E2M1 tile into shared memory
+  every stage. Each 128-row token tile repeats this conversion.
+- **Pre-expanded**: `sm90_moe_dequant_t` (the same conversion code) writes `W^T` in
+  BF16 once per call, only for experts that have rows, and the GEMM loads it by TMA.
+  The provider uses this when the average expert has at least 256 rows and the scratch
+  (`E x N x K x 2` bytes, freed after the call) is at most 4 GiB.
+
+CTAs are rasterized in groups of 8 token tiles, with the output tile varying fastest,
+so the A tiles stay in L2.
+
+Results (H200, H 4096, F 2048, 32 local experts = EP 8, tokens spread evenly,
+CUDA-graph replay; `benchmarks/benchmark_sm90_moe_backward.py`). Baseline (not
+batch-invariant): weights dequantized to BF16 ahead of time (not timed), a per-expert
+cuBLAS loop for the fc1 recompute, `dh` and `dx`, and the SwiGLU backward in PyTorch.
+
+| rows | ours | baseline | ratio |
+|---|---|---|---|
+| 256 | 1.14 ms | 2.58 ms | 0.44 |
+| 2048 | 1.19 ms | 2.70 ms | 0.44 |
+| 8192 | 2.19 ms | 3.37 ms | 0.65 |
+| 32768 | 5.71 ms | 7.72 ms | 0.74 |
+
+These numbers include the faster forward fc1 (the recompute). Before the forward
+work, 32768 rows took 8.22 ms (1.07x).
+
+Breakdown at 32768 rows:
+
+| Step | Inline | Pre-expanded | cuBLAS |
+|---|---|---|---|
+| fc1 recompute | 4.46 ms (247 TFLOPS) | 4.46 ms | 1.52 ms |
+| Weight expansion (`w1` + `w2`) | — | 0.65 ms | — |
+| `dh` + SwiGLU backward | 2.84 ms | 1.41 ms (389 TFLOPS) | 0.77 ms |
+| `dx` | 4.39 ms | 1.76 ms (626 TFLOPS) | 1.46 ms |
+
+The breakdown was measured before the forward work. The fc1 recompute is now about
+1.6 ms, not 4.46 ms (see the forward results above).
+
+Accuracy is measured against an FP32 chain that follows the oracle on the same `z`:
+`dx` rel < 2e-2, `dp_s` rel < 1e-2. For the whole block (`tests/models/test_dsv4_moe_layer.py`),
+the routed part has rel-L2 < 2e-2. With the shared expert's FP8 dgrad included, rel-L2 is
+< 8e-2.
 
 ## Route plan and combine (EP = 1)
 
@@ -208,8 +312,8 @@ slot sum: `csrc/cuda/moe/moe_slot_sum.cu`; block: `rl_engine/models/deepseek_v4/
   order, add the shared expert once and the residual once, round to BF16.
 - **Backward.** `dy` goes to every row of its token (exact); the expert-input gradient
   fans back in with the same slot-sum kernel (FP32 out, + the shared expert's `dx`);
-  `dL/dweights = dp_s[inv]` (exact). The routed-expert backward itself is not
-  implemented on SM90 yet (see above).
+  `dL/dweights = dp_s[inv]` (exact). The routed-expert backward is the SM90 kernel
+  above.
 
 Checks (H200, `tests/ops/moe/test_route_plan.py`, `tests/models/test_dsv4_moe_layer.py`):
 CUDA slot sum byte-equal to the golden for every dtype combination (signed zero

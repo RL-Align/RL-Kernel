@@ -406,6 +406,7 @@ def get_extensions():
             # is separate from RL_KERNEL_ENABLE_SM90, which det_gemm also sets.
             if enable_moe_sm90:
                 cuda_sources.append("csrc/cuda/moe/sm90_fused_moe_mlp.cu")
+                cuda_sources.append("csrc/cuda/moe/sm90_moe_mlp_backward.cu")
                 nvcc_flags.append("-DRL_KERNEL_ENABLE_MOE_SM90")
                 cxx_flags.append("-DRL_KERNEL_ENABLE_MOE_SM90")
                 tma_arch = f"{cc_major}{cc_minor}a"

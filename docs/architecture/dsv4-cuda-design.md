@@ -466,9 +466,24 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         (router -> plan -> P5 -> combine + DeepGEMM shared expert + residual) is
         batch-invariant on one H200. Combine 0.06-0.42x and fan-in 0.16-0.91x of an
         `index_add_` scatter. P5-1 MXFP8 activation quant is now in the AOT build
-  - [ ] EP = 2/4/8 (NCCL all-to-all in plan order, then DeepEP), multi-GPU test: output
-        bitwise equal across EP sizes; then compare with #639
-  - [ ] Routed-expert backward on SM90 (P5 has forward only; the FP32 oracle has it)
+  - [x] Expert parallelism over NCCL `all_to_all_single` (`Dsv4MoE(ep_group=...)`):
+        MXFP8 codes / scales and `p_s` travel in plan order, the receiver stable-sorts by
+        local expert (= (expert, global token, slot)), results return along the reverse
+        splits; empty ranks join every collective. `scripts/check_dsv4_moe_ep.py`: EP = 2
+        output bitwise equal to EP = 1 (scored and hash layers; uneven, decode, one-rank,
+        empty-first splits; run to run). EP = 4/8 not run: this account is capped at 2
+        GPUs per job (Slurm association `gres/gpu=2`)
+  - [ ] DeepEP transport (P4) with the same bytes; EP = 4/8 once more GPUs are allowed;
+        compare with #639
+  - [x] Routed-expert backward on SM90 (profile `p5-sm90-bwd-bf16-v1`,
+        `csrc/cuda/moe/sm90_moe_mlp_backward.cu`):
+        - Steps: fc1 recompute, then `dh` (BF16 WGMMA, MXFP4 expanded exactly) fused with the
+          clamp-SwiGLU backward, then `dx` in FP32. Frozen base, `dX` only.
+        - Batch-invariant and run-to-run identical. The weight pre-expansion used for large M
+          gives the same bytes as the inline path.
+        - H200, EP 8 shapes: 0.44 / 0.44 / 0.65 / 0.74x of a per-expert cuBLAS BF16 loop at
+          256 / 2048 / 8192 / 32768 rows (with the faster forward fc1).
+        - The EP = 2 block backward is bitwise equal to EP = 1.
   - [ ] Real checkpoint: DSv4 FP4 experts are MXFP4 `[E, 2F, H/2]` + E8M0 `[E, 2F, H/32]`,
         gate rows then up rows (vLLM loader), the P5 layout; check the nibble order and
         P5's per-column scale-residual range ([-8, 6], fail-closed) on real shards
@@ -541,6 +556,16 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 ### Phase 5 - performance debt
 
 - [ ] Operators that exceeded the Phase 4 performance table
+- [x] P5 routed forward at large M, previously 2.2x the BF16 cuBLAS loop at 32768 rows:
+      - Root cause: the consumer loop issued WGMMAs inside index-dependent branches, so
+        ptxas serialized every WGMMA (C7518). The loop is now straight-line.
+      - Changes: pre-expanded folded FP8 weights loaded by TMA, 128-token tiles with
+        `m64n128k32` and `setmaxnreg`, persistent CTAs, grouped rasterization. Output bytes
+        are unchanged and tested against the earlier build.
+      - H200, EP 8 shapes, 256 / 2048 / 8192 / 32768 rows: forward 0.39 / 0.43 / 0.86 /
+        1.02x, backward 0.44 / 0.44 / 0.65 / 0.74x
+- [ ] P5 `fused` single-launch path: still has serialized WGMMAs and only 2 stages; apply
+      the same loop and a BK=64 variant, or drop it
 - [ ] MoE route plan as one counting-sort kernel (now PyTorch sort + searchsorted +
       scatter: 19-98 us, the slow part of the MoE glue at decode sizes)
 - [x] DSv4 attention glue (was: C4 decode 64 x 4K at 5.2 ms, 2.1 ms of it GPU time). CUDA

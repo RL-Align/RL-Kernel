@@ -184,3 +184,28 @@ def test_fail_closed(backend):
     with pytest.raises(RuntimeError, match="binades"):
         backend._ext.sm90_moe_prepare_weight_ref(bad)
     assert PROFILE == backend.numeric_profile
+
+
+@requires_cuda
+@pytest.mark.parametrize(
+    "counts,H,F", [([64, 0, 37, 130, 1], 1024, 256), ([300, 7, 0, 129], 4096, 2048)]
+)
+def test_preexpanded_weights_same_bytes(counts, H, F):
+    """Folded FP8 weights expanded ahead of time (operands by TMA) == in-kernel expansion."""
+    from rl_engine.moe.backends.sm90_fused_mlp import Sm90FusedMoeMlp
+
+    try:
+        inline, pre = Sm90FusedMoeMlp(preexpand=False), Sm90FusedMoeMlp(preexpand=True)
+    except NotImplementedError as exc:
+        pytest.skip(f"SM90 fused MoE MLP unavailable: {exc}")
+    offsets = torch.tensor([0] + list(torch.tensor(counts).cumsum(0)), dtype=torch.int32)
+    batch, x_q = _batch(sum(counts), len(counts), H, F, offsets=offsets, seed=5)
+
+    def same(a, b):
+        return torch.equal(a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8))
+
+    assert same(inline.fc1_z(batch, x_q), pre.fc1_z(batch, x_q))
+    h_a, h_b = inline.fc1_swiglu_quant(batch, x_q), pre.fc1_swiglu_quant(batch, x_q)
+    assert same(h_a.codes, h_b.codes) and same(h_a.scales, h_b.scales)
+    assert same(inline.fc3(batch, h_a), pre.fc3(batch, h_a))
+    assert same(inline.forward(batch, x_q), pre.forward(batch, x_q))

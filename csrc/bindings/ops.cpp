@@ -266,17 +266,32 @@ torch::Tensor fused_shared_expert_fc1_swiglu(torch::Tensor x, torch::Tensor w_fc
 std::vector<torch::Tensor> sm90_moe_prepare_weight_ref(torch::Tensor w_scales);
 torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales,
                                    torch::Tensor w1_codes, torch::Tensor w1_scales,
-                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets);
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets,
+                                   c10::optional<torch::Tensor> w8);
 std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
     torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes,
-    torch::Tensor w1_scales, torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets, torch::Tensor p_s);
+    torch::Tensor w1_scales, torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets, torch::Tensor p_s,
+    c10::optional<torch::Tensor> w8);
 torch::Tensor sm90_moe_fc3_forward(torch::Tensor h_codes, torch::Tensor h_scales,
                                    torch::Tensor w2_codes, torch::Tensor w2_scales,
-                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets);
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets,
+                                   c10::optional<torch::Tensor> w8);
+torch::Tensor sm90_moe_expand_w8(torch::Tensor w_codes, torch::Tensor w_res,
+                                 torch::Tensor expert_offsets);
 torch::Tensor sm90_moe_fused_mlp_forward(
     torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes, torch::Tensor w1_scales,
     torch::Tensor w1_ref, torch::Tensor w1_res, torch::Tensor w2_codes, torch::Tensor w2_scales,
     torch::Tensor w2_ref, torch::Tensor w2_res, torch::Tensor expert_offsets, torch::Tensor p_s);
+// SM90 routed-expert backward (csrc/cuda/moe/sm90_moe_mlp_backward.cu)
+torch::Tensor sm90_moe_bwd_dx(torch::Tensor a, torch::Tensor w_codes, torch::Tensor w_scales,
+                              torch::Tensor expert_offsets, c10::optional<torch::Tensor> w_t);
+std::vector<torch::Tensor> sm90_moe_bwd_dh_swiglu(torch::Tensor dy, torch::Tensor w2_codes,
+                                                  torch::Tensor w2_scales,
+                                                  torch::Tensor expert_offsets, torch::Tensor z,
+                                                  torch::Tensor p_s,
+                                                  c10::optional<torch::Tensor> w2_t);
+torch::Tensor sm90_moe_dequant_t(torch::Tensor w_codes, torch::Tensor w_scales,
+                                 torch::Tensor expert_offsets);
 #endif  // RL_KERNEL_ENABLE_MOE_SM90
 
 // RMSNorm Declarations & Wrappers
@@ -894,13 +909,32 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("sm90_moe_prepare_weight_ref", &sm90_moe_prepare_weight_ref,
           "Per-column reference exponents + residuals for folded MXFP4 scales (fail-closed)");
     m.def("sm90_moe_fc1_forward", &sm90_moe_fc1_forward,
-          "Grouped MXFP8 x MXFP4 fc1 -> FP32 z [M, 2F] (SM90 FP8 WGMMA)");
+          "Grouped MXFP8 x MXFP4 fc1 -> FP32 z [M, 2F] (SM90 FP8 WGMMA)", py::arg("a_codes"),
+          py::arg("a_scales"), py::arg("w1_codes"), py::arg("w1_scales"), py::arg("w_ref"),
+          py::arg("w_res"), py::arg("expert_offsets"), py::arg("w8") = py::none());
     m.def("sm90_moe_fc1_swiglu_quant_forward", &sm90_moe_fc1_swiglu_quant_forward,
-          "fc1 + clamp-SwiGLU * p_s + MX re-quant fused epilogue -> (h codes, h scales)");
+          "fc1 + clamp-SwiGLU * p_s + MX re-quant fused epilogue -> (h codes, h scales)",
+          py::arg("a_codes"), py::arg("a_scales"), py::arg("w1_codes"), py::arg("w1_scales"),
+          py::arg("w_ref"), py::arg("w_res"), py::arg("expert_offsets"), py::arg("p_s"),
+          py::arg("w8") = py::none());
     m.def("sm90_moe_fc3_forward", &sm90_moe_fc3_forward,
-          "Grouped MXFP8 x MXFP4 fc3 -> BF16 y [M, H]");
+          "Grouped MXFP8 x MXFP4 fc3 -> BF16 y [M, H]", py::arg("h_codes"), py::arg("h_scales"),
+          py::arg("w2_codes"), py::arg("w2_scales"), py::arg("w_ref"), py::arg("w_res"),
+          py::arg("expert_offsets"), py::arg("w8") = py::none());
+    m.def("sm90_moe_expand_w8", &sm90_moe_expand_w8,
+          "MXFP4 W + residuals -> folded E4M3 [E, N, K] for experts with rows (forward w8)");
     m.def("sm90_moe_fused_mlp_forward", &sm90_moe_fused_mlp_forward,
           "Single-launch fc1 -> SwiGLU -> quant -> fc3 with h_q resident in shared memory");
+    m.def("sm90_moe_bwd_dx", &sm90_moe_bwd_dx,
+          "Grouped BF16 x MXFP4 dX: a [M, Nw] @ W[e] [Nw, Kw] -> FP32 [M, Kw] (frozen W)",
+          py::arg("a"), py::arg("w_codes"), py::arg("w_scales"), py::arg("expert_offsets"),
+          py::arg("w_t") = py::none());
+    m.def("sm90_moe_bwd_dh_swiglu", &sm90_moe_bwd_dh_swiglu,
+          "dh = BF16(dy @ W2[e]) fused with the clamp-SwiGLU backward -> (dz BF16, dp_s FP32)",
+          py::arg("dy"), py::arg("w2_codes"), py::arg("w2_scales"), py::arg("expert_offsets"),
+          py::arg("z"), py::arg("p_s"), py::arg("w2_t") = py::none());
+    m.def("sm90_moe_dequant_t", &sm90_moe_dequant_t,
+          "MXFP4 W [E, Nw, Kw] -> W^T BF16 [E, Kw, Nw] for experts with rows (backward w_t)");
 #endif  // RL_KERNEL_ENABLE_MOE_SM90
 
     // Deterministic standard-softmax attention (issue #147)

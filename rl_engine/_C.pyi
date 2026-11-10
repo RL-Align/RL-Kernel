@@ -269,6 +269,7 @@ def sm90_moe_fc1_forward(
     w_ref: torch.Tensor,
     w_res: torch.Tensor,
     expert_offsets: torch.Tensor,
+    w8: torch.Tensor | None = None,
 ) -> torch.Tensor: ...
 def sm90_moe_fc1_swiglu_quant_forward(
     a_codes: torch.Tensor,
@@ -279,6 +280,7 @@ def sm90_moe_fc1_swiglu_quant_forward(
     w_res: torch.Tensor,
     expert_offsets: torch.Tensor,
     p_s: torch.Tensor,
+    w8: torch.Tensor | None = None,
 ) -> list[torch.Tensor]: ...
 def sm90_moe_fc3_forward(
     h_codes: torch.Tensor,
@@ -288,6 +290,10 @@ def sm90_moe_fc3_forward(
     w_ref: torch.Tensor,
     w_res: torch.Tensor,
     expert_offsets: torch.Tensor,
+    w8: torch.Tensor | None = None,
+) -> torch.Tensor: ...
+def sm90_moe_expand_w8(
+    w_codes: torch.Tensor, w_res: torch.Tensor, expert_offsets: torch.Tensor
 ) -> torch.Tensor: ...
 def sm90_moe_fused_mlp_forward(
     a_codes: torch.Tensor,
@@ -302,6 +308,25 @@ def sm90_moe_fused_mlp_forward(
     w2_res: torch.Tensor,
     expert_offsets: torch.Tensor,
     p_s: torch.Tensor,
+) -> torch.Tensor: ...
+def sm90_moe_bwd_dx(
+    a: torch.Tensor,
+    w_codes: torch.Tensor,
+    w_scales: torch.Tensor,
+    expert_offsets: torch.Tensor,
+    w_t: torch.Tensor | None = None,
+) -> torch.Tensor: ...
+def sm90_moe_bwd_dh_swiglu(
+    dy: torch.Tensor,
+    w2_codes: torch.Tensor,
+    w2_scales: torch.Tensor,
+    expert_offsets: torch.Tensor,
+    z: torch.Tensor,
+    p_s: torch.Tensor,
+    w2_t: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def sm90_moe_dequant_t(
+    w_codes: torch.Tensor, w_scales: torch.Tensor, expert_offsets: torch.Tensor
 ) -> torch.Tensor: ...
 def det_gemm_da(dc: torch.Tensor, b: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_db(a: torch.Tensor, dc: torch.Tensor) -> torch.Tensor: ...

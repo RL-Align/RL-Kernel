@@ -54,7 +54,9 @@
 #include <c10/cuda/CUDAException.h>
 #include <cuda_bf16.h>
 #include <cuda_fp8.h>
+#include <algorithm>
 #include <cstdint>
+#include <type_traits>
 
 #if defined(RL_KERNEL_ENABLE_MOE_SM90)
 #include <cuda.h>
@@ -187,6 +189,20 @@ __device__ __forceinline__ void wgmma_m64n64k32_e4m3(float* d, uint64_t desc_a,
 }
 
 
+// D[64x128] (+)= A[64x32] * B[32x128], e4m3 x e4m3 -> f32 (kPreB tiles).
+__device__ __forceinline__ void wgmma_m64n128k32_e4m3(float* d, uint64_t desc_a,
+                                                      uint64_t desc_b, int scale_d) {
+  asm volatile(
+      "{\n"
+      ".reg .pred p;\n"
+      "setp.ne.b32 p, %66, 0;\n"
+      "wgmma.mma_async.sync.aligned.m64n128k32.f32.e4m3.e4m3 "
+      "{%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63}, %64, %65, p, 1, 1;\n"
+      "}\n"
+      : "+f"(d[0]), "+f"(d[1]), "+f"(d[2]), "+f"(d[3]), "+f"(d[4]), "+f"(d[5]), "+f"(d[6]), "+f"(d[7]), "+f"(d[8]), "+f"(d[9]), "+f"(d[10]), "+f"(d[11]), "+f"(d[12]), "+f"(d[13]), "+f"(d[14]), "+f"(d[15]), "+f"(d[16]), "+f"(d[17]), "+f"(d[18]), "+f"(d[19]), "+f"(d[20]), "+f"(d[21]), "+f"(d[22]), "+f"(d[23]), "+f"(d[24]), "+f"(d[25]), "+f"(d[26]), "+f"(d[27]), "+f"(d[28]), "+f"(d[29]), "+f"(d[30]), "+f"(d[31]), "+f"(d[32]), "+f"(d[33]), "+f"(d[34]), "+f"(d[35]), "+f"(d[36]), "+f"(d[37]), "+f"(d[38]), "+f"(d[39]), "+f"(d[40]), "+f"(d[41]), "+f"(d[42]), "+f"(d[43]), "+f"(d[44]), "+f"(d[45]), "+f"(d[46]), "+f"(d[47]), "+f"(d[48]), "+f"(d[49]), "+f"(d[50]), "+f"(d[51]), "+f"(d[52]), "+f"(d[53]), "+f"(d[54]), "+f"(d[55]), "+f"(d[56]), "+f"(d[57]), "+f"(d[58]), "+f"(d[59]), "+f"(d[60]), "+f"(d[61]), "+f"(d[62]), "+f"(d[63])
+      : "l"(desc_a), "l"(desc_b), "r"(scale_d));
+}
+
 // Byte (row, col) of a [rows x 128 B] tile in the 128B-swizzle layout that
 // both TMA (CU_TENSOR_MAP_SWIZZLE_128B) and the wgmma descriptor above use:
 // the 16-byte chunk index is XORed with (row % 8).
@@ -237,6 +253,7 @@ struct GemmArgs {
   uint8_t* h_scales;         // [M, F/32](FC1_HQ)
   __nv_bfloat16* y;          // [M, N]   (FC3_Y)
   int M, N, K, E;            // N = weight rows per expert (2F for fc1, H for fc3)
+  int num_tb, num_nt;        // grid: token-block upper bound x n-tiles (1-D, grouped)
 };
 
 template <int STAGES>
@@ -249,16 +266,31 @@ struct SmemLayout {
   static constexpr int kTotal = kBar + 3 * STAGES * 8;   // full[], empty[], raw[]
 };
 
-// Map blockIdx.x -> (expert, token block). Returns false if past the end.
+// kPreB: 128-token tiles (each consumer warpgroup owns 64 rows and all 128 B
+// columns, m64n128k32), A and B by TMA only.
+constexpr int kBMPre = 128;
+constexpr int kStageAPreBytes = kBMPre * kBK;   // 16 KB
+template <int STAGES>
+struct SmemLayoutPre {
+  static constexpr int kA = 0;
+  static constexpr int kB = kA + STAGES * kStageAPreBytes;
+  static constexpr int kW = 0;    // unused
+  static constexpr int kSA = 0;   // unused
+  static constexpr int kBar = kB + STAGES * kStageBBytes;
+  static constexpr int kTotal = kBar + 3 * STAGES * 8;
+};
+
+// Map blockIdx.x -> (expert, token block of BM rows). Returns false if past the end.
+template <int BM = kBM>
 __device__ __forceinline__ bool locate_token_block(const int32_t* offsets, int E, int bid,
                                                    int& expert, int& row0, int& row_end) {
   int acc = 0;
   for (int e = 0; e < E; ++e) {
     const int lo = offsets[e], hi = offsets[e + 1];
-    const int nb = (hi - lo + kBM - 1) / kBM;
+    const int nb = (hi - lo + BM - 1) / BM;
     if (bid < acc + nb) {
       expert = e;
-      row0 = lo + (bid - acc) * kBM;
+      row0 = lo + (bid - acc) * BM;
       row_end = hi;
       return true;
     }
@@ -356,11 +388,19 @@ __device__ __forceinline__ uint8_t f32_to_e4m3_sat(float v) {
   return static_cast<uint8_t>(__nv_cvt_float_to_fp8(v, __NV_SATFINITE, __NV_E4M3));
 }
 
-template <Mode MODE, int STAGES>
+// kPreB: the weights were expanded ahead of time (sm90_moe_expand_w8: the same
+// folded E4M3 bytes convert_b_stage writes) and w_tmap maps that [E * N, K] tensor
+// with 128B swizzle. One producer thread then issues the A and B loads by TMA,
+// STAGES deep, with no conversion; each consumer thread reads its two rows'
+// activation scale codes itself, one stage ahead. The consumer arithmetic is
+// unchanged, so both modes give the same bytes.
+template <Mode MODE, int STAGES, bool kPreB = false>
 __global__ void __launch_bounds__(kNumThreads, 1)
 sm90_moe_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
                      const __grid_constant__ CUtensorMap w_tmap, GemmArgs args) {
-  using L = SmemLayout<STAGES>;
+  using L = std::conditional_t<kPreB, SmemLayoutPre<STAGES>, SmemLayout<STAGES>>;
+  constexpr int BMt = kPreB ? kBMPre : kBM;
+  constexpr int kStageA = kPreB ? kStageAPreBytes : kStageABytes;
   extern __shared__ __align__(1024) uint8_t smem[];
   uint8_t* sA = smem + L::kA;
   uint8_t* sB = smem + L::kB;
@@ -371,10 +411,25 @@ sm90_moe_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
   const int tid = threadIdx.x;
   const int wg = tid >> 7;         // 0 producer, 1..2 consumers
   const int tig = tid & 127;
-  const int n_tile = blockIdx.y;
-
-  int expert, row0, row_end;
-  if (!locate_token_block(args.offsets, args.E, blockIdx.x, expert, row0, row_end)) return;
+  // Tiles (token block, n-tile) in grouped rasterization: kRasterGroup token
+  // blocks form a group in which the token block varies fastest, then the
+  // n-tile, so a wave shares a few A and B tiles through L2 instead of streaming
+  // A once per n-tile. Inline mode runs one tile per CTA (tile = blockIdx.x);
+  // kPreB is persistent: each CTA walks tiles blockIdx.x, +gridDim.x, ... and the
+  // producer streams the next tile's stages while the consumers run the epilogue.
+  // Order only: every tile's bytes are independent of it.
+  constexpr int kRasterGroup = 16;
+  const int total_tiles = args.num_tb * args.num_nt;
+  auto decode = [&](int tile, int& nt, int& ex, int& rw0, int& rwe) -> bool {
+    const int group = tile / (kRasterGroup * args.num_nt);
+    const int g_rows = min(kRasterGroup, args.num_tb - group * kRasterGroup);
+    const int within = tile - group * kRasterGroup * args.num_nt;
+    nt = within / g_rows;
+    return locate_token_block<BMt>(args.offsets, args.E, group * kRasterGroup + within % g_rows,
+                                   ex, rw0, rwe);
+  };
+  int n_tile = 0, expert = 0, row0 = 0, row_end = 0;
+  if (!kPreB && !decode(blockIdx.x, n_tile, expert, row0, row_end)) return;
 
   const uint32_t bar0 = static_cast<uint32_t>(__cvta_generic_to_shared(bars));
   auto full = [&](int s) { return bar0 + 8u * s; };
@@ -383,7 +438,7 @@ sm90_moe_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
   if (tid == 0) {
 #pragma unroll
     for (int s = 0; s < STAGES; ++s) {
-      det_gemm::mbar_init(full(s), 128);    // 128 producer arrivals + A tile TMA bytes
+      det_gemm::mbar_init(full(s), kPreB ? 1 : 128);   // producer arrivals + TMA bytes
       det_gemm::mbar_init(empty(s), 256);   // 256 consumer arrivals
       det_gemm::mbar_init(raw(s), 1);       // TMA-issuing thread + raw W tile bytes
     }
@@ -394,6 +449,46 @@ sm90_moe_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
   const int K = args.K;
   const int num_kb = K / kBK;
   const int blocks = K >> 5;
+
+  if constexpr (kPreB) {
+    // Registers: the producer needs few; consumers hold 64 accumulators + 2 x 64
+    // block accumulators. 128 x 40 + 256 x 232 <= 64K.
+    if (wg == 0) asm volatile("setmaxnreg.dec.sync.aligned.u32 40;\n" ::: "memory");
+    else asm volatile("setmaxnreg.inc.sync.aligned.u32 232;\n" ::: "memory");
+  }
+
+  if (wg == 0 && kPreB) {
+    // --------------------------------------------- producer (all loads by TMA)
+    if (tig == 0) {
+      const uint32_t sA_base = static_cast<uint32_t>(__cvta_generic_to_shared(sA));
+      const uint32_t sB_base = static_cast<uint32_t>(__cvta_generic_to_shared(sB));
+      int it = 0;   // stages issued so far by this CTA (ring position and phase)
+      for (int tile = blockIdx.x; tile < total_tiles; tile += gridDim.x) {
+      if (!decode(tile, n_tile, expert, row0, row_end)) continue;
+      const int64_t e0 = static_cast<int64_t>(expert) * args.N;
+      for (int kb = 0; kb < num_kb; ++kb, ++it) {
+        const int s = it % STAGES;
+        det_gemm::mbar_wait(empty(s), ((it / STAGES) & 1) ^ 1);
+        det_gemm::mbar_arrive_expect_tx(full(s), kStageA + kStageBBytes);
+        det_gemm::tma_2d_g2s(sA_base + s * kStageA, &a_tmap, kb * kBK, row0, full(s));
+        const uint32_t dst = sB_base + s * kStageBBytes;
+        if constexpr (MODE == Mode::FC3_Y) {
+          det_gemm::tma_2d_g2s(dst, &w_tmap, kb * kBK, static_cast<int>(e0 + n_tile * kBN), full(s));
+        } else {
+          const int F = args.N >> 1;
+#pragma unroll
+          for (int b = 0; b < 4; ++b) {
+            const int half = b >> 1;
+            const int grow = (b & 1) ? (F + n_tile * 64 + half * 32) : (n_tile * 64 + half * 32);
+            det_gemm::tma_2d_g2s(dst + b * 32 * kBK, &w_tmap, kb * kBK, static_cast<int>(e0 + grow),
+                                 full(s));
+          }
+        }
+      }
+      }
+    }
+    return;
+  }
 
   if (wg == 0) {
     // ------------------------------------------------------------ producer
@@ -480,26 +575,57 @@ sm90_moe_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
   }
 
   // -------------------------------------------------------------- consumer
-  const int cw = wg - 1;           // which 64-column half of the B tile
+  // Inline: both warpgroups share the 64 token rows, warpgroup cw takes B rows
+  // [cw*64, +64) (m64n64). kPreB: warpgroup cw takes token rows [cw*64, +64) of
+  // the 128-row tile and all 128 B rows (m64n128); its accumulator halves
+  // [0, 32) / [32, 64) are the inline layout of B halves 0 / 1.
+  const int cw = wg - 1;
   const int lane = tig & 31;
   int r0, r1;
   frag_rows(tig, r0, r1);
+  if constexpr (kPreB) {
+    r0 += cw * 64;
+    r1 += cw * 64;
+  }
   const int c0 = (lane & 3) * 2;   // column offset inside each 8-wide slice
+  constexpr int NACC = kPreB ? 64 : 32;
+  constexpr int NHALF = kPreB ? 2 : 1;
 
-  float acc[32];
-#pragma unroll
-  for (int i = 0; i < 32; ++i) acc[i] = 0.0f;
-
-  const uint32_t sA_base = static_cast<uint32_t>(__cvta_generic_to_shared(sA));
-  const uint32_t sB_base = static_cast<uint32_t>(__cvta_generic_to_shared(sB)) + cw * (64 * 128);
+  float acc[NACC];
+  const uint32_t sA_base = static_cast<uint32_t>(__cvta_generic_to_shared(sA)) +
+                           (kPreB ? cw * (64 * 128) : 0);
+  const uint32_t sB_base = static_cast<uint32_t>(__cvta_generic_to_shared(sB)) +
+                           (kPreB ? 0 : cw * (64 * 128));
 
   // acc += blk * 2^(sa-127) for MX block j of stage s (weight scales are folded
   // into B; the per-column reference factor is applied once in the epilogue).
+  // kPreB: this thread's activation scale codes for rows r0 / r1 of the current
+  // stage (4 blocks per word); rows past M use code 127 (factor 1, masked).
+  uint32_t sc0 = 0, sc1 = 0, sn0 = 0, sn1 = 0;
+  auto load_sc = [&](int kb, uint32_t& code0, uint32_t& code1) {
+    if constexpr (kPreB) {
+      const int m0 = row0 + r0, m1 = row0 + r1;
+      const uint8_t* base = args.a_scales + kb * 4;
+      code0 = (m0 < args.M)
+                  ? __ldg(reinterpret_cast<const uint32_t*>(base + static_cast<int64_t>(m0) * blocks))
+                  : 127u * 0x01010101u;
+      code1 = (m1 < args.M)
+                  ? __ldg(reinterpret_cast<const uint32_t*>(base + static_cast<int64_t>(m1) * blocks))
+                  : 127u * 0x01010101u;
+    }
+  };
   auto promote = [&](const float* blk, int s, int j) {
-    const float* fa = reinterpret_cast<const float*>(sSA + s * kStageSABytes) + j * kBM;
-    const float fa0 = fa[r0], fa1 = fa[r1];
+    float fa0, fa1;
+    if constexpr (kPreB) {
+      fa0 = e8m0_to_f32((sc0 >> (8 * j)) & 0xFFu);
+      fa1 = e8m0_to_f32((sc1 >> (8 * j)) & 0xFFu);
+    } else {
+      const float* fa = reinterpret_cast<const float*>(sSA + s * kStageSABytes) + j * kBM;
+      fa0 = fa[r0];
+      fa1 = fa[r1];
+    }
 #pragma unroll
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < NACC / 4; ++i) {
       acc[4 * i + 0] = fmaf(blk[4 * i + 0], fa0, acc[4 * i + 0]);
       acc[4 * i + 1] = fmaf(blk[4 * i + 1], fa0, acc[4 * i + 1]);
       acc[4 * i + 2] = fmaf(blk[4 * i + 2], fa1, acc[4 * i + 2]);
@@ -507,145 +633,179 @@ sm90_moe_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
     }
   };
 
-  // Software pipeline over MX blocks b = 0 .. NB-1 (block b lives in stage
-  // (b/4) % STAGES at k-offset (b%4)*32). Three rotating block accumulators keep
-  // two WGMMAs in flight while a third block is promoted, across stage
-  // boundaries, so tensor-core latency is hidden behind the CUDA-core promote.
-  const int NB = num_kb * (kBK / kMxBlock);
-  float blk0[32], blk1[32], blk2[32];
+  // Software pipeline over MX blocks, stage by stage (block j of stage kb at
+  // k-offset j*32): two rotating block accumulators keep one WGMMA in flight while
+  // the previous block is promoted. Every WGMMA sits on a straight-line path (no
+  // data-dependent branch around it), which keeps ptxas from serializing them;
+  // the last stage is peeled. Blocks are promoted in ascending order as before.
+  float blk0[NACC], blk1[NACC];
 
   // Descriptor of stage s, k-block j == base descriptor + (s * bytes + j * 32) >> 4.
   const uint64_t da0 = make_smem_desc_sw128(sA_base), db0 = make_smem_desc_sw128(sB_base);
-  auto issue = [&](int b, float* buf) {
-    const int stage_idx = b >> 2;
-    const int s = stage_idx % STAGES, j = b & 3;
-    if (j == 0) det_gemm::mbar_wait(full(s), (stage_idx / STAGES) & 1);
+  auto issue = [&](float* buf, int s, int j) {
     wgmma_fence();
-    wgmma_m64n64k32_e4m3(buf, da0 + (s * (kStageABytes >> 4)) + 2 * j,
-                         db0 + (s * (kStageBBytes >> 4)) + 2 * j, 0);
+    if constexpr (kPreB) {
+      wgmma_m64n128k32_e4m3(buf, da0 + (s * (kStageA >> 4)) + 2 * j,
+                            db0 + (s * (kStageBBytes >> 4)) + 2 * j, 0);
+    } else {
+      wgmma_m64n64k32_e4m3(buf, da0 + (s * (kStageA >> 4)) + 2 * j,
+                           db0 + (s * (kStageBBytes >> 4)) + 2 * j, 0);
+    }
     wgmma_commit();
   };
-  auto step = [&](float* buf, int b) {
-    // Groups pending after the prologue / previous steps: W(b) .. W(min(NB, b+3)-1).
-    const int ahead = min(NB - b - 1, 2);
-    if (ahead >= 2) wgmma_wait<2>();
-    else if (ahead == 1) wgmma_wait<1>();
-    else wgmma_wait<0>();
-    promote(buf, (b >> 2) % STAGES, b & 3);
-    if ((b & 3) == 3) mbar_arrive(empty((b >> 2) % STAGES));
-    if (b + 3 < NB) issue(b + 3, buf);
-  };
 
-  issue(0, blk0);
-  if (NB > 1) issue(1, blk1);
-  if (NB > 2) issue(2, blk2);
-  int b = 0;
-  for (; b + 3 <= NB; b += 3) {
-    step(blk0, b);
-    step(blk1, b + 1);
-    step(blk2, b + 2);
+  int it0 = 0;   // stages consumed by this CTA before the current tile
+  for (int tile = blockIdx.x; tile < total_tiles; tile += gridDim.x, it0 += num_kb) {
+  if (kPreB && !decode(tile, n_tile, expert, row0, row_end)) {
+    it0 -= num_kb;   // the producer skipped this tile too
+    continue;
   }
-  if (b < NB) { step(blk0, b); ++b; }
-  if (b < NB) { step(blk1, b); ++b; }
+#pragma unroll
+  for (int i = 0; i < NACC; ++i) acc[i] = 0.0f;
+  load_sc(0, sc0, sc1);
+  det_gemm::mbar_wait(full(it0 % STAGES), (it0 / STAGES) & 1);
+  issue(blk0, it0 % STAGES, 0);
+  for (int kb = 0; kb + 1 < num_kb; ++kb) {
+    const int g = it0 + kb;
+    const int s = g % STAGES, s1 = (g + 1) % STAGES;
+    load_sc(kb + 1, sn0, sn1);
+    issue(blk1, s, 1);
+    wgmma_wait<1>();
+    promote(blk0, s, 0);
+    issue(blk0, s, 2);
+    wgmma_wait<1>();
+    promote(blk1, s, 1);
+    issue(blk1, s, 3);
+    wgmma_wait<1>();
+    promote(blk0, s, 2);
+    det_gemm::mbar_wait(full(s1), ((g + 1) / STAGES) & 1);
+    issue(blk0, s1, 0);
+    wgmma_wait<1>();
+    promote(blk1, s, 3);
+    mbar_arrive(empty(s));
+    sc0 = sn0;
+    sc1 = sn1;
+  }
+  {
+    const int s = (it0 + num_kb - 1) % STAGES;
+    issue(blk1, s, 1);
+    wgmma_wait<1>();
+    promote(blk0, s, 0);
+    issue(blk0, s, 2);
+    wgmma_wait<1>();
+    promote(blk1, s, 1);
+    issue(blk1, s, 3);
+    wgmma_wait<1>();
+    promote(blk0, s, 2);
+    wgmma_wait<0>();
+    promote(blk1, s, 3);
+    mbar_arrive(empty(s));
+  }
 
   // -------------------------------------------------------------- epilogue
   const int m0 = row0 + r0, m1 = row0 + r1;
   const bool v0 = m0 < row_end, v1 = m1 < row_end;
-
-  // Undo the per-column reference exponent folded into the weights.
-  {
-    const uint8_t* wref = args.w_ref + static_cast<int64_t>(expert) * args.N;
 #pragma unroll
-    for (int i = 0; i < 8; ++i) {
-      int grow0, grow1;   // weight rows (output columns) of accumulator slice i
-      if constexpr (MODE == Mode::FC3_Y) {
-        grow0 = n_tile * kBN + cw * 64 + 8 * i + c0;
-        grow1 = grow0 + 1;
-      } else {
-        const int F = args.N >> 1;
-        const int base = (i < 4) ? (n_tile * 64 + cw * 32 + 8 * i + c0)
-                                 : (F + n_tile * 64 + cw * 32 + 8 * (i - 4) + c0);
-        grow0 = base;
-        grow1 = base + 1;
+  for (int hh = 0; hh < NHALF; ++hh) {
+    const int vh = kPreB ? hh : cw;   // which 64-column half of the B tile
+    const int ao = hh * 32;           // its accumulator slice
+
+    // Undo the per-column reference exponent folded into the weights.
+    {
+      const uint8_t* wref = args.w_ref + static_cast<int64_t>(expert) * args.N;
+#pragma unroll
+      for (int i = 0; i < 8; ++i) {
+        int grow0, grow1;   // weight rows (output columns) of accumulator slice i
+        if constexpr (MODE == Mode::FC3_Y) {
+          grow0 = n_tile * kBN + vh * 64 + 8 * i + c0;
+          grow1 = grow0 + 1;
+        } else {
+          const int F = args.N >> 1;
+          const int base = (i < 4) ? (n_tile * 64 + vh * 32 + 8 * i + c0)
+                                   : (F + n_tile * 64 + vh * 32 + 8 * (i - 4) + c0);
+          grow0 = base;
+          grow1 = base + 1;
+        }
+        const float f0 = e8m0_to_f32(__ldg(wref + grow0));
+        const float f1 = e8m0_to_f32(__ldg(wref + grow1));
+        acc[ao + 4 * i + 0] *= f0; acc[ao + 4 * i + 1] *= f1;
+        acc[ao + 4 * i + 2] *= f0; acc[ao + 4 * i + 3] *= f1;
       }
-      const float f0 = e8m0_to_f32(__ldg(wref + grow0));
-      const float f1 = e8m0_to_f32(__ldg(wref + grow1));
-      acc[4 * i + 0] *= f0; acc[4 * i + 1] *= f1;
-      acc[4 * i + 2] *= f0; acc[4 * i + 3] *= f1;
+    }
+
+    if constexpr (MODE == Mode::FC1_Z) {
+      const int F = args.N >> 1;
+#pragma unroll
+      for (int i = 0; i < 8; ++i) {
+        const int col = (i < 4) ? (n_tile * 64 + vh * 32 + 8 * i + c0)
+                                : (F + n_tile * 64 + vh * 32 + 8 * (i - 4) + c0);
+        if (v0) *reinterpret_cast<float2*>(args.z + static_cast<int64_t>(m0) * args.N + col) =
+            make_float2(acc[ao + 4 * i + 0], acc[ao + 4 * i + 1]);
+        if (v1) *reinterpret_cast<float2*>(args.z + static_cast<int64_t>(m1) * args.N + col) =
+            make_float2(acc[ao + 4 * i + 2], acc[ao + 4 * i + 3]);
+      }
+    } else if constexpr (MODE == Mode::FC3_Y) {
+#pragma unroll
+      for (int i = 0; i < 8; ++i) {
+        const int col = n_tile * kBN + vh * 64 + 8 * i + c0;
+        if (v0) *reinterpret_cast<__nv_bfloat162*>(args.y + static_cast<int64_t>(m0) * args.N + col) =
+            __floats2bfloat162_rn(acc[ao + 4 * i + 0], acc[ao + 4 * i + 1]);
+        if (v1) *reinterpret_cast<__nv_bfloat162*>(args.y + static_cast<int64_t>(m1) * args.N + col) =
+            __floats2bfloat162_rn(acc[ao + 4 * i + 2], acc[ao + 4 * i + 3]);
+      }
+    } else {  // FC1_HQ: this warpgroup owns h columns [n_tile*64 + vh*32, +32) == one MX block.
+      const int F = args.N >> 1;
+      const float p0 = v0 ? __ldg(args.p_s + m0) : 0.0f;
+      const float p1 = v1 ? __ldg(args.p_s + m1) : 0.0f;
+      // Slice i (gate) pairs with slice i+4 (up) at the same column.
+      float h0[8], h1[8];
+#pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        h0[2 * i + 0] = swiglu_bf16(acc[ao + 4 * i + 0], acc[ao + 4 * (i + 4) + 0], p0);
+        h0[2 * i + 1] = swiglu_bf16(acc[ao + 4 * i + 1], acc[ao + 4 * (i + 4) + 1], p0);
+        h1[2 * i + 0] = swiglu_bf16(acc[ao + 4 * i + 2], acc[ao + 4 * (i + 4) + 2], p1);
+        h1[2 * i + 1] = swiglu_bf16(acc[ao + 4 * i + 3], acc[ao + 4 * (i + 4) + 3], p1);
+      }
+      float a0 = 0.0f, a1 = 0.0f;
+#pragma unroll
+      for (int t = 0; t < 8; ++t) {
+        a0 = fmaxf(a0, fabsf(h0[t]));
+        a1 = fmaxf(a1, fabsf(h1[t]));
+      }
+      // The 32-column block is spread over the 4 lanes of a quad (same row).
+      a0 = fmaxf(a0, __shfl_xor_sync(0xFFFFFFFFu, a0, 1));
+      a0 = fmaxf(a0, __shfl_xor_sync(0xFFFFFFFFu, a0, 2));
+      a1 = fmaxf(a1, __shfl_xor_sync(0xFFFFFFFFu, a1, 1));
+      a1 = fmaxf(a1, __shfl_xor_sync(0xFFFFFFFFu, a1, 2));
+      const int code0 = e8m0_code_from_amax(a0);
+      const int code1 = e8m0_code_from_amax(a1);
+      const float inv0 = e8m0_to_f32(254 - code0);   // 1 / 2^(code-127) == 2^(127-code)
+      const float inv1 = e8m0_to_f32(254 - code1);
+      const int hcol0 = n_tile * 64 + vh * 32;
+#pragma unroll
+      for (int t = 0; t < 4; ++t) {
+        const int col = hcol0 + 8 * t + c0;
+        if (v0) {
+          const uint8_t q0 = f32_to_e4m3_sat(h0[2 * t] * inv0);
+          const uint8_t q1 = f32_to_e4m3_sat(h0[2 * t + 1] * inv0);
+          *reinterpret_cast<uint16_t*>(args.h_codes + static_cast<int64_t>(m0) * F + col) =
+              static_cast<uint16_t>(q0 | (q1 << 8));
+        }
+        if (v1) {
+          const uint8_t q0 = f32_to_e4m3_sat(h1[2 * t] * inv1);
+          const uint8_t q1 = f32_to_e4m3_sat(h1[2 * t + 1] * inv1);
+          *reinterpret_cast<uint16_t*>(args.h_codes + static_cast<int64_t>(m1) * F + col) =
+              static_cast<uint16_t>(q0 | (q1 << 8));
+        }
+      }
+      if ((lane & 3) == 0) {
+        const int sidx = hcol0 / kMxBlock;
+        if (v0) args.h_scales[static_cast<int64_t>(m0) * (F / kMxBlock) + sidx] = static_cast<uint8_t>(code0);
+        if (v1) args.h_scales[static_cast<int64_t>(m1) * (F / kMxBlock) + sidx] = static_cast<uint8_t>(code1);
+      }
     }
   }
-
-  if constexpr (MODE == Mode::FC1_Z) {
-    const int F = args.N >> 1;
-#pragma unroll
-    for (int i = 0; i < 8; ++i) {
-      const int col = (i < 4) ? (n_tile * 64 + cw * 32 + 8 * i + c0)
-                              : (F + n_tile * 64 + cw * 32 + 8 * (i - 4) + c0);
-      if (v0) *reinterpret_cast<float2*>(args.z + static_cast<int64_t>(m0) * args.N + col) =
-          make_float2(acc[4 * i + 0], acc[4 * i + 1]);
-      if (v1) *reinterpret_cast<float2*>(args.z + static_cast<int64_t>(m1) * args.N + col) =
-          make_float2(acc[4 * i + 2], acc[4 * i + 3]);
-    }
-  } else if constexpr (MODE == Mode::FC3_Y) {
-#pragma unroll
-    for (int i = 0; i < 8; ++i) {
-      const int col = n_tile * kBN + cw * 64 + 8 * i + c0;
-      if (v0) *reinterpret_cast<__nv_bfloat162*>(args.y + static_cast<int64_t>(m0) * args.N + col) =
-          __floats2bfloat162_rn(acc[4 * i + 0], acc[4 * i + 1]);
-      if (v1) *reinterpret_cast<__nv_bfloat162*>(args.y + static_cast<int64_t>(m1) * args.N + col) =
-          __floats2bfloat162_rn(acc[4 * i + 2], acc[4 * i + 3]);
-    }
-  } else {  // FC1_HQ: this warpgroup owns h columns [n_tile*64 + cw*32, +32) == one MX block.
-    const int F = args.N >> 1;
-    const float p0 = v0 ? __ldg(args.p_s + m0) : 0.0f;
-    const float p1 = v1 ? __ldg(args.p_s + m1) : 0.0f;
-    // Slice i (gate) pairs with slice i+4 (up) at the same column.
-    float h0[8], h1[8];
-#pragma unroll
-    for (int i = 0; i < 4; ++i) {
-      h0[2 * i + 0] = swiglu_bf16(acc[4 * i + 0], acc[4 * (i + 4) + 0], p0);
-      h0[2 * i + 1] = swiglu_bf16(acc[4 * i + 1], acc[4 * (i + 4) + 1], p0);
-      h1[2 * i + 0] = swiglu_bf16(acc[4 * i + 2], acc[4 * (i + 4) + 2], p1);
-      h1[2 * i + 1] = swiglu_bf16(acc[4 * i + 3], acc[4 * (i + 4) + 3], p1);
-    }
-    float a0 = 0.0f, a1 = 0.0f;
-#pragma unroll
-    for (int t = 0; t < 8; ++t) {
-      a0 = fmaxf(a0, fabsf(h0[t]));
-      a1 = fmaxf(a1, fabsf(h1[t]));
-    }
-    // The 32-column block is spread over the 4 lanes of a quad (same row).
-    a0 = fmaxf(a0, __shfl_xor_sync(0xFFFFFFFFu, a0, 1));
-    a0 = fmaxf(a0, __shfl_xor_sync(0xFFFFFFFFu, a0, 2));
-    a1 = fmaxf(a1, __shfl_xor_sync(0xFFFFFFFFu, a1, 1));
-    a1 = fmaxf(a1, __shfl_xor_sync(0xFFFFFFFFu, a1, 2));
-    const int code0 = e8m0_code_from_amax(a0);
-    const int code1 = e8m0_code_from_amax(a1);
-    const float inv0 = e8m0_to_f32(254 - code0);   // 1 / 2^(code-127) == 2^(127-code)
-    const float inv1 = e8m0_to_f32(254 - code1);
-    const int hcol0 = n_tile * 64 + cw * 32;
-#pragma unroll
-    for (int t = 0; t < 4; ++t) {
-      const int col = hcol0 + 8 * t + c0;
-      if (v0) {
-        const uint8_t q0 = f32_to_e4m3_sat(h0[2 * t] * inv0);
-        const uint8_t q1 = f32_to_e4m3_sat(h0[2 * t + 1] * inv0);
-        *reinterpret_cast<uint16_t*>(args.h_codes + static_cast<int64_t>(m0) * F + col) =
-            static_cast<uint16_t>(q0 | (q1 << 8));
-      }
-      if (v1) {
-        const uint8_t q0 = f32_to_e4m3_sat(h1[2 * t] * inv1);
-        const uint8_t q1 = f32_to_e4m3_sat(h1[2 * t + 1] * inv1);
-        *reinterpret_cast<uint16_t*>(args.h_codes + static_cast<int64_t>(m1) * F + col) =
-            static_cast<uint16_t>(q0 | (q1 << 8));
-      }
-    }
-    if ((lane & 3) == 0) {
-      const int sidx = hcol0 / kMxBlock;
-      if (v0) args.h_scales[static_cast<int64_t>(m0) * (F / kMxBlock) + sidx] = static_cast<uint8_t>(code0);
-      if (v1) args.h_scales[static_cast<int64_t>(m1) * (F / kMxBlock) + sidx] = static_cast<uint8_t>(code1);
-    }
-  }
+  }  // tile loop
 }
 
 
@@ -1006,12 +1166,68 @@ void check_grouped_inputs(const torch::Tensor& a_codes, const torch::Tensor& a_s
   TORCH_CHECK(M < (1LL << 31) && N < (1LL << 31), "M and N must fit in int32");
 }
 
+// MXFP4 W [E, N, K] -> folded E4M3 bytes [E, N, K] (the B operand convert_b_stage
+// builds in shared memory), for experts that have rows; one thread per (row, MX block).
+__global__ void __launch_bounds__(256)
+sm90_moe_expand_w8_kernel(const uint8_t* __restrict__ codes, const uint8_t* __restrict__ res,
+                          const int32_t* __restrict__ offsets, int N, int K,
+                          uint8_t* __restrict__ out) {
+  const int e = blockIdx.y;
+  if (offsets[e + 1] == offsets[e]) return;
+  const int blocks = K >> 5;
+  const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx >= static_cast<int64_t>(N) * blocks) return;
+  const int64_t g = static_cast<int64_t>(e) * N * blocks + idx;   // (row, block) of expert e
+  const uint32_t r = res[g];
+  const uint32_t lut_lo = kFoldLut[r][0], lut_hi = kFoldLut[r][1];
+  const uint4 packed = *reinterpret_cast<const uint4*>(codes + g * 16);
+  const uint32_t pk[4] = {packed.x, packed.y, packed.z, packed.w};
+  uint32_t o[8];
+#pragma unroll
+  for (int w = 0; w < 4; ++w) {
+    o[2 * w] = e2m1x4_packed_to_e4m3x4(pk[w], lut_lo, lut_hi);
+    o[2 * w + 1] = e2m1x4_packed_to_e4m3x4(pk[w] >> 16, lut_lo, lut_hi);
+  }
+  uint4* dst = reinterpret_cast<uint4*>(out + g * 32);
+  dst[0] = make_uint4(o[0], o[1], o[2], o[3]);
+  dst[1] = make_uint4(o[4], o[5], o[6], o[7]);
+}
+
+constexpr int kPreStages = 6;   // 6 x (16 + 16) KB
+
 template <Mode MODE>
-void launch_gemm(const torch::Tensor& a_codes, const torch::Tensor& w_codes, GemmArgs args,
-                 int64_t M, int64_t E, int64_t K, int grid_y, cudaStream_t stream) {
+void launch_gemm(const torch::Tensor& a_codes, const torch::Tensor& w_codes, const c10::optional<torch::Tensor>& w8,
+                 GemmArgs args, int64_t M, int64_t E, int64_t K, int grid_y, cudaStream_t stream) {
   CUtensorMap a_tmap, w_tmap;
   init_tmap_u8_sw128(&a_tmap, a_codes.data_ptr(), static_cast<uint64_t>(M),
                      static_cast<uint64_t>(K), kBM, kBK);
+  const int bm = w8.has_value() ? kBMPre : kBM;
+  args.num_tb = static_cast<int>((M + bm - 1) / bm + E);   // token-block upper bound
+  args.num_nt = grid_y;
+  const dim3 grid(static_cast<unsigned>(static_cast<int64_t>(args.num_tb) * grid_y));
+  if (w8.has_value()) {
+    const auto& t = *w8;
+    TORCH_CHECK(t.is_cuda() && t.is_contiguous() && t.scalar_type() == torch::kUInt8 && t.dim() == 3 &&
+                    t.size(0) == E && t.size(1) == args.N && t.size(2) == K,
+                "w8 must be the contiguous uint8 [E, N, K] from sm90_moe_expand_w8");
+    init_tmap_u8_sw128(&w_tmap, t.data_ptr(), static_cast<uint64_t>(E) * args.N,
+                       static_cast<uint64_t>(K), MODE == Mode::FC3_Y ? kBN : 32, kBK);
+    init_tmap_u8_sw128(&a_tmap, a_codes.data_ptr(), static_cast<uint64_t>(M),
+                       static_cast<uint64_t>(K), kBMPre, kBK);
+    using L = SmemLayoutPre<kPreStages>;
+    auto* kernel = sm90_moe_gemm_kernel<MODE, kPreStages, true>;
+    static bool attr_set = false;
+    if (!attr_set) {
+      C10_CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, L::kTotal));
+      attr_set = true;
+    }
+    const int sms = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    const int64_t tiles = static_cast<int64_t>(args.num_tb) * grid_y;
+    const dim3 pgrid(static_cast<unsigned>(std::min<int64_t>(tiles, sms)));
+    kernel<<<pgrid, kNumThreads, L::kTotal, stream>>>(a_tmap, w_tmap, args);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return;
+  }
   // Packed weights viewed as [E*N rows, K/2 bytes]; boxes of 64 bytes x 32 or 128 rows.
   init_tmap_u8_plain(&w_tmap, w_codes.data_ptr(), static_cast<uint64_t>(E) * args.N,
                      static_cast<uint64_t>(K / 2), MODE == Mode::FC3_Y ? kBN : 32, kBK / 2);
@@ -1022,9 +1238,6 @@ void launch_gemm(const torch::Tensor& a_codes, const torch::Tensor& w_codes, Gem
     C10_CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, L::kTotal));
     attr_set = true;
   }
-  // Upper bound on the number of token blocks over all experts.
-  const int64_t max_blocks = (M + kBM - 1) / kBM + E;
-  dim3 grid(static_cast<unsigned>(max_blocks), static_cast<unsigned>(grid_y));
   kernel<<<grid, kNumThreads, L::kTotal, stream>>>(a_tmap, w_tmap, args);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
@@ -1061,7 +1274,8 @@ std::vector<torch::Tensor> sm90_moe_prepare_weight_ref(torch::Tensor w_scales) {
 // fc1: z = x_q @ W1^T per expert, FP32 [M, 2F] (gate columns then up columns).
 torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales,
                                    torch::Tensor w1_codes, torch::Tensor w1_scales,
-                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets) {
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets,
+                                   c10::optional<torch::Tensor> w8) {
 #if defined(RL_KERNEL_ENABLE_MOE_SM90)
   int64_t M, K, E, N;
   check_grouped_inputs(a_codes, a_scales, w1_codes, w1_scales, w_ref, w_res, expert_offsets, M, K, E, N);
@@ -1079,7 +1293,7 @@ torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales
   args.offsets = expert_offsets.data_ptr<int32_t>();
   args.z = z.data_ptr<float>();
   args.M = static_cast<int>(M); args.N = static_cast<int>(N); args.K = static_cast<int>(K); args.E = static_cast<int>(E);
-  launch_gemm<Mode::FC1_Z>(a_codes, w1_codes, args, M, E, K, static_cast<int>(N / 128),
+  launch_gemm<Mode::FC1_Z>(a_codes, w1_codes, w8, args, M, E, K, static_cast<int>(N / 128),
                            at::cuda::getCurrentCUDAStream());
   return z;
 #else
@@ -1090,7 +1304,8 @@ torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales
 // fc1 + clamp-SwiGLU * p_s + MX quant: returns (h_codes [M, F], h_scales [M, F/32]).
 std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
     torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes,
-    torch::Tensor w1_scales, torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets, torch::Tensor p_s) {
+    torch::Tensor w1_scales, torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets, torch::Tensor p_s,
+    c10::optional<torch::Tensor> w8) {
 #if defined(RL_KERNEL_ENABLE_MOE_SM90)
   int64_t M, K, E, N;
   check_grouped_inputs(a_codes, a_scales, w1_codes, w1_scales, w_ref, w_res, expert_offsets, M, K, E, N);
@@ -1115,7 +1330,7 @@ std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
   args.h_codes = h_codes.data_ptr<uint8_t>();
   args.h_scales = h_scales.data_ptr<uint8_t>();
   args.M = static_cast<int>(M); args.N = static_cast<int>(N); args.K = static_cast<int>(K); args.E = static_cast<int>(E);
-  launch_gemm<Mode::FC1_HQ>(a_codes, w1_codes, args, M, E, K, static_cast<int>(F / 64),
+  launch_gemm<Mode::FC1_HQ>(a_codes, w1_codes, w8, args, M, E, K, static_cast<int>(F / 64),
                             at::cuda::getCurrentCUDAStream());
   return {h_codes, h_scales};
 #else
@@ -1126,7 +1341,8 @@ std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
 // fc3: y = h_q @ W2^T per expert, BF16 [M, H].
 torch::Tensor sm90_moe_fc3_forward(torch::Tensor h_codes, torch::Tensor h_scales,
                                    torch::Tensor w2_codes, torch::Tensor w2_scales,
-                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets) {
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets,
+                                   c10::optional<torch::Tensor> w8) {
 #if defined(RL_KERNEL_ENABLE_MOE_SM90)
   int64_t M, K, E, N;
   check_grouped_inputs(h_codes, h_scales, w2_codes, w2_scales, w_ref, w_res, expert_offsets, M, K, E, N);
@@ -1144,11 +1360,39 @@ torch::Tensor sm90_moe_fc3_forward(torch::Tensor h_codes, torch::Tensor h_scales
   args.offsets = expert_offsets.data_ptr<int32_t>();
   args.y = reinterpret_cast<__nv_bfloat16*>(y.data_ptr<at::BFloat16>());
   args.M = static_cast<int>(M); args.N = static_cast<int>(N); args.K = static_cast<int>(K); args.E = static_cast<int>(E);
-  launch_gemm<Mode::FC3_Y>(h_codes, w2_codes, args, M, E, K, static_cast<int>(N / kBN),
+  launch_gemm<Mode::FC3_Y>(h_codes, w2_codes, w8, args, M, E, K, static_cast<int>(N / kBN),
                            at::cuda::getCurrentCUDAStream());
   return y;
 #else
   TORCH_CHECK(false, "sm90_moe_fc3_forward: not compiled (build with KERNEL_ALIGN_MOE_SM90=1)");
+#endif
+}
+
+// MXFP4 W [E, N, K/2] + residuals -> folded E4M3 [E, N, K] for the experts that have
+// rows (others left uninitialised): the ``w8`` operand of the three GEMMs above.
+torch::Tensor sm90_moe_expand_w8(torch::Tensor w_codes, torch::Tensor w_res,
+                                 torch::Tensor expert_offsets) {
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
+  check_u8(w_codes, 3, "w_codes");
+  check_u8(w_res, 3, "w_res");
+  const int64_t E = w_codes.size(0), N = w_codes.size(1), K = w_codes.size(2) * 2;
+  TORCH_CHECK(K % kBK == 0 && w_res.size(0) == E && w_res.size(1) == N && w_res.size(2) == K / kMxBlock,
+              "w_res must be [E, N, K/32] with K % 128 == 0");
+  TORCH_CHECK(expert_offsets.is_cuda() && expert_offsets.scalar_type() == torch::kInt32 &&
+                  expert_offsets.is_contiguous() && expert_offsets.numel() == E + 1,
+              "expert_offsets must be a contiguous int32 CUDA vector [E+1]");
+  const c10::cuda::OptionalCUDAGuard guard(device_of(w_codes));
+  auto out = torch::empty({E, N, K}, w_codes.options());
+  if (E == 0 || N == 0) return out;
+  const int64_t per = N * (K / kMxBlock);
+  dim3 grid(static_cast<unsigned>((per + 255) / 256), static_cast<unsigned>(E));
+  sm90_moe_expand_w8_kernel<<<grid, 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+      w_codes.data_ptr<uint8_t>(), w_res.data_ptr<uint8_t>(), expert_offsets.data_ptr<int32_t>(),
+      static_cast<int>(N), static_cast<int>(K), out.data_ptr<uint8_t>());
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return out;
+#else
+  TORCH_CHECK(false, "sm90_moe_expand_w8: not compiled (build with KERNEL_ALIGN_MOE_SM90=1)");
 #endif
 }
 
