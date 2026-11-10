@@ -344,7 +344,16 @@ def test_triton_zero_rows_is_a_no_op(dtype):
 
 
 _OVERFLOW_ROWS = 2**31 // HIDDEN_SIZE + 1  # 322,639 at H=6656: the first wrapping row
-_OVERFLOW_GIB = _OVERFLOW_ROWS * HIDDEN_SIZE * 2 * 4 / 1024**3
+# Four tensors of the row count live at once inside the forward: hidden and
+# residual going in, residual_out and pre_normed coming out, plus two FP32 rstd
+# vectors of one entry per row, which round to nothing beside them. Measured with
+# max_memory_allocated at 20k and 60k rows: 8.00 bytes per element exactly, which
+# is what this computes. Spelled out because "2 * 4" read as one number and was
+# taken for a dtype width.
+_OVERFLOW_LIVE_TENSORS = 4
+_OVERFLOW_GIB = (
+    _OVERFLOW_ROWS * HIDDEN_SIZE * torch.bfloat16.itemsize * _OVERFLOW_LIVE_TENSORS / 1024**3
+)
 
 
 @requires_cuda

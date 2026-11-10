@@ -64,6 +64,22 @@ def _validate_row(x: Tensor, name: str) -> None:
         raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {x.dtype}.")
 
 
+def _validate_weight_pair(post_weight: Tensor, pre_weight: Tensor) -> None:
+    """The two gains have to agree, which neither of them can be asked alone.
+
+    Both wrappers reject post_weight bf16 against pre_weight fp32, in _validate,
+    and the oracle took it: each dtype is in the supported set, and nothing looked
+    at the pair. So the same call ran here and raised on both kernels, which is the
+    divergence the checks around this one exist to close, between the reference and
+    the implementations it defines rather than between the two backends.
+    """
+    if post_weight.dtype != pre_weight.dtype:
+        raise ValueError(
+            f"post_weight and pre_weight must share dtype, got {post_weight.dtype} "
+            f"and {pre_weight.dtype}."
+        )
+
+
 def _validate_weight(weight: Tensor, hidden: int, name: str) -> None:
     # The rows are held to this dtype set and the weights were not, while both
     # kernels reject anything outside it in fused_add_norm_check_pair and _validate.
@@ -127,6 +143,9 @@ def _validate_backward(
             )
     for tensor, name in weights:
         _validate_weight(tensor, reference.shape[-1], name)
+    if len(weights) == 2:
+        # The decoder-norm backward passes both gains and the final norm passes one.
+        _validate_weight_pair(weights[0][0], weights[1][0])
 
 
 def _centered_norm(x_f: Tensor, weight: Tensor, eps: float) -> Tensor:
@@ -227,6 +246,7 @@ class NativeFusedAddNormOp(nn.Module):
         width = hidden.shape[-1]
         _validate_weight(post_weight, width, "post_weight")
         _validate_weight(pre_weight, width, "pre_weight")
+        _validate_weight_pair(post_weight, pre_weight)
 
         post = _centered_norm(hidden.float(), post_weight, post_eps)
         # Both casts are load-bearing, see the class docstring. The pre-norm reads

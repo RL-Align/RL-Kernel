@@ -91,6 +91,21 @@ def assert_within(
     """
     got_f = got.detach().cpu().float()
     want_f = want.detach().cpu().float()
+    if got_f.shape != want_f.shape:
+        raise ValueError(
+            f"{label}got and want must share shape, got {tuple(got_f.shape)} "
+            f"and {tuple(want_f.shape)}."
+        )
+    if got_f.numel() == 0:
+        # (error <= allowed).all() is True for an empty comparison and argmax raises
+        # on one, so a zero-element call either passed for no reason or died with a
+        # message about argmax. This is the assertion all three [F1] files share, and
+        # the operator has zero-row tests, so the empty case is reachable rather than
+        # hypothetical.
+        raise ValueError(
+            f"{label}nothing to compare: both tensors are empty, which this helper "
+            "cannot report on. Assert the shape instead."
+        )
     allowed = allowance(judgment, dtype, want_f, budget=budget)
     error = (got_f - want_f).abs()
     ratio = error / allowed

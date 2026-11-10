@@ -14,6 +14,7 @@ from rl_engine.validation.operators.operator_specs import (
     make_operator_case,
     operator_names,
 )
+from tests.helpers.fused_add_norm_tolerance import assert_within
 
 
 def _args(**overrides):
@@ -137,3 +138,81 @@ def test_constant_lm_head_inputs_match_operator_contract():
     assert torch.equal(inputs["weight"], torch.full((17, 128), 0.51))
     assert inputs["bias"] is None
     assert operator_shape_name("lm_head", args) == "1x2x128x17"
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+def test_the_fused_add_norm_gold_is_checked_against_an_independent_recomputation(dtype):
+    """The harness's gold for [F1] is the pytorch candidate, so this checks it elsewhere.
+
+    Every spec in ``operator_specs.py`` names the same class as its gold and as its
+    ``pytorch`` candidate, and the others get an independent comparison out of it by
+    setting ``gold_method="forward_fp32"`` while the candidate is called through
+    ``forward``. This operator cannot: ``forward_fp32`` is a different computation
+    rather than ``forward`` widened, because the frozen semantics narrow twice and
+    ``forward_fp32`` skips both, so the gold is ``forward`` and the ``pytorch`` row
+    of the harness compares that method against itself. That row is a tautology and
+    saying so is better than implying otherwise.
+
+    What it would miss is a bug in the narrowing, the ``1 + w`` gain or the eps
+    pair, which would then only surface as a CUDA or Triton mismatch against a gold
+    that is itself wrong. So that is checked here, against an FP64 recomputation
+    written out in this file, on the harness's own inputs rather than on shapes
+    chosen by a unit test. ``tests/ops/norm/test_fused_add_norm.py`` holds the same
+    comparison with negative controls; this is the part that follows the harness.
+
+    The second comparison exists because the first one cannot see the eps. At the
+    model's values, 1e-8 and 1e-5 against a mean of squares near 1, swapping them
+    moves ``rstd`` by about five parts in a million, which is well inside the
+    forward row: measured, the swap leaves this test green. Running the same
+    comparison again with 0.5 and 1e-9 makes the two distinguishable, and the swap
+    then fails it.
+    """
+    from rl_engine.reference.norm.fused_add_norm import NativeFusedAddNormOp
+
+    inputs = make_operator_inputs(
+        "fused_post_norm_residual_pre_norm",
+        _args(input_mode="random", normalized_dim=128, seq=8),
+        dtype,
+        torch.device("cpu"),
+    )
+    got_res, got_pre = NativeFusedAddNormOp().forward(
+        inputs["hidden"],
+        inputs["residual"],
+        inputs["post_weight"],
+        inputs["pre_weight"],
+        post_eps=inputs["post_eps"],
+        pre_eps=inputs["pre_eps"],
+    )
+
+    # Written out rather than borrowed: mean of squares in FP64, rsqrt, the 1 + w
+    # gain, and a cast at each of the two declared narrowing points.
+    def norm64(x, weight, eps):
+        rstd = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + eps)
+        return x * rstd * (1.0 + weight.double())
+
+    hidden64 = inputs["hidden"].double()
+    post = norm64(hidden64, inputs["post_weight"], inputs["post_eps"])
+    residual_out = (inputs["residual"].double() + post.to(dtype).double()).to(dtype)
+    pre_normed = norm64(residual_out.double(), inputs["pre_weight"], inputs["pre_eps"]).to(dtype)
+
+    assert_within("forward_accuracy", dtype, got_res, residual_out.double(), "residual_out: ")
+    assert_within("forward_accuracy", dtype, got_pre, pre_normed.double(), "pre_normed: ")
+
+    post_eps, pre_eps = 0.5, 1e-9
+    got_res2, got_pre2 = NativeFusedAddNormOp().forward(
+        inputs["hidden"],
+        inputs["residual"],
+        inputs["post_weight"],
+        inputs["pre_weight"],
+        post_eps=post_eps,
+        pre_eps=pre_eps,
+    )
+    post2 = norm64(hidden64, inputs["post_weight"], post_eps)
+    residual_out2 = (inputs["residual"].double() + post2.to(dtype).double()).to(dtype)
+    pre_normed2 = norm64(residual_out2.double(), inputs["pre_weight"], pre_eps).to(dtype)
+    assert_within(
+        "forward_accuracy", dtype, got_res2, residual_out2.double(), "residual_out, wide eps: "
+    )
+    assert_within(
+        "forward_accuracy", dtype, got_pre2, pre_normed2.double(), "pre_normed, wide eps: "
+    )

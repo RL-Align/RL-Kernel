@@ -73,6 +73,18 @@ OP_SPECS = {
         # are not bitwise equal to forward at bf16, they differ on roughly five
         # elements per million. The conclusion is unchanged and the margin is wider
         # than the single sample suggested.
+        #
+        # What this costs, said plainly rather than left to be discovered: every
+        # entry in this file names one class as both its gold and its ``pytorch``
+        # candidate, and the others get an independent comparison out of it because
+        # their gold is ``forward_fp32`` while the candidate is called through
+        # ``forward``. This one cannot, so the ``pytorch`` row compares
+        # ``NativeFusedAddNormOp.forward`` against itself and is a tautology: zero
+        # error by construction, not a check. The CUDA and Triton rows are real, and
+        # the gold itself is held to an independent FP64 recomputation on these very
+        # inputs by test_the_fused_add_norm_gold_is_checked_against_an_independent_
+        # recomputation in tests/validation/operators/test_operator_inputs.py, which
+        # fails if the ``1 + w`` offset, a narrowing or the eps pair moves.
         gold_method="forward",
         candidate_paths={
             "pytorch": "rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",

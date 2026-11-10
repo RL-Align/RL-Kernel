@@ -20,6 +20,7 @@ import torch
 from rl_engine.backends.cuda.norm.fused_add_norm import (  # noqa: E402
     CudaFusedAddNormOp,
     cuda_fused_add_norm_available,
+    fused_add_norm_cuda_backward,
     fused_add_norm_cuda_forward,
 )
 from rl_engine.reference.norm.fused_add_norm import (
@@ -62,6 +63,39 @@ _JUDGMENTS = {
 }
 
 
+def test_the_forward_and_gradient_rows_are_not_interchangeable():
+    """Why the judgment per output matters: the two rows are not the same number.
+
+    From the contract at ``op_class="reduction"``, BF16 allows 0.05 absolute on a
+    forward judgment and 0.1 on a gradient one, with the same 0.02 relative term. So
+    checking a forward output against the gradient row is twice as loose as it should
+    be, which is the direction that hides a fault; the reverse is merely strict. An
+    error of 0.07 lands between them and is the discriminator here.
+    """
+    want = torch.zeros(4, 8)
+    got = want + 0.07
+    assert_within("gradient_accuracy", torch.bfloat16, got, want, "gradient row: ")
+    with pytest.raises(AssertionError, match="forward_accuracy outside"):
+        assert_within("forward_accuracy", torch.bfloat16, got, want, "forward row: ")
+
+
+def test_every_output_has_a_judgment_row():
+    """The guard ``_JUDGMENTS``' comment promises, asserted rather than implied.
+
+    The map sat unread for a while, with every call site passing its own literal, so
+    the promise that a new output cannot inherit its neighbour's tolerance row was
+    not kept by anything. ``_assert_against_gold`` looks the judgment up now, which
+    makes an unknown name a KeyError, and this is the other half: a field added to
+    ``_Outputs`` without a row here fails at collection rather than at whichever
+    comparison happens to touch it first.
+    """
+    fields = {f.name for f in dataclasses.fields(_Outputs)}
+    assert fields == set(_JUDGMENTS), (
+        f"_Outputs and _JUDGMENTS disagree: only in _Outputs {sorted(fields - set(_JUDGMENTS))}, "
+        f"only in _JUDGMENTS {sorted(set(_JUDGMENTS) - fields)}"
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class _Outputs:
     """Both forward outputs and all four gradients of one backend, named.
@@ -93,14 +127,20 @@ def _inputs(shape, dtype, *, seed=0):
     )
 
 
-def _assert_against_gold(judgment, dtype, got, want, label=""):
+def _assert_against_gold(output, dtype, got, want):
     """Contract reduction row, plus the shared FP16 budget where it applies.
 
     The policy and the measurements behind it live in
     ``tests/helpers/fused_add_norm_tolerance.py``, in one place because the three
     [F1] files have to agree on what FP16 is held to.
+
+    The judgment comes from ``_JUDGMENTS`` keyed by the output's name rather than
+    from the caller, which is what the map was written for and was not doing: it
+    sat unread while every call site passed its own literal, so the guard its
+    comment advertised did not exist and a new output could have been checked
+    against the forward row by whoever added it. An unknown name is a KeyError here.
     """
-    assert_within(judgment, dtype, got, want, label)
+    assert_within(_JUDGMENTS[output], dtype, got, want, f"{output}: ")
 
 
 @requires_cuda_kernel
@@ -112,8 +152,8 @@ def test_cuda_forward_matches_native(dtype, shape):
         hidden.cpu(), residual.cpu(), post_w.cpu(), pre_w.cpu()
     )
     got_res, got_pre = fused_add_norm_cuda_forward(hidden, residual, post_w, pre_w, **_KW)[:2]
-    _assert_against_gold("forward_accuracy", dtype, got_res, want_res, "residual_out: ")
-    _assert_against_gold("forward_accuracy", dtype, got_pre, want_pre, "pre_normed: ")
+    _assert_against_gold("residual_out", dtype, got_res, want_res)
+    _assert_against_gold("pre_normed", dtype, got_pre, want_pre)
 
 
 @requires_cuda_kernel
@@ -143,7 +183,7 @@ def test_cuda_backward_matches_autograd_on_the_reference(dtype, rows):
         ("hidden", "residual", "post_w", "pre_w"),
         strict=True,
     ):
-        _assert_against_gold("gradient_accuracy", dtype, got.grad, want.grad, f"{name}: ")
+        _assert_against_gold(f"d_{name}", dtype, got.grad, want.grad)
 
 
 @requires_cuda_kernel
@@ -316,6 +356,88 @@ def test_the_registry_falls_through_when_the_extension_is_missing(monkeypatch):
         KernelRegistry().get_op("fused_post_norm_residual_pre_norm", device="cuda"),
         CudaFusedAddNormOp,
     )
+
+
+# The backward half of the same idea. hidden is BF16 in the test below, so the
+# dtype cases are keyed to that.
+_BOTH_BACKWARDS_REJECT = [
+    (
+        lambda kw: kw | {"grad_residual_out": kw["grad_residual_out"][..., :-1]},
+        ValueError,
+        "share hidden's shape",
+    ),
+    (
+        lambda kw: kw | {"grad_pre_normed": kw["grad_pre_normed"][:1]},
+        ValueError,
+        "share hidden's shape",
+    ),
+    (
+        lambda kw: kw | {"grad_residual_out": kw["grad_residual_out"].float()},
+        TypeError,
+        "must have hidden's dtype",
+    ),
+    (
+        lambda kw: kw | {"grad_pre_normed": kw["grad_pre_normed"].double()},
+        TypeError,
+        "fp16, bf16, or fp32",
+    ),
+    (lambda kw: kw | {"rstd_post": kw["rstd_post"][:-1]}, ValueError, "one entry per row"),
+    (lambda kw: kw | {"rstd_pre": kw["rstd_pre"].unsqueeze(0)}, ValueError, "one entry per row"),
+    (lambda kw: kw | {"rstd_post": kw["rstd_post"].to(torch.bfloat16)}, TypeError, "float32"),
+    (
+        lambda kw: kw | {"post_weight": kw["post_weight"].to(torch.float32)},
+        ValueError,
+        "share dtype",
+    ),
+    (lambda kw: kw | {"hidden": kw["hidden"].cpu()}, RuntimeError, "GPU tensor"),
+]
+
+
+@requires_cuda_kernel
+@pytest.mark.parametrize("mutate, exc, match", _BOTH_BACKWARDS_REJECT)
+def test_both_backwards_fail_closed_identically(mutate, exc, match):
+    """The backward pair, held to the same bar as the forward pair.
+
+    This path had no Python entry on the CUDA side at all: the only way in was
+    ``_C.fused_add_norm_backward``, which checks the same things in C++ and raises a
+    TORCH_CHECK ``RuntimeError`` where the Triton wrapper raises a ``TypeError`` or a
+    ``ValueError``. So a caller catching an exception type got backend-dependent
+    behaviour on the backward while the forward was already pinned.
+    ``fused_add_norm_cuda_backward`` is that entry point, the autograd Function goes
+    through it rather than past it, and this table is what keeps the two sets of
+    checks worded identically rather than drifting again.
+
+    A strided ``rstd`` is not in the table: it is covered on each side separately,
+    because building one needs a different allocation than a ``mutate`` lambda over
+    this dict can express.
+    """
+    triton_mod = pytest.importorskip("rl_engine.backends.shared.triton.norm.fused_add_norm")
+    hidden, residual, post_w, pre_w = _inputs((4, HIDDEN_SIZE), torch.bfloat16)
+    res_out, _, rstd_post, rstd_pre = fused_add_norm_cuda_forward(
+        hidden, residual, post_w, pre_w, **_KW
+    )
+    kwargs = {
+        "grad_residual_out": torch.randn_like(res_out),
+        "grad_pre_normed": torch.randn_like(res_out),
+        "hidden": hidden,
+        "residual_out": res_out,
+        "post_weight": post_w,
+        "pre_weight": pre_w,
+        "rstd_post": rstd_post,
+        "rstd_pre": rstd_pre,
+    }
+    bad = mutate(kwargs)
+    with pytest.raises(exc, match=match) as cuda_error:
+        fused_add_norm_cuda_backward(**bad)
+    with pytest.raises(exc, match=match) as triton_error:
+        triton_mod.fused_add_norm_triton_backward(**bad)
+    assert type(cuda_error.value) is type(triton_error.value), (
+        f"CUDA raised {type(cuda_error.value).__name__}, "
+        f"Triton raised {type(triton_error.value).__name__}"
+    )
+    assert str(cuda_error.value) == str(
+        triton_error.value
+    ), f"CUDA said {str(cuda_error.value)!r}, Triton said {str(triton_error.value)!r}"
 
 
 @requires_cuda_kernel

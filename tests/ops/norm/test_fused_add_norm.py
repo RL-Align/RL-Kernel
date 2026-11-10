@@ -232,6 +232,13 @@ def test_forward_differs_from_the_composition_without_the_pre_add_cast(dtype):
             TypeError,
             "pre_weight must have dtype",
         ),
+        # Each weight was checked alone and the pair was not, so bf16 against fp32
+        # ran here and raised on both kernels.
+        (
+            lambda h, r, pw, vw: (h, r, pw.to(torch.bfloat16), vw),
+            ValueError,
+            "post_weight and pre_weight must share dtype",
+        ),
     ],
 )
 def test_fused_add_norm_fails_closed(mutate, exc, match):
@@ -789,6 +796,11 @@ def test_batch_invariance_holds_at_widths_that_are_not_a_multiple_of_32(device, 
             TypeError,
             "post_weight must have dtype",
         ),
+        (
+            lambda a: a | {"pre_weight": a["pre_weight"].to(torch.bfloat16)},
+            ValueError,
+            "post_weight and pre_weight must share dtype",
+        ),
         # A cotangent in another dtype was upcast and answered here while both
         # kernels compare it against hidden and raise. Checked against grad_dtype,
         # which defaults to hidden's dtype, rather than against hidden itself.
@@ -844,6 +856,26 @@ def test_final_norm_backward_fails_loudly_on_bad_input(mutate, exc, match):
     final_norm_backward(**args)
     with pytest.raises(exc, match=match):
         final_norm_backward(**mutate(args))
+
+
+def test_the_shared_tolerance_helper_refuses_an_empty_comparison():
+    """An empty comparison is not a pass, and the helper said it was.
+
+    ``(error <= allowed).all()`` is True for zero elements and ``argmax`` raises on
+    them, so a zero-element call either passed for no reason or died with a message
+    about argmax rather than about the inputs. This operator has zero-row tests, so
+    the case is reachable; all three [F1] files share this helper, so it says so
+    once here.
+    """
+    empty = torch.zeros(0, 64)
+    with pytest.raises(ValueError, match="nothing to compare"):
+        assert_within("forward_accuracy", torch.float32, empty, empty, "empty: ")
+    with pytest.raises(ValueError, match="must share shape"):
+        assert_within(
+            "forward_accuracy", torch.float32, torch.zeros(2, 64), torch.zeros(3, 64), "shape: "
+        )
+    # The non-empty call still works, so the guard has not swallowed the normal path.
+    assert_within("forward_accuracy", torch.float32, torch.zeros(2, 64), torch.zeros(2, 64))
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
