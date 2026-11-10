@@ -1,0 +1,70 @@
+{
+ "device": "NVIDIA H200",
+ "cases": [
+  {
+   "seed": 0,
+   "width": 640,
+   "passed": true,
+   "failed": [],
+   "index_order_changes_bytes": true
+  },
+  {
+   "seed": 1,
+   "width": 640,
+   "passed": true,
+   "failed": [],
+   "index_order_changes_bytes": true
+  },
+  {
+   "seed": 2,
+   "width": 640,
+   "passed": true,
+   "failed": [],
+   "index_order_changes_bytes": true
+  },
+  {
+   "seed": 0,
+   "width": 1152,
+   "passed": true,
+   "failed": [],
+   "index_order_changes_bytes": true
+  },
+  {
+   "seed": 1,
+   "width": 1152,
+   "passed": true,
+   "failed": [],
+   "index_order_changes_bytes": true
+  },
+  {
+   "seed": 2,
+   "width": 1152,
+   "passed": true,
+   "failed": [],
+   "index_order_changes_bytes": true
+  }
+ ],
+ "perf": [
+  {
+   "s_q": 1,
+   "flashmla_us": 24.224000051617622,
+   "torch_us": 224.36480522155762
+  },
+  {
+   "s_q": 64,
+   "flashmla_us": 26.240000501275063,
+   "torch_us": 356.332802772522
+  },
+  {
+   "s_q": 1024,
+   "flashmla_us": 179.1199967265129,
+   "torch_us": 4300.179290771484
+  },
+  {
+   "s_q": 4096,
+   "flashmla_us": 635.6640160083771,
+   "torch_us": NaN
+  }
+ ],
+ "rel_err_vs_torch": 0.0019091034773737192
+}

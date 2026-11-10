@@ -363,6 +363,19 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       config, stable addresses under CUDA graphs; test `fwd(x)[t] == fwd(x[t:t+1])`
       byte-equal. Confirmed (2026-11-10): index canonicalization and config-fixed
       num_splits / workspace are hard requirements, not tuning choices
+  - [x] Dependency and probe. vLLM pins `vllm-project/FlashMLA@a8f794d1`, which builds only
+        against torch's stable ABI (>= 2.10; the vLLM fork runs torch 2.13, we run 2.9). We
+        build `b70aff3` instead: `csrc/sm90` and `csrc/smxx` are identical to the pin (the five
+        commits in between touch only bindings and SM100). `rl_engine/kernels/ops/cuda/flashmla.py`
+        is the fail-closed check (SM90, `1.0.0+b70aff3`; loads the interface directly because
+        that commit's package `__init__` re-exports a missing name).
+        `scripts/probe_dsv4_flashmla_bi.py` (`docs/validation/dsv4-flashmla-bi-2026-11-10.json`):
+        `flash_mla_sparse_fwd` at 64 heads x 512, index widths 640 and 1152, 3 seeds: output
+        and LSE byte-identical run to run, for query prefixes / single queries / windows, with
+        the KV workspace at another offset, and `topk_length` vs `-1` padding. Permuting the
+        same index set **does** change the bytes, so canonicalization is required (vLLM's BI
+        path sorts the top-k ids descending). 1.9e-3 relative to an eager reference with the
+        sink; 9-24x faster than the eager gather + softmax
 - [ ] T06 sliding window: confirm split-KV is pinned on the #240 / FA3 path
 - [ ] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x)
 - [ ] Wire the verl training-side recompute path to the same kernel set (forward only)
