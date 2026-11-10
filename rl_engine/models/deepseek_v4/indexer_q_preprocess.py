@@ -68,8 +68,3 @@ class IndexerQPreprocess:
             masked, cos, sin, self.backend, self.contract
         )
         return IndexerQResult(values, packed, scales, self.implementation_fingerprint)
-
-
-indexer_q_rope_hadamard_mxfp4 = IndexerQPreprocess
-
-__all__ = ["IndexerQPreprocess", "IndexerQResult", "indexer_q_rope_hadamard_mxfp4"]

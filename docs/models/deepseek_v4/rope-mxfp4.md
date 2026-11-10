@@ -12,7 +12,7 @@ Item 15 follows DeepSeek `model.py` lines 413-416: `apply_rotary_emb(q[..., -64:
 `rotate_activation(q)`, `fp4_act_quant(q, 32)`. `values` is the BF16 tensor before
 quantization; the ICV path consumes `packed`/`scales`.
 
-## Item 11: `rope_gptj_interleaved_partial`
+## Item 11: `rope_gptj_interleaved_partial` (`PartialRoPE`)
 
 `PartialRoPE(PartialRoPEContract(head_dim, rope_dim=64))`. Only the last 64 dims
 rotate, as GPT-J interleaved pairs `(2i, 2i+1)`; `y[..., :D-64]` is a byte copy.
@@ -32,7 +32,7 @@ equal the same rows of the unsharded call. These are the calls #631
 is byte-equal to #627's `inverse_rope_gradient`, and its backward to
 `inverse_rope`.
 
-## Item 15: `indexer_q_rope_hadamard_mxfp4`
+## Item 15: `indexer_q_rope_hadamard_mxfp4` (`IndexerQPreprocess`)
 
 `IndexerQPreprocess(IndexerQPreprocessContract(num_heads))` composes item 11
 (`D=128`), #624's `_rotate` (aiter `rotate_activation`, rows padded to an 8-row

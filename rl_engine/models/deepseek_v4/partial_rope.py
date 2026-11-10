@@ -122,8 +122,3 @@ class PartialRoPE:
             x, positions, cos_cache, sin_cache, contract=self.contract, backend=self.backend
         )
         return _PartialRoPE.apply(masked, cos, sin, self.backend)
-
-
-rope_gptj_interleaved_partial = PartialRoPE
-
-__all__ = ["PartialRoPE", "rope_gptj_interleaved_partial", "select_angles"]

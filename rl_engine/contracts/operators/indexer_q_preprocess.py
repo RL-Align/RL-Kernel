@@ -5,17 +5,9 @@ from dataclasses import asdict, dataclass
 import hashlib
 import json
 
-from rl_engine.contracts.operators.partial_rope import (
-    PartialRoPEContract,
-    PartialRoPEError,
-    require,
-)
+from rl_engine.contracts.operators.partial_rope import PartialRoPEContract, require
 
 INDEXER_Q_BACKEND = "aiter.indexer_q.rope_hadamard_mxfp4.v1"
-
-
-class IndexerQPreprocessError(PartialRoPEError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -47,17 +39,5 @@ class IndexerQPreprocessContract:
         return PartialRoPEContract(head_dim=self.head_dim, rope_dim=self.rope_dim)
 
     @property
-    def layout(self):
-        return "e2m1.low_nibble_first.row_major.e8m0_group32.unshuffled"
-
-    @property
     def fingerprint(self):
         return hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode()).hexdigest()
-
-
-__all__ = [
-    "INDEXER_Q_BACKEND",
-    "IndexerQPreprocessContract",
-    "IndexerQPreprocessError",
-    "require",
-]

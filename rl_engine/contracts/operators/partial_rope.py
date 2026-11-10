@@ -39,9 +39,5 @@ class PartialRoPEContract:
         require(self.backend_id == PARTIAL_ROPE_BACKEND, "unknown backend; no silent fallback")
 
     @property
-    def nope_dim(self):
-        return self.head_dim - self.rope_dim
-
-    @property
     def fingerprint(self):
         return hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode()).hexdigest()

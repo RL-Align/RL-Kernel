@@ -5,10 +5,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from rl_engine.contracts.operators.indexer_q_preprocess import (
-    IndexerQPreprocessContract,
-    IndexerQPreprocessError,
-)
+from rl_engine.contracts.operators.indexer_q_preprocess import IndexerQPreprocessContract
 from rl_engine.contracts.operators.partial_rope import PartialRoPEContract, PartialRoPEError
 from rl_engine.integrations.engines.rollout.vllm.indexer_q_preprocess import (
     contracts_from_hf_config,
@@ -73,7 +70,6 @@ def test_contracts_have_no_model_defaults_and_adapter_reads_config():
     rope, q = contracts_from_hf_config(config)
     assert rope == ROPE and q == replace(QPRE, num_heads=64)
     assert QPRE.rope == PartialRoPEContract(head_dim=128, rope_dim=64)
-    assert issubclass(IndexerQPreprocessError, PartialRoPEError)
 
 
 def test_reference_rope_autograd_and_padding():
