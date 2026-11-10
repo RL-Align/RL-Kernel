@@ -255,6 +255,101 @@ def test_cuda_and_triton_are_bitwise_equal(dtype, shape):
         )
 
 
+# The two wrappers validate in Python before reaching their kernels, and every
+# divergence between them has been found by the review rather than by me: the rstd
+# checks, the zero-width check, the weights' device, the residual's device, the rank
+# guard, and then the weights' dtype. Nine findings of the same shape. One table
+# driven against both of them, asserting the same exception type and the same text,
+# is the thing that would have caught all nine, so it is here rather than a tenth
+# fix. Anything genuinely one-sided stays out of it and is named below.
+_BOTH_WRAPPERS_REJECT = [
+    (lambda h, r, pw, vw: (h[..., :-1], r, pw, vw), ValueError, "share shape"),
+    (lambda h, r, pw, vw: (h, r.to(torch.float16), pw, vw), ValueError, "share dtype"),
+    (lambda h, r, pw, vw: (h, r, pw[:-1], vw), ValueError, "post_weight must be 1-D"),
+    (lambda h, r, pw, vw: (h, r, pw, vw[:-1]), ValueError, "pre_weight must be 1-D"),
+    (lambda h, r, pw, vw: (h.cpu(), r.cpu(), pw, vw), RuntimeError, "GPU tensor"),
+    (
+        lambda h, r, pw, vw: (h[..., :0], r[..., :0], pw[:0], vw[:0]),
+        ValueError,
+        "non-zero last dimension",
+    ),
+    (lambda h, r, pw, vw: (h[0, 0], r[0, 0], pw, vw), ValueError, "at least one dimension"),
+    (lambda h, r, pw, vw: (h, r, pw.to(torch.int64), vw), TypeError, "fp16, bf16, or fp32"),
+    (lambda h, r, pw, vw: (h, r, pw.cpu(), vw), RuntimeError, "GPU tensor"),
+    (lambda h, r, pw, vw: (h, r, pw.to(torch.bfloat16), vw), ValueError, "share dtype"),
+]
+
+
+def test_the_cuda_op_refuses_to_construct_without_the_extension(monkeypatch):
+    """The availability gate every other CUDA op in the table has.
+
+    ``KernelRegistry._get_or_create_backend`` calls ``op_class()``, treats any
+    exception as "this backend is not available", and moves to the next candidate.
+    This operator is listed ahead of Triton and PyTorch, and the class had no
+    ``__init__``, so on a CUDA host with an unbuilt extension it constructed fine,
+    was returned as the selected backend, and failed later inside ``forward``.
+    """
+    from rl_engine.backends.cuda.norm import fused_add_norm as cuda_mod
+
+    monkeypatch.setattr(cuda_mod, "_EXT_AVAILABLE", False)
+    monkeypatch.setattr(cuda_mod, "_C", None)
+    with pytest.raises(RuntimeError, match="compiled rl_engine._C extension"):
+        cuda_mod.CudaFusedAddNormOp()
+
+
+@requires_cuda_kernel
+def test_the_registry_falls_through_when_the_extension_is_missing(monkeypatch):
+    """With the gate in place, dispatch reaches the next candidate instead of failing."""
+    triton_mod = pytest.importorskip("rl_engine.backends.shared.triton.norm.fused_add_norm")
+    from rl_engine.backends.cuda.norm import fused_add_norm as cuda_mod
+    from rl_engine.runtime.registry import KernelRegistry
+
+    monkeypatch.setattr(cuda_mod, "_EXT_AVAILABLE", False)
+    monkeypatch.setattr(cuda_mod, "_C", None)
+    op = KernelRegistry().get_op("fused_post_norm_residual_pre_norm", device="cuda")
+    assert isinstance(
+        op, triton_mod.TritonFusedAddNormOp
+    ), f"dispatch returned {type(op).__name__} with the extension unavailable"
+    # And the control: with the extension there, the CUDA candidate still wins.
+    monkeypatch.undo()
+    assert isinstance(
+        KernelRegistry().get_op("fused_post_norm_residual_pre_norm", device="cuda"),
+        CudaFusedAddNormOp,
+    )
+
+
+@requires_cuda_kernel
+@pytest.mark.parametrize("mutate, exc, match", _BOTH_WRAPPERS_REJECT)
+def test_both_wrappers_fail_closed_identically(mutate, exc, match):
+    """The same bad call has to fail the same way on both backends.
+
+    Not merely "both raise". The C++ binding catches everything in this table, so
+    the CUDA path always raised something; what differed was that it raised a
+    TORCH_CHECK ``RuntimeError`` from the extension where the Triton wrapper raised
+    a ``TypeError`` or ``ValueError`` from Python, which is a backend-dependent
+    failure mode and makes any test that asserts an exception type backend-specific.
+    So this compares the type and the message text, not just the fact of a raise.
+
+    What is deliberately not here, because it is a real asymmetry rather than an
+    oversight: the Triton side rejects a width needing more than ``_MAX_CHUNKS``
+    statically unrolled chunks and the CUDA kernel loops instead and has no such
+    ceiling. That one is in the doc's Known Limitations.
+    """
+    triton_mod = pytest.importorskip("rl_engine.backends.shared.triton.norm.fused_add_norm")
+    bad = mutate(*_inputs((4, HIDDEN_SIZE), torch.float32))
+    with pytest.raises(exc, match=match) as cuda_error:
+        fused_add_norm_cuda_forward(*bad, **_KW)
+    with pytest.raises(exc, match=match) as triton_error:
+        triton_mod.fused_add_norm_triton_forward(*bad, **_KW)
+    assert type(cuda_error.value) is type(triton_error.value), (
+        f"CUDA raised {type(cuda_error.value).__name__}, "
+        f"Triton raised {type(triton_error.value).__name__}"
+    )
+    assert str(cuda_error.value) == str(
+        triton_error.value
+    ), f"CUDA said {str(cuda_error.value)!r}, Triton said {str(triton_error.value)!r}"
+
+
 @requires_cuda_kernel
 @pytest.mark.parametrize(
     "mutate, exc, match",
@@ -483,3 +578,28 @@ def test_cuda_binding_rejects_tensors_on_another_device():
     pre_w = torch.randn_like(post_w)
     with pytest.raises(RuntimeError, match="same device"):
         _C.fused_add_norm_forward(hidden, residual, post_w, pre_w, POST_NORM_EPS, RMS_NORM_EPS)
+
+
+@requires_cuda_kernel
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two GPUs")
+@pytest.mark.parametrize("which", ["residual", "post_weight", "pre_weight"])
+def test_both_wrappers_reject_another_device_identically(which):
+    """The cross-device half of the shared table, which needs a second GPU.
+
+    It cannot live in ``_BOTH_WRAPPERS_REJECT`` because that table runs on one
+    device, and these three were exactly where the wrappers diverged: the Triton
+    side gained them a round at a time while this side relied on the binding, which
+    raises a different exception type with a different message.
+    """
+    triton_mod = pytest.importorskip("rl_engine.backends.shared.triton.norm.fused_add_norm")
+    hidden, residual, post_w, pre_w = _inputs((4, HIDDEN_SIZE), torch.bfloat16)
+    args = {"residual": residual, "post_weight": post_w, "pre_weight": pre_w}
+    args[which] = args[which].to("cuda:1")
+    bad = (hidden, args["residual"], args["post_weight"], args["pre_weight"])
+    with pytest.raises(RuntimeError, match="same device as hidden") as cuda_error:
+        fused_add_norm_cuda_forward(*bad, **_KW)
+    with pytest.raises(RuntimeError, match="same device as hidden") as triton_error:
+        triton_mod.fused_add_norm_triton_forward(*bad, **_KW)
+    assert str(cuda_error.value) == str(
+        triton_error.value
+    ), f"CUDA said {str(cuda_error.value)!r}, Triton said {str(triton_error.value)!r}"

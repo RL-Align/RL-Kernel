@@ -603,6 +603,14 @@ class TritonFusedAddNormOp:
 
     backward_impl = "triton_fused_add_norm_declared_fp32_rowfold_dw"
 
+    def __init__(self) -> None:
+        # Same gate as the CUDA class, for the same reason and before the same
+        # finding arrives one backend over. The registry treats an exception from
+        # op_class() as "not available" and tries the next candidate, so without
+        # this a host with no Triton selected this backend and failed later inside
+        # forward rather than falling through to the PyTorch reference.
+        _require_triton()
+
     def __call__(
         self,
         hidden,

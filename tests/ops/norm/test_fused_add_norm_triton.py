@@ -249,6 +249,18 @@ def test_triton_backward_is_batch_invariant_bitwise(dtype):
 
 
 @requires_cuda
+def test_the_triton_op_refuses_to_construct_without_triton(monkeypatch):
+    """Same gate as the CUDA class, so dispatch falls through rather than failing late.
+
+    The registry treats an exception from ``op_class()`` as "not available" and
+    tries the next candidate, so without this a host with no Triton selected this
+    backend and raised inside ``forward`` instead of reaching the PyTorch reference.
+    """
+    monkeypatch.setattr(triton_norm, "_TRITON_AVAILABLE", False)
+    with pytest.raises(RuntimeError, match="Triton is not available"):
+        triton_norm.TritonFusedAddNormOp()
+
+
 @pytest.mark.parametrize(
     "mutate, exc, match",
     [

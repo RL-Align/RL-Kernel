@@ -70,6 +70,17 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
         raise ValueError(
             f"hidden and residual must share dtype, got {hidden.dtype} and {residual.dtype}."
         )
+    # Everything from here to the end of the weight loop exists on the Triton side
+    # and did not exist here, so the same bad call raised a TypeError there and a
+    # TORCH_CHECK RuntimeError from the binding on this path. The binding does catch
+    # all of it, so nothing was silently accepted, but a failure mode that depends
+    # on the backend is the thing the Triton file spends several comments avoiding,
+    # and test_both_wrappers_fail_closed_identically now holds the two to one table.
+    if residual.device != hidden.device:
+        raise RuntimeError(
+            f"residual must be on the same device as hidden ({hidden.device}), "
+            f"got {residual.device}."
+        )
     # Rank before the width, the way the oracle checks it. A 0-D hidden cleared
     # the dtype, device and shape-equality checks above, since a 0-D residual
     # equals a 0-D hidden, and then died on hidden.shape[-1] with "IndexError:
@@ -86,8 +97,22 @@ def _validate(hidden: Tensor, residual: Tensor, post_w: Tensor, pre_w: Tensor) -
         if w.dim() != 1 or w.shape[0] != width:
             raise ValueError(
                 f"{name} must be 1-D of size x.shape[-1]={width}, "
-                f"got tuple({name}.shape)={tuple(w.shape)}"
+                f"got {name}.shape={tuple(w.shape)}"
             )
+        if w.dtype not in _SUPPORTED_DTYPES:
+            raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {w.dtype}.")
+        if not w.is_cuda:
+            raise RuntimeError(f"{name} must be a GPU tensor, got device '{w.device}'.")
+        if w.device != hidden.device:
+            raise RuntimeError(
+                f"{name} must be on the same device as hidden ({hidden.device}), "
+                f"got {w.device}."
+            )
+    if post_w.dtype != pre_w.dtype:
+        raise ValueError(
+            f"post_weight and pre_weight must share dtype, got {post_w.dtype} "
+            f"and {pre_w.dtype}."
+        )
 
 
 def fused_add_norm_cuda_forward(
@@ -167,6 +192,19 @@ class CudaFusedAddNormOp:
     """CUDA [F1] wrapper shaped like the other operator-harness ops."""
 
     backward_impl = "cuda_fused_add_norm_declared_fp32_rowfold_dw"
+
+    def __init__(self) -> None:
+        # SiLUCudaOp, DetGemmOp and the rest raise here when the extension is
+        # missing, and this class did not, which matters because of how the
+        # registry resolves: _get_or_create_backend calls op_class(), treats any
+        # exception as "not available", and moves to the next candidate. This
+        # operator is listed ahead of Triton and PyTorch, so on a CUDA host with no
+        # built extension it was selected anyway and failed later inside forward
+        # instead of falling through. The gate is about the extension, not about
+        # ROCm: cuda_fused_add_norm_available() is stricter because it also answers
+        # the bitwise question, and a hipified build that runs is still worth
+        # dispatching to.
+        _require_cuda_fused_add_norm()
 
     def __call__(
         self,
