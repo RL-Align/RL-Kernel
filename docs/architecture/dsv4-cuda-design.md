@@ -277,7 +277,9 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
     655359/655360 FP8 bytes and all scales (C4, 5 seeds, magnitudes 3e-5 to 50). FP8 rounding
     hides most last-bit differences of Triton's approximate exp / divide / rsqrt and its
     reduction trees, but not all: about 2e-4 mismatching entries, so a full model run would
-    almost surely differ somewhere. **Decision needed**: (a) own CUDA compressor with a
+    almost surely differ somewhere. **Decision (2026-11-10): (a)**, an own CUDA compressor
+    with a defined fixed-order arithmetic (golden and CUDA byte-equal to each other;
+    vLLM byte agreement is measured, not required). The options were: (a) own CUDA compressor with a
     defined fixed-order arithmetic (BI and deterministic; rollout parity only if the rollout
     also runs it), (b) emulate Triton's exact arithmetic (fragile across Triton versions),
     or (c) reuse vLLM's Triton/CuTe compressor kernels on the training side (bitwise with
@@ -347,7 +349,8 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       faster than vLLM's own BI kernel
 - [ ] T05 FlashMLA sparse wrapper: canonicalize indices, pin num_splits/workspace from
       config, stable addresses under CUDA graphs; test `fwd(x)[t] == fwd(x[t:t+1])`
-      byte-equal
+      byte-equal. Confirmed (2026-11-10): index canonicalization and config-fixed
+      num_splits / workspace are hard requirements, not tuning choices
 - [ ] T06 sliding window: confirm split-KV is pinned on the #240 / FA3 path
 - [ ] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x)
 - [ ] Wire the verl training-side recompute path to the same kernel set (forward only)
