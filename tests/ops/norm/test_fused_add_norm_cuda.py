@@ -376,3 +376,82 @@ def test_cuda_and_triton_are_bitwise_equal_at_awkward_widths(dtype, width):
             f"{name}: width {width} at {dtype} differs on {differing} bytes; "
             f"lanes/chunks {triton_mod._reduction_shape(width)[:2]}"
         )
+
+
+@requires_cuda_kernel
+def test_cuda_binding_backward_validates_weights_and_statistics():
+    """The binding fails closed on the four things the automated review found.
+
+    All four were reachable only by calling `_C` directly, which is the path a C++
+    or benchmark caller takes, and two of them were measured before the fix:
+
+    * a ``post_weight`` shorter than the width. The forward checked the rank and
+      the length and the backward did not, so the kernel indexed ``post_w + col``
+      for every ``col < H`` and read past the allocation. At 4x64 with a
+      half-width weight the call returned without raising.
+    * a non-contiguous ``rstd``. Only the rank and length were checked, and the
+      kernel reads through ``data_ptr<float>()`` with an implicit stride of one, so
+      ``rstd[::2]`` was read as if packed. Measured: the gradients came out
+      different from the contiguous call, with nothing raised.
+    * a wrong ``rstd`` dtype, which ``data_ptr<float>()`` would throw on, but with
+      a message about the pointer cast rather than about the input.
+    * tensors on another device, which the launchers would dereference under
+      ``hidden``'s CUDAGuard. Not reachable with one GPU, so it is checked here by
+      construction rather than by running it.
+    """
+    from rl_engine import _C
+
+    H, T = 64, 4
+    kw = {"device": "cuda", "dtype": torch.bfloat16}
+    hidden = torch.randn(T, H, **kw)
+    residual = torch.randn_like(hidden)
+    post_w = torch.randn(H, **kw)
+    pre_w = torch.randn_like(post_w)
+    res_out, _, rstd_post, rstd_pre = _C.fused_add_norm_forward(
+        hidden, residual, post_w, pre_w, POST_NORM_EPS, RMS_NORM_EPS
+    )
+    g = torch.randn_like(hidden)
+    good = (g, g, hidden, res_out, post_w, pre_w, rstd_post, rstd_pre)
+
+    # The good call still works, so the guards are not rejecting everything.
+    _C.fused_add_norm_backward(*good)
+
+    short = torch.randn(H // 2, **kw)
+    with pytest.raises(RuntimeError, match="must equal weight size"):
+        _C.fused_add_norm_backward(g, g, hidden, res_out, short, short, rstd_post, rstd_pre)
+
+    # Both weights 2-D, so this reaches the rank check rather than the earlier
+    # "must share shape" one in fused_add_norm_check_pair.
+    two_d = torch.randn(1, H, **kw)
+    with pytest.raises(RuntimeError, match="post_weight must be 1D"):
+        _C.fused_add_norm_backward(g, g, hidden, res_out, two_d, two_d.clone(), rstd_post, rstd_pre)
+
+    padded = torch.zeros(T * 2, device="cuda", dtype=torch.float32)
+    padded[::2] = rstd_post
+    strided = padded[::2]
+    assert not strided.is_contiguous()
+    with pytest.raises(RuntimeError, match="rstd_post must be contiguous"):
+        _C.fused_add_norm_backward(g, g, hidden, res_out, post_w, pre_w, strided, rstd_pre)
+
+    with pytest.raises(RuntimeError, match="rstd_pre must be float32"):
+        _C.fused_add_norm_backward(
+            g, g, hidden, res_out, post_w, pre_w, rstd_post, rstd_pre.to(torch.bfloat16)
+        )
+
+    with pytest.raises(RuntimeError, match=r"rstd_post must be \[T\]"):
+        _C.fused_add_norm_backward(g, g, hidden, res_out, post_w, pre_w, rstd_post[:-1], rstd_pre)
+
+
+@requires_cuda_kernel
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two GPUs")
+def test_cuda_binding_rejects_tensors_on_another_device():
+    """Cross-device inputs raise instead of being read under hidden's guard."""
+    from rl_engine import _C
+
+    H, T = 64, 4
+    hidden = torch.randn(T, H, device="cuda:0", dtype=torch.bfloat16)
+    residual = torch.randn(T, H, device="cuda:1", dtype=torch.bfloat16)
+    post_w = torch.randn(H, device="cuda:0", dtype=torch.bfloat16)
+    pre_w = torch.randn_like(post_w)
+    with pytest.raises(RuntimeError, match="same device"):
+        _C.fused_add_norm_forward(hidden, residual, post_w, pre_w, POST_NORM_EPS, RMS_NORM_EPS)

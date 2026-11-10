@@ -75,9 +75,24 @@ namespace {
 // backend; the RFC's "no platform-specific kernel code" applies to the Triton
 // kernel that ROCm also runs.
 __device__ __forceinline__ float rsqrt_approx_ftz(float x) {
+#if defined(USE_ROCM) || defined(__HIP_DEVICE_COMPILE__)
+    // This file is in the shared cuda_sources list, so a ROCm build hipifies it
+    // and compiles it with hipcc, which cannot assemble NVIDIA PTX. hipify does
+    // not translate the asm block either, so without this guard the whole ROCm
+    // extension fails to build -- the repo's other PTX-bearing source,
+    // attention/prefix_shared_attention.cu, is kept out of the ROCm list instead,
+    // but the rest of this file is portable and was building there before.
+    //
+    // The CUDA == Triton bitwise claim is therefore a claim about the CUDA build.
+    // On ROCm the registry dispatches the Triton kernel and the PyTorch gold for
+    // this operator and never selects this one, so the fallback changes no result
+    // that anything reads; it only has to compile and be correct.
+    return rsqrtf(x);
+#else
     float r;
     asm("rsqrt.approx.ftz.f32 %0, %1;" : "=f"(r) : "f"(x));
     return r;
+#endif
 }
 
 __device__ __forceinline__ float mul_rn(float a, float b) { return __fmul_rn(a, b); }

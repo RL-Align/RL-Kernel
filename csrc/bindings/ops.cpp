@@ -332,6 +332,35 @@ static void fused_add_norm_check_pair(
   fused_add_norm_check_dtype(b, bn);
   TORCH_CHECK(a.sizes() == b.sizes(), an, " and ", bn, " must share shape");
   TORCH_CHECK(a.scalar_type() == b.scalar_type(), an, " and ", bn, " must share dtype");
+  TORCH_CHECK(a.device() == b.device(), an, " and ", bn, " must be on the same device, got ",
+              a.device(), " and ", b.device());
+}
+
+// Every tensor has to be on hidden's device, because the launchers take their
+// CUDAGuard from hidden alone. A residual or a weight on another device is then
+// dereferenced as if it lived on hidden's, which is an illegal access at best and
+// silent garbage at worst, and neither says what went wrong.
+static void fused_add_norm_check_device(
+    const torch::Tensor& ref, const char* rn, const torch::Tensor& t, const char* tn) {
+  TORCH_CHECK(t.device() == ref.device(), tn, " must be on the same device as ", rn,
+              ", got ", t.device(), " and ", ref.device());
+}
+
+// rstd_post / rstd_pre come back from the forward and go into the backward, so a
+// direct caller can hand over anything shaped [T]. The kernel reads them through
+// data_ptr<float>() with an implicit stride of one: data_ptr throws on a wrong
+// dtype, but a strided 1-D view such as rstd[::2] is read as if it were packed and
+// silently produces different gradients. Measured on a 4x64 row: the two calls
+// disagree.
+static void fused_add_norm_check_rstd(
+    const torch::Tensor& t, const char* name, int64_t rows, const torch::Tensor& ref) {
+  TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
+  TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
+  TORCH_CHECK(t.scalar_type() == torch::kFloat32, name, " must be float32, got ",
+              t.scalar_type());
+  TORCH_CHECK(t.dim() == 1 && t.size(0) == rows, name, " must be [T] with T=", rows,
+              ", got shape ", t.sizes());
+  fused_add_norm_check_device(ref, "hidden", t, name);
 }
 
 std::vector<torch::Tensor> fused_add_norm_forward(
@@ -341,6 +370,8 @@ std::vector<torch::Tensor> fused_add_norm_forward(
 {
   fused_add_norm_check_pair(hidden, "hidden", residual, "residual");
   fused_add_norm_check_pair(post_w, "post_weight", pre_w, "pre_weight");
+  fused_add_norm_check_device(hidden, "hidden", post_w, "post_weight");
+  fused_add_norm_check_device(hidden, "hidden", pre_w, "pre_weight");
   TORCH_CHECK(hidden.dim() == 2, "hidden must be 2D [T, H]");
   TORCH_CHECK(post_w.dim() == 1, "post_weight must be 1D [H]");
   TORCH_CHECK(hidden.size(1) == post_w.size(0), "hidden.size(1) must equal weight size");
@@ -368,8 +399,18 @@ std::vector<torch::Tensor> fused_add_norm_backward(
   fused_add_norm_check_pair(post_w, "post_weight", pre_w, "pre_weight");
   TORCH_CHECK(g_res.sizes() == hidden.sizes(), "cotangents and hidden must share shape");
   TORCH_CHECK(hidden.dim() == 2, "hidden must be 2D [T, H]");
-  TORCH_CHECK(rstd_post.dim() == 1 && rstd_post.size(0) == hidden.size(0), "rstd_post must be [T]");
-  TORCH_CHECK(rstd_pre.dim() == 1 && rstd_pre.size(0) == hidden.size(0), "rstd_pre must be [T]");
+  // The forward checked the weight rank and length and the backward did not, so a
+  // weight shorter than the width was read past its allocation for every column:
+  // the kernel indexes post_w + col and pre_w + col for all col < H. Measured with
+  // a half-width weight at 4x64, the call returned without raising.
+  TORCH_CHECK(post_w.dim() == 1, "post_weight must be 1D [H]");
+  TORCH_CHECK(hidden.size(1) == post_w.size(0), "hidden.size(1) must equal weight size");
+  fused_add_norm_check_device(hidden, "hidden", g_res, "grad_residual_out");
+  fused_add_norm_check_device(hidden, "hidden", g_pre, "grad_pre_normed");
+  fused_add_norm_check_device(hidden, "hidden", post_w, "post_weight");
+  fused_add_norm_check_device(hidden, "hidden", pre_w, "pre_weight");
+  fused_add_norm_check_rstd(rstd_post, "rstd_post", hidden.size(0), hidden);
+  fused_add_norm_check_rstd(rstd_pre, "rstd_pre", hidden.size(0), hidden);
 
   auto f32 = hidden.options().dtype(torch::kFloat32);
   auto d_hidden = torch::empty(hidden.sizes(), f32);
