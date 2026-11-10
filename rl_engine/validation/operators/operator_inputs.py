@@ -16,6 +16,9 @@ DEFAULT_INTERMEDIATE = 12288
 DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
 DEFAULT_RMS_EPS = 1.0e-6
+# Muse-Glimmer-30B norm eps, per the #558 fingerprint; the two are not interchangeable.
+MUSE_RMS_NORM_EPS = 1.0e-5
+MUSE_POST_NORM_EPS = 1.0e-8
 
 
 def make_operator_inputs(
@@ -26,6 +29,7 @@ def make_operator_inputs(
 ) -> dict[str, Any]:
     builders = {
         "rms_norm": _make_rms_norm_inputs,
+        "fused_post_norm_residual_pre_norm": _make_fused_add_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
         "matmul": _make_matmul_inputs,
@@ -54,6 +58,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
+        "fused_post_norm_residual_pre_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
         "pack": f"{batch}x{seq}x{_normalized_dim(args)}",
@@ -88,6 +93,30 @@ def _make_rms_norm_inputs(
         "x": _floating_tensor((batch, seq, normalized_dim), args, dtype, device, offset=0),
         "weight": _floating_tensor((normalized_dim,), args, dtype, device, offset=1),
         "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
+    }
+
+
+def _make_fused_add_norm_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Muse-Glimmer [F1]: a sublayer output, the residual stream, two norm weights.
+
+    Keys match ``forward(hidden, residual, post_weight, pre_weight, *, post_eps,
+    pre_eps)``. The two eps default to the model's values from the #558
+    fingerprint, 1e-8 for the post-norm and 1e-5 for the pre-norm, and are
+    distinct on purpose; see the reference module for why they must not be
+    swapped. Weights are drawn like any other floating input; the ``1 +`` the
+    decoder norms apply lives in the operator, not here.
+    """
+    batch, seq = _batch_seq(args)
+    hidden = _normalized_dim(args)
+    return {
+        "hidden": _floating_tensor((batch, seq, hidden), args, dtype, device, offset=0),
+        "residual": _floating_tensor((batch, seq, hidden), args, dtype, device, offset=1),
+        "post_weight": _floating_tensor((hidden,), args, dtype, device, offset=2),
+        "pre_weight": _floating_tensor((hidden,), args, dtype, device, offset=3),
+        "post_eps": _arg_float(args, "post_eps", MUSE_POST_NORM_EPS),
+        "pre_eps": _arg_float(args, "pre_eps", MUSE_RMS_NORM_EPS),
     }
 
 

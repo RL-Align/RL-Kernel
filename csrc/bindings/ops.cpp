@@ -296,6 +296,149 @@ static void rmsnorm_check_input(const torch::Tensor& x, const char* name) {
   TORCH_CHECK(x.is_contiguous(), name, " must be contiguous");
 }
 
+// Muse-Glimmer [F1]: post-norm, residual add, pre-norm. csrc/cuda/norm/fused_add_norm.cu
+void fused_add_norm_forward_cuda(
+    torch::Tensor hidden, torch::Tensor residual,
+    torch::Tensor post_w, torch::Tensor pre_w,
+    torch::Tensor res_out, torch::Tensor pre_out,
+    torch::Tensor rstd_post, torch::Tensor rstd_pre,
+    double post_eps, double pre_eps);
+void fused_add_norm_backward_cuda(
+    torch::Tensor g_res, torch::Tensor g_pre,
+    torch::Tensor hidden, torch::Tensor res_out,
+    torch::Tensor post_w, torch::Tensor pre_w,
+    torch::Tensor rstd_post, torch::Tensor rstd_pre,
+    torch::Tensor d_hidden, torch::Tensor d_residual,
+    torch::Tensor partial_post_w, torch::Tensor partial_pre_w);
+
+// FP64 has to be rejected here. AT_DISPATCH_FLOATING_TYPES_AND2 instantiates
+// double, and the kernel's generic load/store cast through float, so a FP64 call
+// returned FP64 tensors carrying FP32 precision -- about 7e-07 of error -- with no
+// error raised. The Python wrappers reject FP64 first, so this is only reachable
+// by calling the binding directly, but failing open on precision is the wrong
+// default for an operator whose whole contract is about where the casts are.
+static void fused_add_norm_check_dtype(const torch::Tensor& t, const char* name) {
+  TORCH_CHECK(
+      t.scalar_type() == torch::kFloat32 || t.scalar_type() == torch::kFloat16 ||
+          t.scalar_type() == torch::kBFloat16,
+      name, " must have dtype fp16, bf16, or fp32, got ", t.scalar_type());
+}
+
+static void fused_add_norm_check_pair(
+    const torch::Tensor& a, const char* an, const torch::Tensor& b, const char* bn) {
+  rmsnorm_check_input(a, an);
+  rmsnorm_check_input(b, bn);
+  fused_add_norm_check_dtype(a, an);
+  fused_add_norm_check_dtype(b, bn);
+  TORCH_CHECK(a.sizes() == b.sizes(), an, " and ", bn, " must share shape");
+  TORCH_CHECK(a.scalar_type() == b.scalar_type(), an, " and ", bn, " must share dtype");
+  TORCH_CHECK(a.device() == b.device(), an, " and ", bn, " must be on the same device, got ",
+              a.device(), " and ", b.device());
+}
+
+// Every tensor has to be on hidden's device, because the launchers take their
+// CUDAGuard from hidden alone. A residual or a weight on another device is then
+// dereferenced as if it lived on hidden's, which is an illegal access at best and
+// silent garbage at worst, and neither says what went wrong.
+static void fused_add_norm_check_device(
+    const torch::Tensor& ref, const char* rn, const torch::Tensor& t, const char* tn) {
+  TORCH_CHECK(t.device() == ref.device(), tn, " must be on the same device as ", rn,
+              ", got ", t.device(), " and ", ref.device());
+}
+
+// rstd_post / rstd_pre come back from the forward and go into the backward, so a
+// direct caller can hand over anything shaped [T]. The kernel reads them through
+// data_ptr<float>() with an implicit stride of one: data_ptr throws on a wrong
+// dtype, but a strided 1-D view such as rstd[::2] is read as if it were packed and
+// silently produces different gradients. Measured on a 4x64 row: the two calls
+// disagree.
+static void fused_add_norm_check_rstd(
+    const torch::Tensor& t, const char* name, int64_t rows, const torch::Tensor& ref) {
+  TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
+  TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
+  TORCH_CHECK(t.scalar_type() == torch::kFloat32, name, " must be float32, got ",
+              t.scalar_type());
+  TORCH_CHECK(t.dim() == 1 && t.size(0) == rows, name, " must be [T] with T=", rows,
+              ", got shape ", t.sizes());
+  fused_add_norm_check_device(ref, "hidden", t, name);
+}
+
+std::vector<torch::Tensor> fused_add_norm_forward(
+  torch::Tensor hidden, torch::Tensor residual,
+  torch::Tensor post_w, torch::Tensor pre_w,
+  double post_eps, double pre_eps)
+{
+  fused_add_norm_check_pair(hidden, "hidden", residual, "residual");
+  fused_add_norm_check_pair(post_w, "post_weight", pre_w, "pre_weight");
+  fused_add_norm_check_device(hidden, "hidden", post_w, "post_weight");
+  fused_add_norm_check_device(hidden, "hidden", pre_w, "pre_weight");
+  TORCH_CHECK(hidden.dim() == 2, "hidden must be 2D [T, H]");
+  // A zero feature dimension passes every other check -- dim 2, weight 1-D, 0 == 0 --
+  // and reaches the kernel, where the row mean is div_rn(sum, 0.0f) and every rstd
+  // comes back NaN. Measured through this entry point: rstd_post was [nan, nan, nan,
+  // nan]. The Python wrapper rejects it first; this binding is public.
+  TORCH_CHECK(hidden.size(1) > 0, "hidden.size(1) must be non-zero");
+  TORCH_CHECK(post_w.dim() == 1, "post_weight must be 1D [H]");
+  TORCH_CHECK(hidden.size(1) == post_w.size(0), "hidden.size(1) must equal weight size");
+
+  auto T = hidden.size(0);
+  auto res_out = torch::empty_like(hidden);
+  auto pre_out = torch::empty_like(hidden);
+  auto f32 = hidden.options().dtype(torch::kFloat32);
+  auto rstd_post = torch::empty({T}, f32);
+  auto rstd_pre = torch::empty({T}, f32);
+
+  fused_add_norm_forward_cuda(hidden, residual, post_w, pre_w,
+                              res_out, pre_out, rstd_post, rstd_pre, post_eps, pre_eps);
+  return {res_out, pre_out, rstd_post, rstd_pre};
+}
+
+std::vector<torch::Tensor> fused_add_norm_backward(
+  torch::Tensor g_res, torch::Tensor g_pre,
+  torch::Tensor hidden, torch::Tensor res_out,
+  torch::Tensor post_w, torch::Tensor pre_w,
+  torch::Tensor rstd_post, torch::Tensor rstd_pre)
+{
+  fused_add_norm_check_pair(g_res, "grad_residual_out", g_pre, "grad_pre_normed");
+  fused_add_norm_check_pair(hidden, "hidden", res_out, "residual_out");
+  fused_add_norm_check_pair(post_w, "post_weight", pre_w, "pre_weight");
+  TORCH_CHECK(g_res.sizes() == hidden.sizes(), "cotangents and hidden must share shape");
+  // The launcher dispatches on hidden.scalar_type() and then takes
+  // g_res.data_ptr<x_t>(), so FP32 cotangents against BF16 hidden raised from the
+  // pointer cast with a message about the cast and not about the input.
+  TORCH_CHECK(g_res.scalar_type() == hidden.scalar_type(),
+              "grad_residual_out must have hidden's dtype, got ", g_res.scalar_type(),
+              " and ", hidden.scalar_type());
+  TORCH_CHECK(g_pre.scalar_type() == hidden.scalar_type(),
+              "grad_pre_normed must have hidden's dtype, got ", g_pre.scalar_type(),
+              " and ", hidden.scalar_type());
+  TORCH_CHECK(hidden.dim() == 2, "hidden must be 2D [T, H]");
+  TORCH_CHECK(hidden.size(1) > 0, "hidden.size(1) must be non-zero");  // see the forward
+  // The forward checked the weight rank and length and the backward did not, so a
+  // weight shorter than the width was read past its allocation for every column:
+  // the kernel indexes post_w + col and pre_w + col for all col < H. Measured with
+  // a half-width weight at 4x64, the call returned without raising.
+  TORCH_CHECK(post_w.dim() == 1, "post_weight must be 1D [H]");
+  TORCH_CHECK(hidden.size(1) == post_w.size(0), "hidden.size(1) must equal weight size");
+  fused_add_norm_check_device(hidden, "hidden", g_res, "grad_residual_out");
+  fused_add_norm_check_device(hidden, "hidden", g_pre, "grad_pre_normed");
+  fused_add_norm_check_device(hidden, "hidden", post_w, "post_weight");
+  fused_add_norm_check_device(hidden, "hidden", pre_w, "pre_weight");
+  fused_add_norm_check_rstd(rstd_post, "rstd_post", hidden.size(0), hidden);
+  fused_add_norm_check_rstd(rstd_pre, "rstd_pre", hidden.size(0), hidden);
+
+  auto f32 = hidden.options().dtype(torch::kFloat32);
+  auto d_hidden = torch::empty(hidden.sizes(), f32);
+  auto d_residual = torch::empty(hidden.sizes(), f32);
+  auto partial_post = torch::empty(hidden.sizes(), f32);
+  auto partial_pre = torch::empty(hidden.sizes(), f32);
+
+  fused_add_norm_backward_cuda(g_res, g_pre, hidden, res_out, post_w, pre_w,
+                               rstd_post, rstd_pre,
+                               d_hidden, d_residual, partial_post, partial_pre);
+  return {d_hidden, d_residual, partial_post, partial_pre};
+}
+
 std::vector<torch::Tensor> rmsnorm_forward(
   torch::Tensor x,
   torch::Tensor weight,
@@ -721,6 +864,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA");
     m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA");
     m.def("rmsnorm_backward_dw", &rmsnorm_backward_dw, "Deterministic RMSNorm backward dweight CUDA");
+    m.def("fused_add_norm_forward", &fused_add_norm_forward,
+          "Muse-Glimmer post-norm + residual add + pre-norm forward CUDA");
+    m.def("fused_add_norm_backward", &fused_add_norm_backward,
+          "Muse-Glimmer post-norm + residual add + pre-norm backward CUDA");
 #if !defined(USE_ROCM)
     m.def(
         "reduce_rows_fp32_left_fold",

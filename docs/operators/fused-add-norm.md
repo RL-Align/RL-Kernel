@@ -1,0 +1,224 @@
+# Fused Post-Norm, Residual Add, Pre-Norm
+
+Muse-Glimmer-30B's decoder layer norms twice per sublayer: a post-norm on the
+sublayer output, then a residual add, then a pre-norm for whatever comes next.
+This operator fuses that tail. It is the `fused_post_norm_residual_pre_norm` row of
+RFC #501 ([F1]) and follows the WS1 dual-path contract: a pure-PyTorch FP32 ground
+truth plus CUDA and Triton candidates validated against it.
+
+```text
+sublayer_out --post_norm--> (+) residual_in --> residual_out
+                              |                     |
+                              +------ pre_norm ---> pre_normed --> next sublayer
+```
+
+Two outputs, because both are live: `residual_out` continues the residual stream and
+`pre_normed` feeds the next sublayer. The model's final norm is a separate, simpler
+operator (`NativeFinalNormOp`) because the fingerprint spells it differently.
+
+## Entry Point
+
+```python
+from rl_engine.runtime.registry import kernel_registry
+
+fused = kernel_registry.get_op("fused_post_norm_residual_pre_norm")
+residual_out, pre_normed = fused(hidden, residual, post_weight, pre_weight)
+# eps default to the model's values; pass post_eps= / pre_eps= to override
+```
+
+- `forward(...)` computes in FP32 and returns the input dtype.
+- `forward_fp32(...)` on the reference computes and returns FP32, and is the gold.
+
+## Contract
+
+Every rule below comes from the `frozen_semantics` block of the #558 architecture
+fingerprint, not from the HF config, because the config does not state most of it.
+
+| Item | Value |
+| --- | --- |
+| Decoder norm form | `x * rstd * (1 + w)`, the `1 +` applied in FP32 inside the operator |
+| Reciprocal square root | `rsqrt` for the decoder norms; `pow_neg_half` for the final norm |
+| `post_eps` | `post_norm_eps = 1e-8`, for `post_attention_layernorm` and `post_feedforward_layernorm` |
+| `pre_eps` | `rms_norm_eps = 1e-5`, for `input_layernorm` and `pre_feedforward_layernorm` |
+| Compute dtype | FP32 throughout, `weight_applied_before_cast` |
+| Hidden width | 6656; the operator is width-agnostic but the tests qualify this width |
+
+Two narrowing points are part of the contract, not incidental. The post-norm's cast is
+its last step, so the value entering the add is already in the model dtype; and the
+sum is narrowed again before the pre-norm reads it, because eager HF adds in the model
+dtype and the next norm sees that rounded value. `forward_fp32` has neither narrowing,
+which is why it is a different computation rather than `forward` widened, and a test
+asserts the two disagree in BF16 so nobody collapses them later.
+
+The `1 +` has to reach the kernel as a parameter. Folding it into a BF16 weight
+beforehand rounds the offset away.
+
+The backward has one rule of its own, the mirror of the second narrowing. The
+residual output is a model-dtype tensor with two gradient consumers, and eager
+autograd accumulates both arrivals in that dtype: `round(g_res + round(d_from_pre))`.
+Both kernels do the same. Keeping that sum in FP32 is one ULP per element, which the
+post-norm weight gradient then sums over rows; measured at bf16 against the
+reference's own autograd it lands 2.6 to 2.9 times outside the contract row at 512
+and 2048 rows, a single rounding of the FP32 sum does not help, and the eager
+accumulation brings it to within 0.125 and then to 0. A reference test asserts both
+halves of that so the rounding cannot be removed as a simplification.
+
+## Backends
+
+| Backend | Class | Notes |
+| --- | --- | --- |
+| PyTorch | `NativeFusedAddNormOp` | gold; `shape_invariant_meansq` reduction |
+| Triton | `TritonFusedAddNormOp` | one program per row, explicit fold in the CUDA kernel's order |
+| CUDA | `CudaFusedAddNormOp` | one block per row, shared-memory tree |
+
+Both GPU kernels save the two per-row statistics from the forward and reuse them in
+the backward, so the backward cannot drift from what the forward used. Weight
+gradients come back as per-row FP32 contributions and are folded with
+`reduce_rows_fp32`, the same declared reduction order the other norms use.
+
+## Accuracy
+
+- **Independent FP64 reference.** The reference is checked against definitions
+  written a second time in FP64 without importing the production helpers, forward
+  and closed-form backward, with random non-zero cotangents on both outputs. Guard
+  tests assert the FP64 comparison rejects a dropped `(1 + w)` offset and a swapped
+  eps pair, so the check cannot pass vacuously.
+- **Tolerance class.** This is a reduction, not an elementwise op: `OP_SPECS` sets
+  `op_class="reduction"` and both GPU kernels are held to those rows against the
+  gold, FP32 and BF16 exactly. FP16 is `optional` in the contract and cannot meet
+  the declared 1e-3: the kernels differ from the gold by one FP16 ULP on a handful
+  of elements where the reduction order lands on the far side of a tie in the
+  residual add, so FP16 is held to one ULP of the reference instead. Measured, that
+  costs nothing: the relaxed FP16 bar catches exactly the same injected bugs the
+  required BF16 bar catches.
+- **Axis A, batch invariance.** Asserted bitwise for both kernels, forward and
+  backward: a row's bytes do not change with batch size or position.
+- **CUDA vs Triton.** **Bitwise equal** on both outputs and all four gradients, at
+  FP32, BF16 and FP16, which is what RFC #501 asks for. On the CUDA build: the
+  matching reciprocal square root is one line of NVIDIA PTX, which hipcc cannot
+  assemble, so a ROCm build compiles a fallback. Nothing reads it, since the rocm
+  priority map lists the Triton and PyTorch backends for this operator. A row reduction does not
+  get there by writing the same source twice; three things had to be made to agree
+  and all three are load-bearing:
+
+  | what differed | why | how it is pinned |
+  | --- | --- | --- |
+  | reduction order | `tl.sum` picks its own tree | Triton folds in the CUDA kernel's order: lane `t` over `x[t + k*LANES]`, `k` ascending, then a stride-halving tree. `_reduction_shape` and `choose_threads` share the lane counts |
+  | divide by the width | Triton's `/` is `div.full.f32`, approximate; CUDA's is `div.rn.f32` | `tl.div_rn` |
+  | reciprocal square root | nvcc's `rsqrtf` is libdevice's refined non-FTZ path; `tl.rsqrt` is `rsqrt.approx.ftz.f32` | the CUDA kernel emits the same instruction |
+
+  The claim is scoped to a default build, and the scope is narrower than it used to
+  say here. Every float operation on the path is an explicit round-to-nearest
+  intrinsic or `tl.div_rn`, including the row mean, which a plain `/` would have
+  left exposed: measured with the four divisions as `/` and the extension built
+  with `KERNEL_ALIGN_USE_FAST_MATH=1`, 30 of the 54 bitwise cases fail, because
+  `--use_fast_math` sets `--prec-div=false` and lowers `/` to `div.approx.f32`.
+  With `__fdiv_rn` the whole operator suite passes under both builds, 250 tests
+  either way.
+
+  What those intrinsics do not pin is the denormal mode. `--use_fast_math` also
+  implies `--ftz=true` and nvcc applies it to them: measured on CUDA 12.8 at
+  `-arch=sm_89 -O3`, the same source gives `mul.rn.f32`, `add.rn.f32`, `sub.rn.f32`
+  and `div.rn.f32` by default and all four with `.ftz` under the flag, while
+  `fma.rn` is absent either way so the anti-contraction property is unaffected.
+  Triton's PTX for this kernel is non-FTZ, with `rsqrt.approx.ftz.f32` as the only
+  `.ftz` instruction in it, which is the one the CUDA side matches deliberately. So
+  on a fast-math build the two backends agree on every normal intermediate and
+  differ on a subnormal one, where the CUDA side flushes to zero. A counter-flag
+  cannot be added for a single source, since `nvcc_flags` in
+  `build_tools/extensions.py` is one list shared by every `.cu`.
+  `test_cuda_and_triton_are_bitwise_equal_on_a_subnormal_intermediate` holds that
+  boundary: it passes on a default build and is the case that goes red if the flag
+  is set. `randn` inputs never reach the subnormal window, which is why the rest of
+  the bitwise table passes under both builds.
+
+  For comparison, `swiglu`'s bitwise test fails 14 of 15 cases on a fast-math
+  build, so this row is still the better-behaved of the two by a wide margin.
+
+  Sizes, measured before each fix, so the order of attack is on record: with the
+  reduction orders matched but the divide still approximate, the statistics were
+  one ULP apart on 22% of rows; the rsqrt difference alone accounted for about 12%
+  of inputs. FP contraction had to be off first, otherwise the compiler folded the
+  square into the first level of the fold.
+
+  `test_cuda_and_triton_are_bitwise_equal` holds all three, over five shapes and
+  three dtypes, and compares byte views rather than `==` so that a signed zero or
+  a NaN cannot pass. `test_rms_norm.py` still compares its backends with a
+  tolerance, "precisely because the reduction order is allowed to differ"; that is
+  the older position and this row is evidence the order can be pinned instead, at
+  no cost that shows above measurement noise.
+
+## Ground-truth harness
+
+Registered in `OP_SPECS` with both outputs and all four gradients checked:
+
+```bash
+python tools/validation/operators/check_operator.py --op fused_post_norm_residual_pre_norm --candidate triton --dtype bf16 --device cuda --check-grad
+python tools/validation/operators/check_operator.py --op fused_post_norm_residual_pre_norm --candidate cuda --dtype bf16 --device cuda --check-grad
+```
+
+The two eps are fixed to the model's values inside the input generator; the CLI does not
+expose them, which is deliberate since swapping them is the mistake the contract guards
+against. `--normalized-dim` sets the width (default 4096; the Muse width is 6656).
+
+## Tests
+
+```bash
+python -m pytest tests/ops/norm/test_fused_add_norm.py tests/ops/norm/test_fused_add_norm_triton.py tests/ops/norm/test_fused_add_norm_cuda.py -v
+```
+
+Reference: FP64 forward and backward, guards against a dropped offset and swapped
+eps, the eager-composition narrowing check, fail-closed on rank, shape, dtype and
+weight width. Each GPU kernel: forward and backward against the gold at the reduction
+rows, batch invariance bitwise, eps wiring, fail-closed. CUDA against Triton at the
+reduction rows. The cross-device checks need two GPUs and skip on a single-device
+box; they were run against two cards of an eight-H100 node.
+
+## Implementation Files
+
+- `rl_engine/reference/norm/fused_add_norm.py`: gold, closed-form backward, final norm
+- `rl_engine/reference/norm/rms_norm.py`: `shape_invariant_meansq` / `shape_invariant_rowsum`
+- `rl_engine/backends/shared/triton/norm/fused_add_norm.py`: Triton kernels and wrapper
+- `rl_engine/backends/cuda/norm/fused_add_norm.py`: CUDA wrapper
+- `csrc/cuda/norm/fused_add_norm.cu`: CUDA kernels
+- `rl_engine/validation/operators/operator_specs.py`, `operator_inputs.py`
+- `tests/ops/norm/test_fused_add_norm*.py`
+
+## Known Limitations
+
+- `hidden` and `residual` must share shape and dtype; no broadcasting. Weights are
+  1-D at the hidden width, in the same dtype set as the rows, and every tensor in a
+  call belongs to `hidden`'s device rather than merely to some GPU.
+- A cotangent carries the dtype of the tensor it is a cotangent of, in the oracle
+  and in both kernels. Autograd always satisfies that, since cotangents arrive at
+  the output dtype, but a direct caller passing FP32 cotangents against BF16
+  `hidden` is asking for the `forward_fp32` gradient, and gets an error rather than
+  a different computation.
+- A row is folded by one Triton program, and the unroll is what bounds the width:
+  `_MAX_CHUNKS` is 128 chunks of 512 lanes, so 65536 is the ceiling, and wider rows
+  raise rather than silently splitting. The CUDA kernel loops instead of unrolling
+  and has no matching ceiling, so a wider width is accepted there and rejected on
+  the Triton side. That asymmetry is real and is not something this row settles.
+- The shape-invariant statistic is not invariant at every width. Both reductions
+  zero-pad to a 32-wide chunk boundary, which fixes widths that are not a multiple
+  of 32, but the second level is a `torch.sum` over the chunk count and that is
+  itself shape-dependent for some counts: measured on SM 8.9, width 8192 moves a
+  row's bytes in 4 of 9 sub-batch comparisons, with or without the padding, because
+  256 chunks is one of the counts that breaks. 6656, the model's width, and 4096,
+  which `rms_norm` uses, are both invariant. Making it hold for every width means
+  chunking recursively, which changes the bytes of a statistic `rms_norm` and
+  `qk_norm` already ship, so it is raised rather than done here.
+- The CUDA and Triton kernels are bitwise equal on a default build. Under
+  `KERNEL_ALIGN_USE_FAST_MATH=1` they agree on every normal intermediate and differ
+  on a subnormal one, because the flag adds flush-to-zero to the CUDA side's
+  arithmetic and not to Triton's; see the bitwise section for the PTX and the test
+  that holds the boundary.
+- `rsqrt.approx.ftz.f32` is bounded by PTX at 2^-22.9 but its result is not
+  architecturally specified, so the cross-GPU byte-for-byte claim rests on that
+  instruction being bit-stable across SM generations. In practice the question does
+  not arise for a given binary: `build_tools/extensions.py` emits only
+  `code=sm_<build host>` with no `compute_` PTX fallback, so one build runs on one
+  architecture. Across two builds on two architectures it is an assumption, and it
+  is measured rather than argued on the two this row was run on, SM 8.9 and SM 9.0.
+- The model's final norm (`rmsnorm_times_weight`, `pow_neg_half`) is the reference
+  `NativeFinalNormOp` only; it has no GPU kernel in this row.

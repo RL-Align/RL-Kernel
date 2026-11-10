@@ -46,6 +46,54 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "fused_post_norm_residual_pre_norm": OperatorSpec(
+        name="fused_post_norm_residual_pre_norm",
+        op_class="reduction",
+        gold_path="rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",
+        # The only entry here whose gold is ``forward``, because for this operator
+        # ``forward_fp32`` is a different computation rather than ``forward`` widened.
+        # The frozen semantics narrow twice -- the post-norm casts before the residual
+        # add, and the sum is cast again before the pre-norm reads it -- and
+        # ``forward_fp32`` deliberately skips both. Worst absolute error over all
+        # six outputs, both candidates, five shapes and four seeds:
+        #
+        #     dtype   vs forward_fp32   vs forward   differing vs forward
+        #     fp32    5.7e-06           5.7e-06      11.0M-13.3M of 32.9M
+        #     bf16    1.8e-01           3.1e-02      132-191 of 32.9M
+        #     fp16    2.0e-02           7.8e-03      1603-1808 of 32.9M
+        #
+        # Against forward_fp32 the harness measures the narrowing contract rather
+        # than the kernels. At fp32 the narrowing is a no-op and the two references
+        # agree, which is why this was invisible until a dtype that narrows was run.
+        # FP64-exactness of the frozen semantics is covered separately by
+        # test_fused_add_norm.py's FP64 reference tests and their negative controls.
+        #
+        # An earlier version of this comment quoted one shape and one seed and read
+        # 0.0e+00 for bf16 against forward. That was not representative: the kernels
+        # are not bitwise equal to forward at bf16, they differ on roughly five
+        # elements per million. The conclusion is unchanged and the margin is wider
+        # than the single sample suggested.
+        #
+        # What this costs, said plainly rather than left to be discovered: every
+        # entry in this file names one class as both its gold and its ``pytorch``
+        # candidate, and the others get an independent comparison out of it because
+        # their gold is ``forward_fp32`` while the candidate is called through
+        # ``forward``. This one cannot, so the ``pytorch`` row compares
+        # ``NativeFusedAddNormOp.forward`` against itself and is a tautology: zero
+        # error by construction, not a check. The CUDA and Triton rows are real, and
+        # the gold itself is held to an independent FP64 recomputation on these very
+        # inputs by test_the_fused_add_norm_gold_is_checked_against_an_independent_
+        # recomputation in tests/validation/operators/test_operator_inputs.py, which
+        # fails if the ``1 + w`` offset, a narrowing or the eps pair moves.
+        gold_method="forward",
+        candidate_paths={
+            "pytorch": "rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",
+            "triton": "rl_engine.kernels.ops.triton.norm.fused_add_norm.TritonFusedAddNormOp",
+            "cuda": "rl_engine.kernels.ops.cuda.norm.fused_add_norm.CudaFusedAddNormOp",
+            "cuda-sm90": "rl_engine.kernels.ops.cuda.norm.fused_add_norm.CudaFusedAddNormOp",
+        },
+        grad_input_names=("hidden", "residual", "post_weight", "pre_weight"),
+    ),
     "qk_norm": OperatorSpec(
         name="qk_norm",
         op_class="reduction",

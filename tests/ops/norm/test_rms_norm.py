@@ -12,7 +12,13 @@ from rl_engine.backends.shared.triton.norm.rmsnorm import (
     rmsnorm_triton,
 )
 from rl_engine.platforms.device import device_ctx
-from rl_engine.reference.norm.rms_norm import NativeRMSNormOp
+from rl_engine.reference.norm.rms_norm import (
+    NativeRMSNormOp,
+    _pad_to_chunk,
+    shape_invariant_meansq,
+    shape_invariant_rowsum,
+    shape_invariant_rstd,
+)
 
 try:
     from rl_engine.backends.extension import _C, _EXT_AVAILABLE
@@ -146,6 +152,161 @@ def test_batch_invariance_slice(N):
     full = op.forward_fp32(x, w)  # compute on full batch...
     assert torch.equal(op.forward_fp32(x[:1], w), full[:1])  # ...then slice
     assert torch.equal(op.forward_fp32(x[3:5], w), full[3:5])
+
+
+@pytest.mark.parametrize("N", [_HIDDEN, _HEAD_DIM, 6656])
+def test_chunking_is_allocation_free_at_the_widths_the_model_uses(N):
+    """The fixed-chunk scheme costs nothing at a multiple of 32.
+
+    ``_pad_to_chunk`` zero-pads the tail so that widths which are not a multiple of
+    32 reduce in the same fixed chunks as the rest, and a pad is a copy. At a width
+    that is already a multiple of 32 it has to stay a reshape, which is a view, and
+    that covers every width in this config: 4096 and 128 here, 6656 for the fused
+    decoder norm. Measured where it does copy, at 512 rows on SM 8.9: 37.95 us at
+    width 6656 against 55.21 us at 6657, with the pad itself 6.32 us.
+
+    Asserted on the storage rather than the timing, so it cannot go quiet on a
+    faster machine: making the pad unconditional would fail this.
+    """
+    x = _rand((8, N), seed=7)
+    assert N % 32 == 0, "this test is about the widths that need no padding"
+    chunked = _pad_to_chunk(x)
+    assert chunked.shape == (8, N // 32, 32)
+    assert (
+        chunked.untyped_storage().data_ptr() == x.untyped_storage().data_ptr()
+    ), f"width {N} is a multiple of 32 and still copied"
+
+
+def test_a_zero_width_row_is_rejected_rather_than_returning_nan():
+    """A mean over no elements is 0/0, and it used to come back as NaN.
+
+    Measured against the version on ``test-museglimmer``: a ``(4, 0)`` input returns
+    NaN there as well, because ``reshape(4, -1, 32)`` can solve the ``-1`` as zero
+    when the other dimensions do not multiply to zero. So this is older than this
+    row rather than a regression from writing the chunk count out, which is what it
+    was reported as. It is still wrong: both GPU wrappers and the C++ binding reject
+    a zero last dimension with a message that names it, and the Ascend path hands
+    this statistic straight back to its caller, so a NaN rstd travels.
+
+    ``shape_invariant_rowsum`` is deliberately not guarded: a sum over no elements
+    is 0, which is the right answer, and there is no division to make it NaN.
+    """
+    empty_width = torch.zeros(4, 0)
+    with pytest.raises(ValueError, match="non-zero last dimension"):
+        shape_invariant_meansq(empty_width)
+    with pytest.raises(ValueError, match="non-zero last dimension"):
+        shape_invariant_rstd(empty_width, _EPS)
+    assert torch.equal(shape_invariant_rowsum(empty_width), torch.zeros(4))
+
+    # Zero rows at a real width still works, which is the other degenerate shape and
+    # the one that has to keep reducing.
+    assert shape_invariant_meansq(torch.zeros(0, 64)).shape == (0,)
+
+
+@pytest.mark.parametrize("N", [64, 100, _HIDDEN])
+def test_an_empty_batch_reduces_at_every_width(N):
+    """Zero rows is a shape, not an error, and the chunked scheme used to refuse it.
+
+    An empty batch has zero elements and ``reshape`` will not infer a dimension from
+    nothing, so a ``-1`` in the chunk reshape gave "cannot reshape tensor of 0
+    elements into shape [0, -1, 32] because the unspecified dimension size -1 can be
+    any value and is ambiguous". That reached every consumer of the statistic.
+
+    It is older than the fused operator. The same ``-1`` is in
+    ``shape_invariant_rstd`` on ``test-museglimmer``: measured against that version,
+    zero rows at width 6656 already raised there, and zero rows at width 100
+    survived only because the non-multiple-of-32 fallback bypassed the reshape
+    entirely. Removing that fallback took the survivors with it, so this now covers
+    a case ``NativeRMSNormOp`` never handled and a case this PR broke.
+
+    Empty batches are routine in RL serving, which is why both GPU kernels carry an
+    explicit zero-row guard; the reference should not be the one that raises.
+    """
+    x = _rand((0, N), seed=13)
+    weight = _rand((N,), seed=14)
+
+    assert shape_invariant_meansq(x).shape == (0,)
+    assert shape_invariant_rowsum(x).shape == (0,)
+    assert NativeRMSNormOp().forward_fp32(x, weight).shape == (0, N)
+    assert NativeRMSNormOp().forward(x, weight).shape == (0, N)
+
+    # And one row still works beside it, so the fix is not "return early on empty".
+    one = _rand((1, N), seed=15)
+    assert shape_invariant_meansq(one).shape == (1,)
+
+
+@pytest.mark.parametrize("N", [33, 100, 129])
+def test_pad_to_chunk_pads_a_width_that_is_not_a_multiple_of_32(N):
+    """The fix itself, asserted where it can fail without a GPU.
+
+    The test below checks batch invariance, and its CUDA row is the only one that
+    goes red if the old ``if hidden % 32: return mean(...)`` fallback comes back,
+    because on CPU a plain mean is invariant at these shapes anyway. So on a
+    CPU-only runner that regression would have shipped green. This test is the
+    CPU-visible half: the padding branch has to pad, has to copy, and has to change
+    the arithmetic.
+
+    The last assertion is the regression detector. Restoring the fallback makes
+    ``shape_invariant_meansq`` exactly ``x.pow(2).sum(-1) / N``, and a two-stage sum
+    over 32-wide chunks associates the additions differently from a single sum over
+    N, so the two disagree in the last bits: measured on CPU with ``randn`` inputs,
+    1.19e-07 at widths 33 and 100 and 5.96e-08 at 129. Asserting they differ pins
+    the chunked path without asserting any particular bit pattern.
+    """
+    x = _rand((4, N), seed=11)
+    assert N % 32 != 0, "this test is about the widths that need padding"
+
+    chunked = _pad_to_chunk(x)
+    assert chunked.shape == (4, -(-N // 32), 32), f"width {N} chunked to {tuple(chunked.shape)}"
+    assert (
+        chunked.untyped_storage().data_ptr() != x.untyped_storage().data_ptr()
+    ), f"width {N} is not a multiple of 32 and did not copy, so nothing was padded"
+
+    # Zero padding has to be exact for a sum of squares: the same two-stage sum over
+    # an explicitly padded copy, built here rather than borrowed, must agree bitwise.
+    padded = torch.zeros(4, -(-N // 32) * 32)
+    padded[:, :N] = x
+    manual = padded.pow(2).reshape(4, -1, 32).sum(dim=-1).sum(dim=-1) / float(N)
+    assert torch.equal(shape_invariant_meansq(x), manual), "the padding is not exact"
+
+    plain = x.pow(2).sum(dim=-1) / float(N)
+    assert not torch.equal(shape_invariant_meansq(x), plain), (
+        f"width {N}: the chunked statistic equals a plain mean bitwise, which is what "
+        "the removed fallback did, so either the fallback is back or this input no "
+        "longer distinguishes the two associations"
+    )
+
+
+@pytest.mark.parametrize("device", ["cpu"] + (["cuda"] if torch.cuda.is_available() else []))
+@pytest.mark.parametrize("N", [33, 100, 129])
+def test_batch_invariance_at_widths_that_are_not_a_multiple_of_32(N, device):
+    """Axis A is unconditional, and it used to hold only for multiples of 32.
+
+    ``shape_invariant_meansq`` fell back to a plain ``mean`` when the width was not
+    a multiple of 32, which is the shape-dependent reduction the helper exists to
+    avoid, so ``NativeRMSNormOp`` was not batch invariant at those widths. Measured
+    on CUDA at width 100 with 16 rows before the fix: a row's bytes moved in 3 of 9
+    sub-batch comparisons for the statistic and 23 for the fused operator's whole
+    backward.
+
+    Two things make this sensitive, and both were checked by putting the fallback
+    back. The sweep: the two hand-picked slices in the test above happen to agree at
+    width 100 even with the bug, so they would have gone green on it. And the
+    device: on CPU the plain mean is invariant for these shapes anyway, so a
+    CPU-only version of this test also goes green on the bug. It is the CUDA row
+    that carries it, which means this test alone would let the regression through a
+    CPU-only runner; the test above it is the CPU-visible guard and fails there.
+    """
+    op = NativeRMSNormOp()
+    w = _rand((N,), seed=1).to(device)
+    x = _rand((16, N), seed=2).to(device)
+    full = op.forward_fp32(x, w)
+    for count in (1, 2, 7):
+        for start in (0, 1, 16 - count):
+            sl = slice(start, start + count)
+            assert torch.equal(
+                op.forward_fp32(x[sl], w), full[sl]
+            ), f"width {N}: rows {start}:{start + count} moved with the sub-batch"
 
 
 def test_batch_invariance_with_padding():
