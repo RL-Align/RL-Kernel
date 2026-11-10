@@ -91,6 +91,10 @@ jobs:
             tests/reference/test_nemotron_router_reference.py \
             tests/backends/cuda/test_nemotron_router_cuda.py
 
+      - name: Run Expert-Parallel Exchange Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q tests/distributed/ep
+
       - name: Run Attention Ground-Truth Tests (CPU-safe)
         run: |
           python -m pytest tests/ops/attention/test_attention.py -v -k "not large and not gpu"
