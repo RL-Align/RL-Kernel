@@ -12,7 +12,12 @@ from rl_engine.backends.shared.triton.norm.rmsnorm import (
     rmsnorm_triton,
 )
 from rl_engine.platforms.device import device_ctx
-from rl_engine.reference.norm.rms_norm import NativeRMSNormOp, _pad_to_chunk, shape_invariant_meansq
+from rl_engine.reference.norm.rms_norm import (
+    NativeRMSNormOp,
+    _pad_to_chunk,
+    shape_invariant_meansq,
+    shape_invariant_rowsum,
+)
 
 try:
     from rl_engine.backends.extension import _C, _EXT_AVAILABLE
@@ -169,6 +174,38 @@ def test_chunking_is_allocation_free_at_the_widths_the_model_uses(N):
     assert (
         chunked.untyped_storage().data_ptr() == x.untyped_storage().data_ptr()
     ), f"width {N} is a multiple of 32 and still copied"
+
+
+@pytest.mark.parametrize("N", [64, 100, _HIDDEN])
+def test_an_empty_batch_reduces_at_every_width(N):
+    """Zero rows is a shape, not an error, and the chunked scheme used to refuse it.
+
+    An empty batch has zero elements and ``reshape`` will not infer a dimension from
+    nothing, so a ``-1`` in the chunk reshape gave "cannot reshape tensor of 0
+    elements into shape [0, -1, 32] because the unspecified dimension size -1 can be
+    any value and is ambiguous". That reached every consumer of the statistic.
+
+    It is older than the fused operator. The same ``-1`` is in
+    ``shape_invariant_rstd`` on ``test-museglimmer``: measured against that version,
+    zero rows at width 6656 already raised there, and zero rows at width 100
+    survived only because the non-multiple-of-32 fallback bypassed the reshape
+    entirely. Removing that fallback took the survivors with it, so this now covers
+    a case ``NativeRMSNormOp`` never handled and a case this PR broke.
+
+    Empty batches are routine in RL serving, which is why both GPU kernels carry an
+    explicit zero-row guard; the reference should not be the one that raises.
+    """
+    x = _rand((0, N), seed=13)
+    weight = _rand((N,), seed=14)
+
+    assert shape_invariant_meansq(x).shape == (0,)
+    assert shape_invariant_rowsum(x).shape == (0,)
+    assert NativeRMSNormOp().forward_fp32(x, weight).shape == (0, N)
+    assert NativeRMSNormOp().forward(x, weight).shape == (0, N)
+
+    # And one row still works beside it, so the fix is not "return early on empty".
+    one = _rand((1, N), seed=15)
+    assert shape_invariant_meansq(one).shape == (1,)
 
 
 @pytest.mark.parametrize("N", [33, 100, 129])

@@ -138,7 +138,19 @@ def _pad_to_chunk(x_f: torch.Tensor) -> torch.Tensor:
     remainder = hidden % _CHUNK
     if remainder:
         x_f = torch.nn.functional.pad(x_f, (0, _CHUNK - remainder))
-    return x_f.reshape(*x_f.shape[:-1], -1, _CHUNK)
+    # The chunk count written out rather than left to -1. An empty batch has zero
+    # elements, and reshape refuses to infer a dimension from nothing: (0, 100) gave
+    # "cannot reshape tensor of 0 elements into shape [0, -1, 32] because the
+    # unspecified dimension size -1 can be any value and is ambiguous". That was
+    # true at every width, not only the padded ones, and it predates this row: the
+    # same -1 is in shape_invariant_rstd on test-museglimmer, where zero rows at
+    # width 6656 already raised and zero rows at width 100 survived only because the
+    # non-multiple-of-32 fallback bypassed the reshape. Removing that fallback in
+    # 02462fb took the survivors with it. ceil(width / 32) depends on the width
+    # alone, so writing it out keeps the scheme batch-layout independent and makes
+    # the empty case work at every width, here and in NativeRMSNormOp.
+    chunks = -(-hidden // _CHUNK)
+    return x_f.reshape(*x_f.shape[:-1], chunks, _CHUNK)
 
 
 def shape_invariant_meansq(x_f: torch.Tensor) -> torch.Tensor:
