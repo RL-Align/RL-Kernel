@@ -680,8 +680,9 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         are unchanged and tested against the earlier build.
       - H200, EP 8 shapes, 256 / 2048 / 8192 / 32768 rows: forward 0.39 / 0.43 / 0.86 /
         1.02x, backward 0.44 / 0.44 / 0.65 / 0.74x
-- [ ] P5 `fused` single-launch path: still has serialized WGMMAs and only 2 stages; apply
-      the same loop and a BK=64 variant, or drop it
+- [x] P5 `fused` single-launch path (serialized WGMMAs, only 2 stages; 10.1 vs 3.2 ms at
+      32768 rows): dropped on 2026-11-11 (user decision); the two-launch path is the only
+      forward
 - [x] MoE route plan as a counting sort (was PyTorch sort + searchsorted + scatter:
       19-98 us, the slow part of the MoE glue at decode sizes). `csrc/cuda/moe/moe_route_plan.cu`
       (histogram, column scan, warp-ranked stable scatter): equal to the golden plan, no

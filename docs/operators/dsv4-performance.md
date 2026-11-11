@@ -26,7 +26,7 @@ table is bitwise batch-invariant (the backward rows are deterministic and batch-
 | MoE | Route plan (counting sort) | PyTorch sort + searchsorted | 0.12-0.48x | [dsv4-moe](dsv4-moe.md) |
 | MoE | Combine (slot sum) | `index_add_` + merge | 0.06-0.41x | [dsv4-moe](dsv4-moe.md) |
 | MoE | dX fan-in | `index_add_` | 0.16-0.91x | [dsv4-moe](dsv4-moe.md) |
-| MoE | P5 routed forward (two-launch) | per-expert cuBLAS BF16 loop | 0.39-1.02x | [dsv4-moe](dsv4-moe.md) |
+| MoE | P5 routed forward | per-expert cuBLAS BF16 loop | 0.39-1.02x | [dsv4-moe](dsv4-moe.md) |
 | MoE | P5 routed backward (dX) | per-expert cuBLAS BF16 loop | 0.44-0.74x | [dsv4-moe](dsv4-moe.md) |
 | MoE | Shared expert (DeepGEMM FP8) | eager BF16 | 0.71-0.78x | `ec257d43` |
 | mHC | `mhc_pre` + fused norm | vLLM `mhc_pre_tilelang` + norm | 1.09-1.18x | [dsv4-mhc](dsv4-mhc.md) |
@@ -59,5 +59,3 @@ Closest to the limit:
   against our own earlier glue; the q / o-side kernels are compared one by one above.
 - The decoder layer and the full model forward against vLLM. This comes with the layerwise
   gate.
-- The P5 `fused` single-launch path: 10.1 ms against 3.2 ms for two-launch at 32768 rows. It is
-  not used (two-launch is the default) and is listed in the design doc's Phase 5.

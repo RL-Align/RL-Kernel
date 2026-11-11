@@ -4,7 +4,7 @@
 
 Not oracle-aligned: accuracy is checked against the FP32 oracle with a bound
 derived from FP8 tensor-core accumulation; byte-level checks cover batch
-invariance, run-to-run identity, fused == two-launch, and fail-closed paths.
+invariance, run-to-run identity, and fail-closed paths.
 """
 
 from __future__ import annotations
@@ -93,10 +93,9 @@ def test_fc1_matches_fp32_reference(backend):
 
 
 @requires_cuda
-@pytest.mark.parametrize("path", ["two_launch", "fused"])
-def test_forward_close_to_reference(backend, path):
+def test_forward_close_to_reference(backend):
     batch, x_q = _batch(777, 4, 4096, 2048, offsets=torch.tensor([0, 100, 100, 700, 777]))
-    y = backend.forward(batch, x_q, path=path)
+    y = backend.forward(batch, x_q)
     ref = _torch_ref(batch, x_q)
     assert y.dtype == torch.bfloat16 and y.shape == (777, 4096)
     # Differences come from FP8 accumulation order feeding the E4M3 re-quantization
@@ -111,30 +110,16 @@ def test_forward_close_to_p5_oracle(backend):
     y_gold, _ = oracle.routed_expert_forward(
         ExpertBatch(**{**batch.__dict__, "numeric_profile": "oracle-fp32-serial-v1"})
     )
-    y = backend.forward(batch, x_q, path="two_launch")
+    y = backend.forward(batch, x_q)
     assert _rel(y, y_gold) < 3e-2
 
 
 @requires_cuda
-def test_fused_equals_two_launch_bitwise(backend):
-    for shape in [
-        (130, 3, 512, 128, torch.tensor([0, 64, 64, 130])),
-        (777, 4, 4096, 2048, None),
-        (1, 2, 4096, 2048, torch.tensor([0, 0, 1])),
-    ]:
-        batch, x_q = _batch(*shape[:4], offsets=shape[4])
-        assert torch.equal(
-            backend.forward(batch, x_q, "fused"), backend.forward(batch, x_q, "two_launch")
-        )
-
-
-@requires_cuda
-@pytest.mark.parametrize("path", ["two_launch", "fused"])
-def test_batch_invariance_across_expert_boundaries(backend, path):
+def test_batch_invariance_across_expert_boundaries(backend):
     """fwd(x)[t] == fwd(x[t:t+1]) byte-for-byte, rows on both sides of every boundary."""
     M, E = 777, 4
     batch, x_q = _batch(M, E, 4096, 2048, offsets=torch.tensor([0, 100, 100, 700, 777]))
-    y = backend.forward(batch, x_q, path=path)
+    y = backend.forward(batch, x_q)
     for m in (0, 1, 63, 64, 99, 100, 101, 699, 700, 776):
         e = int((batch.expert_offsets[1:] <= m).sum().item())
         one = ExpertBatch(
@@ -155,8 +140,8 @@ def test_batch_invariance_across_expert_boundaries(backend, path):
             shape=(1, batch.hidden),
         )
         assert torch.equal(
-            backend.forward(one, xq1, path=path)[0], y[m]
-        ), f"row {m} ({path}) diverged"
+            backend.forward(one, xq1)[0], y[m]
+        ), f"row {m} diverged"
 
 
 @requires_cuda

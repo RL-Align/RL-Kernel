@@ -26,7 +26,7 @@ def _ready() -> bool:
         from rl_engine.kernels.ops.cuda.deepgemm import deepgemm_available
     except ImportError:
         return False
-    need = ("moe_swiglu_quant", "sm90_moe_fused_mlp_forward", "sm90_moe_bwd_dh_swiglu")
+    need = ("moe_swiglu_quant", "sm90_moe_fc1_swiglu_quant_forward", "sm90_moe_bwd_dh_swiglu")
     return all(hasattr(ext, n) for n in need) and deepgemm_available()
 
 

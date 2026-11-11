@@ -2,7 +2,7 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """DSv4 MoE block (EP = 1): router -> plan -> P5 routed experts -> combine + shared.
 
-Byte checks: batch invariance across splits, fused == two-launch. Accuracy: an
+Byte checks: batch invariance across splits. Accuracy: an
 FP32 reference on the same MX-dequantized operands.
 """
 
@@ -24,7 +24,7 @@ def _ready() -> bool:
         from rl_engine.kernels.ops.cuda.deepgemm import deepgemm_available
     except ImportError:
         return False
-    need = ("moe_slot_sum", "dsv4_router_topk", "sm90_moe_fused_mlp_forward")
+    need = ("moe_slot_sum", "dsv4_router_topk", "sm90_moe_fc1_swiglu_quant_forward")
     return all(hasattr(ext, n) for n in need) and deepgemm_available()
 
 
@@ -70,17 +70,6 @@ def test_moe_block_batch_invariant(moe):
         part = moe.forward(x[lo:hi].clone(), res[lo:hi].clone())
         assert torch.equal(part.view(torch.int16), full[lo:hi].view(torch.int16))
     assert torch.equal(moe.forward(x, res).view(torch.int16), full.view(torch.int16))
-
-
-def test_moe_block_fused_equals_two_launch(moe):
-    x, res = _x(129, 2)
-    a = moe.forward(x, res)
-    moe.path = "fused"
-    try:
-        b = moe.forward(x, res)
-    finally:
-        moe.path = "two_launch"
-    assert torch.equal(a.view(torch.int16), b.view(torch.int16))
 
 
 def test_moe_block_close_to_fp32_reference(moe):

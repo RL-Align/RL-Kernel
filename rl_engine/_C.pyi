@@ -295,20 +295,6 @@ def sm90_moe_fc3_forward(
 def sm90_moe_expand_w8(
     w_codes: torch.Tensor, w_res: torch.Tensor, expert_offsets: torch.Tensor
 ) -> torch.Tensor: ...
-def sm90_moe_fused_mlp_forward(
-    a_codes: torch.Tensor,
-    a_scales: torch.Tensor,
-    w1_codes: torch.Tensor,
-    w1_scales: torch.Tensor,
-    w1_ref: torch.Tensor,
-    w1_res: torch.Tensor,
-    w2_codes: torch.Tensor,
-    w2_scales: torch.Tensor,
-    w2_ref: torch.Tensor,
-    w2_res: torch.Tensor,
-    expert_offsets: torch.Tensor,
-    p_s: torch.Tensor,
-) -> torch.Tensor: ...
 def sm90_moe_bwd_dx(
     a: torch.Tensor,
     w_codes: torch.Tensor,

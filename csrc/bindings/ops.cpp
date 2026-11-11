@@ -278,10 +278,6 @@ torch::Tensor sm90_moe_fc3_forward(torch::Tensor h_codes, torch::Tensor h_scales
                                    c10::optional<torch::Tensor> w8);
 torch::Tensor sm90_moe_expand_w8(torch::Tensor w_codes, torch::Tensor w_res,
                                  torch::Tensor expert_offsets);
-torch::Tensor sm90_moe_fused_mlp_forward(
-    torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes, torch::Tensor w1_scales,
-    torch::Tensor w1_ref, torch::Tensor w1_res, torch::Tensor w2_codes, torch::Tensor w2_scales,
-    torch::Tensor w2_ref, torch::Tensor w2_res, torch::Tensor expert_offsets, torch::Tensor p_s);
 // SM90 routed-expert backward (csrc/cuda/moe/sm90_moe_mlp_backward.cu)
 torch::Tensor sm90_moe_bwd_dx(torch::Tensor a, torch::Tensor w_codes, torch::Tensor w_scales,
                               torch::Tensor expert_offsets, c10::optional<torch::Tensor> w_t);
@@ -1004,8 +1000,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("expert_offsets"), py::arg("w8") = py::none());
     m.def("sm90_moe_expand_w8", &sm90_moe_expand_w8,
           "MXFP4 W + residuals -> folded E4M3 [E, N, K] for experts with rows (forward w8)");
-    m.def("sm90_moe_fused_mlp_forward", &sm90_moe_fused_mlp_forward,
-          "Single-launch fc1 -> SwiGLU -> quant -> fc3 with h_q resident in shared memory");
     m.def("sm90_moe_bwd_dx", &sm90_moe_bwd_dx,
           "Grouped BF16 x MXFP4 dX: a [M, Nw] @ W[e] [Nw, Kw] -> FP32 [M, Kw] (frozen W)",
           py::arg("a"), py::arg("w_codes"), py::arg("w_scales"), py::arg("expert_offsets"),

@@ -8,8 +8,9 @@ routed expert   x -> mx_quant -> fc1 -> clamp-SwiGLU * p_s -> mx_quant -> fc3
 shared expert   x -> fc1 -> one-round SwiGLU -> fc2
 ```
 
-The routed half is the production path and runs as **one fused SM90 kernel**
-(`csrc/cuda/moe/sm90_fused_moe_mlp.cu`). The shared half and the individual
+The routed half is the production path and runs on **one SM90 GEMM core**
+(`csrc/cuda/moe/sm90_fused_moe_mlp.cu`): fc1 with the activation and re-quantization
+fused into its epilogue, then fc2. The shared half and the individual
 routed operators also exist as standalone per-operator kernels; those are
 reference artifacts that pin the numerics operator by operator, not the path
 production takes. See `rl_engine/moe/backends/` for the split.
@@ -94,7 +95,7 @@ y   = BF16(fc3(h_q, W2[e]))
 | Build | `KERNEL_ALIGN_MOE_SM90=1` on an SM90 host (compiles the kernel, binds `sm90_moe_*` under `RL_KERNEL_ENABLE_MOE_SM90`, builds for `sm_90a` only, adds `-lcuda` and `RL_KERNEL_ENABLE_SM90`). Other builds do not bind `sm90_moe_*`, so the provider fails closed at construction |
 
 Scope (v1): base weights only (no LoRA), no combine, no TP, H and F
-multiples of 128, F ≤ 2048 for the single-launch path. Fail-closed on a batch that
+multiples of 128. Fail-closed on a batch that
 declares another profile, on CPU tensors, on non-SM90 devices, and on weights whose
 block scales cannot be folded exactly (see below).
 
@@ -148,7 +149,6 @@ Activation scale codes and weight residuals are prefetched one stage ahead.
 - That structure matters. An earlier loop issued WGMMAs inside such branches. ptxas then
   serialized every WGMMA (warning C7518), and this was the main reason the forward was
   slow.
-- The single-launch `fused` kernel still has that loop and that warning.
 
 **Exact MX scaling with one FMA per element.** Applying both block scales per element
 (`acc += blk * sa * sw`) costs a multiply and an FMA per element per block and caps the
@@ -167,16 +167,17 @@ to promoting both scales per block; `2^(ref_c - 127)` is applied once in the epi
   SiLU, `p_s`, one BF16 round, 32-column amax via a quad shuffle, E8M0 code via `frexpf`,
   `cvt.rn.satfinite.e4m3`; writes `h` codes and scales.
 - `fc3`: BF16 `y`.
-- `fused`: one CTA per token block runs every fc1 tile with `h_q` written into a
-  shared-memory-resident buffer in the WGMMA A layout, then every fc3 tile reading it.
-  Bit-identical to the two-launch path.
+
+A single-launch variant (`h_q` resident in shared memory, fc1 then fc3 in one CTA)
+was bit-identical but 3x slower (10.1 ms against 3.2 ms at 32768 rows: only two
+pipeline stages fit next to the 128 KB `h_q`). It was removed on 2026-11-11.
 
 **Batch invariance.** Tile constants are compile-time and never chosen by shape (the
 mode may follow the batch size because both modes give the same bytes); every
 output element is reduced over the full K inside one CTA in ascending block order; no
 split-K, no atomics; token blocks are padded with rows whose results are masked. A
 row's bytes depend only on its own row, its expert's weights, and the constants:
-`fwd(x)[t] == fwd(x[t:t+1])` (tested across expert boundaries, fused and two-launch).
+`fwd(x)[t] == fwd(x[t:t+1])` (tested across expert boundaries).
 
 ### Results (H200, H=4096, F=2048, 32 local experts = EP 8)
 
@@ -186,12 +187,12 @@ The baseline is a per-expert BF16 cuBLAS loop on weights dequantized ahead of ti
 times include the weight expansion when the provider picks it (about 0.36 ms for
 `w1` + `w2` at 32 experts, near HBM bandwidth).
 
-| rows | two-launch | fused | BF16 cuBLAS loop | ratio | two-launch TFLOPS |
-|---|---|---|---|---|---|
-| 256 | 0.41 ms | 2.76 ms | 1.06 ms | 0.39 | 31 |
-| 2048 | 0.45 ms | 2.89 ms | 1.05 ms | 0.43 | 230 |
-| 8192 | 1.12 ms | 2.65 ms | 1.31 ms | 0.86 | 369 |
-| 32768 | 3.17 ms | 10.08 ms | 3.11 ms | 1.02 | 521 |
+| rows | forward | BF16 cuBLAS loop | ratio | TFLOPS |
+|---|---|---|---|---|
+| 256 | 0.41 ms | 1.06 ms | 0.39 | 31 |
+| 2048 | 0.45 ms | 1.05 ms | 0.43 | 230 |
+| 8192 | 1.12 ms | 1.31 ms | 0.86 | 369 |
+| 32768 | 3.17 ms | 3.11 ms | 1.02 | 521 |
 
 How 32768 rows went from 6.2 ms (inline, serialized WGMMAs) to 3.17 ms:
 
@@ -215,21 +216,15 @@ output round).
 
 ### Known limits and next steps
 
-1. **Fused path is slower than two launches.**
-   - The 128 KB resident `h_q` leaves room for only two 33 KB stages, which exposes TMA
-     latency.
-   - Each CTA walks 1536 stages serially.
-   - Its consumer loop still has the serialized WGMMAs (C7518).
-   - Fixes: a BK=64 variant (16.5 KB stages, 3–4 deep), plus the straight-line loop of
-     the two-launch kernel.
-2. **The exact activation-scale promote is the remaining ceiling.** It costs one FMA per
+1. **The exact activation-scale promote is the remaining ceiling.** It costs one FMA per
    output element per 32-wide block.
    - Option 1: fold the activation scales when a row's blocks share exponents. This is
      row-local, so it stays batch-invariant.
    - Option 2: accept a coarser scale granularity, as a separate profile.
-3. Weights whose block scales span more than 8 binades within a column are rejected; an
+2. Weights whose block scales span more than 8 binades within a column are rejected; an
    unfolded fallback kernel could serve them.
-4. Not implemented: LoRA deltas, Blackwell block-scaled MMA (would remove the FP4
+3. Not implemented in the kernel: LoRA deltas (the model adds them around it, see
+   "LoRA"), Blackwell block-scaled MMA (would remove the FP4
    conversion and the promote entirely). Backward: see below.
 
 ### Backward (SM90, frozen base)

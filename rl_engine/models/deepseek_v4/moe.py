@@ -150,7 +150,6 @@ class Dsv4MoE:
     # ``((q [2F_s, H], scale), (q [H, F_s], scale))``, 128x128 FP32 block scales.
     shared_fp8: tuple | None = None
     ep_group: object = None  # torch.distributed process group; None = EP 1
-    path: str = "two_launch"  # P5 path: "two_launch" (faster) | "fused"
     check_finite: bool = True  # MXFP8 quant fail-closed check (one host sync; off for graphs)
     lora: object = None  # MoeLora (lora.py): routed fc1 / fc2 and shared-expert adapters
     _routed: object = field(default=None, init=False, repr=False)
@@ -200,7 +199,7 @@ class Dsv4MoE:
         if rows.codes.shape[0] == 0:
             return torch.empty(0, hidden, dtype=torch.bfloat16, device=rows.codes.device)
         batch, x_q = self._expert_batch(rows, hidden)
-        return self._routed.forward(batch, x_q, path=self.path)
+        return self._routed.forward(batch, x_q)
 
     def _expert_backward(self, rows: _Rows, dy: Tensor, hidden: int) -> tuple[Tensor, Tensor]:
         q = rows.codes.shape[0]

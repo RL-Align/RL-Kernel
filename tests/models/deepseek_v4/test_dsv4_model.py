@@ -28,7 +28,7 @@ def _ready() -> bool:
         from rl_engine.kernels.ops.cuda.flashmla import flashmla_available
     except ImportError:
         return False
-    need = ("dsv4_mhc_pre", "dsv4_router_topk", "sm90_moe_fused_mlp_forward")
+    need = ("dsv4_mhc_pre", "dsv4_router_topk", "sm90_moe_fc1_swiglu_quant_forward")
     return all(hasattr(ext, n) for n in need) and deepgemm_available() and flashmla_available()
 
 

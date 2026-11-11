@@ -6,16 +6,13 @@ Numeric profile ``p5-sm90-fused-mlp-v1``: deterministic and batch-invariant,
 NOT byte-aligned to ``oracle-fp32-serial-v1`` (tensor-core accumulation order
 inside each 32-wide MX block). See ``docs/operators/dsv4-moe.md``.
 
-Two execution paths share one GEMM core (``csrc/cuda/moe/sm90_fused_moe_mlp.cu``):
-
-* ``two_launch``: fc1 with SwiGLU * p_s and MX re-quantization fused into the
-  epilogue (h_q written to global memory), then fc3. This is the fast path.
-  With many rows per expert the folded FP8 weights are expanded once per call
-  (``sm90_moe_expand_w8``, the bytes the kernel would build in shared memory)
-  and every operand arrives by TMA; same bytes, so the choice may follow M.
-* ``fused``: a single launch with h_q resident in shared memory. Bit-identical
-  to ``two_launch``; currently slower (two pipeline stages fit next to the
-  128 KB h_q), kept as the reference for the follow-up BK=64 variant.
+Forward (``csrc/cuda/moe/sm90_fused_moe_mlp.cu``): fc1 with SwiGLU * p_s and MX
+re-quantization fused into the epilogue (h_q written to global memory), then fc3 on
+the same GEMM core. With many rows per expert the folded FP8 weights are expanded once
+per call (``sm90_moe_expand_w8``, the bytes the kernel would build in shared memory)
+and every operand arrives by TMA; same bytes, so the choice may follow M. (A
+single-launch variant with h_q resident in shared memory was 3x slower and was
+removed.)
 
 Backward (``backward``, profile ``p5-sm90-bwd-bf16-v1``, frozen base, no dW):
 fc1 is recomputed for ``z`` (FP32), then ``dh = BF16(dy @ W2)`` fused with the
@@ -48,7 +45,6 @@ _SYMBOLS = (
     "sm90_moe_fc1_forward",
     "sm90_moe_fc1_swiglu_quant_forward",
     "sm90_moe_fc3_forward",
-    "sm90_moe_fused_mlp_forward",
 )
 _BWD_SYMBOLS = ("sm90_moe_bwd_dx", "sm90_moe_bwd_dh_swiglu", "sm90_moe_dequant_t")
 _EXPAND_SYMBOL = "sm90_moe_expand_w8"
@@ -107,7 +103,6 @@ class Sm90FusedMoeMlp:
         return {
             "backend": self.name,
             "operators": ["routed_mlp_fwd"],
-            "paths": ["two_launch", "fused"],
             "geometry": ["packed"],
             "devices": ["cuda:sm90"],
             "lora": False,
@@ -124,7 +119,6 @@ class Sm90FusedMoeMlp:
             "tiles": {
                 "inline": {"BM": 64, "BN": 128, "BK": 128, "stages": 4},
                 "preexpanded": {"BM": 128, "BN": 128, "BK": 128, "stages": 6},
-                "fused_stages": 2,
             },
             "mx_scaling": "exact per 32-block: weight scale folded into FP8 (per-column ref), "
             "activation scale promoted on CUDA cores",
@@ -238,28 +232,10 @@ class Sm90FusedMoeMlp:
             return None
         return self._ext.sm90_moe_expand_w8(w.codes, w.res, offsets)
 
-    def forward(self, batch: ExpertBatch, x_q: MXTensor, path: str = "two_launch") -> torch.Tensor:
-        """Routed MLP forward for base weights. ``path``: 'two_launch' | 'fused'."""
+    def forward(self, batch: ExpertBatch, x_q: MXTensor) -> torch.Tensor:
+        """Routed MLP forward for base weights: fc1 + SwiGLU + quant, then fc3."""
         self._check_batch(batch, x_q)
-        if path == "two_launch":
-            return self.fc3(batch, self.fc1_swiglu_quant(batch, x_q))
-        if path == "fused":
-            w1, w2 = self.prepare(batch.w1), self.prepare(batch.w2)
-            return self._ext.sm90_moe_fused_mlp_forward(
-                x_q.codes,
-                x_q.scales,
-                w1.codes,
-                w1.scales,
-                w1.ref,
-                w1.res,
-                w2.codes,
-                w2.scales,
-                w2.ref,
-                w2.res,
-                batch.expert_offsets,
-                batch.p_s.contiguous(),
-            )
-        raise ValueError(f"unknown path {path!r} (expected 'two_launch' or 'fused')")
+        return self.fc3(batch, self.fc1_swiglu_quant(batch, x_q))
 
     # ------------------------------------------------------------ backward
     def _check_backward_weight(self, w: MXTensor) -> None:

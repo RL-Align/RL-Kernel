@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""SM90 fused routed-expert MLP benchmark: two-launch and fused paths vs a
+"""SM90 fused routed-expert MLP benchmark: forward vs a
 BF16 cuBLAS loop over experts (non-deterministic speed ceiling).
 
 Defaults are the EP 8 shapes (32 local experts of 256). CUDA-graph replay, median.
@@ -72,8 +72,7 @@ def main() -> int:
     g = torch.Generator().manual_seed(2026)
     print(f"H={H} F={F} E={E} ({torch.cuda.get_device_name(0)})")
     print(
-        f"{'rows':>7} {'two-launch ms':>14} {'fused ms':>10} {'bf16 loop ms':>13} "
-        f"{'ratio':>6} {'two-launch TFLOPS':>18}"
+        f"{'rows':>7} {'forward ms':>11} {'bf16 loop ms':>13} {'ratio':>6} {'TFLOPS':>7}"
     )
     for M in [int(v) for v in args.rows.split(",")]:
         x = (torch.randn(M, H, generator=g) * 0.5).bfloat16().cuda()
@@ -110,13 +109,11 @@ def main() -> int:
                 y[lo:hi] = h.bfloat16() @ w2d[e].t()
             return y
 
-        t2 = time_ms(lambda: be.forward(batch, x_q, "two_launch"))
-        tf = time_ms(lambda: be.forward(batch, x_q, "fused"))
+        t2 = time_ms(lambda: be.forward(batch, x_q))
         tb = time_ms(bf16_loop)
         flops = 6.0 * M * H * F
         print(
-            f"{M:>7} {t2:14.3f} {tf:10.3f} {tb:13.3f} {t2 / tb:6.2f} "
-            f"{flops / (t2 * 1e-3) / 1e12:18.0f}"
+            f"{M:>7} {t2:11.3f} {tb:13.3f} {t2 / tb:6.2f} {flops / (t2 * 1e-3) / 1e12:7.0f}"
         )
     return 0
 
