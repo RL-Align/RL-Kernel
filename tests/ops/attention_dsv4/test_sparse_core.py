@@ -150,7 +150,7 @@ class Setup:
         s = (self.q[r][p].float() @ k.t()) * SCALE
         lse = torch.logsumexp(s, -1)
         o = torch.softmax(s, -1) @ k
-        return (o * torch.sigmoid(lse - self.sink)[:, None]).to(torch.bfloat16)
+        return (o * torch.sigmoid(lse - self.sink)[:, None]).to(torch.bfloat16), lse
 
 
 def _same(a, b):
@@ -167,9 +167,12 @@ def test_values_batch_invariance_and_decode_equals_prefill(ratio):
     # Values against eager attention.
     for r in range(3):
         for p in (0, seq_lens[r] // 2, seq_lens[r] - 1):
-            ref = s.reference(r, p, None)
+            ref, ref_lse = s.reference(r, p, None)
             got = full_out[offsets[r] + p]
             assert float((got.float() - ref.float()).norm() / ref.float().norm()) < 2e-2
+            # The returned LSE (natural log, sink excluded) is what the backward needs.
+            lse = full_lse[offsets[r] + p].float().view(-1)[: ref_lse.numel()]
+            assert torch.allclose(lse, ref_lse, atol=2e-2, rtol=0), (r, p)
     # A request alone, and in a different batch order.
     alone, _, *_ = s.run([1], [(0, seq_lens[1])])
     assert _same(alone, full_out[offsets[1] : offsets[2]])

@@ -254,9 +254,13 @@ def build_compact(
 def sparse_attention(
     q: Tensor, workspace: Tensor, indices: Tensor, lens: Tensor, sink: Tensor, scale: float
 ) -> tuple[Tensor, Tensor]:
-    """``flash_mla_sparse_fwd``: q BF16 ``[T, H, 512]`` -> (out BF16 ``[T, H, 512]``, lse)."""
+    """``flash_mla_sparse_fwd``: q BF16 ``[T, H, 512]`` -> (out BF16 ``[T, H, 512]``, lse).
+
+    FlashMLA returns ``(out, max_logits, lse)``; ``lse`` is the log-sum-exp of the scaled
+    scores over the selected KV rows (the sink is not in it), which the backward needs.
+    """
     fm, _ = require_flashmla(q.device)
-    out, lse = fm.flash_mla_sparse_fwd(q, workspace, indices, scale, HEAD_DIM, sink, lens)[:2]
+    out, _, lse = fm.flash_mla_sparse_fwd(q, workspace, indices, scale, HEAD_DIM, sink, lens)
     return out, lse
 
 
