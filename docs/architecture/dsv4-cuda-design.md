@@ -449,7 +449,13 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         - EP > 1: one global routed adapter (Megatron-Bridge broadcasts it and all-reduces its
           gradients over EP); `u1` travels with the row and `du` comes back. The 2-GPU check
           (`check_dsv4_moe_ep.py --lora`) is written but has not run yet.
-        - Open: per-expert adapters
+        - Per-expert adapters (`share_expert_adapters=False`): deferred (user decision
+          2026-11-11) until the verl side needs them. Probed: DeepGEMM
+          `m_grouped_bf16_gemm_nt_contiguous` (m-indices or psum layout) gives the bytes of
+          one `bf16_gemm_nt` per expert, batch-invariant
+          (`scripts/probe_dsv4_grouped_lora_gemm.py`). It outputs BF16 only, so when built
+          they get a new profile `dsv4-lora-expert-v1` with `d = BF16(h B_e^T)` (chosen over
+          an own FP32-output kernel). With EP > 1 the BF16 x rows travel with the dispatch
   - [x] Full model training forward / backward (`Dsv4Model.forward_train`, `attach_lora`;
         `docs/operators/dsv4-model.md`, "Training").
         - The forward is byte-equal to the rollout forward.
@@ -457,6 +463,9 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         - On an all-hash-routed copy, finite differences agree (correlation 0.93 over 12
           parameter groups).
         - Backward determinism is not required (user decision 2026-11-11).
+        - Packed multi-sequence batches work. Chunked training (a long sequence split
+          into chunks with the gradient carried across them) is not planned (user decision
+          2026-11-11): RL training recomputes whole sequences.
   - [x] A3: LoRA adapters (`rl_engine/models/deepseek_v4/lora.py`, profile `dsv4-lora-v1`) on
         `wq_a`, `wkv`, `wq_b` and `wo_b` (user decision 2026-11-11; Megatron
         `linear_q_down_proj` / `linear_kv_proj` / `linear_q_up_proj` / `linear_proj`; none on
