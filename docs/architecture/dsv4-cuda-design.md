@@ -695,6 +695,12 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       builds a per-token workspace of only its selected rows (byte-equal to the slab path,
       tested). H200: decode 64 x 4K 0.47 / 0.52 / 0.22 ms (C4 / C128 / window-only, graph
       replay), prefill 1 x 4096 3.0 / 2.2 / 1.8 ms (eager)
+- [x] Graph-capturable decode step at EP = 1: the MoE's MXFP8 finite check had one host
+      sync per call. `check_finite="defer"` ORs the kernel's flag into a device tensor
+      (`Dsv4Model.set_finite_check` / `raise_if_nonfinite`); a full 4-layer decode step
+      captures, replay = eager bytes, a NaN input is reported
+      (`test_model_decode_step_is_cuda_graph_capturable`). EP > 1 still syncs for the split
+      sizes
 - [ ] DCP attention (single comparator across local and global selection; separate issue)
 
 ### Deferred - vLLM golden

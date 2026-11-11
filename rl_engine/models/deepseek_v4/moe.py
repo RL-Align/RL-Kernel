@@ -150,7 +150,11 @@ class Dsv4MoE:
     # ``((q [2F_s, H], scale), (q [H, F_s], scale))``, 128x128 FP32 block scales.
     shared_fp8: tuple | None = None
     ep_group: object = None  # torch.distributed process group; None = EP 1
-    check_finite: bool = True  # MXFP8 quant fail-closed check (one host sync; off for graphs)
+    # MXFP8 quant fail-closed check: True reads the flag back (one host sync per call);
+    # "defer" ORs it into ``nonfinite`` on the device (CUDA-graph capturable; the caller
+    # checks it, ``Dsv4Model.raise_if_nonfinite``); False skips it.
+    check_finite: bool | str = True
+    nonfinite: Tensor | None = None  # int32 [1], with check_finite == "defer"
     lora: object = None  # MoeLora (lora.py): routed fc1 / fc2 and shared-expert adapters
     _routed: object = field(default=None, init=False, repr=False)
     _shared: object = field(default=None, init=False, repr=False)
@@ -209,6 +213,23 @@ class Dsv4MoE:
         batch, x_q = self._expert_batch(rows, hidden)
         return self._routed.backward(batch, x_q, dy)
 
+    def _quantize(self, x: Tensor) -> tuple[Tensor, Tensor]:
+        """MXFP8 codes / scales of the block input, with the configured finite check."""
+        if self.check_finite == "defer":
+            from rl_engine.kernels.ops.cuda.moe.mxfp8_act_quant import backend
+
+            codes, scales, flag = backend().mxfp8_act_quant_forward(x.contiguous(), True)
+            if self.nonfinite is None or self.nonfinite.device != x.device:
+                self.nonfinite = torch.zeros(1, dtype=torch.int32, device=x.device)
+            self.nonfinite.bitwise_or_(flag)
+            return codes, scales
+        if self.check_finite not in (True, False):
+            raise ValueError(
+                f"check_finite must be True, False or 'defer', not {self.check_finite!r}"
+            )
+        x_q = mxfp8_act_quant_fwd_cuda(x, check_finite=self.check_finite)
+        return x_q.codes, x_q.scales
+
     def routed_rows(
         self, x: Tensor, weights: Tensor, plan: RoutePlan
     ) -> tuple[Tensor, tuple[_Rows, _Exchange | None]]:
@@ -216,8 +237,7 @@ class Dsv4MoE:
         state :meth:`routed_backward` needs."""
         t, hidden = x.shape
         if t:
-            x_q = mxfp8_act_quant_fwd_cuda(x, check_finite=self.check_finite)
-            codes, scales = x_q.codes, x_q.scales
+            codes, scales = self._quantize(x)
         else:
             codes = torch.empty(0, hidden, dtype=torch.uint8, device=x.device)
             scales = torch.empty(0, hidden // 32, dtype=torch.uint8, device=x.device)

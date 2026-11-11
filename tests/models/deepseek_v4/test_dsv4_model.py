@@ -164,6 +164,53 @@ def test_model_logprob_is_batch_invariant(model):
 
 
 @gpu
+def test_model_decode_step_is_cuda_graph_capturable(model):
+    """A whole decode step (every layer, MoE included, EP = 1) captures in a CUDA graph
+    with the deferred finite check; replay gives the eager bytes, and a NaN input sets
+    the device flag, which ``raise_if_nonfinite`` reports."""
+    from rl_engine.models.deepseek_v4.attention import Dsv4Batch
+
+    lengths = [40, 300]
+    gen = torch.Generator().manual_seed(11)
+    vocab = model.config.vocab_size
+    ids = [torch.randint(vocab, (n,), generator=gen).cuda() for n in lengths]
+    caches = model.new_caches(len(lengths), MAX_LEN, seed=5)
+    window = model.config.sliding_window
+    pre = Dsv4Batch.from_lens([n - 1 for n in lengths], [n - 1 for n in lengths], window)
+    model.forward_batch(torch.cat([x[:-1] for x in ids]), pre, caches)
+    step = Dsv4Batch.from_lens(lengths, [1] * len(lengths), window)
+    last = torch.stack([x[-1] for x in ids])
+    model.set_finite_check("defer")
+    try:
+        eager = model.forward_batch(last, step, caches)
+        stream = torch.cuda.Stream()
+        stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(stream):
+            model.forward_batch(last, step, caches)
+        torch.cuda.current_stream().wait_stream(stream)
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            captured = model.forward_batch(last, step, caches)
+        graph.replay()
+        torch.cuda.synchronize()
+        assert _same(captured, eager)
+        model.raise_if_nonfinite()  # clean inputs: no error
+
+        saved = model.embed[last[0]].clone()
+        model.embed[last[0]] = float("nan")
+        try:
+            graph.replay()
+            torch.cuda.synchronize()
+            with pytest.raises(ValueError, match="non-finite"):
+                model.raise_if_nonfinite()
+            model.raise_if_nonfinite()  # the flags were cleared
+        finally:
+            model.embed[last[0]] = saved
+    finally:
+        model.set_finite_check(True)
+
+
+@gpu
 def test_layers_are_wired(model):
     """Every layer changes the streams, and stream outputs are reproducible."""
     from rl_engine.models.deepseek_v4.attention import Dsv4Batch

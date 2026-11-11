@@ -172,5 +172,8 @@ against FP32 autograd in its own tests.
 - Attention backward, one 4096-token request: 1.5-1.6x the forward (2.7 / 4.8 / 4.0 ms for
   window / C4 / C128). cuDNN's sparse attention backward takes 0.5-1.6 ms of it; the
   rest is the FP8 dgrads and the fused row kernels.
-- The MoE block syncs with the host (the MXFP8 finite check; with EP, the split sizes), so
-  a full decode step is not CUDA-graph capturable yet. The attention layer alone is.
+- CUDA graphs: at EP = 1 a whole decode step is capturable with
+  `model.set_finite_check("defer")`. The MXFP8 finite check then ORs a device flag instead
+  of reading it back; call `model.raise_if_nonfinite()` after the step (or the replay).
+  Replay gives the eager bytes, and a NaN input sets the flag (tested). With EP > 1 the
+  MoE still reads the split sizes back, so the step is not capturable there.

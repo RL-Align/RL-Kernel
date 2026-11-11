@@ -141,6 +141,27 @@ class Dsv4Model:
         out = hc_head_cuda(streams, p.fn, p.scale, p.base, p.norm)[0]
         return (out, per_layer) if return_streams else out
 
+    def set_finite_check(self, mode: bool | str) -> None:
+        """The MoE blocks' MXFP8 finite check: True (raise at once; one host sync per layer),
+        ``"defer"`` (a device flag, CUDA-graph capturable; read it with
+        :meth:`raise_if_nonfinite`) or False (off)."""
+        for layer in self.layers:
+            layer.moe.check_finite = mode
+
+    def raise_if_nonfinite(self) -> None:
+        """With ``set_finite_check("defer")``: raise if any MoE input since the last call held
+        a NaN / Inf (one host sync), then clear the flags."""
+        flags = [layer.moe.nonfinite for layer in self.layers if layer.moe.nonfinite is not None]
+        if not flags:
+            return
+        bad = bool(torch.stack(flags).any())
+        for f in flags:
+            f.zero_()
+        if bad:
+            from rl_engine.kernels.ops.moe_common import NON_FINITE_MESSAGE
+
+            raise ValueError(NON_FINITE_MESSAGE)
+
     def forward_train(self, input_ids: Tensor, batch: Dsv4Batch, caches: list[LayerCaches]):
         """Final hidden BF16 ``[T, H]`` under autograd, byte-equal to :meth:`forward_batch`.
 
