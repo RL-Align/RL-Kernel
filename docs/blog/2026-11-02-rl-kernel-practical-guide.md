@@ -7,7 +7,7 @@ identical bits when the weights and inputs match.
 
 This guide runs a short Qwen3-8B check with vime, vLLM and Megatron-LM on
 NVIDIA H100 or AMD MI300X. It compares training and rollout on each platform
-separately. For the numerical background and published results, see the
+separately. For the numerical background and reported results, see the
 [technical article](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md).
 
 ## Requirements
@@ -83,8 +83,11 @@ code; changing a Python path alone is insufficient.
     ```
 
 Create .rlk-profile.json once. It records your interpreter and local paths so the
-launcher can reuse them. If you already have this file, check its paths and
-skip the Python block. The block refuses to overwrite an existing profile.
+launcher can reuse them. If you already have this file, check that `requirements.backend` matches
+`RLK_BACKEND` and that its paths point to the selected environment. If either
+differs, move the old file aside and rerun the Python block with the selected
+template. Skip that block only after these checks. It refuses to overwrite an
+existing profile.
 Unset RLK\_REPRO\_PROFILE to select this checkout's local file.
 
 ```bash
@@ -127,6 +130,7 @@ Finish preparation for the same backend:
     ray start --head --num-gpus=8 \
       --include-dashboard=true --dashboard-host=127.0.0.1 \
       --dashboard-port=8265 --object-store-memory=200000000000
+    export RAY_API_SERVER_ADDRESS=http://127.0.0.1:8265
 
     ./rlk doctor --mode consistency
     ```
@@ -136,7 +140,8 @@ Finish preparation for the same backend:
     It does not install the full Python stack or download model weights.
 
     The Ray command reserves 200 GB for its object store. Adjust this for host
-    RAM and /dev/shm, or reuse a suitable Ray head you own. Continue when doctor
+    RAM and /dev/shm. If you reuse your own Ray head, set
+`RAY_API_SERVER_ADDRESS` to its dashboard address. Continue when doctor
     reports Doctor: PASS. Extra runtime paths are covered in the
     [CUDA setup guide](../usage/qwen3-vime-consistency.md#prepare-once).
 
@@ -173,8 +178,9 @@ Finish preparation for the same backend:
 
 ## 3. Preview and run
 
-Define the experiment settings once. The Bash array keeps the same settings
-for the consistency run and native comparison.
+Use the README Quick Start settings. This guide changes only `--steps` to 3
+for the short check and uses a run ID to locate its report. Consistency mode is
+the default. The Bash array keeps the same settings for the native comparison.
 
 ```bash
 RUN_ARGS=(
@@ -184,7 +190,7 @@ RUN_ARGS=(
   --max-response-len 6912 --max-tokens-per-gpu 4096
 )
 
-./rlk plan --mode consistency "${RUN_ARGS[@]}" --steps 3
+./rlk plan "${RUN_ARGS[@]}" --steps 3
 ```
 
 Check the resolved paths and runner\_command in the printed JSON. plan does
@@ -196,9 +202,9 @@ Run three steps with a unique output name:
 
 ```bash
 export RLK_RUN_ID="consistency-$(date -u +%Y%m%dT%H%M%SZ)"
-./rlk plan --mode consistency "${RUN_ARGS[@]}" --steps 3 --run-id "$RLK_RUN_ID" \
+./rlk plan "${RUN_ARGS[@]}" --steps 3 --run-id "$RLK_RUN_ID" \
   > "$RLK_WORKSPACE/$RLK_RUN_ID.plan.json"
-./rlk run --mode consistency "${RUN_ARGS[@]}" --steps 3 --run-id "$RLK_RUN_ID"
+./rlk run "${RUN_ARGS[@]}" --steps 3 --run-id "$RLK_RUN_ID"
 ```
 
 run waits for completion and validates the results. Model loading, compilation
@@ -267,7 +273,7 @@ results, historical 200-step evidence and the native execution-record limitation
 For a longer consistency run, reuse the same settings:
 
 ```bash
-./rlk run --mode consistency "${RUN_ARGS[@]}" --steps 200
+./rlk run "${RUN_ARGS[@]}" --steps 200
 ```
 
 ## What we are building next
@@ -275,18 +281,13 @@ For a longer consistency run, reuse the same settings:
 Qwen3-8B on CUDA and ROCm is our starting point. We are extending the same
 training and rollout consistency checks across models, RL frameworks and hardware:
 
-- Models: Continue [DeepSeek-V4 Flash MoE](2026-08-09-dsv4-flash-moe-consistency-roadmap.md)
-  and develop [MiniMax-H3](https://github.com/RL-Align/RL-Kernel/issues/420),
-  whose video and audio trajectories need their own consistency checks. We plan
-  to begin DeepSeek-V4.1 work after DeepSeek-V4 is released. The
-  [Gemma](https://github.com/RL-Align/RL-Kernel/issues/415) and
-  [Qwen3-Next](https://github.com/RL-Align/RL-Kernel/issues/428) are also
-  proposed model targets.
+- Models: We are working on [DeepSeek-V4 Flash MoE](2026-08-09-dsv4-flash-moe-consistency-roadmap.md)
+  and [MiniMax-H3](https://github.com/RL-Align/RL-Kernel/issues/420).
 - RL frameworks: Connect RL-Kernel to verl and AReaL, and advance the
   [miles integration](https://github.com/RL-Align/RL-Kernel/issues/642) for
   Qwen3.6 MoE. Each integration needs a reproducible training and rollout run and
   a clear numerical comparison.
-- Hardware: Extend validation beyond the published NVIDIA and AMD runs,
+- Hardware: Extend validation beyond the documented NVIDIA and AMD checks,
   including the MUSA work in the miles roadmap and
   [Ascend with verl](https://github.com/RL-Align/RL-Kernel/issues/563).
 
