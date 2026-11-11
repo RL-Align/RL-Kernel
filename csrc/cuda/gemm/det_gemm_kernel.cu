@@ -58,30 +58,80 @@ enum class OutputLayout {
 };
 
 template <bool TRANSPOSE_OUTPUT>
-__device__ __forceinline__ int output_offset(int row, int col, int M, int N) {
+__device__ __forceinline__ int64_t output_offset(int row, int col, int M, int N) {
   if constexpr (TRANSPOSE_OUTPUT)
-    return col * M + row;
-  return row * N + col;
+    return static_cast<int64_t>(col) * M + row;
+  return static_cast<int64_t>(row) * N + col;
 }
 
-// Must match SM90 BK so an aligned-K naive tree equals the SM90 tile tree.
+// Leaf width of the K tree; the SM90 path reuses it as its BK tile width.
+// Midpoint splitting keeps leaves in [16, 32], so the naive tree only matches
+// SM90's 32-wide tiles bit-for-bit when K / 2^n stays a multiple of 32
+// (K=4096 does, K=14336 leaves 28-wide). The two paths are not required to
+// agree exactly; each stays batch-invariant on its own.
 constexpr int K_TREE_LEAF = 32;
+// The tree only splits while a range is wider than one leaf, so a path has at
+// most ceil(log2(K / K_TREE_LEAF)) + 1 nodes. K is an int, which bounds any
+// K at 27 levels; the stack below holds one pending right sibling per level,
+// so 28 slots cover every reachable K. At 12 bytes per frame this stays far
+// below the 1 KB default device stack that the previous recursion overflowed.
+constexpr int K_TREE_MAX_DEPTH = 28;
 
 __device__ __forceinline__ nv_bf16 bf16_add(nv_bf16 a, nv_bf16 b) {
   return __float2bfloat16(__bfloat162float(a) + __bfloat162float(b));
 }
 
-__device__ nv_bf16 k_tree_naive(const nv_bf16* __restrict__ A, const nv_bf16* __restrict__ B,
-                                int row, int col, int N, int K, int lo, int hi) {
-  if (hi - lo <= K_TREE_LEAF) {
+struct KTreePending {
+  int mid;
+  int hi;
+  uint8_t stage;  // 0: left child running, 1: right child running
+  nv_bf16 left;   // completed left subtree, read once the right one returns
+};
+
+// Same midpoint tree, leaf ranges and rounding points as the recursive form,
+// but with a fixed-size explicit stack: deep K (e.g. the vocab-sized K of an
+// lm_head backward) would otherwise overflow the default device stack. The
+// current [lo, hi) range stays in registers; the stack only holds pending
+// right siblings, so the leaf loop and the descent stay off local memory.
+__device__ nv_bf16 k_tree_naive(const nv_bf16* __restrict__ a_row,
+                                const nv_bf16* __restrict__ b_col, int N, int K) {
+  const nv_bf16 zero = __float2bfloat16(0.0f);
+  KTreePending stack[K_TREE_MAX_DEPTH];
+  int sp = 0;
+  int lo = 0;
+  int hi = K;
+  nv_bf16 value = zero;
+
+  while (true) {
+    if (hi - lo > K_TREE_LEAF) {
+      const int mid = lo + (hi - lo) / 2;
+      stack[sp] = KTreePending{mid, hi, 0, zero};
+      ++sp;
+      hi = mid;
+      continue;
+    }
+
     float acc = 0.0f;
-    for (int k = lo; k < hi; ++k)
-      acc += __bfloat162float(A[row * K + k]) * __bfloat162float(B[k * N + col]);
-    return __float2bfloat16(acc);
+    const nv_bf16* a = a_row + lo;
+    const nv_bf16* b = b_col + static_cast<int64_t>(lo) * N;
+    for (int k = lo; k < hi; ++k, ++a, b += N)
+      acc += __bfloat162float(*a) * __bfloat162float(*b);
+    value = __float2bfloat16(acc);
+
+    while (true) {
+      if (sp == 0) return value;
+      KTreePending& pending = stack[sp - 1];
+      if (pending.stage == 0) {
+        pending.stage = 1;
+        pending.left = value;
+        lo = pending.mid;
+        hi = pending.hi;
+        break;
+      }
+      value = bf16_add(pending.left, value);
+      --sp;
+    }
   }
-  const int mid = lo + (hi - lo) / 2;
-  return bf16_add(k_tree_naive(A, B, row, col, N, K, lo, mid),
-                  k_tree_naive(A, B, row, col, N, K, mid, hi));
 }
 
 // Naive FP32 scalar kernel (fallback + ground truth). Batch-invariant by
@@ -96,8 +146,12 @@ __global__ void det_gemm_naive(const nv_bf16* __restrict__ A,
   const int row = blockIdx.y * NAIVE_TILE + threadIdx.y;
   const int col = blockIdx.x * NAIVE_TILE + threadIdx.x;
   if (row >= M || col >= N) return;
+  // 64-bit row/column bases: an operand with M*K (or K*N) above INT_MAX would
+  // otherwise wrap the linear index and read out of bounds.
+  const nv_bf16* a_row = A + static_cast<int64_t>(row) * K;
+  const nv_bf16* b_col = B + col;
   C[output_offset<TRANSPOSE_OUTPUT>(row, col, M, N)] = cast_output<output_t>(
-      __bfloat162float(k_tree_naive(A, B, row, col, N, K, 0, K)));
+      __bfloat162float(k_tree_naive(a_row, b_col, N, K)));
 }
 
 // Weight gradients in the FFN are an outer-product GEMM when the token batch
@@ -141,7 +195,7 @@ __global__ void det_gemm_db_small_k(const nv_bf16* __restrict__ X,
     const int feature = index % SMALL_N_TILE;
     const int global_feature = in_base + feature;
     sX[index] = (token < tokens && global_feature < in_features)
-                    ? X[token * in_features + global_feature]
+                    ? X[static_cast<int64_t>(token) * in_features + global_feature]
                     : __float2bfloat16(0.0f);
   }
   for (int index = tid; index < SMALL_K_TILE * SMALL_M_TILE; index += blockDim.x) {
@@ -149,7 +203,7 @@ __global__ void det_gemm_db_small_k(const nv_bf16* __restrict__ X,
     const int output = index % SMALL_M_TILE;
     const int global_output = out_base + output;
     sY[index] = (token < tokens && global_output < out_features)
-                    ? dY[token * out_features + global_output]
+                    ? dY[static_cast<int64_t>(token) * out_features + global_output]
                     : __float2bfloat16(0.0f);
   }
   __syncthreads();
@@ -167,7 +221,7 @@ __global__ void det_gemm_db_small_k(const nv_bf16* __restrict__ X,
     for (int token = 0; token < tokens; ++token)
       acc += __bfloat162float(sX[token * SMALL_N_TILE + feature]) *
              __bfloat162float(sY[token * SMALL_M_TILE + output]);
-    dW[global_output * in_features + global_feature] = cast_output<output_t>(acc);
+    dW[static_cast<int64_t>(global_output) * in_features + global_feature] = cast_output<output_t>(acc);
   }
 }
 
