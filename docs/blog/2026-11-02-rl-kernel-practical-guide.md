@@ -282,18 +282,19 @@ For a longer consistency run, reuse the same settings:
 Qwen3-8B on CUDA and ROCm is our starting point. We are extending the same
 training and rollout consistency checks across models, RL frameworks and hardware:
 
-- Models: We are working on [DeepSeek-V4 Flash MoE](2026-08-09-dsv4-flash-moe-consistency-roadmap.md)
-  and [MiniMax-H3](https://github.com/RL-Align/RL-Kernel/issues/420).
-- RL frameworks: Connect RL-Kernel to verl and AReaL, and advance the
-  [miles integration](https://github.com/RL-Align/RL-Kernel/issues/642) for
-  Qwen3.6 MoE. Each integration needs a reproducible training and rollout run and
-  a clear numerical comparison.
-- Hardware: Extend validation beyond the documented NVIDIA and AMD checks,
-  including the MUSA work in the miles roadmap and
-  [Ascend with verl](https://github.com/RL-Align/RL-Kernel/issues/563).
+- Models in progress: [DeepSeek-V4 Flash MoE](2026-08-09-dsv4-flash-moe-consistency-roadmap.md),
+  [MiniMax-H3](https://github.com/RL-Align/RL-Kernel/issues/420),
+  Qwen3-Next and Muse-Glimmer.
+- Next framework integrations: AReaL, verl, verl-omni, miles and
+  [Alibaba ROLL](https://github.com/alibaba/ROLL). Each integration needs a
+  reproducible training and rollout run and a clear numerical comparison.
+- Next vendor coordination: MetaX, T-Head Zhenwu and NVIDIA for broader
+  model and backend coverage. MUSA work in the miles roadmap and
+  [Ascend with verl](https://github.com/RL-Align/RL-Kernel/issues/563)
+  remain separate ongoing tracks.
 
-These are ongoing or planned projects. We will publish the supported
-configurations and results after validation.
+These are ongoing or planned projects, not claims of completed support. We will
+publish supported configurations and results after validation.
 
 ## Contribute
 
