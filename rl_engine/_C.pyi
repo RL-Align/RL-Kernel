@@ -577,6 +577,21 @@ def dsv4_router_backward_dx(
 ) -> None: ...
 def mxfp8_act_quant_forward(x: torch.Tensor, check_finite: bool = True) -> list[torch.Tensor]: ...
 def mxfp8_act_quant_ste_backward(dy: torch.Tensor) -> torch.Tensor: ...
+def dsv4_norm_rope_backward(
+    dy: torch.Tensor,
+    src_rows: torch.Tensor | None,
+    x: torch.Tensor | None,
+    w: torch.Tensor | None,
+    positions: torch.Tensor | None,
+    heads: int,
+    cos_sin: torch.Tensor | None,
+    rope_sign: int,
+    norm: bool,
+    eps: float,
+    rows: int,
+    out: torch.Tensor,
+    out_heads: int,
+) -> None: ...
 def moe_swiglu_quant(
     z: torch.Tensor,
     p_s: torch.Tensor,

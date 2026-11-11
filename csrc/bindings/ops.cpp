@@ -623,6 +623,12 @@ void dsv4_router_backward_dx(torch::Tensor logits, torch::Tensor ids, torch::Ten
 // P5-1 MXFP8 activation quantization (csrc/cuda/moe/mxfp8_act_quant.cu)
 std::vector<torch::Tensor> mxfp8_act_quant_forward_cuda(torch::Tensor x, bool check_finite);
 torch::Tensor mxfp8_act_quant_ste_backward_cuda(torch::Tensor dy);
+// DSv4 attention backward helpers (csrc/cuda/attention/dsv4_attn_bwd.cu)
+void dsv4_norm_rope_backward(torch::Tensor dy, c10::optional<torch::Tensor> src_rows,
+                             c10::optional<torch::Tensor> x, c10::optional<torch::Tensor> w,
+                             c10::optional<torch::Tensor> positions, int64_t heads,
+                             c10::optional<torch::Tensor> cos_sin, int64_t rope_sign, bool norm,
+                             double eps, int64_t rows, torch::Tensor out, int64_t out_heads);
 // P5 routed experts: standalone clamp-SwiGLU * p_s -> MXFP8 (csrc/cuda/moe/moe_swiglu_quant.cu)
 std::vector<torch::Tensor> moe_swiglu_quant(torch::Tensor z, torch::Tensor p_s,
                                             c10::optional<torch::Tensor> z_add,
@@ -704,6 +710,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("x"), py::arg("check_finite") = true);
     m.def("mxfp8_act_quant_ste_backward", &mxfp8_act_quant_ste_backward_cuda,
           "Straight-through estimator backward for mxfp8_act_quant (dX = dY)");
+    m.def("dsv4_norm_rope_backward", &dsv4_norm_rope_backward,
+          "DSv4 attention backward: (gathered) rows -> RoPE transpose -> RMSNorm backward",
+          py::arg("dy"), py::arg("src_rows"), py::arg("x"), py::arg("w"), py::arg("positions"),
+          py::arg("heads"), py::arg("cos_sin"), py::arg("rope_sign"), py::arg("norm"),
+          py::arg("eps"), py::arg("rows"), py::arg("out"), py::arg("out_heads"));
     m.def("moe_swiglu_quant", &moe_swiglu_quant,
           "P5 routed experts: FP32 z -> clamp-SwiGLU * p_s -> (MXFP8 codes, scales, BF16 h), "
           "byte-equal to the fused fc1 epilogue; optional per-token z_add (LoRA fc1 delta)",

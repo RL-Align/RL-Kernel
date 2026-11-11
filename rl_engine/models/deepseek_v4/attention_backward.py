@@ -25,9 +25,13 @@ Backward order, for dy -> dh:
         gated softmax pooling; [d kv | d score] @ wkv_wgate (BF16) -> d h (compressor)
     [d qr | d kv] through fused_wqa_wkv dX                            -> d h
 
-**Not deterministic yet:** cuDNN accumulates d workspace with FP32 atomics
-(``rl_engine/kernels/ops/cuda/dsa_backward.py``). Everything else here is gathers and
-row-local FP32 math, so it is deterministic. The small steps run in PyTorch for now.
+**Not deterministic:** cuDNN accumulates d workspace with FP32 atomics
+(``rl_engine/kernels/ops/cuda/dsa_backward.py``; the user does not require a deterministic
+backward). Everything else here is gathers and row-local FP32 math. The o / q / kv /
+q_norm steps (RoPE transposes and RMSNorm backwards) run in one fused kernel,
+``csrc/cuda/attention/dsv4_attn_bwd.cu`` (``_norm_rope_bwd``). The compressor backward is
+still PyTorch. The PyTorch helpers below (``rope_transpose``, ``rms_norm_backward``) are its
+reference and the compressor's.
 """
 
 from __future__ import annotations
@@ -75,6 +79,45 @@ def rms_norm_backward(x: Tensor, dy: Tensor, weight: Tensor | None, eps: float) 
     r = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps)
     xh = x * r
     return r * (g - xh * (g * xh).mean(-1, keepdim=True))
+
+
+def _norm_rope_bwd(
+    dy: Tensor,
+    out: Tensor,
+    rows: int,
+    *,
+    x: Tensor | None = None,
+    w: Tensor | None = None,
+    positions: Tensor | None = None,
+    heads: int = 1,
+    cos_sin: Tensor | None = None,
+    rope_sign: int = 0,
+    eps: float = 1e-6,
+    src_rows: Tensor | None = None,
+    out_heads: int | None = None,
+) -> Tensor:
+    """``csrc/cuda/attention/dsv4_attn_bwd.cu``: per row, an optional gather, the RoPE
+    transpose (``rope_sign`` -1) or inverse-RoPE transpose (+1), then (with ``x``) the
+    RMSNorm backward, written into ``out`` (2-D, rows of D)."""
+    import importlib
+
+    ext = importlib.import_module("rl_engine._C")
+    ext.dsv4_norm_rope_backward(
+        dy,
+        src_rows,
+        x,
+        w,
+        None if positions is None else positions.long().contiguous(),
+        int(heads),
+        cos_sin,
+        int(rope_sign),
+        x is not None,
+        float(eps),
+        int(rows),
+        out,
+        int(out_heads or heads),
+    )
+    return out
 
 
 def _wo_a_linears(o_proj) -> list[Fp8Linear]:
@@ -163,7 +206,7 @@ def attention_backward(attn, hidden: Tensor, batch, saved: dict, dy: Tensor):
     grads: dict = {}
     tokens = hidden.shape[0]
     positions = batch.positions
-    cos, sin = _cos_sin(attn.cos_sin, positions)
+    d = c.head_dim
 
     # Output projection.
     dy = dy.to(torch.bfloat16).contiguous()
@@ -179,14 +222,22 @@ def attention_backward(attn, hidden: Tensor, batch, saved: dict, dy: Tensor):
             for g, lin in enumerate(_wo_a_linears(w.o_proj))
         ],
         dim=1,
-    ).view(tokens, c.heads, c.head_dim)
-    d_out = inverse_rope_transpose(d_rot.float(), cos, sin)
+    )  # [T, heads * D]
     out = saved["out"]
-    if out.shape[1] > c.heads:  # padded heads carry no gradient
-        d_full = torch.zeros(out.shape, dtype=torch.float32, device=out.device)
-        d_full[:, : c.heads] = d_out
-        d_out = d_full
-    d_out = d_out.to(torch.bfloat16)
+    padded = out.shape[1]
+    d_out = torch.empty(out.shape, dtype=torch.bfloat16, device=out.device)
+    if padded > c.heads:  # padded heads carry no gradient
+        d_out[:, c.heads :].zero_()
+    _norm_rope_bwd(
+        d_rot.view(-1, d),
+        d_out.view(-1, d),
+        tokens * c.heads,
+        positions=positions,
+        heads=c.heads,
+        cos_sin=attn.cos_sin,
+        rope_sign=1,
+        out_heads=padded,
+    )
 
     # Sparse attention.
     d_qpad, d_ws = sparse_attention_backward(
@@ -201,33 +252,66 @@ def attention_backward(attn, hidden: Tensor, batch, saved: dict, dy: Tensor):
         d_out,
     )
 
-    # q path: per-head weightless RMSNorm + RoPE, wq_b, q_norm.
-    dq_n = rope_transpose(d_qpad[:, : c.heads].float(), cos, sin)
-    dq = rms_norm_backward(saved["q"].float(), dq_n, None, c.eps)
-    dq = dq.reshape(tokens, -1)
-    dqr = w.wq_b.backward_dx(dq.to(torch.bfloat16))
+    # q path: RoPE transpose + per-head weightless RMSNorm backward, wq_b, q_norm.
+    src = None
+    if padded != c.heads:
+        r = torch.arange(tokens * c.heads, device=out.device)
+        src = (r // c.heads) * padded + r % c.heads
+    dq = torch.empty(tokens * c.heads, d, dtype=torch.bfloat16, device=out.device)
+    _norm_rope_bwd(
+        d_qpad.view(-1, d),
+        dq,
+        tokens * c.heads,
+        x=saved["q"].reshape(-1, d),
+        positions=positions,
+        heads=c.heads,
+        cos_sin=attn.cos_sin,
+        rope_sign=-1,
+        eps=c.eps,
+        src_rows=src,
+    )
+    dq = dq.view(tokens, -1)
+    dqr = w.wq_b.backward_dx(dq)
     if "wq_b" in lora:
         dx_l, da, db = lora_backward(dq, saved["qr"], lora["wq_b"])
         grads["wq_b"] = (da, db)
         dqr = dqr.float() + dx_l
     qr_kv = saved["qr_kv"]
-    dqr_raw = rms_norm_backward(qr_kv[:, : c.q_lora_rank], dqr, w.q_norm, c.eps)
+    q_rank = c.q_lora_rank
+    d_raw = torch.empty(tokens, qr_kv.shape[1], dtype=torch.bfloat16, device=out.device)
+    _norm_rope_bwd(
+        dqr.contiguous(),
+        d_raw[:, :q_rank],
+        tokens,
+        x=qr_kv[:, :q_rank],
+        w=w.q_norm,
+        eps=c.eps,
+    )
 
-    # kv path: window rows of the workspace -> tokens; RoPE; kv_norm.
+    # kv path: window rows of the workspace -> tokens; RoPE transpose; kv_norm.
     ratio = c.compress_ratio
     n_comp = c.max_model_len // ratio if ratio > 1 else 0
     slab = n_comp + batch.max_gather
     req = batch.token_req.long()
     rows = req * slab + n_comp + positions.long()  # full prefill: gather starts at 0
-    d_kv_rope = d_ws.index_select(0, rows).float()
-    d_kv_n = rope_transpose(d_kv_rope, cos, sin)
-    dkv_raw = rms_norm_backward(qr_kv[:, c.q_lora_rank :], d_kv_n, w.kv_norm, c.eps)
+    _norm_rope_bwd(
+        d_ws.view(-1, d),
+        d_raw[:, q_rank:],
+        tokens,
+        x=qr_kv[:, q_rank:],
+        w=w.kv_norm,
+        positions=positions,
+        heads=1,
+        cos_sin=attn.cos_sin,
+        rope_sign=-1,
+        eps=c.eps,
+        src_rows=rows,
+    )
 
-    dh = w.fused_wqa_wkv.backward_dx(torch.cat([dqr_raw, dkv_raw], dim=1).to(torch.bfloat16))
-    dh = dh.float()
-    for name, d_out in (("wq_a", dqr_raw), ("wkv", dkv_raw)):
+    dh = w.fused_wqa_wkv.backward_dx(d_raw).float()
+    for name, d_part in (("wq_a", d_raw[:, :q_rank]), ("wkv", d_raw[:, q_rank:])):
         if name in lora:
-            dx_l, da, db = lora_backward(d_out, hidden, lora[name])
+            dx_l, da, db = lora_backward(d_part, hidden, lora[name])
             grads[name] = (da, db)
             dh = dh + dx_l
 

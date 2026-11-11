@@ -418,8 +418,14 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         separately. H200, one 4096-token request: backward 7.7 / 9.9 / 8.9 ms (window / C4 /
         C128) against a forward of 1.7 / 3.0 / 2.1 ms. The cuDNN kernel is 0.6-1.6 ms of
         it; the rest is PyTorch glue on `[T, 64, 512]` FP32 tensors
-  - [ ] A2: fused CUDA kernels for the q / kv / o-side and compressor backward (replace the
-        PyTorch glue)
+  - [x] A2 (q / kv / o side): one fused row kernel `dsv4_norm_rope_backward`
+        (`csrc/cuda/attention/dsv4_attn_bwd.cu`) for the RoPE transposes and RMSNorm
+        backwards; it writes the `[q_norm | kv_norm]` dgrad input in place.
+        - Backward for one 4096-token request: 7.7 / 9.9 / 8.9 ms became 2.7 / 5.2 / 4.5 ms
+          (window / C4 / C128), against a forward of 1.7 / 3.1 / 2.4 ms.
+        - The kernel moved from scalar to 16-byte loads (2.34 ms to 0.44 ms).
+        - The rest is the FP8 dgrads, cuDNN (0.56-1.59 ms) and the compressor backward.
+  - [ ] A2 (compressor): the main / indexer compressor backward is still PyTorch
   - [x] MoE LoRA (`docs/operators/dsv4-moe.md`, "LoRA").
         - Adapters: routed `fc1` / `fc2` shared by all experts (Megatron default
           `share_expert_adapters=True`, EP = 1) and shared-expert `fc1` / `fc2`.

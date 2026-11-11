@@ -309,3 +309,54 @@ def test_attention_lora_backward_matches_reference(ratio):
         assert ad.a.grad is not None and ad.b.grad is not None, name
         assert rel(ad.a.grad, da_ref) < 0.1, (name, rel(ad.a.grad, da_ref))
         assert rel(ad.b.grad, db_ref) < 0.1, (name, rel(ad.b.grad, db_ref))
+
+
+def test_norm_rope_kernel_matches_torch():
+    """The fused helper (csrc/cuda/attention/dsv4_attn_bwd.cu) against the PyTorch steps."""
+    from rl_engine.models.deepseek_v4.attention_backward import _cos_sin as bwd_cos_sin
+    from rl_engine.models.deepseek_v4.attention_backward import (
+        _norm_rope_bwd,
+        inverse_rope_transpose,
+        rms_norm_backward,
+        rope_transpose,
+    )
+
+    g = torch.Generator(device="cuda").manual_seed(3)
+    cs = _cos_sin()
+    t, heads = 37, 4
+    pos = torch.randint(0, MAX_LEN, (t,), generator=g, device="cuda")
+    cos, sin = bwd_cos_sin(cs, pos)
+    dy = torch.randn(t, heads, 512, generator=g, device="cuda").bfloat16()
+    x = torch.randn(t, heads, 512, generator=g, device="cuda").bfloat16()
+    w = (1 + 0.1 * torch.randn(512, generator=g, device="cuda")).bfloat16()
+
+    def rel(a, b):
+        return float((a.float() - b.float()).norm() / b.float().norm())
+
+    # o side: inverse-RoPE transpose into a padded-head layout.
+    out = torch.zeros(t, heads + 2, 512, dtype=torch.bfloat16, device="cuda")
+    _norm_rope_bwd(dy.view(-1, 512), out.view(-1, 512), t * heads, positions=pos,
+                   heads=heads, cos_sin=cs, rope_sign=1, out_heads=heads + 2)  # fmt: skip
+    assert rel(out[:, :heads], inverse_rope_transpose(dy, cos, sin)) < 1e-2
+    assert float(out[:, heads:].abs().max()) == 0
+    # q side: RoPE transpose + weightless RMSNorm backward.
+    out = torch.empty(t * heads, 512, dtype=torch.float32, device="cuda")
+    _norm_rope_bwd(dy.view(-1, 512), out, t * heads, x=x.view(-1, 512), positions=pos,
+                   heads=heads, cos_sin=cs, rope_sign=-1)  # fmt: skip
+    want = rms_norm_backward(x.float(), rope_transpose(dy, cos, sin), None, 1e-6)
+    assert rel(out.view(t, heads, 512), want) < 1e-4
+    # kv side: gathered rows, RoPE transpose, weighted RMSNorm backward, strided output.
+    src = torch.randperm(t * heads, generator=g, device="cuda")[:t]
+    buf = torch.zeros(t, 1536, dtype=torch.float32, device="cuda")
+    _norm_rope_bwd(dy.view(-1, 512), buf[:, 1024:], t, x=x[:, 0], w=w, positions=pos,
+                   heads=1, cos_sin=cs, rope_sign=-1, src_rows=src)  # fmt: skip
+    gathered = dy.view(-1, 512)[src]
+    want = rms_norm_backward(x[:, 0].float(), rope_transpose(gathered, cos, sin), w, 1e-6)
+    assert rel(buf[:, 1024:], want) < 1e-4 and float(buf[:, :1024].abs().max()) == 0
+    # q_norm: D = 1024, no RoPE.
+    dy2 = torch.randn(t, 1024, generator=g, device="cuda")
+    x2 = torch.randn(t, 1024, generator=g, device="cuda").bfloat16()
+    w2 = (1 + 0.1 * torch.randn(1024, generator=g, device="cuda")).bfloat16()
+    out = torch.empty(t, 1024, dtype=torch.float32, device="cuda")
+    _norm_rope_bwd(dy2, out, t, x=x2, w=w2)
+    assert rel(out, rms_norm_backward(x2.float(), dy2, w2, 1e-6)) < 1e-4

@@ -169,7 +169,7 @@ against FP32 autograd in its own tests.
 ## Limitations
 
 - The training forward / backward covers full-prefill batches only.
-- The attention backward's small steps are PyTorch (backward about 3-4x the forward); fused
-  kernels are planned.
+- Attention backward, one 4096-token request: 1.6-1.9x the forward. The compressor
+  backward is still PyTorch.
 - The MoE block syncs with the host (the MXFP8 finite check; with EP, the split sizes), so
   a full decode step is not CUDA-graph capturable yet. The attention layer alone is.

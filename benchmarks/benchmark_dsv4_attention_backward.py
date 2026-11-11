@@ -77,7 +77,12 @@ def main() -> None:
                 with profile(activities=[ProfilerActivity.CUDA]) as prof:
                     fwd_bwd()
                     torch.cuda.synchronize()
-                print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=12))
+                events = [e for e in prof.key_averages() if e.device_type.name == "CUDA"]
+                events.sort(key=lambda e: e.self_device_time_total, reverse=True)
+                for e in events[:14]:
+                    print(
+                        f"    {e.self_device_time_total / 1e3:7.3f} ms x{e.count:<3d} {e.key[:70]}"
+                    )
 
 
 if __name__ == "__main__":

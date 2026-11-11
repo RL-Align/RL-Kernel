@@ -260,6 +260,7 @@ def get_extensions():
             # DSv4 attention query / output side.
             cuda_sources.append("csrc/cuda/attention/dsv4_qo.cu")
             cuda_sources.append("csrc/cuda/attention/dsv4_cache.cu")
+            cuda_sources.append("csrc/cuda/attention/dsv4_attn_bwd.cu")
             # DSv4 manifold hyper-connections (dsv4-mhc-v1).
             cuda_sources.append("csrc/cuda/mhc_dsv4/dsv4_mhc.cu")
             # DSv4 selected-token log-probability (dsv4-logprob-v1).
