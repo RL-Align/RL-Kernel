@@ -275,10 +275,10 @@ For a longer consistency run, reuse the same settings:
 Qwen3-8B on CUDA and ROCm is our starting point. We are extending the same
 training and rollout consistency checks across models, RL frameworks and hardware:
 
-- Models: Continue [DeepSeek-V4 Flash MoE](2026-08-09-dsv4-flash-moe-consistency-roadmap.md),
-  with DeepSeek-V4.1 as a planned follow-on. Develop
-  [MiniMax-H3](https://github.com/RL-Align/RL-Kernel/issues/420), whose
-  video and audio trajectories need their own consistency checks. The
+- Models: Continue [DeepSeek-V4 Flash MoE](2026-08-09-dsv4-flash-moe-consistency-roadmap.md)
+  and develop [MiniMax-H3](https://github.com/RL-Align/RL-Kernel/issues/420),
+  whose video and audio trajectories need their own consistency checks. We plan
+  to begin DeepSeek-V4.1 work after DeepSeek-V4 is released. The
   [Gemma](https://github.com/RL-Align/RL-Kernel/issues/415) and
   [Qwen3-Next](https://github.com/RL-Align/RL-Kernel/issues/428) are also
   proposed model targets.
