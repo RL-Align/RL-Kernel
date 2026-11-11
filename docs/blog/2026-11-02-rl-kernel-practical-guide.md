@@ -83,8 +83,9 @@ code; changing a Python path alone is insufficient.
     ```
 
 Create .rlk-profile.json once. It records your interpreter and local paths so the
-launcher can reuse them. If you already have this file, check that `requirements.backend` matches
-`RLK_BACKEND` and that its paths point to the selected environment. If either
+launcher can reuse them. If you already have this file, check that
+`requirements.backend` matches `RLK_BACKEND` and that its paths point to the
+selected environment. If either
 differs, move the old file aside and rerun the Python block with the selected
 template. Skip that block only after these checks. It refuses to overwrite an
 existing profile.
@@ -141,7 +142,7 @@ Finish preparation for the same backend:
 
     The Ray command reserves 200 GB for its object store. Adjust this for host
     RAM and /dev/shm. If you reuse your own Ray head, set
-`RAY_API_SERVER_ADDRESS` to its dashboard address. Continue when doctor
+    `RAY_API_SERVER_ADDRESS` to its dashboard address. Continue when doctor
     reports Doctor: PASS. Extra runtime paths are covered in the
     [CUDA setup guide](../usage/qwen3-vime-consistency.md#prepare-once).
 
