@@ -507,7 +507,7 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       runs-of-8 FMA partition. Byte-equal to the golden and batch-invariant. H200:
       pre + norm is 1.09-1.18x of vLLM's `mhc_pre_tilelang` (the gap is the fixed split
       count; the epilogues are equal), post 0.92-1.02x. A train step (fwd + bwd) is
-      0.07-0.10x of naive PyTorch. vLLM's split count depends on T, so the rollout must run
+      0.07-0.09x of naive PyTorch. vLLM's split count depends on T, so the rollout must run
       these kernels
 - [x] P7 redo, kernels (`docs/operators/dsv4-logprob.md`, profile `dsv4-logprob-v1`): FP32
       head logits on DeepGEMM `bf16_gemm_nt` (probed BI and vocab-shard invariant), a

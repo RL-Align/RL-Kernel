@@ -18,7 +18,8 @@
 //                 d_post / d_comb (128 slices).
 //   pre_bwd:      one block per token: d_pre dot products, controller backward, the
 //                 aggregate leg of d_residual; d_raw / d_ss to a workspace.
-//   gemm_bwd:     d_residual += d_raw @ fn + 2 x d_ss, tiled over tokens so fn is reused.
+//   gemm_bwd:     d_residual += d_raw @ fn + 2 x d_ss, tiled over tokens so fn is reused;
+//                 the residual / dy rows are staged by cp.async.
 
 #include <torch/extension.h>
 
@@ -602,66 +603,110 @@ pre_bwd_kernel(const TG* __restrict__ dz, const float* __restrict__ dpost,
 }
 
 // dres[t][i][c] = pre_i dy[t][c] + ((fma chain over n of draw[t][n] fn[n][k]) + (2 x) dss),
-// k = i H + c. Block: 256 threads over k, kGemmTokens tokens; fn values are loaded once per k.
-constexpr int kGemmTokens = 16;
-
-constexpr int kGemmVec = 4;  // consecutive k per thread
-__device__ __forceinline__ void load4(const float* p, float (&v)[4]) {
-  const float4 a = *reinterpret_cast<const float4*>(p);
-  v[0] = a.x; v[1] = a.y; v[2] = a.z; v[3] = a.w;
-}
-__device__ __forceinline__ void load4(const __nv_bfloat16* p, float (&v)[4]) {
-  const uint2 q = *reinterpret_cast<const uint2*>(p);
-  const __nv_bfloat16* b = reinterpret_cast<const __nv_bfloat16*>(&q);
+// k = i H + c (gemm_bwd_kernel below).
+template <int V>
+struct Vec;
+template <>
+struct Vec<4> {
+  static __device__ __forceinline__ void load(const float* p, float (&v)[4]) {
+    const float4 a = *reinterpret_cast<const float4*>(p);
+    v[0] = a.x; v[1] = a.y; v[2] = a.z; v[3] = a.w;
+  }
+  static __device__ __forceinline__ void load(const __nv_bfloat16* p, float (&v)[4]) {
+    const uint2 q = *reinterpret_cast<const uint2*>(p);
+    const __nv_bfloat16* b = reinterpret_cast<const __nv_bfloat16*>(&q);
 #pragma unroll
-  for (int e = 0; e < 4; ++e) v[e] = __bfloat162float(b[e]);
-}
-__device__ __forceinline__ void store4(float* p, const float (&v)[4]) {
-  *reinterpret_cast<float4*>(p) = make_float4(v[0], v[1], v[2], v[3]);
-}
-__device__ __forceinline__ void store4(__nv_bfloat16* p, const float (&v)[4]) {
-  uint2 q;
-  __nv_bfloat16* b = reinterpret_cast<__nv_bfloat16*>(&q);
+    for (int e = 0; e < 4; ++e) v[e] = __bfloat162float(b[e]);
+  }
+  static __device__ __forceinline__ void store(float* p, const float (&v)[4]) {
+    *reinterpret_cast<float4*>(p) = make_float4(v[0], v[1], v[2], v[3]);
+  }
+  static __device__ __forceinline__ void store(__nv_bfloat16* p, const float (&v)[4]) {
+    uint2 q;
+    __nv_bfloat16* b = reinterpret_cast<__nv_bfloat16*>(&q);
 #pragma unroll
-  for (int e = 0; e < 4; ++e) b[e] = __float2bfloat16_rn(v[e]);
-  *reinterpret_cast<uint2*>(p) = q;
+    for (int e = 0; e < 4; ++e) b[e] = __float2bfloat16_rn(v[e]);
+    *reinterpret_cast<uint2*>(p) = q;
+  }
+};
+
+template <int BYTES>
+__device__ __forceinline__ void cp_async_n(void* dst, const void* src) {
+  const unsigned d = static_cast<unsigned>(__cvta_generic_to_shared(dst));
+  if constexpr (BYTES == 16)
+    asm volatile("cp.async.cg.shared.global [%0], [%1], 16;\n" ::"r"(d), "l"(src));
+  else
+    asm volatile("cp.async.ca.shared.global [%0], [%1], %2;\n" ::"r"(d), "l"(src), "n"(BYTES));
+}
+__device__ __forceinline__ void cp_commit() { asm volatile("cp.async.commit_group;\n" ::); }
+template <int N>
+__device__ __forceinline__ void cp_wait() {
+  asm volatile("cp.async.wait_group %0;\n" ::"n"(N));
 }
 
-template <int N, typename TD, typename TO>
+// Block: 256 threads over k (4 consecutive k each), TOK tokens (16 below 1024 tokens so
+// small batches still fill the GPU, 64 above so fn is reloaded less). The thread's 24 x 4
+// fn values are loaded once and held in registers. The residual and dy of the next
+// kGemmDepth - 1 tokens are staged in shared memory by cp.async: each thread fetches and
+// reads only its own elements, so no block barrier is needed, and enough bytes stay in
+// flight without more registers (register prefetch would halve the occupancy).
+constexpr int kGemmDepth = 6;
+template <int N, int TOK, typename TD, typename TO>
 __global__ void __launch_bounds__(256)
 gemm_bwd_kernel(const __nv_bfloat16* __restrict__ res, const float* __restrict__ fn,
-                const TD* __restrict__ dy, const float* __restrict__ pre,
-                const float* __restrict__ draw, const float* __restrict__ dss, int t_total, int h,
-                TO* __restrict__ dres) {
+                      const TD* __restrict__ dy, const float* __restrict__ pre,
+                      const float* __restrict__ draw, const float* __restrict__ dss, int t_total,
+                      int h, TO* __restrict__ dres) {
+  constexpr int V = 4, DEPTH = kGemmDepth;
   static_assert(N % 4 == 0, "draw rows are read as float4");
-  __shared__ __align__(16) float s_draw[kGemmTokens][N];
-  __shared__ float s_dss[kGemmTokens];
-  __shared__ float s_pre[kGemmTokens][kHc];
-  const int t0 = blockIdx.y * kGemmTokens;
+  __shared__ __align__(16) float s_draw[TOK][N];
+  __shared__ float s_dss[TOK];
+  __shared__ float s_pre[TOK][kHc];
+  __shared__ __align__(16) __nv_bfloat16 s_res[DEPTH][256 * V];
+  __shared__ __align__(16) TD s_dy[DEPTH][256 * V];
+  const int t0 = blockIdx.y * TOK;
   const int k = kHc * h;
-  for (int q = threadIdx.x; q < kGemmTokens * N; q += blockDim.x) {
+  for (int q = threadIdx.x; q < TOK * N; q += blockDim.x) {
     const int i = q / N, nn = q % N;
     s_draw[i][nn] = (t0 + i < t_total) ? draw[static_cast<int64_t>(t0 + i) * N + nn] : 0.f;
   }
-  for (int q = threadIdx.x; q < kGemmTokens * kHc; q += blockDim.x) {
+  for (int q = threadIdx.x; q < TOK * kHc; q += blockDim.x) {
     const int i = q / kHc, j = q % kHc;
     s_pre[i][j] = (t0 + i < t_total) ? pre[static_cast<int64_t>(t0 + i) * kHc + j] : 0.f;
   }
-  for (int i = threadIdx.x; i < kGemmTokens; i += blockDim.x)
-    s_dss[i] = (t0 + i < t_total) ? dss[t0 + i] : 0.f;
+  for (int i = threadIdx.x; i < TOK; i += blockDim.x) s_dss[i] = (t0 + i < t_total) ? dss[t0 + i] : 0.f;
   __syncthreads();
-  const int kk = (blockIdx.x * blockDim.x + threadIdx.x) * kGemmVec;
+  const int kk = (blockIdx.x * blockDim.x + threadIdx.x) * V;
   if (kk >= k) return;
-  const int stream = kk / h, c = kk - stream * h;  // h % 4 == 0: the 4 k share a stream
-  float f[N][kGemmVec];
+  const int stream = kk / h, c = kk - stream * h;
+  const int tn = min(TOK, t_total - t0);
+  auto fetch = [&](int i) {
+    if (i < tn) {
+      const int slot = i % DEPTH;
+      cp_async_n<8>(&s_res[slot][threadIdx.x * V], res + static_cast<int64_t>(t0 + i) * k + kk);
+      cp_async_n<sizeof(TD) * V>(&s_dy[slot][threadIdx.x * V],
+                                 dy + static_cast<int64_t>(t0 + i) * h + c);
+    }
+    cp_commit();  // possibly empty: keeps the group count uniform
+  };
+#pragma unroll
+  for (int i = 0; i < DEPTH - 1; ++i) fetch(i);
+  float f[N][V];
 #pragma unroll
   for (int nn = 0; nn < N; ++nn) {
-    const float4 v = __ldg(reinterpret_cast<const float4*>(fn + static_cast<int64_t>(nn) * k + kk));
-    f[nn][0] = v.x; f[nn][1] = v.y; f[nn][2] = v.z; f[nn][3] = v.w;
+    float v[V];
+    Vec<V>::load(fn + static_cast<int64_t>(nn) * k + kk, v);
+#pragma unroll
+    for (int e = 0; e < V; ++e) f[nn][e] = v[e];
   }
-  const int tn = min(kGemmTokens, t_total - t0);
   for (int i = 0; i < tn; ++i) {
-    float g[kGemmVec] = {0.f, 0.f, 0.f, 0.f};
+    fetch(i + DEPTH - 1);
+    cp_wait<DEPTH - 1>();
+    const int slot = i % DEPTH;
+    float xv[V], dyv[V];
+    Vec<V>::load(&s_res[slot][threadIdx.x * V], xv);
+    Vec<V>::load(&s_dy[slot][threadIdx.x * V], dyv);
+    float g[V] = {0.f, 0.f, 0.f, 0.f};
 #pragma unroll
     for (int n4 = 0; n4 < N; n4 += 4) {
       const float4 d = *reinterpret_cast<const float4*>(&s_draw[i][n4]);
@@ -669,21 +714,20 @@ gemm_bwd_kernel(const __nv_bfloat16* __restrict__ res, const float* __restrict__
 #pragma unroll
       for (int q = 0; q < 4; ++q)
 #pragma unroll
-        for (int e = 0; e < kGemmVec; ++e) g[e] = fmaf(dv[q], f[n4 + q][e], g[e]);
+        for (int e = 0; e < V; ++e) g[e] = fmaf(dv[q], f[n4 + q][e], g[e]);
     }
-    const int64_t o = static_cast<int64_t>(t0 + i) * k + kk;
-    float xv[kGemmVec], dyv[kGemmVec], out[kGemmVec];
-    load4(res + o, xv);
-    load4(dy + static_cast<int64_t>(t0 + i) * h + c, dyv);
     const float ds = s_dss[i], pi = s_pre[i][stream];
+    float out[V];
 #pragma unroll
-    for (int e = 0; e < kGemmVec; ++e) {
+    for (int e = 0; e < V; ++e) {
       const float ge = __fadd_rn(g[e], __fmul_rn(__fmul_rn(xv[e], 2.f), ds));
       out[e] = __fadd_rn(__fmul_rn(pi, dyv[e]), ge);
     }
-    store4(dres + o, out);
+    Vec<V>::store(dres + static_cast<int64_t>(t0 + i) * k + kk, out);
   }
+  cp_wait<0>();
 }
+
 
 // ------------------------------------------------------------------ host helpers
 void check_res(const torch::Tensor& res, int64_t& t, int64_t& h) {
@@ -914,19 +958,26 @@ torch::Tensor pre_backward_impl(const torch::Tensor& dy, const float* dpost, con
         pre.data_ptr<float>(), draw.data_ptr<float>(), dss.data_ptr<float>());
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
-  dim3 grid(static_cast<unsigned>((k / kGemmVec + 255) / 256),
-            static_cast<unsigned>((t + kGemmTokens - 1) / kGemmTokens));
   const torch::Tensor& dsrc = nw != nullptr ? dmix : dy;
-  dispatch_grad(dsrc, [&](auto* d) {
-    using TD = std::remove_const_t<std::remove_pointer_t<decltype(d)>>;
-    dispatch_out(bf16_out, dres, [&](auto* o) {
-      using TO = std::remove_pointer_t<decltype(o)>;
-      gemm_bwd_kernel<N, TD, TO><<<grid, 256, 0, stream>>>(
-          reinterpret_cast<const __nv_bfloat16*>(res.data_ptr<at::BFloat16>()),
-          fn.data_ptr<float>(), d, pre.data_ptr<float>(), draw.data_ptr<float>(),
-          dss.data_ptr<float>(), static_cast<int>(t), static_cast<int>(h), o);
+  auto launch = [&](auto tok) {
+    constexpr int TOK = decltype(tok)::value;
+    dim3 grid(static_cast<unsigned>((k / 4 + 255) / 256),
+              static_cast<unsigned>((t + TOK - 1) / TOK));
+    dispatch_grad(dsrc, [&](auto* d) {
+      using TD = std::remove_const_t<std::remove_pointer_t<decltype(d)>>;
+      dispatch_out(bf16_out, dres, [&](auto* o) {
+        using TO = std::remove_pointer_t<decltype(o)>;
+        gemm_bwd_kernel<N, TOK, TD, TO><<<grid, 256, 0, stream>>>(
+            reinterpret_cast<const __nv_bfloat16*>(res.data_ptr<at::BFloat16>()),
+            fn.data_ptr<float>(), d, pre.data_ptr<float>(), draw.data_ptr<float>(),
+            dss.data_ptr<float>(), static_cast<int>(t), static_cast<int>(h), o);
+      });
     });
-  });
+  };
+  if (t < 1024)
+    launch(std::integral_constant<int, 16>{});
+  else
+    launch(std::integral_constant<int, 64>{});
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return dres;
 }

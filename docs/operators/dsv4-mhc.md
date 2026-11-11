@@ -88,7 +88,7 @@ Autograd uses BF16 in and out.
 | `post_kernel` | (token, H / 1024), 128 | 8 columns per thread, 16-byte loads |
 | `post_bwd_kernel` | one block per token, 128 | dx, d_residual and the 20 slice dot products in one pass |
 | `pre_bwd_kernel` | one block per token, 160 | Same split as the epilogue |
-| `gemm_bwd_kernel` | (K / 1024, T / 16), 256 | Writes d_residual once |
+| `gemm_bwd_kernel` | (K / 1024, T / 16 or T / 64), 256 | Writes d_residual once |
 
 **`pre_epilogue_kernel`.** Warp 4 runs the split sums and the controller.
 - It passes `pre` to warps 0-3 with a named barrier *before* the Sinkhorn iterations. The
@@ -99,8 +99,13 @@ Autograd uses BF16 in and out.
 shared memory. Meanwhile warps 0-3 compute dy through the norm and `dpre`. Warp 4 then runs
 the controller backward in shuffles.
 
-**`gemm_bwd_kernel`.** Each thread holds 4 `fn` columns. It reads `draw` as float4 from
-shared memory and computes `pre_i * dy + g` directly into d_residual.
+**`gemm_bwd_kernel`.** Each thread holds 4 `fn` columns in registers. It reads `draw` as
+float4 from shared memory and computes `pre_i * dy + g` directly into d_residual. A block
+covers 16 tokens below T = 1024 (so small batches fill the GPU) and 64 above.
+
+The residual and `dy` of the next 5 tokens are staged in shared memory with `cp.async`. Each
+thread fetches and reads only its own elements, so no block barrier is needed. This keeps
+enough bytes in flight without the extra registers that a register prefetch costs.
 
 ### Differences from vLLM
 
@@ -125,11 +130,11 @@ CUDA-graph replay, median, microseconds:
 
 | T | pre + norm | vLLM pre + norm | ratio | post | vLLM post | ratio | block bwd |
 |---|---|---|---|---|---|---|---|
-| 1 | 14.3 | 12.5 | 1.15 | 8.2 | 8.9 | 0.92 | 23.1 |
-| 64 | 15.2 | 12.8 | 1.18 | 8.7 | 8.7 | 1.00 | 31.4 |
-| 1024 | 32.4 | 29.1 | 1.11 | 24.9 | 24.7 | 1.01 | 132.9 |
-| 4096 | 106.5 | 95.0 | 1.12 | 79.9 | 78.5 | 1.02 | 453.2 |
-| 16384 | 365.5 | 335.8 | 1.09 | 298.2 | 293.0 | 1.02 | 1633.2 |
+| 1 | 14.2 | 12.4 | 1.15 | 7.9 | 8.0 | 0.99 | 24.6 |
+| 64 | 15.1 | 12.8 | 1.18 | 8.1 | 8.1 | 1.00 | 32.0 |
+| 1024 | 32.4 | 28.9 | 1.12 | 25.0 | 24.4 | 1.02 | 120.5 |
+| 4096 | 106.4 | 95.1 | 1.12 | 79.9 | 78.6 | 1.02 | 402.2 |
+| 16384 | 365.0 | 334.5 | 1.09 | 298.4 | 293.1 | 1.02 | 1419.3 |
 
 - **The remaining forward gap is the GEMM**, not the epilogue. The fixed 16 splits are the
   price of batch invariance:
@@ -137,14 +142,19 @@ CUDA-graph replay, median, microseconds:
     4.7 µs and 5.0 µs.
   - At T = 4096, the GEMMs take 51 µs and 39 µs. The epilogues are equal at 51 µs.
 - **Train step** (`mhc_pre` with the norm, then `mhc_post`, forward + backward through
-  autograd): 0.07-0.10x of a naive PyTorch implementation of the same math at T = 1024 to
+  autograd): 0.07-0.09x of a naive PyTorch implementation of the same math at T = 1024 to
   16384. vLLM has no backward to compare against.
 - **Backward at T = 16384:**
   - `post_bwd` takes 449 µs, close to the HBM bound for its 1.8 GB.
   - `pre_bwd` takes 453 µs.
-  - `gemm_bwd` takes 746 µs, about 1.7 TB/s. It is limited by occupancy: 124 registers per
-    thread hold `fn`. Prefetching the next token's loads pushed it past 128 registers and
-    doubled the time.
+  - `gemm_bwd` takes 517 µs. It was 746 µs, and the gain came from `cp.async` staging:
+    - With 124 registers per thread holding `fn`, only 16 warps fit per SM, each with one
+      token's loads in flight. That is about half the bytes in flight that HBM needs.
+    - Register prefetch pushed the kernel past 128 registers and doubled its time.
+    - Two columns per thread (more occupancy) were slower: 996 µs.
+    - Larger token blocks alone gained only 11%.
+    - Staging 5 tokens ahead through shared memory with `cp.async` gave 516 µs; depths 3-6
+      gave the same time.
 
 ### History
 
@@ -154,11 +164,14 @@ These changes took `pre + norm` from 1.5-1.8x of vLLM to 1.09-1.18x:
 3. The Sinkhorn iterations now overlap the mix (warp 4 hands `pre` over before them).
 4. The epilogue is launched with PDL.
 
-The block backward at T = 16384 went from 4.1 ms to 1.63 ms. The changes:
+The block backward at T = 16384 went from 4.1 ms to 1.42 ms. The changes:
 - The controller backward moved to a warp.
 - BF16 gradients are accepted and written.
 - d_residual is written once.
 - `gemm_bwd` was vectorized (LDS.128 for `draw`).
+- `gemm_bwd` stages its residual / dy rows with `cp.async` (1.63 ms to 1.42 ms).
 
-Two attempts were measured and reverted: staging the residual in registers or shared memory
-before the controller, and prefetching in `gemm_bwd`.
+Two attempts were measured and reverted:
+- Staging the residual in registers or shared memory before the controller (forward
+  epilogue).
+- Register prefetching in `gemm_bwd`.
