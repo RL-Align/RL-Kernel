@@ -261,7 +261,7 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 
 ### Phase 2 - P2 attention (critical path)
 
-- [ ] T02 KV compressor C4/C128 CUDA: block boundaries are per request, never crossing
+- [x] T02 KV compressor C4/C128 CUDA: block boundaries are per request, never crossing
       requests
   - What vLLM runs (2026-11-10 reading of `compressor.py`, `save_partial_states.py`,
     `fused_compress_quant_cache.py`): the score GEMM output is split into `kv` and `score`
@@ -302,7 +302,7 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         `dequant_ds_mla` is the exact inverse. Byte-equal golden/CUDA, batch-invariant
         (`tests/ops/compressor/test_compress_main.py`); 0.98-1.07x of vLLM's Triton head-512
         kernel on C4, 0.38-0.41x on C128
-- [ ] T03 indexer projection + FP4/FP8 logits: use the GEMM decided in Phase 1; run the
+- [x] T03 indexer projection + FP4/FP8 logits: use the GEMM decided in Phase 1; run the
       invariance probe against DeepGEMM `fp8_mqa_logits` (5 seeds x 5 sub-batch sizes x
       production shape)
   - On SM90 the indexer is FP8 end to end: DeepGEMM's FP4 MQA-logits paths assert
@@ -405,8 +405,9 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       as in vLLM's FlashMLA backend, the window runs through the same FlashMLA sparse kernel
       (window positions appended to each query's index list; sliding-window-only layers have
       no compressed part), covered by the T05 / T07 tests for ratio 1
-- [ ] Attention backward for LoRA training (`docs/architecture/dsv4-attention-backward-proposal.md`).
-      **Not deterministic yet (user decision 2026-11-11): cuDNN's dKV uses FP32 atomics.**
+- [x] Attention backward for LoRA training (`docs/architecture/dsv4-attention-backward-proposal.md`).
+      **Not deterministic (user decision 2026-11-11): cuDNN's dKV uses FP32 atomics.** Done
+      for training; B1 (deterministic dKV) stays open and is deprioritized.
   - [x] A1: cuDNN-frontend `dsa_bwd_sm90` wrapper (`rl_engine/kernels/ops/cuda/dsa_backward.py`,
         pinned 1.31.0); dq / dkv vs FP32 autograd; dq bitwise run to run
   - [x] A0 + A4 (first version): `rl_engine/models/deepseek_v4/attention_backward.py`
@@ -513,7 +514,7 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 
 ### Phase 3 - MoE and sampling
 
-- [ ] P3 redo: gate GEMM, top-6 / hash routing, routing weights, combine-plan live
+- [x] P3 redo: gate GEMM, top-6 / hash routing, routing weights, combine-plan live
       provider; re-evaluate the T08 draft (#639) against the redo
   - [x] Gate GEMM on DeepGEMM `bf16_gemm_nt` FP32 output (D4), batch-invariant
   - [x] Routing (`docs/operators/dsv4-router.md`): own fixed arithmetic (vLLM writes
@@ -540,7 +541,8 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         output bitwise equal to EP = 1 (scored and hash layers; uneven, decode, one-rank,
         empty-first splits; run to run). EP = 4/8 not run: this account is capped at 2
         GPUs per job (Slurm association `gres/gpu=2`)
-  - [ ] DeepEP transport (P4) with the same bytes; EP = 4/8 once more GPUs are allowed;
+  - [ ] DeepEP transport (P4) with the same bytes; EP = 4/8 (end-to-end multi-GPU runs move
+        to another machine; documented then);
         compare with #639
   - [x] Routed-expert backward on SM90 (profile `p5-sm90-bwd-bf16-v1`,
         `csrc/cuda/moe/sm90_moe_mlp_backward.cu`):
@@ -583,7 +585,7 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 - [ ] P6 T06 + real EP=2/4/8 collectives (replacing the values-only mock)
 - [ ] P4: DeepEP `align_fp8_quantization` adapter, route-metadata capture (top-k slot
       order), fixed-capacity staging; empty ranks still join the collective
-- [ ] DeepGEMM integration shared by the attention projections and the shared expert:
+- [x] DeepGEMM integration shared by the attention projections and the shared expert:
       optional dependency pinned to `vllm-project/DeepGEMM@e21c821f`, a fail-closed
       capability check (rule 7; DeepGEMM JIT-compiles, so `nvcc` from CUDA 12.8+ is needed at
       runtime), and a per-token 1x128 FP8 activation-quant kernel that emits scales directly
@@ -650,7 +652,7 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 - [x] DeepGEMM backward (dgrad / wgrad) determinism, if the training side uses it (D5):
       dgrad is batch-invariant and wgrad run-to-run identical at the DSv4 shapes (Phase 1
       probe, `4d6e033e`; see D3 "Backward")
-- [ ] Performance table: per-operator overhead against the non-invariant path; anything above
+- [x] Performance table: per-operator overhead against the non-invariant path; anything above
       1.3x goes to Phase 5. Table: `docs/operators/dsv4-performance.md` (2026-11-11): every
       measured operator is within 1.3x (closest: `mhc_pre` 1.09-1.18x, router 1.03-1.22x).
       The attention q side is 0.80-1.14x of vLLM; the output projection is 1.45-1.53x at
