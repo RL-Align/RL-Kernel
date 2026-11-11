@@ -9,10 +9,12 @@ from rl_engine.reference.linear_attn.gated_delta_rule import (
     SOFTPLUS_THRESHOLD,
     GatedDeltaRuleRecurrentStepOp,
 )
+from rl_engine.reference.linear_attn.sequence import gated_delta_rule_sequence
 
 __all__ = [
     "CausalConv1dUpdateOp",
     "GatedDeltaRuleRecurrentStepOp",
     "NULL_BLOCK_ID",
     "SOFTPLUS_THRESHOLD",
+    "gated_delta_rule_sequence",
 ]
