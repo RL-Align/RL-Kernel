@@ -4,6 +4,7 @@
 The reference is an explicit CPU diagnostic. ROCm uses the same owned arithmetic
 on-device. This correctness profile does not dispatch into aiter's recompute VJP.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -115,6 +116,19 @@ def _check(row, backend):
     raise ValueError(f"unsupported mHC backend, shape or device for {PROFILE}")
 
 
+def _check_aiter_grad(backend, *tensors):
+    # Check at the public entry: autograd.Function.forward itself runs with grad disabled.
+    if (
+        backend == "rocm_aiter"
+        and torch.is_grad_enabled()
+        and any(t.requires_grad for t in tensors)
+    ):
+        raise RuntimeError(
+            "rocm_aiter mHC is forward-only; use backend='rocm' for training "
+            "or torch.no_grad() for a forward comparison"
+        )
+
+
 @lru_cache(maxsize=3)
 def _aiter_op(kind):
     # Use the public RLK wrappers from #662, including their pinned configuration.
@@ -150,12 +164,10 @@ class _Mix(torch.autograd.Function):
         native = _aiter_op("head" if head else "pre") if backend == "rocm_aiter" else None
         saved = []
         for i in range(t):
-            save = not recompute and any(ctx.needs_input_grad[:4])
-            if native is None or save:
-                state = _row_state(rows[i], fn, scale, base, head, rounds)
-                if save:
-                    saved.extend(state)
             if native is None:
+                state = _row_state(rows[i], fn, scale, base, head, rounds)
+                if not recompute and any(ctx.needs_input_grad[:4]):
+                    saved.extend(state)
                 values = _outputs(rows[i], state, head)
             else:
                 args = (rows[i : i + 1], fn, scale, base)
@@ -163,7 +175,10 @@ class _Mix(torch.autograd.Function):
                 values = tuple(v.squeeze(0) for v in values)
             for dst, val in zip(outs, values, strict=True):
                 dst[i].copy_(val)
-        ctx.save_for_backward(rows, fn, scale, base, *saved)
+        if native is None:
+            ctx.save_for_backward(rows, fn, scale, base, *saved)
+        else:
+            ctx.mark_non_differentiable(*outs)
         return outs[0] if head else outs
 
     @staticmethod
@@ -202,10 +217,12 @@ class _Mix(torch.autograd.Function):
 
 
 def mhc_pre(rows, fn, scale, base, *, backend, recompute=False, sinkhorn_repeat=20):
+    _check_aiter_grad(backend, rows, fn, scale, base)
     return _Mix.apply(rows, fn, scale, base, False, sinkhorn_repeat, recompute, backend)
 
 
 def mhc_head(rows, fn, scale, base, *, backend, recompute=False):
+    _check_aiter_grad(backend, rows, fn, scale, base)
     return _Mix.apply(rows, fn, scale, base, True, 0, recompute, backend)
 
 
@@ -217,9 +234,12 @@ def _post_row(y, x, post, comb):
 class _Post(torch.autograd.Function):
     @staticmethod
     def forward(ctx, y, x, post, comb, backend):
-        ctx.save_for_backward(y, x, post, comb)
         out = torch.empty_like(x)
         native = _aiter_op("post") if backend == "rocm_aiter" else None
+        if native is None:
+            ctx.save_for_backward(y, x, post, comb)
+        else:
+            ctx.mark_non_differentiable(out)
         for i in range(x.size(0)):
             if native is None:
                 out[i].copy_(_post_row(y[i], x[i], post[i], comb[i]))
@@ -242,6 +262,7 @@ class _Post(torch.autograd.Function):
 
 
 def mhc_post(y, rows, post, comb, *, backend):
+    _check_aiter_grad(backend, y, rows, post, comb)
     _check(rows, backend)
     t, _, c = rows.shape
     for val, shape, dtype in (
@@ -256,6 +277,7 @@ def mhc_post(y, rows, post, comb, *, backend):
 
 def mhc_pre_norm(rows, fn, scale, base, gamma, *, backend, recompute=False, sinkhorn_repeat=20):
     """Return mixes, normalized sublayer input, and the separate raw task-5 branch."""
+    _check_aiter_grad(backend, gamma)  # mhc_pre checks the four controller inputs.
     post, comb, raw = mhc_pre(
         rows, fn, scale, base, backend=backend, recompute=recompute, sinkhorn_repeat=sinkhorn_repeat
     )
