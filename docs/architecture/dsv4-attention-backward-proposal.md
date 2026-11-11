@@ -1,6 +1,12 @@
 # DSv4 attention backward for LoRA training on SM90: design proposal
 
-Status: proposal awaiting the user's decisions (Section 5), 2026-11-11. It comes from source
+Status (2026-11-11): the user chose to build the backward **non-deterministic first**
+(cuDNN's FP32-atomic dKV as is), marked as such, and to make dKV deterministic later. Phase
+A1 is done: `rl_engine/kernels/ops/cuda/dsa_backward.py` wraps cuDNN-frontend 1.31.0
+`dsa_bwd_sm90` (pinned, fail-closed). `tests/ops/attention_dsv4/test_sparse_backward.py`
+checks dq / dkv against FP32 autograd; dq is bitwise run to run, and about 15 dkv entries
+differ between runs. The rest of Section 5 is open. Original status: proposal awaiting the
+user's decisions (Section 5), 2026-11-11. It comes from source
 reading only; no GPU runs. Items marked **[unverified]** are inferences from source reading or
 arithmetic, not measurements.
 
