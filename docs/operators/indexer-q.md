@@ -1,8 +1,11 @@
 # indexer_q_rope_fp8 (DSv4 indexer query)
 
+> Part of the DSv4 SM90 batch-invariant kernel set. Design, module map, how to run the
+> tests and benchmarks: [DSv4 design](../architecture/dsv4-design.md).
+
 RoPE plus per-(token, head) FP8 quantization of the DSv4 lightning-indexer
-query, with the FP8 scale folded into the per-head weights (P2 T03; design doc
-`docs/architecture/dsv4-cuda-design.md`). Its outputs feed DeepGEMM's
+query, with the FP8 scale folded into the per-head weights (see the
+[DSv4 design](../architecture/dsv4-design.md)). Its outputs feed DeepGEMM's
 `fp8_mqa_logits` / `fp8_paged_mqa_logits`, whose scores pick the KV entries
 each query attends to, so the bytes must match the rollout. The CUDA kernel is
 byte-equal to the PyTorch golden, and both are byte-equal to the kernel the

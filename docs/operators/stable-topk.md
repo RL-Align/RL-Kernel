@@ -1,7 +1,10 @@
 # stable_topk_per_row (DSv4 indexer)
 
-Per-row top-k selection for the DSv4 sparse-attention indexer (P2 T04; design
-doc `docs/architecture/dsv4-cuda-design.md`, rule 2). It picks the KV entries
+> Part of the DSv4 SM90 batch-invariant kernel set. Design, module map, how to run the
+> tests and benchmarks: [DSv4 design](../architecture/dsv4-design.md).
+
+Per-row top-k selection for the DSv4 sparse-attention indexer (pinning rule 2 in
+the [DSv4 design](../architecture/dsv4-design.md)). It picks the KV entries
 each query attends to, so its output must not depend on the batch, and it must
 match the rollout: the CUDA kernel is byte-equal to the PyTorch golden, and
 both are byte-equal to vLLM's batch-invariant DSv4 selector

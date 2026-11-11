@@ -1,7 +1,10 @@
 # DSv4 KV compressor
 
+> Part of the DSv4 SM90 batch-invariant kernel set. Design, module map, how to run the
+> tests and benchmarks: [DSv4 design](../architecture/dsv4-design.md).
+
 The DSv4 compressor turns every `ratio` tokens of a request into one KV entry
-(P2 T02; design doc `docs/architecture/dsv4-cuda-design.md`). Two variants
+(design: [DSv4 design](../architecture/dsv4-design.md)). Two variants
 share one kernel: the indexer compressor (head 128, C4 with overlap), whose
 entries fill the FP8 indexer K cache that DeepGEMM's MQA-logits kernels read,
 and the main-KV compressor (head 512, C4 with overlap or C128 without), whose

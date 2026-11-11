@@ -1,11 +1,14 @@
 # DSv4 Decoder Layer and Model (forward)
 
+> Part of the DSv4 SM90 batch-invariant kernel set. Design, module map, how to run the
+> tests and benchmarks: [DSv4 design](../architecture/dsv4-design.md).
+
 The DeepSeek-V4 model forward on the batch-invariant SM90 kernel set: embedding, the
 decoder layers (mHC around attention and MoE), then `hc_head` with the final norm. This is
 the forward for rollout and actor recompute.
 
-The LM head and selected-token log-probs are P7. The attention backward does not exist
-yet: the pinned FlashMLA has no SM90 sparse backward.
+The LM head and selected-token log-probs are on [DSv4 logprob](dsv4-logprob.md). Training
+(LoRA) is in the "Training" section below.
 
 | Piece | Where |
 |---|---|
@@ -33,7 +36,7 @@ out = hc_head(streams, hc_head_*, norm)                                 BF16 [T,
 ```
 
 Each operator is documented on its own page:
-- attention (T07): design doc, Phase 2;
+- attention: [DSv4 design](../architecture/dsv4-design.md), sections 3 and 5.2;
 - MoE: [DSv4 MoE](dsv4-moe.md) and [DSv4 MoE Router](dsv4-router.md);
 - mHC with the norms fused: [DSv4 mHC](dsv4-mhc.md).
 

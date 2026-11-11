@@ -1,5 +1,10 @@
 # MHC H Aggregate
 
+> **Legacy: not used by DSv4.** This operator predates the DSv4 kernel set (its P1 / P6
+> work package) and stays in the tree, but the DSv4 model does not call it; see
+> [DSv4 design](../architecture/dsv4-design.md), section 11. Its `scripts/check_p1.py`
+> harness and tests were removed, so commands below that use them no longer run.
+
 `mhc_pre_h_aggregate` collapses four residual streams into the hidden activation
 used by the mHC controller. It provides CUDA, Triton, and PyTorch implementations
 with an explicit FP32 backward boundary for the composite controller.

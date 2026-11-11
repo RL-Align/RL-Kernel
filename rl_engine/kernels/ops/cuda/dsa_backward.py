@@ -14,8 +14,9 @@ Its contract matches ours exactly:
 - ``dq`` is: each work tile owns one query and writes it once.
 - ``dkv`` is accumulated with FP32 ``atomicAdd`` over every (query, slot) that selected a
   row, so its bytes vary run to run. ``deterministic=True`` exists only on SM100.
-- The planned fix: fork ``dsa_bwd_sm90`` with int64 fixed-point dKV accumulation
-  (``docs/architecture/dsv4-attention-backward-proposal.md``).
+- Backward determinism is not required (user decision); a fork of ``dsa_bwd_sm90`` with
+  int64 fixed-point dKV accumulation would make it deterministic
+  (``docs/architecture/dsv4-design.md``, open work).
 
 Fails closed unless the pinned ``nvidia-cudnn-frontend`` is installed;
 ``RL_KERNEL_CUDNN_DSA_ALLOW_UNPINNED=1`` accepts another version for development.

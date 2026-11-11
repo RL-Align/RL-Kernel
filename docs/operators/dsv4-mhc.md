@@ -1,5 +1,8 @@
 # DSv4 mHC
 
+> Part of the DSv4 SM90 batch-invariant kernel set. Design, module map, how to run the
+> tests and benchmarks: [DSv4 design](../architecture/dsv4-design.md).
+
 Batch-invariant manifold-constrained hyper-connections for DeepSeek-V4 (SM90), profile
 `dsv4-mhc-v1`:
 

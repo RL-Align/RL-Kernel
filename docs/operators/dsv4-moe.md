@@ -1,19 +1,22 @@
 # DSv4 MoE
 
+> Part of the DSv4 SM90 batch-invariant kernel set. Design, module map, how to run the
+> tests and benchmarks: [DSv4 design](../architecture/dsv4-design.md).
+
 The DSv4 MoE block has two halves that run independently and are summed by the
-P6 combine:
+fixed-order combine:
 
 ```
-routed expert   x -> mx_quant -> fc1 -> clamp-SwiGLU * p_s -> mx_quant -> fc3
-shared expert   x -> fc1 -> one-round SwiGLU -> fc2
+routed expert   x -> mx_quant -> fc1 -> clamp-SwiGLU * p_s -> mx_quant -> fc3     (MXFP8 x MXFP4)
+shared expert   x -> fp8_group_quant -> fc1 -> clamp-SwiGLU -> fp8 quant -> fc2   (DeepGEMM FP8)
 ```
 
-The routed half is the production path and runs on **one SM90 GEMM core**
-(`csrc/cuda/moe/sm90_fused_moe_mlp.cu`): fc1 with the activation and re-quantization
-fused into its epilogue, then fc2. The shared half and the individual
-routed operators also exist as standalone per-operator kernels; those are
-reference artifacts that pin the numerics operator by operator, not the path
-production takes. See `rl_engine/moe/backends/` for the split.
+The routed half runs on the SM90 kernels in `csrc/cuda/moe/sm90_fused_moe_mlp.cu`
+(fc1 with the activation and re-quantization in its epilogue, then fc2). The shared half
+runs on DeepGEMM (`rl_engine/moe/backends/deepgemm_shared_expert.py`). The block that
+ties router, plan, both halves and the combine together is `Dsv4MoE`
+(`rl_engine/models/deepseek_v4/moe.py`). Other modules under `rl_engine/moe/backends/`
+are legacy (see the end of this page).
 
 ## Numeric contract
 
@@ -62,10 +65,20 @@ is bit-identical to quantizing `h` with the standalone operator.
 
 ### Profiles
 
+Profiles on the DSv4 path:
+
 | Profile | Meaning |
 |---|---|
-| `oracle-fp32-serial-v1` | Byte-equal with the FP32 oracle: serial ascending-k, mul-then-add, no FMA contraction. The MX quantizer and the strict shared-expert kernels hold this. |
-| `p5-sm90-fused-mlp-v1` | The fused routed kernel. Deterministic and batch-invariant, **not** byte-equal: the 32 products inside one MX block are summed by the tensor core. Everything else follows the recipe above. |
+| `oracle-fp32-serial-v1` | Byte-equal with the FP32 oracle: serial ascending-k, mul-then-add, no FMA contraction. The MX quantizer holds this. |
+| `p5-sm90-fused-mlp-v1` | The routed forward. Deterministic and batch-invariant, **not** byte-equal to the oracle: the 32 products inside one MX block are summed by the tensor core. Everything else follows the recipe above. |
+| `p5-sm90-bwd-bf16-v1` | The routed dX backward (see "Backward"). |
+| `dsv4-deepgemm-fp8-v1` | The shared expert on DeepGEMM FP8, byte-equal to the vLLM rollout's composition. |
+| `dsv4-lora-v1` | The MoE LoRA adapters (see "LoRA"). |
+
+Legacy profiles (not used by DSv4):
+
+| Profile | Meaning |
+|---|---|
 | `p5-det-gemm-v1` | The det_gemm-backed shared expert. Batch-invariant and TP-equivalent, ~5e-3 from the oracle (its K-tree rounds every 32-wide leaf to BF16). |
 | `p5-triton-dot-v1` | The Triton `tl.dot` shared expert, unfused. Batch-invariant; tile reduction order differs from every CUDA backend. |
 | `p5-triton-fused-v1` | The portable Triton routed lane (activation fused into fc1). Batch-invariant, byte-equal to nothing else: no Triton exponential reproduces nvcc's `expf`, and the accumulator is flat FP32 rather than a K-tree. |
@@ -364,8 +377,8 @@ slot sum: `csrc/cuda/moe/moe_slot_sum.cu`; CUDA plan: `csrc/cuda/moe/moe_route_p
   skewed routing). It also returns each row's token id.
 - **Dispatch.** Rows, `p_s` and `output_slot` are gathered in plan order. The MXFP8
   activation is quantized once per token and its codes / scales gathered (row-local,
-  so equal to quantizing the rows). P5 applies `p_s` once.
-- **Combine** (P6 policy). Per token in FP32: copy the slot-0 row, add slots 1..5 in
+  so equal to quantizing the rows). The routed kernel applies `p_s` once.
+- **Combine** (fixed slot order). Per token in FP32: copy the slot-0 row, add slots 1..5 in
   order, add the shared expert once and the residual once, round to BF16.
 - **Backward.** `dy` goes to every row of its token (exact); the expert-input gradient
   fans back in with the same slot-sum kernel (FP32 out, + the shared expert's `dx`);
@@ -374,9 +387,9 @@ slot sum: `csrc/cuda/moe/moe_slot_sum.cu`; CUDA plan: `csrc/cuda/moe/moe_route_p
 
 Checks (H200, `tests/ops/moe/test_route_plan.py`, `tests/models/test_dsv4_moe_layer.py`):
 CUDA slot sum byte-equal to the golden for every dtype combination (signed zero
-included); the whole block (router -> plan -> P5 -> combine + DeepGEMM shared expert +
-residual) is batch-invariant across splits and run to run, fused == two-launch, and
-within 3% of an FP32 reference on the same MX operands.
+included); the whole block (router -> plan -> routed experts -> combine + DeepGEMM shared
+expert + residual) is batch-invariant across splits and run to run, and within 3% of an
+FP32 reference on the same MX operands.
 
 Graph-replay time, microseconds (H 4096, 256 experts). Baseline: `index_add_`
 (atomic FP32 scatter, not BI) plus the merge:
@@ -395,264 +408,44 @@ searchsorted + scatter.
 
 ## Shared expert
 
-Every valid token runs `fc1 -> one-round SwiGLU -> fc2` once, on BF16 frozen
-weights. Backward returns only `dX` (no `dW`). The shared output stays
-independent of the routed path; the combine belongs to P6.
+Profile `dsv4-deepgemm-fp8-v1` (`rl_engine/moe/backends/deepgemm_shared_expert.py`). The
+checkpoint stores the shared expert as FP8 with 128x128 weight blocks, and the vLLM
+rollout runs it through DeepGEMM; this provider makes the same calls:
 
 ```
-z  = x @ w_fc1.T            # BF16 operands, FP32 serial ascending-k, mul-then-add
-h  = BF16(SiLU(gate) * up)  # FP32 math, single round; no clamp, no p_s
-y  = BF16(h @ w_fc2.T)      # FP32 accumulate, one round
-dX = FP32(dz @ w_fc1)       # dh, dz round BF16 at operator edges
+x_q, s_x = fp8_group_quant(x)                    per-128 group, UE8M0 scales
+z        = fp8_gemm_nt(x_q, W1)                  DeepGEMM, BF16 out
+h_q, s_h = silu_and_mul_clamp_quant(z, 10)       vLLM's clamped SwiGLU fused with the FP8 quant
+y        = fp8_gemm_nt(h_q, W2)                  DeepGEMM, BF16 out
 ```
 
-Note the difference from the routed path: **no clamp and no route weight**. The
-one-round SwiGLU core runs in shared mode (`p_s = None`) and is the same core
-P5-2 extends with clamp, `p_s`, and `dp_s`.
+- `csrc/cuda/activation/silu_and_mul_clamp.cu` fuses the clamped SwiGLU with the FP8 group
+  quant. Its bytes equal vLLM's two separate kernels for every BF16 gate value.
+- Backward: dX only (weights frozen). The default is the FP8 DeepGEMM dgrad through the
+  precomputed `W.T`; `backward="bf16_det_gemm"` uses det_gemm in BF16 as a reference
+  (fast only with a `KERNEL_ALIGN_DET_GEMM_SM90=1` build).
+- Forward and dX are batch-invariant and run-to-run identical
+  (`tests/test_deepgemm_shared_expert.py`). Relative error against FP32 on the dequantized
+  weights (H200, T = 512 / 2048): y 4.7%, FP8 dX 3.8%, BF16 dX 0.74%.
+- H200, H 4096, F 2048, T = 16..4096: forward + backward 0.71-0.78x of eager BF16
+  (`benchmarks/benchmark_shared_expert_mlp.py`).
 
-The strict kernels hold `oracle-fp32-serial-v1` byte for byte: one lane owns one
-output element and reduces serially in ascending k with `__fmul_rn` / `__fadd_rn`
-(CUDA) or uncontracted IEEE FP32 arithmetic (Triton), so there is no cross-lane
-floating-point reduction.
+## Legacy backends (not used by DSv4)
 
-**Sigmoid is transcendental**, so its bits follow the libm implementation. nvcc's
-`expf` — which is what `torch.sigmoid` uses — bit-matches, while `tl.exp` and
-libdevice `__nv_expf` do not (10–45% of values differ by one ulp). The Triton
-path therefore takes the sigmoid tensor from `torch.sigmoid` as a kernel input
-and fuses only the remaining SwiGLU math.
+These stay in the tree but are not on the DSv4 path and have no DSv4 tests:
 
-A second backend composes the shared expert from `det_gemm` (profile
-`p5-det-gemm-v1`): batch-invariant and TP-equivalent because det_gemm's
-mid-split K-tree makes a contiguous half-K shard one child of the tree, at the
-cost of byte-equality.
+- The FP32-oracle provider harness (`rl_engine/moe/provider.py`) and its per-operator
+  backends: `backends.mxfp8_act_quant` (provider wrapper; DSv4 calls
+  `rl_engine/kernels/ops/cuda/moe/mxfp8_act_quant.py` directly), `backends.grouped_gemm`,
+  `backends.lora_delta`, `backends.clamp_swiglu`, `backends.shared_expert` (strict
+  serial and det_gemm BF16 shared experts, profiles `oracle-fp32-serial-v1` /
+  `p5-det-gemm-v1`).
+- The portable Triton lanes (`backends.triton_fused_mlp`, `rl_engine/moe/triton_*`;
+  profiles `p5-triton-*`), written for ROCm (MI300X).
+- `csrc/cuda/moe/mxfp8_mxfp4_grouped_gemm*.cu`, earlier routed-expert GEMMs superseded by
+  `sm90_fused_moe_mlp.cu`.
 
-## The portable Triton lane
-
-Everything above is Hopper-specific: TMA, `wgmma`, warp specialization, an
-explicit shared-memory pipeline. `rl_engine/kernels/ops/triton/moe/fused_mlp.py`
-is the MoE block written to run on CDNA, and it is the lane that gets tuned on
-a ROCm host. Maintainability comes first there, performance second, so it is
-not an attempt to reproduce the CUDA kernels.
-
-| # | Kernel | Math | Invariance |
-|---|---|---|---|
-| 1 | `fused_shared_fc1_swiglu` | BF16 `x @ W1[gate\|up]ᵀ` → `BF16(SiLU(g)·u)` | batch; TP by layout (column-parallel) |
-| 2 | `shared_fc3` | BF16 `h @ W2ᵀ` over a fixed 8-leaf K-tree | batch; TP 1/2/4/8 byte-equal |
-| 3 | `routed_fc1_swiglu_quant` | MXFP8×MXFP4 grouped fc1 → clamp-SwiGLU·p_s → MX quant | batch |
-| 4 | `routed_fc3` | MXFP8×MXFP4 grouped fc3 → BF16 | batch |
-
-| Item | Location |
-|---|---|
-| Kernels | `rl_engine/kernels/ops/triton/moe/fused_mlp.py` |
-| Providers | `backends.triton_fused_mlp:TritonFusedMoeMlp`, `backends.shared_expert:TritonFusedSharedExpertProvider` |
-| Tests | `tests/test_triton_fused_moe_mlp.py` |
-| Benchmark | `benchmarks/benchmark_triton_fused_moe_mlp.py` |
-
-**No FP8 `tl.dot`.** `tl.float8e4nv` is NVIDIA's e4m3**fn**; CDNA3's native FP8
-is e4m3**fnuz** (`tl.float8e4b8`), a different bias with no infinities. Rather
-than branch the numerics on the target, both MX operands are decoded to BF16
-and fed to a plain BF16 `tl.dot`. The decode is exact — E4M3 keeps 4
-significand bits, E2M1 keeps 2, BF16 has 8 — so nothing is lost, and folding the
-E8M0 scale out of the inner sum means no dequantized tensor is materialized and
-no fresh accumulator is needed per 32-wide block. On gfx94x the activation
-decode uses the hardware fnuz convert: an e4m3fn byte read as fnuz is exactly
-half its value, so `×2` restores it, and the one code that differs (0x80: −0 in
-fn, NaN in fnuz) is mapped to +0. That changes speed, not bytes.
-
-**The loaders, not the math, set the speed.** Gathering the packed E2M1 bytes
-along k (each byte loaded twice, one nibble per load) held routed fc1 at
-~65 TFLOPS on MI300X. Loading the bytes as a contiguous `[BN, BK/2]` tile,
-decoding both nibbles, and restoring k order with `tl.join` + `reshape` before
-the transpose is 2.5–3.5× faster and bit-identical.
-
-**Native FP8 is opt-in, and slower on MI300X.** `fp8=True` runs the routed
-GEMMs on e4m3fnuz MFMA: the activation bytes are fed as fnuz unchanged (×2 in
-the epilogue), the E2M1 weight is converted with its block scale folded against
-a per-column reference exponent (`prepare_mxfp4_fp8`, exact for residuals in
-[−9, 5], fail-closed otherwise), and the activation scale is promoted per
-32-block. Profile `p5-triton-fused-fp8-v1`. It loses to the BF16 lane: on one
-8192×4096×4096 GEMM a whole-tile FP8 dot takes ~0.35 ms, but exact MX semantics
-force one dot per 32-block because the activation scale changes every 32 k, and
-that structure costs ~1.0 ms even with pre-converted weights (~1.4 ms with the
-in-kernel conversion) against ~1.16 ms for the BF16 lane. 16×16×32 MFMA,
-`waves_per_eu` and `kpack` do not help. End to end, routed fc1 is ~2× slower
-(E=8 M=8192: 3.3 vs 1.7 ms; E=256 M=8192: 13.1 vs 6.6 ms). What would change
-this: a coarser activation scale (a different numeric contract; measured ~1.8×
-faster than the BF16 lane), or gfx950's MX-scaled MFMA via `tl.dot_scaled`.
-
-**No single-launch variant.** Triton has no user-managed shared memory, so `h_q`
-cannot be kept resident across the two GEMMs. The routed lane is two launches
-only — which is the faster CUDA path anyway.
-
-**TP invariance of the shared expert.** fc1 is column-parallel: every output
-column reduces its whole K inside one program at any TP size, so a rank's
-`[gate_shard; up_shard]` launch is byte-equal to the matching slice of the TP=1
-output. fc2 is row-parallel, so its K *is* the split axis. `shared_fc3` fixes
-the reduction to the deterministic all-reduce's tree
-(`fixed_tree_reduce` in `csrc/cuda/distributed/deterministic_collective.cu`):
-
-```
-F = [ s0 | s1 | s2 | s3 | s4 | s5 | s6 | s7 ]          8 leaves of F/8
-leaf  = BF16(FP32 ascending-BK sum over the leaf)
-y     = ((s0 + s1) + (s2 + s3)) + ((s4 + s5) + (s6 + s7))   each + is one BF16 add
-```
-
-At TP=t a rank owns 8/t adjacent leaves — a whole subtree — and sends that
-subtree's BF16 value; the collective's tree over t ranks is the top of the same
-tree. TP=1, 2, 4 and 8 give identical bytes, and the partials travel as BF16.
-Leaves are F/8 wide whatever BK is (a ragged last tile is zero-masked), so F
-only has to be a multiple of 8. The price is seven BF16 rounds more than a flat
-FP32 sum, still well inside the shared expert's oracle tolerance. The K-tree
-does not apply to fc1: `SiLU(g1+g2)*(u1+u2) != SiLU(g1)*u1 + SiLU(g2)*u2`.
-
-**No byte-equality with CUDA.** Sigmoid: measured over 262144 elements,
-`tl.sigmoid` differs from nvcc's `expf` in 6 elements and libdevice `exp` in 2,
-so the strict Triton shared expert has to import `torch.sigmoid` as a tensor to
-stay byte-equal, and a *fused* kernel cannot — the activation is inside the
-epilogue.
-
-**Batch invariance** is what the tests assert: tiles are pinned per
-architecture (`_TILES` in `fused_mlp.py`) and never chosen from M, there is no
-split-K and no atomic, and each output tile reduces the full K inside one
-program. Byte-equality holds across sub-batch slicing, single-row launches on
-both sides of every expert boundary, run to run, and — for 37 experts with
-empty and one-row experts — against per-expert launches. The program → expert
-map is a binary search over a device-side block prefix (one tiny launch, no
-host sync), so it stays cheap at DSv4's expert count.
-
-On gfx942 every BM/BN/BK/warps combination tried produced identical bytes for
-all four kernels (the FP32 accumulator walks K in ascending MFMA steps however
-it is tiled). That is measured, not guaranteed by Triton, so the pin stays; it
-does mean a shape-bucketed tile choice could be added later behind a
-cross-config equality test.
-
-### Results (MI300X, H=4096, F=2048)
-
-Routed, E=8 (`benchmarks/benchmark_triton_fused_moe_mlp.py`):
-
-| rows | fc1 | fc3 | total | before the loader rewrite |
-|---|---|---|---|---|
-| 512 | 0.23 ms | 0.18 ms | 0.41 ms | 0.80 ms |
-| 2048 | 0.96 ms | 0.49 ms | 1.45 ms | 1.73 ms |
-| 8192 | 1.74 ms | 0.78 ms | 2.53 ms | 6.30 ms |
-
-Max relative error against FP64 is unchanged (4.1e-2 at M=512, 3.7e-2 at
-M=2048) — the MX quantization floor.
-
-With E=256 and 32 rows per expert (M=8192) routed fc1 takes 6.5 ms and fc3
-2.8 ms: each weight element is decoded for only a handful of rows, so the BF16
-decode, not the MFMA, is the ceiling in that regime.
-
-Shared expert, TP=1:
-
-| rows | fc1+SwiGLU | fc3 | total | torch BF16 chain (unfused) |
-|---|---|---|---|---|
-| 512 | 0.08 ms | 0.06 ms | 0.14 ms | 0.18 ms |
-| 2048 | 0.22 ms | 0.21 ms | 0.43 ms | 0.49 ms |
-| 8192 | 0.74 ms | 0.74 ms | 1.48 ms | 1.30 ms |
-
-### Versus torch (MI300X, H=4096, F=2048)
-
-GPU device time per forward (sum of kernel durations from `torch.profiler`, so
-host launch overhead is excluded). "Performance" is torch time / Triton time:
-above 100% the Triton lane is faster.
-
-**Shared expert (fc1 + SwiGLU + fc3), per rank.** Baseline: the unfused torch
-BF16 chain, `x @ w1ᵀ` → SiLU·mul → `h @ w2ᵀ` on hipBLASLt, on the same
-`[gate_shard; up_shard]` / `w2[:, F/tp]` shards. The all-reduce is excluded;
-both sides send the same BF16 `[T, H]` payload.
-
-| TP | T | Triton | torch | performance |
-|---|---|---|---|---|
-| 1 | 512 | 0.134 ms | 0.109 ms | 82% |
-| 1 | 2048 | 0.425 ms | 0.295 ms | 69% |
-| 1 | 8192 | 1.481 ms | 0.985 ms | 66% |
-| 2 | 512 | 0.097 ms | 0.073 ms | 76% |
-| 2 | 2048 | 0.208 ms | 0.178 ms | 85% |
-| 2 | 8192 | 0.716 ms | 0.506 ms | 71% |
-| 4 | 512 | 0.085 ms | 0.050 ms | 59% |
-| 4 | 2048 | 0.123 ms | 0.114 ms | 93% |
-| 4 | 8192 | 0.371 ms | 0.314 ms | 85% |
-
-The shared lane runs at 59–93% of hipBLASLt. The gap is the price of
-invariance: hipBLASLt picks its kernel per shape, while this lane has
-fixed tiles, no split-K, and fc3's fixed 8-leaf BF16 tree. In eager wall-clock time the
-order flips at small batches (TP=2/4, T ≤ 2048: 1.5–1.6× faster than torch)
-because the lane is two launches against torch's ~7.
-
-**Routed experts (fc1 + clamp-SwiGLU·p_s + MX quant + fc3), one GPU.**
-Baseline: the same math in torch with the MXFP4 weights dequantized to BF16 on
-every call (the torch equivalent of keeping weights in MXFP4), MX activations
-dequantized, `h` MX-quantized between the GEMMs, and `torch._grouped_mm` for
-both GEMMs. E=256 uses top-8 routing (M = 8T).
-
-| experts | T | rows / expert | Triton | torch | performance |
-|---|---|---|---|---|---|
-| 8 | 512 | 64 | 0.40 ms | 4.62 ms | 1140% |
-| 8 | 2048 | 256 | 0.71 ms | 5.04 ms | 710% |
-| 8 | 8192 | 1024 | 2.54 ms | 6.37 ms | 250% |
-| 256 | 512 | 16 | 9.20 ms | 138.3 ms | 1500% |
-| 256 | 2048 | 64 | 9.72 ms | 141.5 ms | 1460% |
-| 256 | 8192 | 256 | 20.7 ms | 154.1 ms | 740% |
-
-Against torch holding pre-dequantized BF16 weights instead (4× the weight
-memory, ~13 GB per layer at E=256) the routed lane is roughly even, 70–140%:
-it falls behind only at E=256 with 16 rows per expert, where the in-kernel E2M1
-decode is the bound.
-
-Max relative difference from torch: 5e-3 to 1e-2 for the shared expert (BF16
-rounding), 3e-2 to 4e-2 for the routed experts (the MX quantization floor).
-
-### Results (H100 SXM, H=4096, F=2048, E=8; before the loader rewrite)
-
-| rows | Triton fc1 | Triton fc3 | Triton total | CUDA two-launch | ratio |
-|---|---|---|---|---|---|
-| 512 | 0.52 ms | 0.23 ms | 0.74 ms | 0.12 ms | 6.2x |
-| 2048 | 1.91 ms | 0.85 ms | 2.76 ms | 0.45 ms | 6.1x |
-| 8192 | 7.41 ms | 3.31 ms | 10.72 ms | 1.71 ms | 6.3x |
-
-The gap is the three things given up: FP8 tensor cores (BF16 `tl.dot` is half
-the throughput before the decode is counted), the pre-folded weight scale, and
-warp specialization. Accuracy is not part of the trade — against an FP64
-reference both lanes land on the MX quantization floor and agree to four
-digits. At fixture width (T=64, H=128, F=64, E=2) the whole Triton chain is
-byte-equal to the FP32 oracle, `h_q` codes and scales included, which is what
-pins the recipe.
-
-Forward only: `z` is not written, so there is no backward — use
-`TritonDetSharedExpertProvider` for training.
-
-## Reference backends
-
-Per-operator P5 artifacts. Each overrides only the operators its kernel
-delivers and leaves the rest on the FP32 oracle, so `scripts/check_p5.py` runs
-end to end against any one of them.
-
-| Module | Operator | Backends |
-|---|---|---|
-| `backends.mxfp8_act_quant` | P5-1 activation quantization | CUDA, Triton |
-| `backends.grouped_gemm` | P5-4 base GEMM + P5-3 LoRA delta | CUDA |
-| `backends.lora_delta` | P5-3 LoRA delta | torch-native, CUDA, Triton |
-| `backends.clamp_swiglu` | P5-2 clamp-SwiGLU with route weight | CUDA |
-| `backends.shared_expert` | P5-5 shared expert MLP | CUDA, Triton |
-
-`backends.routed_checks` is not a backend: it holds the per-launch batch
-check the two fused routed providers share, so the contract is read once
-rather than once per backend.
-
-Only `csrc/cuda/moe/sm90_fused_moe_mlp.cu` is compiled into `rl_engine._C` by
-default; the other MoE sources are present but not wired, so their providers
-raise until they are added to `setup.py` and `csrc/ops.cpp`.
-
-Acceptance for a wired reference backend:
-
-```bash
-python scripts/check_p5.py --device cuda \
-    --provider rl_engine.moe.backends.<module>:<Provider>
-```
-
-The MX quantizer additionally reproduces the committed golden manifest
-(`tests/fixtures/p5/golden_hashes.json`, anchored on the CPU x86 oracle) and,
-independently, torchao's OCP-MX cast in FLOOR mode and Triton's
-`downcast_to_mxfp` in ROUND_DOWN mode — two outside implementations agreeing
-byte for byte is a stronger signal than the local tests alone.
+The FP32 oracle (`rl_engine/moe/oracle.py`), the batch contract (`rl_engine/moe/contract.py`)
+and the MX format (`rl_engine/moe/mx_format.py`) are still used as references by the DSv4
+MoE tests. The MX quantizer reproduces the committed golden manifest
+(`tests/fixtures/moe/golden_hashes.json`).

@@ -1,4 +1,11 @@
-# P7 / T02: Sampling Params Gate and M10 Semantics — Implementation Spec
+# DSv4 Sampling Params Gate and M10 Semantics
+
+> Implementation spec of the sampling gate (`rl_engine/validation/sampling_params/`) and
+> the M10 logprob checks (`rl_engine/validation/m10/`) that the
+> [DSv4 logprob head](../operators/dsv4-logprob.md) relies on. It was written as work
+> package P7 / T02 of an earlier plan; the P1-P7 labels below refer to that plan. The
+> current design is the [DSv4 design](../architecture/dsv4-design.md).
+
 
 Status: Draft (WS1 primary implementation; WS2 continuation awaits a distributed environment). Gaps that consume T01 frozen artifacts are marked `[pending T01]`.
 

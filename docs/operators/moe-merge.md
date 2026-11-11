@@ -1,5 +1,10 @@
 # MoE Merge
 
+> **Legacy: not used by DSv4.** This operator predates the DSv4 kernel set (its P1 / P6
+> work package) and stays in the tree, but the DSv4 model does not call it; see
+> [DSv4 design](../architecture/dsv4-design.md), section 11. Its `scripts/check_p1.py`
+> harness and tests were removed, so commands below that use them no longer run.
+
 `shared_residual_merge_fwd` adds the shared-expert output and residual to the combined routed-expert
 output. Both additions use FP32 in the fixed order `(routed + shared) + residual`;
 only the final result is converted to BF16. Fixing this order prevents different

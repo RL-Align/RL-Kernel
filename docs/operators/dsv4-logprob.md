@@ -1,6 +1,9 @@
 # DSv4 Selected-Token Log-Probability
 
-The DSv4 LM head as selected-token log-probabilities (P7), profile `dsv4-logprob-v1`. It
+> Part of the DSv4 SM90 batch-invariant kernel set. Design, module map, how to run the
+> tests and benchmarks: [DSv4 design](../architecture/dsv4-design.md).
+
+The DSv4 LM head as selected-token log-probabilities, profile `dsv4-logprob-v1`. It
 takes the model's final hidden state BF16 `[T, 4096]` and the frozen head BF16
 `[129280, 4096]`. It returns FP32 `logp` and `lse` per token, with a backward to the hidden
 state.
@@ -63,7 +66,7 @@ any byte.
 ## Semantics and the sampling gate
 
 - **Temperature.** With `T = 1`, `logp` is the raw model log-probability, which the T02
-  sampling gate (`docs/contracts/p7-t02-m10-sampling-contract.md`,
+  sampling gate (`docs/contracts/dsv4-sampling-contract.md`,
   `rl_engine/validation/sampling_params/gate.py`) requires in consistency mode. Other
   temperatures divide the FP32 logits, as vLLM's sampler does (`logits.div_(T)` in FP32).
 - **Not implemented:** top-k / top-p / min-p replay. The gate rejects those settings in

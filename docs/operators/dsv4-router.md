@@ -1,6 +1,9 @@
 # DSv4 MoE Router
 
-Batch-invariant router for DeepSeek-V4 MoE layers (P3 redo, SM90): gate GEMM, top-6 or hash
+> Part of the DSv4 SM90 batch-invariant kernel set. Design, module map, how to run the
+> tests and benchmarks: [DSv4 design](../architecture/dsv4-design.md).
+
+Batch-invariant router for DeepSeek-V4 MoE layers (SM90): gate GEMM, top-6 or hash
 routing, routing weights, and the dX backward with a frozen gate.
 
 | Piece | Where |
@@ -15,7 +18,7 @@ routing, routing weights, and the dX backward with a frozen gate.
 ## Contract
 
 Gate: `logits = x @ W.T`, BF16 `x [T, 4096]` and `W [256, 4096]`, FP32 output on pinned
-DeepGEMM `bf16_gemm_nt` (design doc D4). Then, per token (the golden is defined on CUDA:
+DeepGEMM `bf16_gemm_nt` (decision D4 in the [DSv4 design](../architecture/dsv4-design.md)). Then, per token (the golden is defined on CUDA:
 libdevice `expf` / `log1pf`; every other step is correctly rounded, no FMA):
 
 ```text

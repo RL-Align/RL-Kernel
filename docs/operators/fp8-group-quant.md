@@ -1,8 +1,11 @@
 # fp8_group_quant (DSv4)
 
+> Part of the DSv4 SM90 batch-invariant kernel set. Design, module map, how to run the
+> tests and benchmarks: [DSv4 design](../architecture/dsv4-design.md).
+
 Per-token-group FP8 (E4M3) activation quantization that feeds DeepGEMM's SM90
-FP8 GEMMs for DSv4 (attention projections and the shared expert; design D2/D3
-in `docs/architecture/dsv4-cuda-design.md`). The CUDA kernel is byte-equal to
+FP8 GEMMs for DSv4 (attention projections and the shared expert; decisions D2 / D3
+in the [DSv4 design](../architecture/dsv4-design.md)). The CUDA kernel is byte-equal to
 the PyTorch golden, and the golden reproduces vLLM's
 `per_token_group_fp8_quant` with the DSv4 rollout settings, so rollout and
 training hand DeepGEMM the same FP8 operands.

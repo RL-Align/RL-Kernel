@@ -1,5 +1,10 @@
 # fp32_gemm_rms (P1-2)
 
+> **Legacy: not used by DSv4.** This operator predates the DSv4 kernel set (its P1 / P6
+> work package) and stays in the tree, but the DSv4 model does not call it; see
+> [DSv4 design](../architecture/dsv4-design.md), section 11. Its `scripts/check_p1.py`
+> harness and tests were removed, so commands below that use them no longer run.
+
 Deterministic FP32 controller projection plus controller RMS scale for the
 DSv4 mHC block (issue #2, task P1-2), forward and backward, in CUDA and
 Triton. Both backends are byte-equal to the pinned FP32 oracle
