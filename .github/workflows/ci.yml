@@ -92,7 +92,10 @@ jobs:
             exit 1
           fi
           python -c "import torch; assert torch.backends.cpu.get_cpu_capability() == 'AVX2'"
-          python -m pytest -q tests/reference/linear_attn/test_gdn_reference.py -k gdn_batch_invariance
+          python -m pytest -q \
+            tests/reference/linear_attn/test_gdn_reference.py \
+            tests/reference/linear_attn/test_gdn_sequence.py \
+            -k 'gdn_batch_invariance or sequence_agrees_with_batched_step'
 
       - name: Run Cross-Configuration Contract Tests (CPU-safe)
         run: |
