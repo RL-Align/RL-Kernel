@@ -25,8 +25,10 @@ The first layer reads the embedding as four identical streams. vLLM's broadcast
 kernel instead sums ``hc_attn_fn`` over the streams first; the two are equal in exact
 arithmetic, not in rounding, and this model keeps the ``dsv4-mhc-v1`` contract.
 
-Forward only (rollout and actor recompute). The attention backward does not exist
-yet; the mHC and MoE operators have their own dX backward.
+``forward_batch`` is the rollout / recompute forward (no grad). ``forward_train`` runs the
+same kernels under autograd (same bytes) for full-prefill batches: mHC dX, the attention
+backward (``attention_backward.py``; not deterministic: cuDNN's dKV atomics), the MoE
+dX, and the LoRA adapters' gradients (``lora.py``; ``attach_lora``). Base weights are frozen.
 """
 
 from __future__ import annotations
@@ -73,6 +75,21 @@ class Dsv4DecoderLayer:
         x, post, comb = mhc_pre_cuda(streams, p.fn, p.scale, p.base, p.norm)[:3]
         y = self.moe.forward(x, None, input_ids if self.hash_routing else None)
         return mhc_post_cuda(y, streams, post, comb)
+
+    def forward_train(
+        self, streams: Tensor, batch: Dsv4Batch, caches: LayerCaches, input_ids: Tensor
+    ) -> Tensor:
+        """:meth:`forward_batch` under autograd (same bytes); full-prefill batches."""
+        from rl_engine.kernels.ops.cuda.mhc_dsv4 import mhc_post, mhc_pre
+        from rl_engine.models.deepseek_v4.attention_backward import attention_train
+
+        p = self.hc_attn
+        x, post, comb = mhc_pre(streams, p.fn, p.scale, p.base, p.norm)
+        streams = mhc_post(attention_train(self.attn, x, batch, caches), streams, post, comb)
+        p = self.hc_ffn
+        x, post, comb = mhc_pre(streams, p.fn, p.scale, p.base, p.norm)
+        y = self.moe.forward(x, None, input_ids if self.hash_routing else None)
+        return mhc_post(y, streams, post, comb)
 
 
 @dataclass
@@ -124,6 +141,31 @@ class Dsv4Model:
         out = hc_head_cuda(streams, p.fn, p.scale, p.base, p.norm)[0]
         return (out, per_layer) if return_streams else out
 
+    def forward_train(self, input_ids: Tensor, batch: Dsv4Batch, caches: list[LayerCaches]):
+        """Final hidden BF16 ``[T, H]`` under autograd, byte-equal to :meth:`forward_batch`.
+
+        Full-prefill batches only (``seq_lens == query_lens``, fresh caches). Gradients
+        reach the LoRA adapters (:meth:`lora_parameters`); the embedding and every base
+        weight are frozen.
+        """
+        from rl_engine.kernels.ops.cuda.mhc_dsv4 import hc_head
+
+        input_ids = input_ids.long()
+        streams = self.embed_streams(input_ids)
+        for layer, cache in zip(self.layers, caches):
+            streams = layer.forward_train(streams, batch, cache, input_ids)
+        p = self.hc_head
+        return hc_head(streams, p.fn, p.scale, p.base, p.norm)
+
+    def lora_parameters(self) -> list[Tensor]:
+        """Every LoRA adapter tensor (``A`` and ``B``) of every layer."""
+        params = []
+        for layer in self.layers:
+            for ad in layer.attn.w.lora.values():
+                params += [ad.a, ad.b]
+            params += layer.moe.lora_params()
+        return params
+
     def forward(self, input_ids: Tensor, seq_lens: list[int], query_lens: list[int], caches):
         """Convenience form: builds the step's :class:`Dsv4Batch` on the host."""
         batch = Dsv4Batch.from_lens(
@@ -142,3 +184,53 @@ class Dsv4Model:
         if self.head is None:
             raise RuntimeError("the model was loaded without its LM head (load_head=False)")
         return selected_logprob(hidden, self.head, targets, temperature)
+
+
+def attach_lora(
+    model: Dsv4Model,
+    rank: int,
+    alpha: float,
+    attention: bool = True,
+    moe: bool = True,
+    shared_expert: bool = True,
+    seed: int = 0,
+    zero_b: bool = True,
+) -> list[Tensor]:
+    """Create LoRA adapters on every layer (requires_grad) and return their tensors.
+
+    Attention: ``wq_a``, ``wkv``, ``wq_b``, ``wo_b`` (user decision). MoE: routed
+    ``fc1`` / ``fc2`` shared by all experts, and the shared expert's ``fc1`` / ``fc2``.
+    ``zero_b`` starts every adapter at zero (the base model's bytes).
+    """
+    from rl_engine.models.deepseek_v4.lora import LoraAdapter, MoeLora
+
+    c = model.config
+    h, f = c.hidden_size, c.moe_intermediate_size
+    fs = f * c.n_shared_experts
+    k = seed
+
+    def make(i, o):
+        nonlocal k
+        k += 1
+        ad = LoraAdapter.init(i, o, rank, alpha, device=model.embed.device, seed=k, zero_b=zero_b)
+        ad.a.requires_grad_(True)
+        ad.b.requires_grad_(True)
+        return ad
+
+    for layer in model.layers:
+        a = layer.attn.c
+        if attention:
+            layer.attn.w.lora = {
+                "wq_a": make(h, a.q_lora_rank),
+                "wkv": make(h, a.head_dim),
+                "wq_b": make(a.q_lora_rank, a.heads * a.head_dim),
+                "wo_b": make(a.o_groups * a.o_lora_rank, h),
+            }
+        if moe or shared_expert:
+            layer.moe.lora = MoeLora(
+                fc1=make(h, 2 * f) if moe else None,
+                fc2=make(f, h) if moe else None,
+                shared_fc1=make(h, 2 * fs) if shared_expert else None,
+                shared_fc2=make(fs, h) if shared_expert else None,
+            )
+    return model.lora_parameters()

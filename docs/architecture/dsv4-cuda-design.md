@@ -430,6 +430,13 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         - Cost against the block without adapters: forward 1.02-1.17x, forward + backward
           1.05-1.21x.
         - Open: EP > 1 (send `u1`), per-expert adapters
+  - [x] Full model training forward / backward (`Dsv4Model.forward_train`, `attach_lora`;
+        `docs/operators/dsv4-model.md`, "Training").
+        - The forward is byte-equal to the rollout forward.
+        - The selected-token logprob loss reaches every LoRA adapter.
+        - On an all-hash-routed copy, finite differences agree (correlation 0.93 over 12
+          parameter groups).
+        - Backward determinism is not required (user decision 2026-11-11).
   - [x] A3: LoRA adapters (`rl_engine/models/deepseek_v4/lora.py`, profile `dsv4-lora-v1`) on
         `wq_a`, `wkv`, `wq_b` and `wo_b` (user decision 2026-11-11; Megatron
         `linear_q_down_proj` / `linear_kv_proj` / `linear_q_up_proj` / `linear_proj`; none on

@@ -134,9 +134,42 @@ End to end at T = 1024 and 2048, the stream error grows smoothly with no jump at
 Using vLLM's YaRN on the window layers instead changes these numbers by about 0.2%. T
 stays ≤ 2048 so that the indexer selects every compressed entry on both sides.
 
+## Training (LoRA)
+
+`Dsv4Model.forward_train(input_ids, batch, caches)` runs the forward under autograd and is
+byte-equal to `forward_batch` (tested). So the training forward, the rollout and the
+recompute see the same bytes. It supports full-prefill batches.
+
+`attach_lora(model, rank, alpha)` creates the adapters (`rl_engine/models/deepseek_v4/lora.py`):
+- attention `wq_a`, `wkv`, `wq_b` and `wo_b`;
+- routed-expert `fc1` / `fc2`, shared by all experts;
+- shared-expert `fc1` / `fc2`.
+
+`model.lora_parameters()` returns their tensors. A loss on `model.selected_logprob(hidden,
+targets)` back-propagates through:
+- the logprob head;
+- `hc_head`;
+- each layer's mHC, attention (`attention_backward.py`) and MoE (with its LoRA);
+- down to layer 0.
+
+Base weights and the embedding are frozen.
+
+**Not deterministic** (user decision 2026-11-11: backward determinism is not required). The
+attention's dKV uses cuDNN's FP32 atomics.
+
+**Checks** (`tests/models/deepseek_v4/test_dsv4_model_train.py`):
+- every adapter gets a finite, nonzero gradient;
+- on an all-hash-routed copy, predicted and observed loss changes agree over 12 parameter
+  groups (correlation 0.93, strong groups match in sign and magnitude).
+
+The all-hash copy is needed because, with scored routing, a parameter step can flip top-k
+choices, which makes finite differences too noisy. Each component is checked exactly
+against FP32 autograd in its own tests.
+
 ## Limitations
 
-- Forward only; attention has no backward yet.
-- No LM head (P7).
+- The training forward / backward covers full-prefill batches only.
+- The attention backward's small steps are PyTorch (backward about 3-4x the forward); fused
+  kernels are planned.
 - The MoE block syncs with the host (the MXFP8 finite check; with EP, the split sizes), so
   a full decode step is not CUDA-graph capturable yet. The attention layer alone is.
