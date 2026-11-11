@@ -324,6 +324,7 @@ def sm90_moe_bwd_dh_swiglu(
     z: torch.Tensor,
     p_s: torch.Tensor,
     w2_t: torch.Tensor | None = None,
+    dh_add: torch.Tensor | None = None,
 ) -> list[torch.Tensor]: ...
 def sm90_moe_dequant_t(
     w_codes: torch.Tensor, w_scales: torch.Tensor, expert_offsets: torch.Tensor
@@ -576,6 +577,12 @@ def dsv4_router_backward_dx(
 ) -> None: ...
 def mxfp8_act_quant_forward(x: torch.Tensor, check_finite: bool = True) -> list[torch.Tensor]: ...
 def mxfp8_act_quant_ste_backward(dy: torch.Tensor) -> torch.Tensor: ...
+def moe_swiglu_quant(
+    z: torch.Tensor,
+    p_s: torch.Tensor,
+    z_add: torch.Tensor | None = None,
+    token: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
 def moe_route_plan(ids: torch.Tensor, num_experts: int) -> list[torch.Tensor]: ...
 def moe_slot_sum(
     rows: torch.Tensor,

@@ -164,6 +164,7 @@ struct BwdArgs {
   __nv_bfloat16* dz;        // DH_SWIGLU: [M, 2F] (Kw == F)
   const float* z;           // DH_SWIGLU: [M, 2F]
   const float* p_s;         // DH_SWIGLU: [M]
+  const float* dh_add;      // DH_SWIGLU: optional FP32 [M, F] added to dy @ W2 (LoRA)
   float* dps_part;          // DH_SWIGLU: [M, Kw / 64]
   int M, Nw, Kw, E;
   int num_tb;               // token-block upper bound (grid rows)
@@ -425,7 +426,12 @@ sm90_moe_bwd_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
         for (int c = 0; c < 2; ++c) {
           const float gate = c ? zg.y : zg.x;
           const float up = c ? zu.y : zu.x;
-          const float dh = __bfloat162float(__float2bfloat16_rn(acc[4 * i + 2 * h + c]));
+          const float dh_acc =
+              args.dh_add != nullptr
+                  ? __fadd_rn(acc[4 * i + 2 * h + c],
+                              args.dh_add[static_cast<int64_t>(m) * F + col + c])
+                  : acc[4 * i + 2 * h + c];
+          const float dh = __bfloat162float(__float2bfloat16_rn(dh_acc));
           const float g = fminf(gate, kGateClampMax);
           const float u = fminf(fmaxf(up, kUpClampMin), kUpClampMax);
           const float sig = 1.0f / (1.0f + expf(-g));
@@ -594,13 +600,15 @@ torch::Tensor sm90_moe_bwd_dx(torch::Tensor a, torch::Tensor w_codes, torch::Ten
 #endif
 }
 
-// dh = BF16(dy @ W2[e]) fused with the clamp-SwiGLU backward: returns
-// (dz BF16 [M, 2F] = [dgate | dup], dp_s FP32 [M]).
+// dh = BF16(dy @ W2[e] [+ dh_add]) fused with the clamp-SwiGLU backward: returns
+// (dz BF16 [M, 2F] = [dgate | dup], dp_s FP32 [M]). dh_add (FP32 [M, F], optional) is
+// the LoRA fc2 branch's dX, added in FP32 before the BF16 round.
 std::vector<torch::Tensor> sm90_moe_bwd_dh_swiglu(torch::Tensor dy, torch::Tensor w2_codes,
                                                   torch::Tensor w2_scales,
                                                   torch::Tensor expert_offsets, torch::Tensor z,
                                                   torch::Tensor p_s,
-                                                  c10::optional<torch::Tensor> w2_t) {
+                                                  c10::optional<torch::Tensor> w2_t,
+                                                  c10::optional<torch::Tensor> dh_add) {
 #if defined(RL_KERNEL_ENABLE_MOE_SM90)
   int64_t E, H, F;
   check_weight(w2_codes, w2_scales, E, H, F);
@@ -625,6 +633,14 @@ std::vector<torch::Tensor> sm90_moe_bwd_dh_swiglu(torch::Tensor dy, torch::Tenso
   args.dz = reinterpret_cast<__nv_bfloat16*>(dz.data_ptr<at::BFloat16>());
   args.z = z.data_ptr<float>();
   args.p_s = p_s.data_ptr<float>();
+  args.dh_add = nullptr;
+  if (dh_add.has_value()) {
+    const auto& d = *dh_add;
+    TORCH_CHECK(d.is_cuda() && d.is_contiguous() && d.scalar_type() == torch::kFloat32 &&
+                    d.dim() == 2 && d.size(0) == M && d.size(1) == F,
+                "dh_add must be contiguous FP32 [M, F]");
+    args.dh_add = d.data_ptr<float>();
+  }
   args.dps_part = part.data_ptr<float>();
   args.M = static_cast<int>(M); args.Nw = static_cast<int>(H); args.Kw = static_cast<int>(F);
   args.E = static_cast<int>(E);

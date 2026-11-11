@@ -184,6 +184,26 @@ class Sm90FusedMoeMlp:
             codes=codes, scales=scales, elem_format="e4m3", shape=(batch.rows, batch.ffn)
         )
 
+    def swiglu_quant(
+        self,
+        z: torch.Tensor,
+        p_s: torch.Tensor,
+        z_add: torch.Tensor | None = None,
+        token: torch.Tensor | None = None,
+    ) -> tuple[MXTensor, torch.Tensor]:
+        """FP32 ``z [M, 2F]`` -> (``h_q`` MXFP8, BF16 ``h``): the fused fc1 epilogue on its
+        own (``csrc/cuda/moe/moe_swiglu_quant.cu``, byte-equal). For the LoRA path: with
+        ``z_add`` FP32 ``[T, 2F]`` and ``token`` ``[M]``, row ``r`` uses
+        ``z[r] + z_add[token[r]]`` (FP32 add)."""
+        codes, scales, h = self._ext.moe_swiglu_quant(
+            z.contiguous(),
+            p_s.float().contiguous(),
+            None if z_add is None else z_add.float().contiguous(),
+            None if token is None else token.long().contiguous(),
+        )
+        f = z.shape[1] // 2
+        return MXTensor(codes=codes, scales=scales, elem_format="e4m3", shape=(z.shape[0], f)), h
+
     def fc3(self, batch: ExpertBatch, h_q: MXTensor) -> torch.Tensor:
         """fc3 (down projection): BF16 y [M, H]."""
         w2 = self.prepare(batch.w2)
@@ -255,9 +275,20 @@ class Sm90FusedMoeMlp:
         self._cache[key] = True
 
     def backward(
-        self, batch: ExpertBatch, x_q: MXTensor, dy: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """``(dx FP32 [M, H], dp_s FP32 [M])`` for ``dy`` ``[M, H]`` (cast to BF16)."""
+        self,
+        batch: ExpertBatch,
+        x_q: MXTensor,
+        dy: torch.Tensor,
+        z_add: torch.Tensor | None = None,
+        dh_add: torch.Tensor | None = None,
+        return_dz: bool = False,
+    ):
+        """``(dx FP32 [M, H], dp_s FP32 [M])`` for ``dy`` ``[M, H]`` (cast to BF16).
+
+        LoRA: ``z_add`` (FP32 ``[M, 2F]``) is added to the recomputed fc1 output, and
+        ``dh_add`` (FP32 ``[M, F]``) to ``dy @ W2`` before its BF16 round. With
+        ``return_dz`` the BF16 ``dz [M, 2F]`` is returned too, as a third item.
+        """
         missing = [s for s in _BWD_SYMBOLS if not hasattr(self._ext, s)]
         if missing:
             raise NotImplementedError(f"rl_engine._C lacks {missing}; rebuild")
@@ -265,6 +296,8 @@ class Sm90FusedMoeMlp:
         self._check_backward_weight(batch.w1)
         self._check_backward_weight(batch.w2)
         z = self.fc1_z(batch, x_q)
+        if z_add is not None:
+            z.add_(z_add)
         offsets = batch.expert_offsets
         w1, w2 = batch.w1, batch.w2
         w2_t = self._expanded(w2, offsets, batch.x.shape[0])
@@ -276,13 +309,14 @@ class Sm90FusedMoeMlp:
             z,
             batch.p_s.contiguous(),
             w2_t,
+            None if dh_add is None else dh_add.float().contiguous(),
         )
         del w2_t
         w1_t = self._expanded(w1, offsets, batch.x.shape[0])
         dx = self._ext.sm90_moe_bwd_dx(
             dz, w1.codes.contiguous(), w1.scales.contiguous(), offsets, w1_t
         )
-        return dx, dp_s
+        return (dx, dp_s, dz) if return_dz else (dx, dp_s)
 
     def _expanded(self, w: MXTensor, offsets: torch.Tensor, rows: int) -> torch.Tensor | None:
         """BF16 ``W^T`` scratch for the backward GEMM, or None for in-kernel expansion."""

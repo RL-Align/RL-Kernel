@@ -289,7 +289,8 @@ std::vector<torch::Tensor> sm90_moe_bwd_dh_swiglu(torch::Tensor dy, torch::Tenso
                                                   torch::Tensor w2_scales,
                                                   torch::Tensor expert_offsets, torch::Tensor z,
                                                   torch::Tensor p_s,
-                                                  c10::optional<torch::Tensor> w2_t);
+                                                  c10::optional<torch::Tensor> w2_t,
+                                                  c10::optional<torch::Tensor> dh_add);
 torch::Tensor sm90_moe_dequant_t(torch::Tensor w_codes, torch::Tensor w_scales,
                                  torch::Tensor expert_offsets);
 #endif  // RL_KERNEL_ENABLE_MOE_SM90
@@ -622,6 +623,10 @@ void dsv4_router_backward_dx(torch::Tensor logits, torch::Tensor ids, torch::Ten
 // P5-1 MXFP8 activation quantization (csrc/cuda/moe/mxfp8_act_quant.cu)
 std::vector<torch::Tensor> mxfp8_act_quant_forward_cuda(torch::Tensor x, bool check_finite);
 torch::Tensor mxfp8_act_quant_ste_backward_cuda(torch::Tensor dy);
+// P5 routed experts: standalone clamp-SwiGLU * p_s -> MXFP8 (csrc/cuda/moe/moe_swiglu_quant.cu)
+std::vector<torch::Tensor> moe_swiglu_quant(torch::Tensor z, torch::Tensor p_s,
+                                            c10::optional<torch::Tensor> z_add,
+                                            c10::optional<torch::Tensor> token);
 // DSv4 MoE route plan (csrc/cuda/moe/moe_route_plan.cu)
 std::vector<torch::Tensor> moe_route_plan(torch::Tensor ids, int64_t num_experts);
 // DSv4 MoE combine / backward fan-in (csrc/cuda/moe/moe_slot_sum.cu)
@@ -699,6 +704,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("x"), py::arg("check_finite") = true);
     m.def("mxfp8_act_quant_ste_backward", &mxfp8_act_quant_ste_backward_cuda,
           "Straight-through estimator backward for mxfp8_act_quant (dX = dY)");
+    m.def("moe_swiglu_quant", &moe_swiglu_quant,
+          "P5 routed experts: FP32 z -> clamp-SwiGLU * p_s -> (MXFP8 codes, scales, BF16 h), "
+          "byte-equal to the fused fc1 epilogue; optional per-token z_add (LoRA fc1 delta)",
+          py::arg("z"), py::arg("p_s"), py::arg("z_add") = py::none(),
+          py::arg("token") = py::none());
     m.def("moe_route_plan", &moe_route_plan,
           "DSv4 MoE route plan: stable counting sort of (token, slot) pairs by expert"
           " -> (perm, token, inv, expert_offsets)");
@@ -983,9 +993,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("a"), py::arg("w_codes"), py::arg("w_scales"), py::arg("expert_offsets"),
           py::arg("w_t") = py::none());
     m.def("sm90_moe_bwd_dh_swiglu", &sm90_moe_bwd_dh_swiglu,
-          "dh = BF16(dy @ W2[e]) fused with the clamp-SwiGLU backward -> (dz BF16, dp_s FP32)",
+          "dh = BF16(dy @ W2[e] [+ dh_add]) fused with the clamp-SwiGLU backward -> (dz BF16, "
+          "dp_s FP32)",
           py::arg("dy"), py::arg("w2_codes"), py::arg("w2_scales"), py::arg("expert_offsets"),
-          py::arg("z"), py::arg("p_s"), py::arg("w2_t") = py::none());
+          py::arg("z"), py::arg("p_s"), py::arg("w2_t") = py::none(),
+          py::arg("dh_add") = py::none());
     m.def("sm90_moe_dequant_t", &sm90_moe_dequant_t,
           "MXFP4 W [E, Nw, Kw] -> W^T BF16 [E, Kw, Nw] for experts with rows (backward w_t)");
 #endif  // RL_KERNEL_ENABLE_MOE_SM90

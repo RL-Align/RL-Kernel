@@ -294,6 +294,55 @@ Accuracy is measured against an FP32 chain that follows the oracle on the same `
 the routed part has rel-L2 < 2e-2. With the shared expert's FP8 dgrad included, rel-L2 is
 < 8e-2.
 
+### LoRA (dsv4-lora-v1)
+
+`Dsv4MoE.lora` is a `MoeLora` (`rl_engine/models/deepseek_v4/lora.py`):
+- routed `fc1` (H to 2F, gate rows then up rows) and `fc2` (F to H) adapters, **shared by
+  every routed expert**, as Megatron-Bridge's default `share_expert_adapters=True` with
+  EP = 1;
+- optional shared-expert `fc1` / `fc2` adapters.
+
+The forward is unmerged, so the rollout runs the same bytes. The base weights stay MXFP4.
+
+**Routed forward.** The fused fc1 epilogue cannot add a delta, so with adapters the block
+takes four steps:
+1. `fc1_z` (FP32 z).
+2. `moe_swiglu_quant` (`csrc/cuda/moe/moe_swiglu_quant.cu`). It is the fused epilogue as a
+   standalone kernel, byte-equal to it (tested). It adds the per-token delta
+   `z_lora = scale * (BF16(x A1^T) B1^T)` in FP32 as it reads z, computed once per token
+   rather than once per routed row.
+3. `fc3`.
+4. `y = BF16(FP32(y) + scale * (BF16(h A2^T) B2^T))`, with `h` the BF16 SwiGLU output
+   (`p_s` already in it).
+
+Zero adapters (B = 0) give exactly the fast path's bytes, and the block stays
+batch-invariant.
+
+**Routed backward.**
+- `sm90_moe_bwd_dh_swiglu` takes an optional `dh_add` (the fc2 adapter's dX), added to
+  `dy @ W2` in FP32 before the BF16 round. The recomputed z includes the fc1 delta.
+- The fc1 adapter's dX is summed per token (slot order) before `@ A1`, and so is `dA1`.
+- Shared expert: `lora_apply` after `fc1` and after `fc2`. The BF16 `h` comes from the fused
+  SwiGLU + FP8 quant kernel (`return_h`).
+- dX and every dA / dB match an FP32 autograd reference
+  (`tests/models/test_dsv4_moe_lora.py`).
+
+**Cost.** H200, E 256, H 4096, F 2048, rank 32, against the same block without adapters:
+
+| T | forward | forward + backward |
+|---|---|---|
+| 64 | 1.02x | 1.05x |
+| 1024 | 1.09x | 1.11x |
+| 4096 | 1.17x | 1.21x |
+
+Most of the remaining cost is the FP32 `z` round trip, which the fused epilogue avoids.
+
+**Not implemented.**
+- **Expert parallelism.** Megatron keeps one shared adapter per EP rank. The receiving rank
+  only has the MXFP8 activations, so the source rank would have to send
+  `u1 = BF16(x A1^T)` along with them.
+- **Per-expert adapters** (`share_expert_adapters=False`).
+
 ## Route plan and combine (EP = 1)
 
 The block glue between the router (`docs/operators/dsv4-router.md`) and the two

@@ -24,6 +24,14 @@ Backward (``g = dL/dy``; the base weight is frozen), in FP32::
 for fixed shapes, not batch-invariant (as for any weight gradient).
 
 DSv4 attention targets (user decision): ``wq_a``, ``wkv``, ``wq_b`` and ``wo_b``.
+
+MoE (:class:`MoeLora`, Megatron-Bridge's default ``share_expert_adapters=True``): one
+``fc1`` / ``fc2`` adapter pair shared by all routed experts, and one pair for the shared
+expert. Routed ``fc1``: ``z = FP32 z_base + lora_delta(x)`` before the clamp-SwiGLU (the
+delta depends only on the token, so it is computed once per token and gathered to its 6
+rows); routed ``fc2``: ``y = BF16(FP32(y_base) + lora_delta(h))`` with ``h`` the BF16
+SwiGLU output (``p_s`` already applied). With expert parallelism Megatron keeps one shared
+adapter per EP rank; that layout is not implemented yet (EP = 1 only).
 """
 
 from __future__ import annotations
@@ -110,14 +118,18 @@ def lora_hidden(x: Tensor, ad: LoraAdapter) -> Tensor:
     return _gemm_nt(x, a)[:, : ad.rank].to(torch.bfloat16)
 
 
-def lora_apply(y_base: Tensor, x: Tensor, ad: LoraAdapter) -> Tensor:
-    """``BF16(FP32(y_base) + scale * (BF16(x A^T) B^T))``; ``x`` BF16 ``[T, in]``."""
+def lora_delta(x: Tensor, ad: LoraAdapter) -> Tensor:
+    """``scale * (BF16(x A^T) B^T)`` FP32 ``[T, out]``; ``x`` BF16 ``[T, in]``."""
     if x.dtype != torch.bfloat16 or x.shape[-1] != ad.in_features:
         raise ValueError(f"x must be BF16 [T, {ad.in_features}]")
     a, b = _padded(ad)
     h = _gemm_nt(x, a).to(torch.bfloat16)
-    d = _gemm_nt(h, b)
-    return (y_base.float() + d * ad.scale).to(torch.bfloat16)
+    return _gemm_nt(h, b) * ad.scale
+
+
+def lora_apply(y_base: Tensor, x: Tensor, ad: LoraAdapter) -> Tensor:
+    """``BF16(FP32(y_base) + scale * (BF16(x A^T) B^T))``; ``x`` BF16 ``[T, in]``."""
+    return (y_base.float() + lora_delta(x, ad)).to(torch.bfloat16)
 
 
 def lora_backward(dy: Tensor, x: Tensor, ad: LoraAdapter) -> tuple[Tensor, Tensor, Tensor]:
@@ -129,3 +141,18 @@ def lora_backward(dy: Tensor, x: Tensor, ad: LoraAdapter) -> tuple[Tensor, Tenso
     da = dh.t() @ x.float()
     dx = dh @ ad.a.detach().float()
     return dx, da, db
+
+
+@dataclass
+class MoeLora:
+    """DSv4 MoE LoRA: routed ``fc1`` (H -> 2F, gate rows then up rows) and ``fc2``
+    (F -> H) shared by every routed expert; optional shared-expert ``fc1`` / ``fc2``."""
+
+    fc1: LoraAdapter | None = None
+    fc2: LoraAdapter | None = None
+    shared_fc1: LoraAdapter | None = None
+    shared_fc2: LoraAdapter | None = None
+
+    def adapters(self) -> list[tuple[str, LoraAdapter]]:
+        names = ("fc1", "fc2", "shared_fc1", "shared_fc2")
+        return [(n, getattr(self, n)) for n in names if getattr(self, n) is not None]

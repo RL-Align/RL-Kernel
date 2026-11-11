@@ -145,6 +145,7 @@ class Dsv4MoE:
     ep_group: object = None  # torch.distributed process group; None = EP 1
     path: str = "two_launch"  # P5 path: "two_launch" (faster) | "fused"
     check_finite: bool = True  # MXFP8 quant fail-closed check (one host sync; off for graphs)
+    lora: object = None  # MoeLora (lora.py): routed fc1 / fc2 and shared-expert adapters
     _routed: object = field(default=None, init=False, repr=False)
     _shared: object = field(default=None, init=False, repr=False)
     _shared_w: object = field(default=None, init=False, repr=False)
@@ -221,6 +222,11 @@ class Dsv4MoE:
             weights.reshape(-1).to(torch.float32).index_select(0, plan.perm),
             plan.expert_offsets,
         )
+        if self._routed_lora():
+            if self.ep_group is not None:
+                raise NotImplementedError("routed-expert LoRA with expert parallelism")
+            y, lora_state = self._routed_lora_forward(x, rows, plan, hidden)
+            return y, (rows, None, lora_state)
         if self.ep_group is None:
             return self._expert_forward(rows, hidden), (rows, None)
         local, ex = ep_dispatch(rows, plan, self.ep_group)
@@ -231,8 +237,10 @@ class Dsv4MoE:
     ) -> tuple[Tensor, Tensor]:
         """``(dx_rows FP32 [T * 6, H], dp_s FP32 [T * 6])`` in plan order from ``dy_rows``
         (BF16, plan order); with EP the rows travel along the forward's splits."""
-        rows, ex = state
+        rows, ex = state[0], state[1]
         hidden = dy_rows.shape[1]
+        if len(state) == 3:
+            raise RuntimeError("routed-expert LoRA state: use routed_lora_backward")
         if ex is None:
             return self._expert_backward(rows, dy_rows, hidden)
         arrival = _all_to_all(
@@ -240,6 +248,123 @@ class Dsv4MoE:
         )
         dx_l, dps_l = self._expert_backward(rows, arrival[ex.local_perm], hidden)
         return ep_return(dx_l, ex, self.ep_group), ep_return(dps_l, ex, self.ep_group)
+
+    # LoRA (lora.py, profile dsv4-lora-v1) --------------------------------------
+    def _routed_lora(self) -> bool:
+        return self.lora is not None and (self.lora.fc1 is not None or self.lora.fc2 is not None)
+
+    def _shared_lora(self) -> bool:
+        return self.lora is not None and (
+            self.lora.shared_fc1 is not None or self.lora.shared_fc2 is not None
+        )
+
+    def _routed_lora_forward(self, x: Tensor, rows: _Rows, plan: RoutePlan, hidden: int):
+        """fc1_z + per-token LoRA delta -> clamp-SwiGLU * p_s -> MXFP8 -> fc3 + LoRA delta."""
+        from rl_engine.models.deepseek_v4.lora import lora_delta
+
+        lo = self.lora
+        state = {"x": x, "token": plan.token, "inv": plan.inv, "h": None}
+        if rows.codes.shape[0] == 0:
+            return torch.empty(0, hidden, dtype=torch.bfloat16, device=x.device), state
+        batch, x_q = self._expert_batch(rows, hidden)
+        z = self._routed.fc1_z(batch, x_q)
+        z_tok = lora_delta(x, lo.fc1) if lo.fc1 is not None else None
+        h_q, h = self._routed.swiglu_quant(z, rows.p_s, z_tok, plan.token)
+        del z
+        y = self._routed.fc3(batch, h_q)
+        if lo.fc2 is not None:
+            y = lora_delta(h, lo.fc2).add_(y).to(torch.bfloat16)
+        state["h"] = h
+        return y, state
+
+    def routed_lora_backward(self, dy_rows: Tensor, state, grads: dict):
+        """``(dx_rows FP32, dp_s FP32, dx_tokens FP32 | None)``; adds the routed adapters'
+        ``(dA, dB)`` to ``grads``. The fc1 adapter's dX is summed per token first (its
+        input is the token, shared by the token's rows)."""
+        from rl_engine.models.deepseek_v4.lora import lora_backward, lora_delta, lora_hidden
+
+        rows, _, ls = state
+        lo = self.lora
+        hidden = dy_rows.shape[1]
+        if rows.codes.shape[0] == 0:
+            dev = rows.codes.device
+            return torch.empty(0, hidden, device=dev), torch.empty(0, device=dev), None
+        batch, x_q = self._expert_batch(rows, hidden)
+        z_add = None
+        if lo.fc1 is not None:
+            z_add = lora_delta(ls["x"], lo.fc1).index_select(0, ls["token"])
+        dh_add = None
+        if lo.fc2 is not None:
+            dh_add, da, db = lora_backward(dy_rows, ls["h"], lo.fc2)
+            grads["fc2"] = (da, db)
+        dx_rows, dp_s, dz = self._routed.backward(
+            batch, x_q, dy_rows, z_add=z_add, dh_add=dh_add, return_dz=True
+        )
+        dx_tokens = None
+        if lo.fc1 is not None:
+            ad, x = lo.fc1, ls["x"]
+            dd = dz.float() * ad.scale  # [P, 2F]
+            u1 = lora_hidden(x, ad).float().index_select(0, ls["token"])  # [P, r]
+            db = dd.t() @ u1
+            du = dd @ ad.b.detach().float()  # [P, r]
+            du_tok = du[ls["inv"]].sum(dim=1)  # [T, r], slot order
+            grads["fc1"] = (du_tok.t() @ x.float(), db)
+            dx_tokens = du_tok @ ad.a.detach().float()
+        return dx_rows, dp_s, dx_tokens
+
+    def shared_forward(self, x: Tensor):
+        """Shared-expert output BF16 ``[T, H]`` and its saved state (LoRA-aware)."""
+        if not self._shared_lora():
+            return self._shared.forward(x, self._shared_w)
+        from rl_engine.kernels.ops.cuda.activation import silu_and_mul_clamp as swiglu
+        from rl_engine.models.deepseek_v4.lora import lora_apply
+
+        lo, w = self.lora, self._shared_w
+        z = w.fc1(x.contiguous())
+        if lo.shared_fc1 is not None:
+            z = lora_apply(z, x, lo.shared_fc1)
+        if not z.shape[0]:
+            empty = torch.empty(0, w.fc2.out_features, device=x.device, dtype=torch.bfloat16)
+            return empty, {"z": z, "x": x, "h": None}
+        q, scale, h = swiglu.silu_and_mul_clamp_quant_cuda(
+            z, self._shared.swiglu_limit, return_h=True
+        )
+        y = w.fc2.forward_quantized((q, scale))
+        if lo.shared_fc2 is not None:
+            y = lora_apply(y, h, lo.shared_fc2)
+        return y, {"z": z, "x": x, "h": h}
+
+    def shared_backward(self, dout: Tensor, saved, grads: dict) -> Tensor:
+        """``dL/dx`` FP32 through the shared expert; adds its adapters' ``(dA, dB)``."""
+        if not self._shared_lora():
+            return self._shared.backward_dx(dout, saved)
+        from rl_engine.kernels.ops.cuda.activation import silu_and_mul_clamp as swiglu
+        from rl_engine.models.deepseek_v4.lora import lora_backward
+
+        if self._shared.backward != "fp8":
+            raise NotImplementedError("shared-expert LoRA needs the FP8 backward")
+        lo, w = self.lora, self._shared_w
+        dy = dout.to(torch.bfloat16).contiguous()
+        if not dy.shape[0]:
+            return torch.empty(0, w.fc1.in_features, device=dy.device, dtype=torch.float32)
+        dh = w.fc2.backward_dx(dy)
+        if lo.shared_fc2 is not None:
+            dx_l, da, db = lora_backward(dy, saved["h"], lo.shared_fc2)
+            grads["shared_fc2"] = (da, db)
+            dh = (dh.float() + dx_l).to(torch.bfloat16)
+        dz = swiglu.silu_and_mul_clamp_backward_cuda(dh, saved["z"], self._shared.swiglu_limit)
+        dx = w.fc1.backward_dx(dz).float()
+        if lo.shared_fc1 is not None:
+            dx_l, da, db = lora_backward(dz, saved["x"], lo.shared_fc1)
+            grads["shared_fc1"] = (da, db)
+            dx = dx + dx_l
+        return dx
+
+    def lora_params(self) -> list[Tensor]:
+        """The adapters' ``A`` / ``B`` tensors, in the order the autograd returns grads."""
+        if self.lora is None:
+            return []
+        return [t for _, ad in self.lora.adapters() for t in (ad.a, ad.b)]
 
     def forward(
         self, x: Tensor, residual: Tensor | None = None, input_ids: Tensor | None = None
@@ -249,7 +374,7 @@ class Dsv4MoE:
         Differentiable in ``x`` (and ``residual``) when they require grad; the expert,
         shared-expert and gate weights are frozen.
         """
-        return _MoEBlockFn.apply(x.contiguous(), residual, input_ids, self)
+        return _MoEBlockFn.apply(x.contiguous(), residual, input_ids, self, *self.lora_params())
 
 
 class _MoEBlockFn(torch.autograd.Function):
@@ -260,10 +385,12 @@ class _MoEBlockFn(torch.autograd.Function):
         dx_rows, dp_s = routed experts backward           (P5 SM90, EP along the same splits)
         dweights  = dp_s[inv];  dx_router = router backward (frozen gate)
         dx        = (slot-ordered sum of dx_rows + dx_shared) + dx_router  -> BF16
+    With LoRA (``moe.lora``), the routed fc1 adapter's per-token dX joins before the cast,
+    and the adapters' ``A`` / ``B`` tensors (inputs after ``moe``) get their gradients.
     """
 
     @staticmethod
-    def forward(ctx, x, residual, input_ids, moe):
+    def forward(ctx, x, residual, input_ids, moe, *lora_params):
         from rl_engine.kernels.ops.cuda.router import route_topk_cuda
         from rl_engine.models.deepseek_v4.router import gate_logits
 
@@ -279,9 +406,10 @@ class _MoEBlockFn(torch.autograd.Function):
         y_rows, state = moe.routed_rows(x, weights, plan)
         shared, shared_saved = None, None
         if moe._shared is not None:
-            shared, shared_saved = moe._shared.forward(x, moe._shared_w)
+            shared, shared_saved = moe.shared_forward(x)
         out = combine_cuda(y_rows, plan, shared, residual)
-        if ctx.needs_input_grad[0]:
+        need = ctx.needs_input_grad[0] or any(ctx.needs_input_grad[4:])
+        if need:
             ctx.moe, ctx.plan, ctx.state, ctx.shared_saved = moe, plan, state, shared_saved
             ctx.save_for_backward(logits, ids)
             ctx.x_dtype = x.dtype
@@ -293,17 +421,23 @@ class _MoEBlockFn(torch.autograd.Function):
         from rl_engine.kernels.ops.cuda.router import route_backward_dx_cuda
         from rl_engine.kernels.ops.pytorch.moe.route_plan import weights_backward
 
+        n_params = len(ctx.needs_input_grad) - 4
         d_res = dout if ctx.needs_input_grad[1] else None
-        if not ctx.needs_input_grad[0]:
-            return None, d_res, None, None
+        if not ctx.needs_input_grad[0] and not any(ctx.needs_input_grad[4:]):
+            return (None, d_res, None, None) + (None,) * n_params
         moe, plan = ctx.moe, ctx.plan
         logits, ids = ctx.saved_tensors
         dout = dout.to(torch.bfloat16).contiguous()
         dy_rows = dout.index_select(0, plan.token)
-        dx_rows, dp_s = moe.routed_backward(dy_rows, ctx.state)
+        grads: dict = {}
+        dx_tokens = None
+        if len(ctx.state) == 3:
+            dx_rows, dp_s, dx_tokens = moe.routed_lora_backward(dy_rows, ctx.state, grads)
+        else:
+            dx_rows, dp_s = moe.routed_backward(dy_rows, ctx.state)
         dx_shared = None
         if moe._shared is not None:
-            dx_shared = moe._shared.backward_dx(dout, ctx.shared_saved)
+            dx_shared = moe.shared_backward(dout, ctx.shared_saved, grads)
         dx = dispatch_backward_cuda(dx_rows, plan, dx_shared)
         r = moe.router
         dx_router = route_backward_dx_cuda(
@@ -314,5 +448,15 @@ class _MoEBlockFn(torch.autograd.Function):
             r.routed_scaling_factor,
             torch.float32,
         )
-        dx = (dx + dx_router).to(ctx.x_dtype)
-        return dx, d_res, None, None
+        dx = dx + dx_router
+        if dx_tokens is not None:
+            dx = dx + dx_tokens
+        dx = dx.to(ctx.x_dtype) if ctx.needs_input_grad[0] else None
+        lora_grads = []
+        if moe.lora is not None:
+            for name, ad in moe.lora.adapters():
+                if name not in grads:  # no rows reached this adapter
+                    grads[name] = (torch.zeros_like(ad.a), torch.zeros_like(ad.b))
+                da, db = grads[name]
+                lora_grads += [da.to(ad.a.dtype), db.to(ad.b.dtype)]
+        return (dx, d_res, None, None, *lora_grads)

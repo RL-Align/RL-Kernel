@@ -420,6 +420,16 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         it; the rest is PyTorch glue on `[T, 64, 512]` FP32 tensors
   - [ ] A2: fused CUDA kernels for the q / kv / o-side and compressor backward (replace the
         PyTorch glue)
+  - [x] MoE LoRA (`docs/operators/dsv4-moe.md`, "LoRA").
+        - Adapters: routed `fc1` / `fc2` shared by all experts (Megatron default
+          `share_expert_adapters=True`, EP = 1) and shared-expert `fc1` / `fc2`.
+        - Kernels: a standalone fc1 epilogue kernel (byte-equal to the fused one) that adds
+          the per-token delta, and an optional `dh_add` in the SM90 dh / SwiGLU backward.
+        - Zero adapters give the base bytes; the block is batch-invariant.
+        - dX / dA / dB match FP32 autograd.
+        - Cost against the block without adapters: forward 1.02-1.17x, forward + backward
+          1.05-1.21x.
+        - Open: EP > 1 (send `u1`), per-expert adapters
   - [x] A3: LoRA adapters (`rl_engine/models/deepseek_v4/lora.py`, profile `dsv4-lora-v1`) on
         `wq_a`, `wkv`, `wq_b` and `wo_b` (user decision 2026-11-11; Megatron
         `linear_q_down_proj` / `linear_kv_proj` / `linear_q_up_proj` / `linear_proj`; none on

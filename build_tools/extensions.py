@@ -270,6 +270,8 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/moe/moe_slot_sum.cu")
             # DSv4 MoE route plan (counting sort by expert).
             cuda_sources.append("csrc/cuda/moe/moe_route_plan.cu")
+            # P5 routed experts: standalone clamp-SwiGLU * p_s -> MXFP8 (LoRA path).
+            cuda_sources.append("csrc/cuda/moe/moe_swiglu_quant.cu")
             # P5-1 MXFP8 activation quantization (was JIT-only).
             cuda_sources.append("csrc/cuda/moe/mxfp8_act_quant.cu")
 
