@@ -3,7 +3,7 @@
 """Seeded P5 fixtures and the golden-hash manifest (start-kit acceptance data).
 
 Fixtures are regenerated deterministically from seeds; the committed manifest
-``tests/fixtures/p5/golden_hashes.json`` anchors the golden bytes in CI. If a
+``tests/fixtures/moe/golden_hashes.json`` anchors the golden bytes in CI. If a
 torch upgrade ever changes RNG or libm behavior, the manifest test fails
 loudly instead of the goldens drifting silently.
 """
@@ -35,7 +35,7 @@ FIXTURE_FFN = 64
 FIXTURE_RANK = 8
 BASE_SEED = 2026
 
-DEFAULT_MANIFEST_PATH = Path("tests/fixtures/p5/golden_hashes.json")
+DEFAULT_MANIFEST_PATH = Path("tests/fixtures/moe/golden_hashes.json")
 
 E2E_CASES: dict[str, dict[str, Any]] = {
     "base_only_one_row": {"rows": 1, "offsets": [0, 1, 1], "lora": False, "geometry": "one-row"},

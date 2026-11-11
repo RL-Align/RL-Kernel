@@ -3,7 +3,7 @@
 """Seeded P1 fixtures and the golden-hash manifest (start-kit acceptance data).
 
 Fixtures are regenerated deterministically from seeds; the committed manifest
-``tests/fixtures/p1/golden_hashes.json`` anchors the golden bytes in CI. If a
+``tests/fixtures/mhc/golden_hashes.json`` anchors the golden bytes in CI. If a
 torch upgrade ever changes RNG or libm behavior, the manifest test fails
 loudly instead of the goldens drifting silently.
 
@@ -40,7 +40,7 @@ from rl_engine.mhc.trace import MHCTrace
 FIXTURE_HIDDEN = 128
 BASE_SEED = 2026
 
-DEFAULT_MANIFEST_PATH = Path("tests/fixtures/p1/golden_hashes.json")
+DEFAULT_MANIFEST_PATH = Path("tests/fixtures/mhc/golden_hashes.json")
 
 BLOCK_CASES: dict[str, dict[str, Any]] = {
     "one_row": {"tokens": 1, "geometry": "one-row"},
