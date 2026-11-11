@@ -24,7 +24,10 @@ from rl_engine.validation.fixtures.qwenimage_replicated import (
     replicated_layout,
 )
 
-cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="NVIDIA CUDA required")
+cuda = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.version.hip is not None,
+    reason="NVIDIA CUDA required",
+)
 
 
 @cuda
@@ -178,6 +181,7 @@ def _worker(rank, world, directory):
     dist.destroy_process_group()
 
 
+@cuda
 @pytest.mark.parametrize("world", [2, 4, 8])
 def test_real_tp(world, tmp_path):
     if torch.cuda.device_count() < world:
