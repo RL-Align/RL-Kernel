@@ -18,6 +18,8 @@ table is bitwise batch-invariant (the backward rows are deterministic and batch-
 | Attention | Main compressor C4 | vLLM Triton | 0.98-1.07x | [compressor](compressor.md) |
 | Attention | Main compressor C128 | vLLM Triton | 0.38-0.41x | [compressor](compressor.md) |
 | Attention | FlashMLA sparse forward (pinned) | eager gather + softmax | 0.04-0.11x | `1aa0652a` |
+| Attention | q-norm + RoPE + KV insert | vLLM `fused_deepseek_v4_qnorm_rope_kv_rope_quant_insert` | 0.80-1.14x | `benchmarks/benchmark_dsv4_attention_qo.py` |
+| Attention | Output projection (inverse RoPE + FP8, `wo_a`, `wo_b`) | vLLM `fused_inv_rope_fp8_quant` + batched `fp8_einsum` + same `wo_b` | **1.45-1.53x at T <= 64**, 0.82-1.05x from T = 1024 | `benchmarks/benchmark_dsv4_attention_qo.py` |
 | Attention | Attention layer, C4 decode 64 x 4K (graph) | earlier glue: 5.2 ms | 0.47 ms | `b5b6d671` |
 | MoE | Router (gate GEMM + top-6 / hash) | cuBLAS + vLLM Triton top-k | 1.03-1.22x | [dsv4-router](dsv4-router.md) |
 | MoE | Router dX | scatter + `torch.mm` | 0.48-1.03x | [dsv4-router](dsv4-router.md) |
@@ -33,18 +35,26 @@ table is bitwise batch-invariant (the backward rows are deterministic and batch-
 | Head | Selected-token logprob (fwd) | cuBLAS BF16 logits + FP32 `log_softmax` | 0.79-1.05x | [dsv4-logprob](dsv4-logprob.md) |
 | Head | Selected-token logprob (fwd + bwd) | naive PyTorch autograd | 0.84-1.04x | [dsv4-logprob](dsv4-logprob.md) |
 
-Nothing measured exceeds 1.3x.
+One measured operator exceeds 1.3x: the attention output projection at decode sizes.
+- At T = 1 it takes 56 us against vLLM's 37 us (82 us before the side streams).
+- `wo_a` is 8 per-group DeepGEMM GEMMs. Each launches only 8 CTAs at small M, so they now run
+  concurrently on side streams.
+- vLLM runs one batched `fp8_einsum` instead, and at T <= 64 its bytes equal ours. Whether it
+  stays batch-invariant below some T is not probed yet.
+- DeepGEMM's single-launch masked grouped GEMM was faster but intermittently returned wrong
+  values (`scripts/probe_dsv4_wo_a_grouped.py`).
+- It is Phase 5 debt.
 
+Otherwise:
 - `mhc_pre` (1.09-1.18x) and the router (1.03-1.22x) are the closest to the limit.
 - The `mhc_pre` cost is DeepGEMM's TF32 GEMM with a fixed split count.
 - The router cost is the DeepGEMM gate GEMM against cuBLAS plus vLLM's top-k.
 
 ## Not measured yet
 
-- The attention q / o-side kernels (`q_norm_rope_kv_insert`, `OutputProjection`) and the whole
-  `Dsv4Attention` layer, against vLLM's attention layer on the same shapes. That needs vLLM's
-  attention module with its forward context. The C4 decode figure above compares only against
-  our own earlier glue.
+- The whole `Dsv4Attention` layer against vLLM's attention layer on the same shapes. That needs
+  vLLM's attention module with its forward context. The C4 decode figure above compares only
+  against our own earlier glue; the q / o-side kernels are compared one by one above.
 - The decoder layer and the full model forward against vLLM. This comes with the layerwise
   gate.
 - The P5 `fused` single-launch path: 10.1 ms against 3.2 ms for two-launch at 32768 rows. It is

@@ -318,7 +318,17 @@ class OutputProjection:
     block scales (checkpoint layout); each group is one ``fp8_gemm_nt`` (the
     ``wo_a_group`` shape the Phase 1 probe found batch-invariant). ``wo_b`` is an
     :class:`Fp8Linear` ``[hidden, groups * o_lora_rank]``.
+
+    Below ``CONCURRENT_MAX_TOKENS`` the per-group GEMMs run on their own side streams
+    (fork / join, CUDA-graph capturable). A small-M group GEMM launches only N / 128 = 8
+    CTAs, so issuing the 8 groups one after another left the GPU mostly idle (about 2.2x
+    vLLM's batched ``fp8_einsum`` at decode sizes). The kernels and their bytes are
+    unchanged. DeepGEMM's single-launch ``m_grouped_fp8_gemm_nt_masked`` was probed for
+    this and rejected: on these operands it intermittently returned wrong values
+    (``scripts/probe_dsv4_wo_a_grouped.py``).
     """
+
+    CONCURRENT_MAX_TOKENS = 2048
 
     def __init__(self, wo_a: Fp8BlockWeight, wo_b: Fp8Linear, groups: int) -> None:
         self._dg, _ = require_deepgemm(wo_a.q.device)
@@ -333,6 +343,22 @@ class OutputProjection:
             for g in range(groups)
         ]
         self.wo_b = wo_b
+        self._streams: list | None = None
+
+    def _group_gemms(self, a: Tensor, scales: Tensor, z: Tensor) -> None:
+        if a.shape[1] >= self.CONCURRENT_MAX_TOKENS:
+            for g, w in enumerate(self.wo_a):
+                self._dg.fp8_gemm_nt((a[g], scales[g]), w.pair(), z[g], disable_ue8m0_cast=True)
+            return
+        if self._streams is None:
+            self._streams = [torch.cuda.Stream(device=a.device) for _ in self.wo_a]
+        main = torch.cuda.current_stream(a.device)
+        for g, (w, stream) in enumerate(zip(self.wo_a, self._streams)):
+            stream.wait_stream(main)
+            with torch.cuda.stream(stream):
+                self._dg.fp8_gemm_nt((a[g], scales[g]), w.pair(), z[g], disable_ue8m0_cast=True)
+        for stream in self._streams:
+            main.wait_stream(stream)
 
     def __call__(self, o: Tensor, positions: Tensor, cos_sin_cache: Tensor) -> Tensor:
         tokens = o.shape[0]
@@ -341,6 +367,5 @@ class OutputProjection:
             self.groups, tokens, self.o_lora_rank, dtype=torch.bfloat16, device=o.device
         )
         if tokens:
-            for g, w in enumerate(self.wo_a):
-                self._dg.fp8_gemm_nt((a[g], scales[g]), w.pair(), z[g], disable_ue8m0_cast=True)
+            self._group_gemms(a, scales, z)
         return self.wo_b(z.transpose(0, 1).reshape(tokens, -1))
