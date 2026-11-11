@@ -2,6 +2,15 @@
 # This file is a type stub for the compiled C++ extension module.
 import torch
 
+def mhc_pre_h_aggregate(
+    residual: torch.Tensor,
+    pre: torch.Tensor,
+) -> torch.Tensor: ...
+def mhc_pre_h_aggregate_backward(
+    grad_output: torch.Tensor,
+    residual: torch.Tensor,
+    pre: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]: ...  # (dR FP32, dPRE FP32)
 def deterministic_collective_ipc_meta(
     tensor: torch.Tensor,
 ) -> tuple[list[int], int]: ...
@@ -250,6 +259,62 @@ def det_gemm_fwd_rhs_transposed(
     a: torch.Tensor,
     bt: torch.Tensor,
 ) -> torch.Tensor: ...
+def fused_shared_expert_fc1_swiglu(x: torch.Tensor, w_fc1: torch.Tensor) -> torch.Tensor: ...
+def sm90_moe_prepare_weight_ref(w_scales: torch.Tensor) -> list[torch.Tensor]: ...
+def sm90_moe_fc1_forward(
+    a_codes: torch.Tensor,
+    a_scales: torch.Tensor,
+    w1_codes: torch.Tensor,
+    w1_scales: torch.Tensor,
+    w_ref: torch.Tensor,
+    w_res: torch.Tensor,
+    expert_offsets: torch.Tensor,
+    w8: torch.Tensor | None = None,
+) -> torch.Tensor: ...
+def sm90_moe_fc1_swiglu_quant_forward(
+    a_codes: torch.Tensor,
+    a_scales: torch.Tensor,
+    w1_codes: torch.Tensor,
+    w1_scales: torch.Tensor,
+    w_ref: torch.Tensor,
+    w_res: torch.Tensor,
+    expert_offsets: torch.Tensor,
+    p_s: torch.Tensor,
+    w8: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def sm90_moe_fc3_forward(
+    h_codes: torch.Tensor,
+    h_scales: torch.Tensor,
+    w2_codes: torch.Tensor,
+    w2_scales: torch.Tensor,
+    w_ref: torch.Tensor,
+    w_res: torch.Tensor,
+    expert_offsets: torch.Tensor,
+    w8: torch.Tensor | None = None,
+) -> torch.Tensor: ...
+def sm90_moe_expand_w8(
+    w_codes: torch.Tensor, w_res: torch.Tensor, expert_offsets: torch.Tensor
+) -> torch.Tensor: ...
+def sm90_moe_bwd_dx(
+    a: torch.Tensor,
+    w_codes: torch.Tensor,
+    w_scales: torch.Tensor,
+    expert_offsets: torch.Tensor,
+    w_t: torch.Tensor | None = None,
+) -> torch.Tensor: ...
+def sm90_moe_bwd_dh_swiglu(
+    dy: torch.Tensor,
+    w2_codes: torch.Tensor,
+    w2_scales: torch.Tensor,
+    expert_offsets: torch.Tensor,
+    z: torch.Tensor,
+    p_s: torch.Tensor,
+    w2_t: torch.Tensor | None = None,
+    dh_add: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def sm90_moe_dequant_t(
+    w_codes: torch.Tensor, w_scales: torch.Tensor, expert_offsets: torch.Tensor
+) -> torch.Tensor: ...
 def det_gemm_da(dc: torch.Tensor, b: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_db(a: torch.Tensor, dc: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_db_transposed(a: torch.Tensor, dc: torch.Tensor) -> torch.Tensor: ...
@@ -336,3 +401,229 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+def fp8_group_quant_forward(x: torch.Tensor, scale_ue8m0: bool) -> list[torch.Tensor]: ...
+def fp8_group_quant_tokens_forward(x: torch.Tensor, scale_ue8m0: bool) -> list[torch.Tensor]: ...
+def indexer_q_rope_fp8_forward(
+    q: torch.Tensor,
+    positions: torch.Tensor,
+    cos_sin_cache: torch.Tensor,
+    weights: torch.Tensor,
+    softmax_scale: float,
+    head_scale: float,
+) -> list[torch.Tensor]: ...
+def compress_indexer_fp8(
+    state_cache: torch.Tensor,
+    block_table: torch.Tensor,
+    token_to_req: torch.Tensor,
+    positions: torch.Tensor,
+    rms_weight: torch.Tensor,
+    eps: float,
+    cos_sin_cache: torch.Tensor,
+    k_cache: torch.Tensor,
+    k_block_size: int,
+    k_slots: torch.Tensor,
+    ratio: int,
+    overlap: bool,
+) -> None: ...
+def compress_main_ds_mla(
+    state_cache: torch.Tensor,
+    block_table: torch.Tensor,
+    token_to_req: torch.Tensor,
+    positions: torch.Tensor,
+    rms_weight: torch.Tensor,
+    eps: float,
+    cos_sin_cache: torch.Tensor,
+    k_cache: torch.Tensor,
+    k_block_size: int,
+    k_slots: torch.Tensor,
+    ratio: int,
+) -> None: ...
+def dsv4_q_norm_rope_kv_insert(
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    positions: torch.Tensor,
+    cos_sin_cache: torch.Tensor,
+    cache: torch.Tensor,
+    cache_block_size: int,
+    slots: torch.Tensor,
+    padded_heads: int,
+    eps: float,
+) -> torch.Tensor: ...
+def dsv4_inv_rope_fp8(
+    o: torch.Tensor, positions: torch.Tensor, cos_sin_cache: torch.Tensor, groups: int
+) -> list[torch.Tensor]: ...
+def dsv4_ds_mla_gather(
+    cache: torch.Tensor, block_size: int, slots: torch.Tensor, out: torch.Tensor
+) -> None: ...
+def dsv4_save_states(
+    kv: torch.Tensor,
+    score: torch.Tensor,
+    ape: torch.Tensor,
+    positions: torch.Tensor,
+    state: torch.Tensor,
+    slots: torch.Tensor,
+) -> None: ...
+def dsv4_logprob_tile_stats(
+    z: torch.Tensor, tile_len: int, temperature: float
+) -> list[torch.Tensor]: ...
+def dsv4_logprob_merge(
+    m: torch.Tensor, s: torch.Tensor, zt: torch.Tensor, temperature: float
+) -> list[torch.Tensor]: ...
+def dsv4_logprob_backward(
+    z: torch.Tensor,
+    targets: torch.Tensor,
+    lse: torch.Tensor,
+    grad: torch.Tensor,
+    temperature: float,
+    col_offset: int,
+) -> torch.Tensor: ...
+def dsv4_mhc_pre(
+    res: torch.Tensor,
+    pmix: torch.Tensor,
+    pss: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    rms_eps: float,
+    eps: float,
+    iters: int,
+    post_mult: float,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+) -> list[torch.Tensor]: ...
+def dsv4_mhc_head(
+    res: torch.Tensor,
+    pmix: torch.Tensor,
+    pss: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    rms_eps: float,
+    eps: float,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+) -> list[torch.Tensor]: ...
+def dsv4_mhc_post(
+    x: torch.Tensor, res: torch.Tensor, post: torch.Tensor, comb: torch.Tensor
+) -> torch.Tensor: ...
+def dsv4_mhc_post_backward(
+    dnew: torch.Tensor,
+    x: torch.Tensor,
+    res: torch.Tensor,
+    post: torch.Tensor,
+    comb: torch.Tensor,
+    bf16_out: bool,
+) -> list[torch.Tensor]: ...
+def dsv4_mhc_pre_backward(
+    dy: torch.Tensor,
+    dpost: torch.Tensor,
+    dcomb: torch.Tensor,
+    res: torch.Tensor,
+    fn: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    raw: torch.Tensor,
+    ss: torch.Tensor,
+    rms_eps: float,
+    eps: float,
+    iters: int,
+    post_mult: float,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+    bf16_out: bool,
+) -> torch.Tensor: ...
+def dsv4_mhc_head_backward(
+    dy: torch.Tensor,
+    res: torch.Tensor,
+    fn: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    raw: torch.Tensor,
+    ss: torch.Tensor,
+    rms_eps: float,
+    eps: float,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+    bf16_out: bool,
+) -> torch.Tensor: ...
+def dsv4_router_topk(
+    logits: torch.Tensor,
+    bias: torch.Tensor | None,
+    input_ids: torch.Tensor | None,
+    tid2eid: torch.Tensor | None,
+    routed_scaling_factor: float,
+    weights: torch.Tensor,
+    ids: torch.Tensor,
+) -> None: ...
+def dsv4_router_backward_dx(
+    logits: torch.Tensor,
+    ids: torch.Tensor,
+    d_weights: torch.Tensor,
+    gate_weight: torch.Tensor,
+    routed_scaling_factor: float,
+    dx: torch.Tensor,
+) -> None: ...
+def mxfp8_act_quant_forward(x: torch.Tensor, check_finite: bool = True) -> list[torch.Tensor]: ...
+def mxfp8_act_quant_ste_backward(dy: torch.Tensor) -> torch.Tensor: ...
+def dsv4_norm_rope_backward(
+    dy: torch.Tensor,
+    src_rows: torch.Tensor | None,
+    x: torch.Tensor | None,
+    w: torch.Tensor | None,
+    positions: torch.Tensor | None,
+    heads: int,
+    cos_sin: torch.Tensor | None,
+    rope_sign: int,
+    norm: bool,
+    eps: float,
+    rows: int,
+    out: torch.Tensor,
+    out_heads: int,
+) -> None: ...
+def dsv4_compressor_backward(
+    score: torch.Tensor,
+    ape: torch.Tensor,
+    d_src: torch.Tensor,
+    meta: torch.Tensor,
+    norm_w: torch.Tensor,
+    cos_sin: torch.Tensor,
+    ratio: int,
+    eps: float,
+    d_score: torch.Tensor,
+) -> None: ...
+def moe_swiglu_quant(
+    z: torch.Tensor,
+    p_s: torch.Tensor,
+    z_add: torch.Tensor | None = None,
+    token: torch.Tensor | None = None,
+) -> list[torch.Tensor]: ...
+def moe_route_plan(ids: torch.Tensor, num_experts: int) -> list[torch.Tensor]: ...
+def moe_slot_sum(
+    rows: torch.Tensor,
+    inv: torch.Tensor,
+    shared: torch.Tensor | None,
+    residual: torch.Tensor | None,
+    out: torch.Tensor,
+) -> None: ...
+def stable_topk_per_row_out(
+    logits: torch.Tensor,
+    row_starts: torch.Tensor,
+    row_ends: torch.Tensor,
+    indices: torch.Tensor,
+    top_k: int,
+    threads: int = 0,
+) -> None: ...
+def silu_and_mul_clamp_quant_forward(
+    z: torch.Tensor, limit: float, scale_ue8m0: bool, write_h: bool
+) -> list[torch.Tensor]: ...
+def silu_and_mul_clamp_backward(
+    dh: torch.Tensor, z: torch.Tensor, limit: float
+) -> torch.Tensor: ...
+def mhc_rmsnorm_residual_forward(
+    x: torch.Tensor, gamma: torch.Tensor, eps: float
+) -> list[torch.Tensor]: ...
+def mhc_rmsnorm_residual_backward(
+    dy: torch.Tensor,
+    dr: torch.Tensor,
+    x: torch.Tensor,
+    gamma: torch.Tensor,
+    r: torch.Tensor,
+) -> list[torch.Tensor]: ...

@@ -256,6 +256,41 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
 
+// Fused shared-expert fc1 + SwiGLU (csrc/cuda/moe/fused_shared_expert_mlp.cu)
+torch::Tensor fused_shared_expert_fc1_swiglu(torch::Tensor x, torch::Tensor w_fc1);
+
+// SM90 fused routed-expert MLP (MXFP8 x MXFP4, FP8 WGMMA): csrc/cuda/moe/sm90_fused_moe_mlp.cu
+// Compiled and bound only with KERNEL_ALIGN_MOE_SM90=1, so the Python provider's
+// symbol check fails closed on other builds.
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
+std::vector<torch::Tensor> sm90_moe_prepare_weight_ref(torch::Tensor w_scales);
+torch::Tensor sm90_moe_fc1_forward(torch::Tensor a_codes, torch::Tensor a_scales,
+                                   torch::Tensor w1_codes, torch::Tensor w1_scales,
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets,
+                                   c10::optional<torch::Tensor> w8);
+std::vector<torch::Tensor> sm90_moe_fc1_swiglu_quant_forward(
+    torch::Tensor a_codes, torch::Tensor a_scales, torch::Tensor w1_codes,
+    torch::Tensor w1_scales, torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets, torch::Tensor p_s,
+    c10::optional<torch::Tensor> w8);
+torch::Tensor sm90_moe_fc3_forward(torch::Tensor h_codes, torch::Tensor h_scales,
+                                   torch::Tensor w2_codes, torch::Tensor w2_scales,
+                                   torch::Tensor w_ref, torch::Tensor w_res, torch::Tensor expert_offsets,
+                                   c10::optional<torch::Tensor> w8);
+torch::Tensor sm90_moe_expand_w8(torch::Tensor w_codes, torch::Tensor w_res,
+                                 torch::Tensor expert_offsets);
+// SM90 routed-expert backward (csrc/cuda/moe/sm90_moe_mlp_backward.cu)
+torch::Tensor sm90_moe_bwd_dx(torch::Tensor a, torch::Tensor w_codes, torch::Tensor w_scales,
+                              torch::Tensor expert_offsets, c10::optional<torch::Tensor> w_t);
+std::vector<torch::Tensor> sm90_moe_bwd_dh_swiglu(torch::Tensor dy, torch::Tensor w2_codes,
+                                                  torch::Tensor w2_scales,
+                                                  torch::Tensor expert_offsets, torch::Tensor z,
+                                                  torch::Tensor p_s,
+                                                  c10::optional<torch::Tensor> w2_t,
+                                                  c10::optional<torch::Tensor> dh_add);
+torch::Tensor sm90_moe_dequant_t(torch::Tensor w_codes, torch::Tensor w_scales,
+                                 torch::Tensor expert_offsets);
+#endif  // RL_KERNEL_ENABLE_MOE_SM90
+
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -289,6 +324,15 @@ int64_t rmsnorm_backward_dw_chunks_cuda(int64_t rows);
 void reduce_rows_fp32_left_fold_cuda(
   torch::Tensor rows,
   torch::Tensor output);
+
+torch::Tensor mhc_pre_h_aggregate_cuda(
+  torch::Tensor residual,
+  torch::Tensor pre);
+
+std::vector<torch::Tensor> mhc_pre_h_aggregate_backward_cuda(
+  torch::Tensor grad_output,
+  torch::Tensor residual,
+  torch::Tensor pre);
 #endif
 
 static void rmsnorm_check_input(const torch::Tensor& x, const char* name) {
@@ -500,6 +544,115 @@ at::Tensor prefix_shared_attention(
 #endif
 #endif
 
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+// DSv4 per-token-group FP8 activation quantization (csrc/cuda/quant/fp8_group_quant.cu)
+std::vector<torch::Tensor> fp8_group_quant_forward(torch::Tensor x, bool scale_ue8m0);
+std::vector<torch::Tensor> fp8_group_quant_tokens_forward(torch::Tensor x, bool scale_ue8m0);
+// DSv4 indexer query RoPE + FP8 quant (csrc/cuda/indexer/indexer_q_rope_fp8.cu)
+std::vector<torch::Tensor> indexer_q_rope_fp8_forward(torch::Tensor q, torch::Tensor positions,
+                                                      torch::Tensor cos_sin_cache,
+                                                      torch::Tensor weights, double softmax_scale,
+                                                      double head_scale);
+// DSv4 indexer compressor (csrc/cuda/compressor/compress_fp8.cu)
+void compress_indexer_fp8_cuda(torch::Tensor state_cache, torch::Tensor block_table,
+                               torch::Tensor token_to_req, torch::Tensor positions,
+                               torch::Tensor rms_weight, double eps,
+                               torch::Tensor cos_sin_cache, torch::Tensor k_cache,
+                               int64_t k_block_size, torch::Tensor k_slots, int64_t ratio,
+                               bool overlap);
+void compress_main_ds_mla_cuda(torch::Tensor state_cache, torch::Tensor block_table,
+                               torch::Tensor token_to_req, torch::Tensor positions,
+                               torch::Tensor rms_weight, double eps,
+                               torch::Tensor cos_sin_cache, torch::Tensor k_cache,
+                               int64_t k_block_size, torch::Tensor k_slots, int64_t ratio);
+// DSv4 attention query / output side (csrc/cuda/attention/dsv4_qo.cu)
+torch::Tensor dsv4_q_norm_rope_kv_insert(torch::Tensor q, torch::Tensor kv,
+                                         torch::Tensor positions, torch::Tensor cos_sin_cache,
+                                         torch::Tensor cache, int64_t cache_block_size,
+                                         torch::Tensor slots, int64_t padded_heads, double eps);
+std::vector<torch::Tensor> dsv4_inv_rope_fp8(torch::Tensor o, torch::Tensor positions,
+                                             torch::Tensor cos_sin_cache, int64_t groups);
+// DSv4 cache helpers (csrc/cuda/attention/dsv4_cache.cu)
+void dsv4_ds_mla_gather(torch::Tensor cache, int64_t block_size, torch::Tensor slots,
+                        torch::Tensor out);
+void dsv4_save_states(torch::Tensor kv, torch::Tensor score, torch::Tensor ape,
+                      torch::Tensor positions, torch::Tensor state, torch::Tensor slots);
+// DSv4 selected-token log-probability (csrc/cuda/logprob_dsv4/dsv4_logprob.cu)
+std::vector<torch::Tensor> dsv4_logprob_tile_stats(torch::Tensor z, int64_t tile_len,
+                                                   double temperature);
+std::vector<torch::Tensor> dsv4_logprob_merge(torch::Tensor m, torch::Tensor s, torch::Tensor zt,
+                                              double temperature);
+torch::Tensor dsv4_logprob_backward(torch::Tensor z, torch::Tensor targets, torch::Tensor lse,
+                                    torch::Tensor grad, double temperature, int64_t col_offset);
+// DSv4 mHC (csrc/cuda/mhc_dsv4/dsv4_mhc.cu)
+std::vector<torch::Tensor> dsv4_mhc_pre(torch::Tensor res, torch::Tensor pmix, torch::Tensor pss,
+                                        torch::Tensor scale, torch::Tensor base, double rms_eps,
+                                        double eps, int64_t iters, double post_mult,
+                                        std::optional<torch::Tensor> norm_weight, double norm_eps);
+std::vector<torch::Tensor> dsv4_mhc_head(torch::Tensor res, torch::Tensor pmix, torch::Tensor pss,
+                                         torch::Tensor scale, torch::Tensor base, double rms_eps,
+                                         double eps, std::optional<torch::Tensor> norm_weight,
+                                         double norm_eps);
+torch::Tensor dsv4_mhc_post(torch::Tensor x, torch::Tensor res, torch::Tensor post,
+                            torch::Tensor comb);
+std::vector<torch::Tensor> dsv4_mhc_post_backward(torch::Tensor dnew, torch::Tensor x,
+                                                  torch::Tensor res, torch::Tensor post,
+                                                  torch::Tensor comb, bool bf16_out);
+torch::Tensor dsv4_mhc_pre_backward(torch::Tensor dy, torch::Tensor dpost, torch::Tensor dcomb,
+                                    torch::Tensor res, torch::Tensor fn, torch::Tensor scale,
+                                    torch::Tensor base, torch::Tensor raw, torch::Tensor ss,
+                                    double rms_eps, double eps, int64_t iters, double post_mult,
+                                    std::optional<torch::Tensor> norm_weight, double norm_eps,
+                                    bool bf16_out);
+torch::Tensor dsv4_mhc_head_backward(torch::Tensor dy, torch::Tensor res, torch::Tensor fn,
+                                     torch::Tensor scale, torch::Tensor base, torch::Tensor raw,
+                                     torch::Tensor ss, double rms_eps, double eps,
+                                     std::optional<torch::Tensor> norm_weight, double norm_eps,
+                                     bool bf16_out);
+// DSv4 MoE router (csrc/cuda/router/dsv4_router.cu)
+void dsv4_router_topk(torch::Tensor logits, std::optional<torch::Tensor> bias,
+                      std::optional<torch::Tensor> input_ids, std::optional<torch::Tensor> tid2eid,
+                      double routed_scaling_factor, torch::Tensor weights, torch::Tensor ids);
+void dsv4_router_backward_dx(torch::Tensor logits, torch::Tensor ids, torch::Tensor d_weights,
+                             torch::Tensor gate_weight, double routed_scaling_factor,
+                             torch::Tensor dx);
+// P5-1 MXFP8 activation quantization (csrc/cuda/moe/mxfp8_act_quant.cu)
+std::vector<torch::Tensor> mxfp8_act_quant_forward_cuda(torch::Tensor x, bool check_finite);
+torch::Tensor mxfp8_act_quant_ste_backward_cuda(torch::Tensor dy);
+// DSv4 attention backward helpers (csrc/cuda/attention/dsv4_attn_bwd.cu)
+void dsv4_norm_rope_backward(torch::Tensor dy, c10::optional<torch::Tensor> src_rows,
+                             c10::optional<torch::Tensor> x, c10::optional<torch::Tensor> w,
+                             c10::optional<torch::Tensor> positions, int64_t heads,
+                             c10::optional<torch::Tensor> cos_sin, int64_t rope_sign, bool norm,
+                             double eps, int64_t rows, torch::Tensor out, int64_t out_heads);
+void dsv4_compressor_backward(torch::Tensor score, torch::Tensor ape, torch::Tensor d_src,
+                              torch::Tensor meta, torch::Tensor norm_w, torch::Tensor cos_sin,
+                              int64_t ratio, double eps, torch::Tensor d_score);
+// P5 routed experts: standalone clamp-SwiGLU * p_s -> MXFP8 (csrc/cuda/moe/moe_swiglu_quant.cu)
+std::vector<torch::Tensor> moe_swiglu_quant(torch::Tensor z, torch::Tensor p_s,
+                                            c10::optional<torch::Tensor> z_add,
+                                            c10::optional<torch::Tensor> token);
+// DSv4 MoE route plan (csrc/cuda/moe/moe_route_plan.cu)
+std::vector<torch::Tensor> moe_route_plan(torch::Tensor ids, int64_t num_experts);
+// DSv4 MoE combine / backward fan-in (csrc/cuda/moe/moe_slot_sum.cu)
+void moe_slot_sum(torch::Tensor rows, torch::Tensor inv, std::optional<torch::Tensor> shared,
+                  std::optional<torch::Tensor> residual, torch::Tensor out);
+// DSv4 indexer stable per-row top-k (csrc/cuda/topk/stable_topk.cu)
+void stable_topk_per_row_out(torch::Tensor logits, torch::Tensor row_starts,
+                             torch::Tensor row_ends, torch::Tensor indices, int64_t top_k,
+                             int64_t threads);
+// DSv4 shared-expert clamped SwiGLU (csrc/cuda/activation/silu_and_mul_clamp.cu)
+std::vector<torch::Tensor> silu_and_mul_clamp_quant_forward(torch::Tensor z, double limit,
+                                                            bool scale_ue8m0, bool write_h);
+torch::Tensor silu_and_mul_clamp_backward_cuda(torch::Tensor dh, torch::Tensor z, double limit);
+std::vector<torch::Tensor> mhc_rmsnorm_residual_forward(torch::Tensor x, torch::Tensor gamma, double eps);
+std::vector<torch::Tensor> mhc_rmsnorm_residual_backward(torch::Tensor dy,
+                                                         torch::Tensor dr,
+                                                         torch::Tensor x,
+                                                         torch::Tensor gamma,
+                                                         torch::Tensor r);
+#endif
+
 // PyBind11 Module Registration
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
@@ -507,6 +660,86 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
     m.def("ordered_logp_merge", &ordered_logp_merge, "Rank-ordered FP32 logp merge");
+#endif
+
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("fp8_group_quant_forward", &fp8_group_quant_forward,
+          "Per-token 1x128 FP8 E4M3 quantization with DeepGEMM-layout FP32 scales");
+    m.def("fp8_group_quant_tokens_forward", &fp8_group_quant_tokens_forward,
+          "Token-direction 128-group FP8 quantization of x.T for wgrad");
+    m.def("indexer_q_rope_fp8_forward", &indexer_q_rope_fp8_forward,
+          "DSv4 indexer Q: RoPE + per-(token, head) FP8 quant, vLLM CuTe-DSL numerics");
+    m.def("compress_indexer_fp8", &compress_indexer_fp8_cuda,
+          "DSv4 indexer compressor: window softmax, RMSNorm, RoPE, FP8 entry into the K cache");
+    m.def("compress_main_ds_mla", &compress_main_ds_mla_cuda,
+          "DSv4 main-KV compressor (C4/C128): fp8_ds_mla entries into the paged KV cache");
+    m.def("dsv4_q_norm_rope_kv_insert", &dsv4_q_norm_rope_kv_insert,
+          "DSv4 q-norm + RoPE (padded heads) and KV RoPE + fp8_ds_mla insert");
+    m.def("dsv4_inv_rope_fp8", &dsv4_inv_rope_fp8,
+          "DSv4 attention output: inverse RoPE + per-group FP8 A operands for wo_a");
+    m.def("dsv4_ds_mla_gather", &dsv4_ds_mla_gather,
+          "DSv4: dequantize fp8_ds_mla cache entries by slot into BF16 rows");
+    m.def("dsv4_save_states", &dsv4_save_states,
+          "DSv4 compressor: write [kv | score + ape] state rows by slot");
+    m.def("dsv4_logprob_tile_stats", &dsv4_logprob_tile_stats,
+          "DSv4 logprob (dsv4-logprob-v1): FP32 logits -> per-tile (max, sumexp) [n, tiles]");
+    m.def("dsv4_logprob_merge", &dsv4_logprob_merge,
+          "DSv4 logprob: 64 tile partials + target logits -> (logp, lse)");
+    m.def("dsv4_logprob_backward", &dsv4_logprob_backward,
+          "DSv4 logprob backward: dL/dlogits as BF16 from (logits, targets, lse, dL/dlogp)");
+    m.def("dsv4_mhc_pre", &dsv4_mhc_pre,
+          "DSv4 mHC pre (dsv4-mhc-v1): residual + GEMM partials -> (y, post, comb, raw, ss)");
+    m.def("dsv4_mhc_head", &dsv4_mhc_head, "DSv4 mHC head: residual + GEMM partials -> (y, raw, ss)");
+    m.def("dsv4_mhc_post", &dsv4_mhc_post, "DSv4 mHC post: (x, residual, post, comb) -> residual");
+    m.def("dsv4_mhc_post_backward", &dsv4_mhc_post_backward,
+          "DSv4 mHC post backward -> (dx, d_residual, d_post, d_comb)");
+    m.def("dsv4_mhc_pre_backward", &dsv4_mhc_pre_backward,
+          "DSv4 mHC pre backward (frozen params) -> d_residual");
+    m.def("dsv4_mhc_head_backward", &dsv4_mhc_head_backward,
+          "DSv4 mHC head backward (frozen params) -> d_residual");
+    m.def("dsv4_router_topk", &dsv4_router_topk,
+          "DSv4 router: sqrt-softplus, top-6 (or hash) routing and scaled weights",
+          py::arg("logits"), py::arg("bias"), py::arg("input_ids"), py::arg("tid2eid"),
+          py::arg("routed_scaling_factor"), py::arg("weights"), py::arg("ids"));
+    m.def("dsv4_router_backward_dx", &dsv4_router_backward_dx,
+          "DSv4 router backward: dL/dweights -> dX through the frozen gate (six-row gather)");
+    m.def("mxfp8_act_quant_forward", &mxfp8_act_quant_forward_cuda,
+          "MXFP8 (E4M3 + block-32 E8M0) activation quantization; "
+          "returns {codes, scales, nonfinite_flag}",
+          py::arg("x"), py::arg("check_finite") = true);
+    m.def("mxfp8_act_quant_ste_backward", &mxfp8_act_quant_ste_backward_cuda,
+          "Straight-through estimator backward for mxfp8_act_quant (dX = dY)");
+    m.def("dsv4_norm_rope_backward", &dsv4_norm_rope_backward,
+          "DSv4 attention backward: (gathered) rows -> RoPE transpose -> RMSNorm backward",
+          py::arg("dy"), py::arg("src_rows"), py::arg("x"), py::arg("w"), py::arg("positions"),
+          py::arg("heads"), py::arg("cos_sin"), py::arg("rope_sign"), py::arg("norm"),
+          py::arg("eps"), py::arg("rows"), py::arg("out"), py::arg("out_heads"));
+    m.def("dsv4_compressor_backward", &dsv4_compressor_backward,
+          "DSv4 attention backward: main KV compressor, entry grads -> d [wkv | wgate] score",
+          py::arg("score"), py::arg("ape"), py::arg("d_src"), py::arg("meta"), py::arg("norm_w"),
+          py::arg("cos_sin"), py::arg("ratio"), py::arg("eps"), py::arg("d_score"));
+    m.def("moe_swiglu_quant", &moe_swiglu_quant,
+          "P5 routed experts: FP32 z -> clamp-SwiGLU * p_s -> (MXFP8 codes, scales, BF16 h), "
+          "byte-equal to the fused fc1 epilogue; optional per-token z_add (LoRA fc1 delta)",
+          py::arg("z"), py::arg("p_s"), py::arg("z_add") = py::none(),
+          py::arg("token") = py::none());
+    m.def("moe_route_plan", &moe_route_plan,
+          "DSv4 MoE route plan: stable counting sort of (token, slot) pairs by expert"
+          " -> (perm, token, inv, expert_offsets)");
+    m.def("moe_slot_sum", &moe_slot_sum,
+          "DSv4 MoE combine / dX fan-in: slot-ordered FP32 sum + shared + residual",
+          py::arg("rows"), py::arg("inv"), py::arg("shared"), py::arg("residual"),
+          py::arg("out"));
+    m.def("stable_topk_per_row_out", &stable_topk_per_row_out,
+          "DSv4 indexer top-k: (score, local index) descending, vLLM ds4_bi order",
+          py::arg("logits"), py::arg("row_starts"), py::arg("row_ends"),
+          py::arg("indices"), py::arg("top_k"), py::arg("threads") = 0);
+    m.def("silu_and_mul_clamp_quant_forward", &silu_and_mul_clamp_quant_forward,
+          "vLLM silu_and_mul_with_clamp fused with per-token-group FP8 quantization");
+    m.def("silu_and_mul_clamp_backward", &silu_and_mul_clamp_backward_cuda,
+          "Deterministic backward of the clamped SwiGLU");
+    m.def("mhc_rmsnorm_residual_forward", &mhc_rmsnorm_residual_forward);
+    m.def("mhc_rmsnorm_residual_backward", &mhc_rmsnorm_residual_backward);
 #endif
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)
@@ -726,6 +959,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "reduce_rows_fp32_left_fold",
         &reduce_rows_fp32_left_fold,
         "Ascending-row FP32 left-fold reduction CUDA");
+    m.def(
+        "mhc_pre_h_aggregate",
+        &mhc_pre_h_aggregate_cuda,
+        "Batch-invariant MHC H Aggregate CUDA");
+    m.def(
+        "mhc_pre_h_aggregate_backward",
+        &mhc_pre_h_aggregate_backward_cuda,
+        "Batch-invariant MHC H Aggregate backward CUDA (FP32 dR and dPRE)");
 #endif
 
     // registry SiLU / SwiGLU (elementwise activation)
@@ -737,6 +978,41 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+
+    // SM90 fused routed-expert MLP (profile p5-sm90-fused-mlp-v1)
+    m.def("fused_shared_expert_fc1_swiglu", &fused_shared_expert_fc1_swiglu,
+          "Fused shared-expert fc1 + SwiGLU (det_gemm K-tree, BF16 h out)");
+#if defined(RL_KERNEL_ENABLE_MOE_SM90)
+    m.def("sm90_moe_prepare_weight_ref", &sm90_moe_prepare_weight_ref,
+          "Per-column reference exponents + residuals for folded MXFP4 scales (fail-closed)");
+    m.def("sm90_moe_fc1_forward", &sm90_moe_fc1_forward,
+          "Grouped MXFP8 x MXFP4 fc1 -> FP32 z [M, 2F] (SM90 FP8 WGMMA)", py::arg("a_codes"),
+          py::arg("a_scales"), py::arg("w1_codes"), py::arg("w1_scales"), py::arg("w_ref"),
+          py::arg("w_res"), py::arg("expert_offsets"), py::arg("w8") = py::none());
+    m.def("sm90_moe_fc1_swiglu_quant_forward", &sm90_moe_fc1_swiglu_quant_forward,
+          "fc1 + clamp-SwiGLU * p_s + MX re-quant fused epilogue -> (h codes, h scales)",
+          py::arg("a_codes"), py::arg("a_scales"), py::arg("w1_codes"), py::arg("w1_scales"),
+          py::arg("w_ref"), py::arg("w_res"), py::arg("expert_offsets"), py::arg("p_s"),
+          py::arg("w8") = py::none());
+    m.def("sm90_moe_fc3_forward", &sm90_moe_fc3_forward,
+          "Grouped MXFP8 x MXFP4 fc3 -> BF16 y [M, H]", py::arg("h_codes"), py::arg("h_scales"),
+          py::arg("w2_codes"), py::arg("w2_scales"), py::arg("w_ref"), py::arg("w_res"),
+          py::arg("expert_offsets"), py::arg("w8") = py::none());
+    m.def("sm90_moe_expand_w8", &sm90_moe_expand_w8,
+          "MXFP4 W + residuals -> folded E4M3 [E, N, K] for experts with rows (forward w8)");
+    m.def("sm90_moe_bwd_dx", &sm90_moe_bwd_dx,
+          "Grouped BF16 x MXFP4 dX: a [M, Nw] @ W[e] [Nw, Kw] -> FP32 [M, Kw] (frozen W)",
+          py::arg("a"), py::arg("w_codes"), py::arg("w_scales"), py::arg("expert_offsets"),
+          py::arg("w_t") = py::none());
+    m.def("sm90_moe_bwd_dh_swiglu", &sm90_moe_bwd_dh_swiglu,
+          "dh = BF16(dy @ W2[e] [+ dh_add]) fused with the clamp-SwiGLU backward -> (dz BF16, "
+          "dp_s FP32)",
+          py::arg("dy"), py::arg("w2_codes"), py::arg("w2_scales"), py::arg("expert_offsets"),
+          py::arg("z"), py::arg("p_s"), py::arg("w2_t") = py::none(),
+          py::arg("dh_add") = py::none());
+    m.def("sm90_moe_dequant_t", &sm90_moe_dequant_t,
+          "MXFP4 W [E, Nw, Kw] -> W^T BF16 [E, Kw, Nw] for experts with rows (backward w_t)");
+#endif  // RL_KERNEL_ENABLE_MOE_SM90
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(

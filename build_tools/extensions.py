@@ -226,6 +226,7 @@ def get_extensions():
             "csrc/cuda/gemm/det_gemm_kernel.cu",
             "csrc/cuda/norm/rmsnorm.cu",
             "csrc/cuda/activation/activation.cu",
+            "csrc/cuda/moe/fused_shared_expert_mlp.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
         ]
         if is_rocm:
@@ -241,17 +242,59 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            cuda_sources.append("csrc/cuda/mhc/rmsnorm_residual.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            cuda_sources.append("csrc/cuda/mhc/mhc_pre_h_aggregate.cu")
+            # DSv4 FP8 activation quantization for DeepGEMM (uses cuda_fp8.h).
+            cuda_sources.append("csrc/cuda/quant/fp8_group_quant.cu")
+            # DSv4 shared-expert clamped SwiGLU (fused with the FP8 quant above).
+            cuda_sources.append("csrc/cuda/activation/silu_and_mul_clamp.cu")
+            # DSv4 indexer stable top-k (uses CUB block radix sort).
+            cuda_sources.append("csrc/cuda/topk/stable_topk.cu")
+            # DSv4 indexer query RoPE + FP8 quant (uses cuda_fp8.h).
+            cuda_sources.append("csrc/cuda/indexer/indexer_q_rope_fp8.cu")
+            # DSv4 KV compressor (indexer entries).
+            cuda_sources.append("csrc/cuda/compressor/compress_fp8.cu")
+            # DSv4 attention query / output side.
+            cuda_sources.append("csrc/cuda/attention/dsv4_qo.cu")
+            cuda_sources.append("csrc/cuda/attention/dsv4_cache.cu")
+            cuda_sources.append("csrc/cuda/attention/dsv4_attn_bwd.cu")
+            # DSv4 manifold hyper-connections (dsv4-mhc-v1).
+            cuda_sources.append("csrc/cuda/mhc_dsv4/dsv4_mhc.cu")
+            # DSv4 selected-token log-probability (dsv4-logprob-v1).
+            cuda_sources.append("csrc/cuda/logprob_dsv4/dsv4_logprob.cu")
+            # DSv4 MoE router (top-6 / hash routing and its dX backward).
+            cuda_sources.append("csrc/cuda/router/dsv4_router.cu")
+            # DSv4 MoE combine / backward fan-in (fixed slot order).
+            cuda_sources.append("csrc/cuda/moe/moe_slot_sum.cu")
+            # DSv4 MoE route plan (counting sort by expert).
+            cuda_sources.append("csrc/cuda/moe/moe_route_plan.cu")
+            # P5 routed experts: standalone clamp-SwiGLU * p_s -> MXFP8 (LoRA path).
+            cuda_sources.append("csrc/cuda/moe/moe_swiglu_quant.cu")
+            # P5-1 MXFP8 activation quantization (was JIT-only).
+            cuda_sources.append("csrc/cuda/moe/mxfp8_act_quant.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
+        # Rejected on ROCm too: hipcc defines __FAST_MATH__, not nvcc's
+        # __USE_FAST_MATH__, so the per-source #error guards would not fire.
         if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
-            nvcc_flags.append("--use_fast_math")
+            raise RuntimeError(
+                "KERNEL_ALIGN_USE_FAST_MATH is incompatible with the deterministic "
+                "kernels in rl_engine._C (MHC H Aggregate, P5 shared expert and "
+                "clamp-SwiGLU require precise FP32 math)"
+            )
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
             enable_sm90 = os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"
-            if not enable_sm90:
+            enable_moe_sm90 = os.environ.get("KERNEL_ALIGN_MOE_SM90") == "1"
+            if enable_moe_sm90 and cc_major != 9:
+                raise RuntimeError(
+                    "KERNEL_ALIGN_MOE_SM90=1 requires an SM90 (Hopper) build target, "
+                    f"got compute capability {cc_major}.{cc_minor}"
+                )
+            if not enable_sm90 and not enable_moe_sm90:
                 # SM90 build emits 90a below; mixing plain compute_90 breaks TMA ptxas.
                 nvcc_flags.append(
                     f"-gencode=arch=compute_{cc_major}{cc_minor},code=sm_{cc_major}{cc_minor}"
@@ -366,6 +409,25 @@ def get_extensions():
                     extra_link_args.append("-lcuda")
                 nvcc_flags.append("-DRL_KERNEL_ENABLE_SM90")
                 cxx_flags.append("-DRL_KERNEL_ENABLE_SM90")
+            # SM90 fused MoE MLP (MXFP8 x MXFP4 grouped GEMM, FP8 WGMMA + TMA):
+            # csrc/cuda/moe/sm90_fused_moe_mlp.cu is compiled, and its sm90_moe_*
+            # bindings registered, only under RL_KERNEL_ENABLE_MOE_SM90. That macro
+            # is separate from RL_KERNEL_ENABLE_SM90, which det_gemm also sets.
+            if enable_moe_sm90:
+                cuda_sources.append("csrc/cuda/moe/sm90_fused_moe_mlp.cu")
+                cuda_sources.append("csrc/cuda/moe/sm90_moe_mlp_backward.cu")
+                nvcc_flags.append("-DRL_KERNEL_ENABLE_MOE_SM90")
+                cxx_flags.append("-DRL_KERNEL_ENABLE_MOE_SM90")
+                tma_arch = f"{cc_major}{cc_minor}a"
+                arch_flag = f"-gencode=arch=compute_{tma_arch},code=sm_{tma_arch}"
+                if arch_flag not in nvcc_flags:
+                    nvcc_flags.append(arch_flag)
+                if "-lcuda" not in extra_link_args:
+                    extra_link_args.append("-lcuda")
+                if "-DRL_KERNEL_ENABLE_SM90" not in nvcc_flags:
+                    nvcc_flags.append("-DRL_KERNEL_ENABLE_SM90")
+                if "-DRL_KERNEL_ENABLE_SM90" not in cxx_flags:
+                    cxx_flags.append("-DRL_KERNEL_ENABLE_SM90")
 
         if is_rocm:
             nvcc_flags = _filter_rocm_incompatible_nvcc_flags(nvcc_flags)
@@ -378,6 +440,24 @@ def get_extensions():
                 extra_compile_args={
                     "cxx": cxx_flags,
                     "nvcc": nvcc_flags,
+                },
+                extra_link_args=extra_link_args,
+            )
+        )
+
+        # P1-2 fp32_gemm_rms: standalone strict-FP32 extension. Never built
+        # with fast-math, and FMA contraction is disabled so every multiply
+        # and add rounds separately (numeric profile oracle-fp32-mhc-v1).
+        mhc_nvcc_flags = [f for f in nvcc_flags if f != "--use_fast_math"]
+        mhc_nvcc_flags.append("-ffp-contract=off" if is_rocm else "-fmad=false")
+        extensions.append(
+            GpuExtension(
+                name="rl_engine._C_mhc",
+                sources=["csrc/cuda/mhc/fp32_gemm_rms.cu"],
+                include_dirs=[],
+                extra_compile_args={
+                    "cxx": cxx_flags,
+                    "nvcc": mhc_nvcc_flags,
                 },
                 extra_link_args=extra_link_args,
             )
