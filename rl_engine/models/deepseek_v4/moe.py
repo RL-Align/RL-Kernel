@@ -125,6 +125,13 @@ def ep_dispatch(rows: _Rows, plan: RoutePlan, group) -> tuple[_Rows, _Exchange]:
     return out, _Exchange(local_perm, send_splits, recv_splits)
 
 
+def ep_send(t: Tensor, ex: _Exchange, group) -> Tensor:
+    """Send an extra per-row tensor (plan order) along the dispatch splits; the receiver
+    gets it in its expert order, like the dispatched rows."""
+    arrival = _all_to_all(t, sum(ex.recv_splits), ex.recv_splits, ex.send_splits, group)
+    return arrival[ex.local_perm]
+
+
 def ep_return(y_local: Tensor, ex: _Exchange, group) -> Tensor:
     """Send expert outputs back; the sender receives them in its own plan order."""
     arrival = torch.empty_like(y_local)
@@ -223,10 +230,7 @@ class Dsv4MoE:
             plan.expert_offsets,
         )
         if self._routed_lora():
-            if self.ep_group is not None:
-                raise NotImplementedError("routed-expert LoRA with expert parallelism")
-            y, lora_state = self._routed_lora_forward(x, rows, plan, hidden)
-            return y, (rows, None, lora_state)
+            return self._routed_lora_forward(x, rows, plan, hidden)
         if self.ep_group is None:
             return self._expert_forward(rows, hidden), (rows, None)
         local, ex = ep_dispatch(rows, plan, self.ep_group)
@@ -258,58 +262,140 @@ class Dsv4MoE:
             self.lora.shared_fc1 is not None or self.lora.shared_fc2 is not None
         )
 
-    def _routed_lora_forward(self, x: Tensor, rows: _Rows, plan: RoutePlan, hidden: int):
-        """fc1_z + per-token LoRA delta -> clamp-SwiGLU * p_s -> MXFP8 -> fc3 + LoRA delta."""
+    def _routed_lora_rows(self, rows: _Rows, hidden: int, z_add, z_token):
+        """Expert compute on this rank's rows with the routed adapters:
+        fc1_z (+ ``z_add[z_token]``) -> clamp-SwiGLU * p_s -> MXFP8 -> fc3 (+ fc2 delta).
+        Returns ``(y BF16 [Q, H], h BF16 [Q, F])``."""
         from rl_engine.models.deepseek_v4.lora import lora_delta
 
         lo = self.lora
-        state = {"x": x, "token": plan.token, "inv": plan.inv, "h": None}
-        if rows.codes.shape[0] == 0:
-            return torch.empty(0, hidden, dtype=torch.bfloat16, device=x.device), state
+        q = rows.codes.shape[0]
+        dev = rows.codes.device
+        if q == 0:
+            f = int(self.w1.shape[1]) // 2
+            return (
+                torch.empty(0, hidden, dtype=torch.bfloat16, device=dev),
+                torch.empty(0, f, dtype=torch.bfloat16, device=dev),
+            )
         batch, x_q = self._expert_batch(rows, hidden)
         z = self._routed.fc1_z(batch, x_q)
-        z_tok = lora_delta(x, lo.fc1) if lo.fc1 is not None else None
-        h_q, h = self._routed.swiglu_quant(z, rows.p_s, z_tok, plan.token)
+        h_q, h = self._routed.swiglu_quant(z, rows.p_s, z_add, z_token)
         del z
         y = self._routed.fc3(batch, h_q)
         if lo.fc2 is not None:
             y = lora_delta(h, lo.fc2).add_(y).to(torch.bfloat16)
+        return y, h
+
+    def _routed_lora_forward(self, x: Tensor, rows: _Rows, plan: RoutePlan, hidden: int):
+        """Routed experts with the shared routed adapters, EP = 1 or EP > 1."""
+        from rl_engine.models.deepseek_v4.lora import lora_delta, lora_hidden, lora_up
+
+        lo = self.lora
+        state = {"x": x, "token": plan.token, "inv": plan.inv}
+        if self.ep_group is None:
+            # The fc1 delta depends only on the token: once per token, gathered by row.
+            z_tok = lora_delta(x, lo.fc1) if lo.fc1 is not None else None
+            y, h = self._routed_lora_rows(rows, hidden, z_tok, plan.token)
+            state["h"] = h
+            return y, (rows, None, state)
+        # EP: u1 = BF16(x A1^T) travels with the row; the expert's rank applies B1.
+        u1 = None
+        if lo.fc1 is not None:
+            u1 = lora_hidden(x, lo.fc1).index_select(0, plan.token)
+        local, ex = ep_dispatch(rows, plan, self.ep_group)
+        z_add = token = None
+        if u1 is not None:
+            state["u1_local"] = ep_send(u1, ex, self.ep_group)
+            z_add = lora_up(state["u1_local"], lo.fc1)
+            token = torch.arange(z_add.shape[0], device=z_add.device)
+        y_local, h = self._routed_lora_rows(local, hidden, z_add, token)
         state["h"] = h
-        return y, state
+        return ep_return(y_local, ex, self.ep_group), (local, ex, state)
 
     def routed_lora_backward(self, dy_rows: Tensor, state, grads: dict):
-        """``(dx_rows FP32, dp_s FP32, dx_tokens FP32 | None)``; adds the routed adapters'
-        ``(dA, dB)`` to ``grads``. The fc1 adapter's dX is summed per token first (its
-        input is the token, shared by the token's rows)."""
-        from rl_engine.models.deepseek_v4.lora import lora_backward, lora_delta, lora_hidden
+        """``(dx_rows FP32, dp_s FP32, dx_tokens FP32 | None)`` in plan order; adds the
+        routed adapters' ``(dA, dB)`` to ``grads``, summed over the EP group.
 
-        rows, _, ls = state
+        The fc1 adapter's dX and dA are formed per token (``du`` summed over the token's
+        rows in slot order); with EP, ``du`` returns along the forward's splits.
+        """
+        from rl_engine.models.deepseek_v4.lora import (
+            lora_backward,
+            lora_delta,
+            lora_hidden,
+            lora_up,
+        )
+
+        rows, ex, ls = state
         lo = self.lora
         hidden = dy_rows.shape[1]
-        if rows.codes.shape[0] == 0:
-            dev = rows.codes.device
-            return torch.empty(0, hidden, device=dev), torch.empty(0, device=dev), None
-        batch, x_q = self._expert_batch(rows, hidden)
-        z_add = None
+        group = self.ep_group
+        dev = dy_rows.device
+        if ex is not None:
+            dy_local = ep_send(dy_rows, ex, group)
+            u1_local = ls.get("u1_local")
+        else:
+            dy_local = dy_rows
+            u1_local = None
+            if lo.fc1 is not None:
+                u1_local = lora_hidden(ls["x"], lo.fc1).index_select(0, ls["token"])
+        q = rows.codes.shape[0]
+        if q:
+            batch, x_q = self._expert_batch(rows, hidden)
+            z_add = token = None
+            if lo.fc1 is not None:
+                if ex is None:
+                    z_add, token = lora_delta(ls["x"], lo.fc1), ls["token"]
+                else:
+                    z_add = lora_up(u1_local, lo.fc1)
+            dh_add = None
+            if lo.fc2 is not None:
+                dh_add, da, db = lora_backward(dy_local, ls["h"], lo.fc2)
+                grads["fc2"] = (da, db)
+            if z_add is not None and token is not None:
+                z_add = z_add.index_select(0, token)
+            dx_local, dps_local, dz = self._routed.backward(
+                batch, x_q, dy_local, z_add=z_add, dh_add=dh_add, return_dz=True
+            )
+        else:
+            dx_local = torch.empty(0, hidden, device=dev)
+            dps_local = torch.empty(0, device=dev)
+            dz = None
+            if lo.fc2 is not None:
+                grads["fc2"] = (
+                    torch.zeros(lo.fc2.a.shape, device=dev),
+                    torch.zeros(lo.fc2.b.shape, device=dev),
+                )
+        du_local = None
         if lo.fc1 is not None:
-            z_add = lora_delta(ls["x"], lo.fc1).index_select(0, ls["token"])
-        dh_add = None
-        if lo.fc2 is not None:
-            dh_add, da, db = lora_backward(dy_rows, ls["h"], lo.fc2)
-            grads["fc2"] = (da, db)
-        dx_rows, dp_s, dz = self._routed.backward(
-            batch, x_q, dy_rows, z_add=z_add, dh_add=dh_add, return_dz=True
-        )
+            ad = lo.fc1
+            if q:
+                dd = dz.float() * ad.scale  # [Q, 2F]
+                db1 = dd.t() @ u1_local.float()
+                du_local = dd @ ad.b.detach().float()  # [Q, r]
+            else:
+                db1 = torch.zeros(ad.b.shape, device=dev)
+                du_local = torch.empty(0, ad.rank, device=dev)
+        if ex is not None:
+            dx_rows = ep_return(dx_local, ex, group)
+            dp_s = ep_return(dps_local, ex, group)
+            du_rows = ep_return(du_local, ex, group) if du_local is not None else None
+        else:
+            dx_rows, dp_s, du_rows = dx_local, dps_local, du_local
         dx_tokens = None
         if lo.fc1 is not None:
             ad, x = lo.fc1, ls["x"]
-            dd = dz.float() * ad.scale  # [P, 2F]
-            u1 = lora_hidden(x, ad).float().index_select(0, ls["token"])  # [P, r]
-            db = dd.t() @ u1
-            du = dd @ ad.b.detach().float()  # [P, r]
-            du_tok = du[ls["inv"]].sum(dim=1)  # [T, r], slot order
-            grads["fc1"] = (du_tok.t() @ x.float(), db)
+            if du_rows.shape[0]:
+                du_tok = du_rows[ls["inv"]].sum(dim=1)  # [T, r], slot order
+            else:
+                du_tok = torch.zeros(x.shape[0], ad.rank, device=dev)
+            grads["fc1"] = (du_tok.t() @ x.float(), db1)
             dx_tokens = du_tok @ ad.a.detach().float()
+        if ex is not None:
+            for name in ("fc1", "fc2"):
+                if name in grads:
+                    for t in grads[name]:
+                        dist.all_reduce(t, group=group)
         return dx_rows, dp_s, dx_tokens
 
     def shared_forward(self, x: Tensor):

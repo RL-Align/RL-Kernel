@@ -337,11 +337,19 @@ batch-invariant.
 
 Most of the remaining cost is the FP32 `z` round trip, which the fused epilogue avoids.
 
-**Not implemented.**
-- **Expert parallelism.** Megatron keeps one shared adapter per EP rank. The receiving rank
-  only has the MXFP8 activations, so the source rank would have to send
-  `u1 = BF16(x A1^T)` along with them.
-- **Per-expert adapters** (`share_expert_adapters=False`).
+**Expert parallelism.** Megatron-Bridge broadcasts the shared expert adapter from EP rank 0
+and all-reduces its gradients over the EP group, so it is one global adapter. Here:
+- The token's rank computes `u1 = BF16(x A1^T)` and sends it with the MXFP8 row
+  (`ep_send`, r values per row). The expert's rank applies `B1`. The GEMMs are row-invariant,
+  so the forward bytes equal EP = 1.
+- In the backward, `du = dz B1` returns along the forward's splits for the per-token dX / dA1.
+- The routed adapters' gradients are all-reduced over the EP group. The shared-expert adapter
+  is an ordinary data-parallel parameter.
+- `scripts/check_dsv4_moe_ep.py --lora` checks EP = R against EP = 1: outputs and dx
+  bytewise, adapter gradients to 1e-4. **It has not run yet: no 2-GPU allocation was
+  available.**
+
+**Not implemented:** per-expert adapters (`share_expert_adapters=False`).
 
 ## Route plan and combine (EP = 1)
 

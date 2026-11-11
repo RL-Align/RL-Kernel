@@ -429,7 +429,10 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         - dX / dA / dB match FP32 autograd.
         - Cost against the block without adapters: forward 1.02-1.17x, forward + backward
           1.05-1.21x.
-        - Open: EP > 1 (send `u1`), per-expert adapters
+        - EP > 1: one global routed adapter (Megatron-Bridge broadcasts it and all-reduces its
+          gradients over EP); `u1` travels with the row and `du` comes back. The 2-GPU check
+          (`check_dsv4_moe_ep.py --lora`) is written but has not run yet.
+        - Open: per-expert adapters
   - [x] Full model training forward / backward (`Dsv4Model.forward_train`, `attach_lora`;
         `docs/operators/dsv4-model.md`, "Training").
         - The forward is byte-equal to the rollout forward.

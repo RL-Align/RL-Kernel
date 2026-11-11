@@ -30,8 +30,14 @@ MoE (:class:`MoeLora`, Megatron-Bridge's default ``share_expert_adapters=True``)
 expert. Routed ``fc1``: ``z = FP32 z_base + lora_delta(x)`` before the clamp-SwiGLU (the
 delta depends only on the token, so it is computed once per token and gathered to its 6
 rows); routed ``fc2``: ``y = BF16(FP32(y_base) + lora_delta(h))`` with ``h`` the BF16
-SwiGLU output (``p_s`` already applied). With expert parallelism Megatron keeps one shared
-adapter per EP rank; that layout is not implemented yet (EP = 1 only).
+SwiGLU output (``p_s`` already applied).
+
+Expert parallelism: as in Megatron-Bridge (the routed adapter is broadcast from EP rank 0
+and its gradients are all-reduced over the EP group), the routed adapter is one global
+adapter. The token's rank computes ``u1 = BF16(x A1^T)`` and sends it with the MXFP8 row;
+the expert's rank applies ``B1``. That gives the EP = 1 bytes (the GEMMs are row-invariant).
+The routed adapters' gradients are summed over the EP group inside the backward; the
+shared-expert adapter is an ordinary data-parallel parameter.
 """
 
 from __future__ import annotations
@@ -124,6 +130,18 @@ def lora_delta(x: Tensor, ad: LoraAdapter) -> Tensor:
         raise ValueError(f"x must be BF16 [T, {ad.in_features}]")
     a, b = _padded(ad)
     h = _gemm_nt(x, a).to(torch.bfloat16)
+    return _gemm_nt(h, b) * ad.scale
+
+
+def lora_up(h: Tensor, ad: LoraAdapter) -> Tensor:
+    """``scale * (h B^T)`` FP32 for ``h = lora_hidden(x)`` (BF16 ``[n, r]``): the second half
+    of :func:`lora_delta`, byte-equal to it row for row."""
+    _, b = _padded(ad)
+    rp = b.shape[1]
+    if h.shape[1] != rp:
+        hp = torch.zeros(h.shape[0], rp, dtype=torch.bfloat16, device=h.device)
+        hp[:, : h.shape[1]] = h
+        h = hp
     return _gemm_nt(h, b) * ad.scale
 
 
