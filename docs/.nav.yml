@@ -43,6 +43,7 @@ nav:
       - operators/dsv4-mhc.md
       - operators/dsv4-model.md
       - operators/dsv4-logprob.md
+      - operators/dsv4-performance.md
       - operators/final-logit-softcap.md
   - Developer Guide:
     - contributing/README.md

@@ -590,7 +590,9 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       dgrad is batch-invariant and wgrad run-to-run identical at the DSv4 shapes (Phase 1
       probe, `4d6e033e`; see D3 "Backward")
 - [ ] Performance table: per-operator overhead against the non-invariant path; anything above
-      1.3x goes to Phase 5
+      1.3x goes to Phase 5. Table: `docs/operators/dsv4-performance.md` (2026-11-11): every
+      measured operator is within 1.3x (closest: `mhc_pre` 1.09-1.18x, router 1.03-1.22x).
+      Open: the attention q / o-side kernels and the whole attention layer against vLLM's
 
 ### Phase 5 - performance debt
 
