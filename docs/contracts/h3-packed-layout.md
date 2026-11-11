@@ -85,7 +85,7 @@ requirement to accept only those dtypes. Broader input compatibility is D3.
 
 | Field/context | Shape / representation | Meaning and consumer |
 | --- | --- | --- |
-| Batch and length context | `B`, `S`, `N_text`, `N_video`, `N_audio` | Available from the caller or feature shapes; whether to persist each value is an implementation choice. Check source lengths against index lengths. |
+| Batch and length context | `B`, `S`, `N_text`, `N_video`, `N_audio` | `B` comes from `batch_size`. The layout derives `S` from the row metadata and the expected source lengths from the selectors. |
 | `text_indices` | `(N_text,)`, int64 | Source text row `k` is scattered to packed row `text_indices[k]`. The text projection/refiner processes this source order before scatter. |
 | `video_indices` | `(N_video,)`, int64 | Source video row `k` is scattered to this packed row; video output slot `k` selects the same packed position. |
 | `audio_indices` | `(N_audio,)`, int64 | Source audio row `k` is scattered to this packed row; audio output slot `k` selects the same packed position. |
@@ -238,7 +238,7 @@ acceptance matrix or error class.
 
 | Case | v1 result | Reason / qualification |
 | --- | --- | --- |
-| Consistent shapes, in-range fields, supported variant/context | Accept | All declared relationships are checked. |
+| Consistent metadata shapes, in-range fields, supported variant/context | Accept | The layout checks relationships among the supplied metadata. |
 | Unsorted but otherwise valid source selectors, such as video `[2, 0]` | Accept | Packed location need not be increasing; source-slot order matters. |
 | A text-stream visual row tagged `0` with matching source evidence | Accept | Released preparation permits it. |
 | Fractional float64 positions | Accept and preserve exactly | Coordinates are not integer token offsets. |
@@ -259,9 +259,10 @@ acceptance matrix or error class.
 | Metadata requiring gradients | Reject | This CPU object represents static metadata, not a differentiable tensor transformation. |
 | Unsupported dtype/device/variant/profile | Explicit unsupported error | No silent cast, transfer, fallback, or claimed coverage. |
 
-For a supported layout, each selector length must match its source length and
-each per-row tensor must have length `S`. The single-source profile
-requires the three source selector sets to be disjoint and cover `[0, S)`.
+The layout checks that each per-row metadata tensor has length `S`. Before
+scatter, the adapter checks that each source feature tensor has as many rows
+as its selector. The single-source profile requires the three source selector
+sets to be disjoint and cover `[0, S)`.
 This is an ownership rule for input scatter, not a blanket ban on repeated
 indices in a general output gather operator. Independent output selectors and
 their multiplicity, if added, require an explicit contract (D1/D2).
@@ -384,8 +385,10 @@ are implemented and evidenced.
 `H3PackedLayout(...)` checks and owns the metadata immediately. Invalid inputs
 raise `H3PackedLayoutError`, a `ValueError` subclass. It does not silently cast,
 move metadata to CPU, or sort selectors/timesteps. Tensor properties and
-`provenance` return independent copies. `source_lengths` and `batch_size`
-describe the shape context callers must match to their feature tensors.
+`provenance` return independent copies. `source_lengths` gives the expected
+row count for each source stream, derived from its selector. Before scatter,
+the adapter checks the feature tensors' batch size and row counts against
+`batch_size` and `source_lengths`.
 Batch size defaults to one and condition counts default to zero; adapters must
 pass the producer's actual condition/reference counts instead of inferring
 them from tags or packed positions.
@@ -394,11 +397,14 @@ them from tags or packed positions.
 source stream/slot, modality, time reference/value, coordinate, output slot,
 and condition/target role. Condition includes reference rows in Ref2VA.
 Its return type is `H3RowIdentity`, a TypedDict whose values remain ordinary
-dictionaries at runtime. Provenance uses `Mapping[str, Any]`: the layout reads
-the supplied mapping and stores an independent JSON copy. Runtime validation
-requires `checkpoint_revision`, `runtime_revision`, and `task_family`; optional
-`preparation` context remains extensible JSON. The provenance property also
-exposes a Mapping interface and returns an independent dictionary copy.
+dictionaries at runtime. Provenance uses `Mapping[str, Any]`: the layout stores
+an independent copy of its JSON-compatible values. Runtime validation
+requires `checkpoint_revision`, `runtime_revision`, and `task_family`.
+`task_family` records `FL2VA` or `Ref2VA`, the same value stored as `variant` in
+H3 trajectory artifacts. Optional `preparation` context remains extensible JSON.
+The provenance property also exposes a Mapping interface and returns an
+independent dictionary copy.
+
 `permute_rows(perm)` returns a new layout and leaves the original unchanged.
 It transforms metadata only: move an already-packed feature tensor separately
 with `features.index_select(1, perm)`. Source feature streams keep their order.
@@ -460,6 +466,10 @@ runtime revisions are full lowercase 40-hex strings; task family is FL2VA or
 Ref2VA. These declarations do not themselves verify loaded weights or establish
 full-pipeline support. Include actual preparation arguments and run context
 when recording real evidence.
+
+The layout preserves provenance floats in memory, including through `to_dict()`
+and `from_dict()` with CPU flush-to-zero enabled. For JSON text round trips,
+use an environment that preserves subnormal floats.
 
 `to_dict()` returns a JSON-safe snapshot with version, profile, batch/condition
 counts, provenance, and primary tensors. Every tensor carries dtype, shape,

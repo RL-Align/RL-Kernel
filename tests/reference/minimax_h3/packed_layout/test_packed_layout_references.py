@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Offline integrity and independent semantic checks for the sealed layout references.
+"""Check the integrity and row semantics of the sealed packed-layout fixtures.
 
-These check reference artifacts, not the future packed-layout schema. They need
-no network, installed diffusers, model weights, GPU, or candidate implementation.
+These CPU tests run offline, independently of ``H3PackedLayout``.
 """
 
 from __future__ import annotations

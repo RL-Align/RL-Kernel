@@ -10,7 +10,6 @@ contract in ``docs/contracts/h3-packed-layout.md`` for the supported v1 domain.
 
 from __future__ import annotations
 
-import json
 import math
 import re
 import sys
@@ -19,13 +18,9 @@ from typing import Any, Literal, TypedDict
 
 import torch
 
-from rl_engine.reference.minimax_h3 import H3_MODALITY_NUM
 from rl_engine.reference.minimax_h3.adaln_row_gather import h3_adaln_indices
 
-# Read H3PackedLayout from __init__ through properties, row identity,
-# row permutation, and snapshots; definitions and helpers support that path.
-
-# Basic definitions: constants, dictionary types, and errors.
+# --- Basic definitions: constants, dictionary types, and errors -------------------------------
 
 _SCHEMA_VERSION = "h3-packed-layout.v1"
 _PROFILE = "cpu.single_source"
@@ -45,12 +40,11 @@ _SOURCE_TAGS: dict[_Stream, tuple[int, ...]] = {
     "video": (0,),
     "audio": (2,),
 }
-_SOURCE_FIELDS = ("text_indices", "video_indices", "audio_indices")
 _ROW_FIELDS = ("token_tags", "timestep_indices", "position_ids")
 
 
 class H3RowIdentity(TypedDict):
-    """The dictionary returned by ``row_identity``, with explicit field names/types."""
+    """The dictionary returned by ``row_identity``."""
 
     batch_index: int
     packed_row: int
@@ -69,7 +63,7 @@ class H3PackedLayoutError(ValueError):
     """A field does not satisfy the declared CPU layout or snapshot contract."""
 
 
-# Helpers: metadata validation, provenance, and byte order.
+# --- Helpers: metadata validation, provenance, and byte order ---------------------------------
 
 # Metadata validation.
 
@@ -131,37 +125,63 @@ def _timestep_values(times: torch.Tensor) -> tuple[float, ...]:
             value = math.ldexp(fraction, -149)
         else:
             value = math.ldexp((1 << 23) | fraction, exponent - 150)
-        key = 0 if magnitude == 0 else bits
-        if key in first_rows:
+        if magnitude in first_rows:
             raise H3PackedLayoutError(
                 f"timestep: expected distinct values; timestep[{row}] duplicates "
-                f"timestep[{first_rows[key]}] (value {value!r})"
+                f"timestep[{first_rows[magnitude]}] (value {value!r})"
             )
-        first_rows[key] = row
+        first_rows[magnitude] = row
         values.append(value)
     return tuple(values)
 
 
-# Provenance validation and encoding.
+# Provenance validation and copying.
 
 
-def _encode_provenance(value: Mapping[str, Any]) -> str:
+def _copy_json_value(value: Any, active_containers: set[int]) -> Any:
+    """Copy JSON-compatible values without converting floats to decimal text."""
+    if value is None or type(value) is bool:
+        return value
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, int):
+        int.__repr__(value)  # Apply the same integer digit limit as the JSON encoder.
+        return int.__int__(value)
+    if isinstance(value, float):
+        number = float.__float__(value)
+        if not math.isfinite(number):
+            raise ValueError("expected finite JSON data")
+        return number
+    if not isinstance(value, (dict, list, tuple)):
+        raise TypeError(f"expected JSON data, got {type(value).__name__}")
+
+    container_id = id(value)
+    if container_id in active_containers:
+        raise ValueError("circular reference in JSON data")
+    active_containers.add(container_id)
+    try:
+        if isinstance(value, dict):
+            copied = {}
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise ValueError("JSON object keys must be strings")
+                copied[str.__str__(key)] = _copy_json_value(item, active_containers)
+            return dict(sorted(copied.items()))
+        copied_items = []
+        for item in value:
+            copied_items.append(_copy_json_value(item, active_containers))
+        return copied_items
+    finally:
+        active_containers.remove(container_id)
+
+
+def _copy_provenance(value: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise H3PackedLayoutError("provenance: expected a JSON-compatible mapping")
     try:
-        encoded = json.dumps(dict(value), sort_keys=True, allow_nan=False)
-        context = json.loads(encoded)
+        context = _copy_json_value(dict(value), set())
     except (TypeError, ValueError) as exc:
-        raise H3PackedLayoutError(f"provenance: expected finite JSON data ({exc})") from exc
-    pending = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, Mapping):
-            if any(not isinstance(key, str) for key in item):
-                raise H3PackedLayoutError("provenance: JSON object keys must be strings")
-            pending.extend(item.values())
-        elif isinstance(item, (list, tuple)):
-            pending.extend(item)
+        raise H3PackedLayoutError(f"provenance: {exc}") from exc
     for name in ("checkpoint_revision", "runtime_revision"):
         revision = context.get(name)
         if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
@@ -170,7 +190,7 @@ def _encode_provenance(value: Mapping[str, Any]) -> str:
             )
     if context.get("task_family") not in ("FL2VA", "Ref2VA"):
         raise H3PackedLayoutError("provenance.task_family: expected 'FL2VA' or 'Ref2VA'")
-    return encoded
+    return context
 
 
 # Byte order for exact tensor snapshots.
@@ -182,7 +202,7 @@ def _swap_if_big_endian(data: bytes, width: int) -> bytes:
     return b"".join(data[index : index + width][::-1] for index in range(0, len(data), width))
 
 
-# Core layout lifecycle.
+# --- Core layout lifecycle --------------------------------------------------------------------
 
 
 class H3PackedLayout:
@@ -193,7 +213,14 @@ class H3PackedLayout:
 
     """
 
-    __slots__ = ("_fields", "_batch_size", "_counts", "_provenance", "_owners", "_time_values")
+    __slots__ = (
+        "_fields",
+        "_batch_size",
+        "_condition_counts",
+        "_provenance",
+        "_owners",
+        "_time_values",
+    )
 
     # Initialization and validation.
 
@@ -227,7 +254,6 @@ class H3PackedLayout:
             "position_ids": position_ids,
         }
 
-        # Validate metadata and preserve the supplied values in independent copies.
         for name, dtype in _DTYPES.items():
             fields[name] = _copy_metadata_tensor(name, fields[name], dtype)
 
@@ -245,7 +271,7 @@ class H3PackedLayout:
                 raise H3PackedLayoutError(
                     f"{name}: expected a 1-D tensor, got {tuple(values.shape)}"
                 )
-            if name in ("token_tags", "timestep_indices") and values.shape != (num_rows,):
+            if name in _ROW_FIELDS and values.shape != (num_rows,):
                 raise H3PackedLayoutError(
                     f"{name}: expected shape ({num_rows},), got {tuple(values.shape)}"
                 )
@@ -260,16 +286,6 @@ class H3PackedLayout:
             raise H3PackedLayoutError(f"position_ids[{location}]: expected a finite value")
 
         self._time_values = _timestep_values(times)
-
-        bad_tags = (
-            (fields["token_tags"] < 0) | (fields["token_tags"] >= H3_MODALITY_NUM)
-        ).nonzero()
-        if bad_tags.numel():
-            row = int(bad_tags[0, 0])
-            raise H3PackedLayoutError(
-                f"token_tags[{row}]: expected one of {{0, 1, 2}}, "
-                f"got {int(fields['token_tags'][row])}"
-            )
 
         _validate_index_range("timestep_indices", fields["timestep_indices"], times.numel())
 
@@ -301,9 +317,8 @@ class H3PackedLayout:
                 f"source_indices: packed row {owners.index(None)} has no source"
             )
 
-        # Validate layout context and provenance; initialize instance state.
         self._batch_size = _validate_int("batch_size", batch_size, 1)
-        self._counts = {
+        self._condition_counts = {
             "video": _validate_int(
                 "num_condition_video_rows",
                 num_condition_video_rows,
@@ -318,7 +333,7 @@ class H3PackedLayout:
             ),
         }
 
-        self._provenance = _encode_provenance(provenance)
+        self._provenance = _copy_provenance(provenance)
 
         self._fields = fields
         self._owners = tuple(owner for owner in owners if owner is not None)
@@ -339,15 +354,15 @@ class H3PackedLayout:
 
     @property
     def provenance(self) -> Mapping[str, Any]:
-        return json.loads(self._provenance)
+        return _copy_json_value(self._provenance, set())
 
     @property
     def num_condition_video_rows(self) -> int:
-        return self._counts["video"]
+        return self._condition_counts["video"]
 
     @property
     def num_condition_audio_rows(self) -> int:
-        return self._counts["audio"]
+        return self._condition_counts["audio"]
 
     @property
     def text_indices(self) -> torch.Tensor:
@@ -401,7 +416,7 @@ class H3PackedLayout:
         else:
             output_stream = stream
             output_selection_index = source_row
-            role = "condition" if source_row < self._counts[stream] else "target"
+            role = "condition" if source_row < self._condition_counts[stream] else "target"
 
         return {
             "batch_index": batch_index,
@@ -439,13 +454,13 @@ class H3PackedLayout:
         old_to_new = torch.empty(num_rows, dtype=torch.int64, device="cpu")
         old_to_new[perm] = torch.arange(num_rows, dtype=torch.int64, device="cpu")
         fields = {name: self._fields[name].index_select(0, perm) for name in _ROW_FIELDS}
-        fields.update(
-            {name: old_to_new.index_select(0, self._fields[name]) for name in _SOURCE_FIELDS}
-        )
+        for stream in _SOURCE_TAGS:
+            selector_name = f"{stream}_indices"
+            fields[selector_name] = old_to_new.index_select(0, self._fields[selector_name])
         fields["timestep"] = self._fields["timestep"]
         return H3PackedLayout(
             **fields,
-            provenance=self.provenance,
+            provenance=self._provenance,
             batch_size=self.batch_size,
             num_condition_video_rows=self.num_condition_video_rows,
             num_condition_audio_rows=self.num_condition_audio_rows,
@@ -454,7 +469,7 @@ class H3PackedLayout:
     # Exact snapshot export and restoration.
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-safe exact snapshot; floating bytes are never rounded to text."""
+        """Return a JSON-safe snapshot with exact tensor bytes."""
         tensors = {}
         for name, value in self._fields.items():
             data = value.view(torch.uint8).numpy().tobytes()
@@ -489,12 +504,12 @@ class H3PackedLayout:
             raise H3PackedLayoutError("snapshot: unexpected or missing top-level fields")
         if snapshot["schema_version"] != _SCHEMA_VERSION or snapshot["profile"] != _PROFILE:
             raise H3PackedLayoutError("snapshot: unsupported schema_version or profile")
-        tensors = snapshot["tensors"]
-        if not isinstance(tensors, Mapping) or set(tensors) != set(_DTYPES):
+        tensor_specs = snapshot["tensors"]
+        if not isinstance(tensor_specs, Mapping) or set(tensor_specs) != set(_DTYPES):
             raise H3PackedLayoutError("snapshot.tensors: unexpected or missing layout fields")
         fields = {}
         for name, dtype in _DTYPES.items():
-            tensor_spec = tensors[name]
+            tensor_spec = tensor_specs[name]
             prefix = f"snapshot.tensors.{name}"
             if not isinstance(tensor_spec, Mapping) or set(tensor_spec) != {
                 "dtype",
@@ -510,9 +525,12 @@ class H3PackedLayout:
                 raise H3PackedLayoutError(f"{prefix}.shape: expected {ndim} dimensions")
             for index, dim in enumerate(shape):
                 _validate_int(f"{prefix}.shape[{index}]", dim, 0, (1 << 63) - 1)
+            data_le_hex = tensor_spec["data_le_hex"]
+            if not isinstance(data_le_hex, str):
+                raise H3PackedLayoutError(f"{prefix}.data_le_hex: expected a hex string")
             try:
-                data = bytes.fromhex(tensor_spec["data_le_hex"])
-            except (TypeError, ValueError) as exc:
+                data = bytes.fromhex(data_le_hex)
+            except ValueError as exc:
                 raise H3PackedLayoutError(f"{prefix}.data_le_hex: invalid hex bytes") from exc
             count = math.prod(shape)
             width = dtype.itemsize
@@ -532,6 +550,6 @@ class H3PackedLayout:
         )
 
 
-# Public interface.
+# --- Public interface -------------------------------------------------------------------------
 
 __all__ = ["H3PackedLayout", "H3PackedLayoutError", "H3RowIdentity"]

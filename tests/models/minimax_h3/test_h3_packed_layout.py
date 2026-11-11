@@ -229,15 +229,19 @@ def test_batch_placement_and_unrelated_sample_changes():
 
 def test_input_getter_snapshot_and_provenance_mutations_do_not_change_layout():
     inputs = hand_inputs()
+    inputs["provenance"]["preparation"]["steps"] = ([1],)
     layout = H3PackedLayout(**inputs)
     baseline = layout.to_dict()
+    assert baseline["provenance"]["preparation"]["steps"] == [[1]]
     for name in PRIMARY:
         inputs[name].zero_()
         getattr(layout, name).zero_()
     inputs["provenance"]["preparation"]["kind"] = "changed"
+    inputs["provenance"]["preparation"]["steps"][0].append(2)
     layout.provenance["preparation"]["kind"] = "changed"
     snapshot = layout.to_dict()
     snapshot["provenance"]["preparation"]["kind"] = "changed"
+    snapshot["provenance"]["preparation"]["steps"][0].append(3)
     snapshot["tensors"]["token_tags"]["shape"][0] = 100
     assert layout.to_dict() == baseline
 
@@ -309,6 +313,47 @@ assert torch.equal(restored.position_ids.view(torch.int64), before)
         text=True,
         timeout=45,
     )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_layout_preserves_provenance_with_flush_to_zero_enabled():
+    snapshot = H3PackedLayout(**hand_inputs()).to_dict()
+    script = """
+import json
+import struct
+import sys
+
+import torch
+
+from rl_engine.models.minimax_h3.packed_layout import H3PackedLayout
+
+torch.set_flush_denormal(False)
+snapshot = json.loads(sys.argv[1])
+scale_bits = struct.pack("<Q", 1)
+snapshot["provenance"]["preparation"]["scale"] = struct.unpack("<d", scale_bits)[0]
+layout = H3PackedLayout.from_dict(snapshot)
+if not torch.set_flush_denormal(True):
+    sys.exit(77)
+moved = layout.permute_rows(torch.arange(layout.sequence_length))
+exported = layout.to_dict()
+restored = H3PackedLayout.from_dict(exported)
+for path, context in (
+    ("getter", layout.provenance),
+    ("to_dict", exported["provenance"]),
+    ("from_dict", restored.provenance),
+    ("permute_rows", moved.provenance),
+):
+    actual_bits = struct.pack("<d", context["preparation"]["scale"])
+    assert actual_bits == scale_bits, (path, actual_bits.hex())
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, json.dumps(snapshot)],
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    if result.returncode == 77:
+        pytest.skip("CPU flush-to-zero mode unavailable")
     assert result.returncode == 0, result.stdout + result.stderr
 
 
@@ -668,6 +713,25 @@ def test_provenance_requires_explicit_supported_identity(change):
         H3PackedLayout(**inputs)
 
 
+def test_provenance_rejects_a_circular_reference():
+    inputs = hand_inputs()
+    preparation = inputs["provenance"]["preparation"]
+    preparation["nested"] = [preparation]
+    with pytest.raises(H3PackedLayoutError, match="provenance: circular reference"):
+        H3PackedLayout(**inputs)
+
+
+def test_provenance_validates_the_text_of_a_task_family():
+    class TaskAlias(str):
+        def __eq__(self, other):
+            return True
+
+    inputs = hand_inputs()
+    inputs["provenance"]["task_family"] = TaskAlias("unsupported")
+    with pytest.raises(H3PackedLayoutError, match=r"^provenance\.task_family:"):
+        H3PackedLayout(**inputs)
+
+
 @pytest.mark.parametrize(
     "perm",
     [
@@ -701,6 +765,17 @@ def test_named_permutation_is_rejected_without_changing_original():
 def test_identity_address_errors(row, batch):
     with pytest.raises(H3PackedLayoutError, match="packed_row|batch_index"):
         H3PackedLayout(**hand_inputs()).row_identity(row, batch_index=batch)
+
+
+def test_snapshot_rejects_bytes_for_hex_data():
+    snapshot = H3PackedLayout(**hand_inputs()).to_dict()
+    field = snapshot["tensors"]["position_ids"]
+    field["data_le_hex"] = field["data_le_hex"].encode("ascii")
+    with pytest.raises(
+        H3PackedLayoutError,
+        match=r"^snapshot\.tensors\.position_ids\.data_le_hex: expected a hex string$",
+    ):
+        H3PackedLayout.from_dict(snapshot)
 
 
 @pytest.mark.parametrize(
