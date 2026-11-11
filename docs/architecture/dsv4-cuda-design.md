@@ -655,20 +655,23 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 - [x] Performance table: per-operator overhead against the non-invariant path; anything above
       1.3x goes to Phase 5. Table: `docs/operators/dsv4-performance.md` (2026-11-11): every
       measured operator is within 1.3x (closest: `mhc_pre` 1.09-1.18x, router 1.03-1.22x).
-      The attention q side is 0.80-1.14x of vLLM; the output projection is 1.45-1.53x at
-      T <= 64 (Phase 5). Open: the whole attention layer against vLLM's
+      The attention q side is 0.80-1.14x of vLLM; the output projection was 1.45-1.53x at
+      T <= 64 (Phase 5, now 0.77-1.06x). Open: the whole attention layer against vLLM's
 
 ### Phase 5 - performance debt
 
-- [ ] Operators that exceeded the Phase 4 performance table:
-  - [ ] Attention output projection at decode sizes: 56 us against vLLM's 37 us at T = 1
+- [x] Operators that exceeded the Phase 4 performance table:
+  - [x] Attention output projection at decode sizes: was 56 us against vLLM's 37 us at T = 1
         (1.45-1.53x at T <= 64; 82 us before the per-group `wo_a` GEMMs moved to side
-        streams). Candidates:
-        - Probe whether DeepGEMM's batched `fp8_einsum` (vLLM's default; equal bytes at
-          T <= 64) is batch-invariant below a threshold. It needs A as `[T, G, K]`.
-        - A fused small-M grouped kernel.
-        - DeepGEMM `m_grouped_fp8_gemm_nt_masked` is ruled out: it intermittently returned
-          wrong values on these operands (`scripts/probe_dsv4_wo_a_grouped.py`).
+        streams).
+        - `wo_a` is now one DeepGEMM `fp8_einsum('bhr,hdr->bhd')` below 8192 tokens
+          (vLLM's call; SM90 `sm90_fp8_bmm`). Above that it is the per-group
+          `fp8_gemm_nt`, which is faster there.
+        - Both give the same bytes at every T = 1..16384, five repeats each
+          (`scripts/probe_dsv4_wo_a_einsum.py`), so the layer stays batch-invariant.
+        - H200: 0.77-1.06x of vLLM (39 vs 37 us at T = 1).
+        - DeepGEMM `m_grouped_fp8_gemm_nt_masked` stays ruled out: it intermittently
+          returned wrong values on these operands (`scripts/probe_dsv4_wo_a_grouped.py`).
 - [x] P5 routed forward at large M, previously 2.2x the BF16 cuBLAS loop at 32768 rows:
       - Root cause: the consumer loop issued WGMMAs inside index-dependent branches, so
         ptxas serialized every WGMMA (C7518). The loop is now straight-line.

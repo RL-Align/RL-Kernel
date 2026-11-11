@@ -111,6 +111,14 @@ def test_output_projection_composition_and_batch_invariance():
     for lo, hi in ((0, 1), (5, 6), (100, 229), (299, 300)):
         sub = proj(o[lo:hi].contiguous(), pos[lo:hi].contiguous(), cs)
         assert torch.equal(sub.view(torch.int16), y[lo:hi].view(torch.int16)), (lo, hi)
+    # Large T runs wo_a as per-group GEMMs instead of one fp8_einsum: same bytes.
+    proj.EINSUM_MAX_TOKENS = 1
+    try:
+        for lo, hi in ((0, 300), (5, 6)):
+            sub = proj(o[lo:hi].contiguous(), pos[lo:hi].contiguous(), cs)
+            assert torch.equal(sub.view(torch.int16), y[lo:hi].view(torch.int16)), (lo, hi)
+    finally:
+        del proj.EINSUM_MAX_TOKENS
     # Accuracy against FP32 math on the dequantized weights.
     x = o.float()
     half = cs[pos][:, None, :32]

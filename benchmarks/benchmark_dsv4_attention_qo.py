@@ -5,10 +5,10 @@
 - q side: our ``q_norm_rope_kv_insert`` against vLLM's
   ``fused_deepseek_v4_qnorm_rope_kv_rope_quant_insert`` (same work: per-head q RMSNorm + RoPE,
   kv RoPE + fp8_ds_mla insert).
-- o side: our ``OutputProjection`` (inverse RoPE + FP8, 8 per-group DeepGEMM ``fp8_gemm_nt``
-  for ``wo_a``, then ``wo_b``) against vLLM's ``fused_inv_rope_fp8_quant`` + batched DeepGEMM
-  ``fp8_einsum`` + the same ``wo_b``. vLLM's batch-invariant mode on SM90 runs ``wo_a`` per
-  group too (Triton); its default runs the batched einsum.
+- o side: our ``OutputProjection`` (inverse RoPE + FP8; ``wo_a`` as one DeepGEMM
+  ``fp8_einsum`` below 8192 tokens, per-group ``fp8_gemm_nt`` above, same bytes; then
+  ``wo_b``) against vLLM's ``fused_inv_rope_fp8_quant`` + batched DeepGEMM ``fp8_einsum`` +
+  the same ``wo_b``.
 
 CUDA-graph replay, median, microseconds. Needs the vLLM fork in the environment.
 
@@ -88,7 +88,7 @@ def main() -> None:
 
     print("H200, microseconds (CUDA-graph replay, median); ratio = ours / vLLM default")
     print("     T |  q ours  q vLLM ratio |   o ours   o vLLM ratio | o rel diff")
-    for t in (1, 64, 1024, 4096, 16384):
+    for t in (1, 8, 64, 256, 1024, 4096, 8192, 16384):
         pos = torch.randint(MAX_POS, (t,), generator=g, device="cuda")
         q = torch.randn(t, HEADS, HEAD_DIM, generator=g, device="cuda").bfloat16()
         kv = torch.randn(t, HEAD_DIM, generator=g, device="cuda").bfloat16()

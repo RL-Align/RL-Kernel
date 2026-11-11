@@ -315,20 +315,21 @@ class OutputProjection:
     """``wo_b(wo_a_grouped(inv_rope_fp8(o)))`` on DeepGEMM FP8 (forward).
 
     ``wo_a``: FP8 ``[groups * o_lora_rank, heads_per_group * 512]`` with 128x128
-    block scales (checkpoint layout); each group is one ``fp8_gemm_nt`` (the
-    ``wo_a_group`` shape the Phase 1 probe found batch-invariant). ``wo_b`` is an
-    :class:`Fp8Linear` ``[hidden, groups * o_lora_rank]``.
+    block scales (checkpoint layout). ``wo_b`` is an :class:`Fp8Linear`
+    ``[hidden, groups * o_lora_rank]``.
 
-    Below ``CONCURRENT_MAX_TOKENS`` the per-group GEMMs run on their own side streams
-    (fork / join, CUDA-graph capturable). A small-M group GEMM launches only N / 128 = 8
-    CTAs, so issuing the 8 groups one after another left the GPU mostly idle (about 2.2x
-    vLLM's batched ``fp8_einsum`` at decode sizes). The kernels and their bytes are
-    unchanged. DeepGEMM's single-launch ``m_grouped_fp8_gemm_nt_masked`` was probed for
-    this and rejected: on these operands it intermittently returned wrong values
+    Below ``EINSUM_MAX_TOKENS`` the grouped ``wo_a`` is one DeepGEMM
+    ``fp8_einsum('bhr,hdr->bhd')`` launch (vLLM's path; SM90 ``sm90_fp8_bmm``), which
+    writes ``z`` in its final ``[T, groups * rank]`` layout. From there up it is one
+    ``fp8_gemm_nt`` per group (the ``wo_a_group`` shape the Phase 1 probe found
+    batch-invariant), which is faster at large T. Both give the same bytes at every T
+    (``scripts/probe_dsv4_wo_a_einsum.py``: T = 1..16384, repeated), so the switch keeps
+    the layer batch-invariant. DeepGEMM's ``m_grouped_fp8_gemm_nt_masked`` is not used:
+    on these operands it intermittently returned wrong values
     (``scripts/probe_dsv4_wo_a_grouped.py``).
     """
 
-    CONCURRENT_MAX_TOKENS = 2048
+    EINSUM_MAX_TOKENS = 8192
 
     def __init__(self, wo_a: Fp8BlockWeight, wo_b: Fp8Linear, groups: int) -> None:
         self._dg, _ = require_deepgemm(wo_a.q.device)
@@ -342,23 +343,27 @@ class OutputProjection:
             )
             for g in range(groups)
         ]
+        q, sc = wo_a.q.contiguous(), wo_a.scale.contiguous()
+        self._wo_a3 = (q.view(groups, rank, -1), sc.view(groups, rank // 128, -1))
         self.wo_b = wo_b
-        self._streams: list | None = None
 
-    def _group_gemms(self, a: Tensor, scales: Tensor, z: Tensor) -> None:
-        if a.shape[1] >= self.CONCURRENT_MAX_TOKENS:
-            for g, w in enumerate(self.wo_a):
-                self._dg.fp8_gemm_nt((a[g], scales[g]), w.pair(), z[g], disable_ue8m0_cast=True)
-            return
-        if self._streams is None:
-            self._streams = [torch.cuda.Stream(device=a.device) for _ in self.wo_a]
-        main = torch.cuda.current_stream(a.device)
-        for g, (w, stream) in enumerate(zip(self.wo_a, self._streams)):
-            stream.wait_stream(main)
-            with torch.cuda.stream(stream):
-                self._dg.fp8_gemm_nt((a[g], scales[g]), w.pair(), z[g], disable_ue8m0_cast=True)
-        for stream in self._streams:
-            main.wait_stream(stream)
+    def _wo_a(self, a: Tensor, scales: Tensor) -> Tensor:
+        """``a`` FP8 ``[G, T, K]``, ``scales`` ``[G, T, K/128]`` -> ``z`` BF16 ``[T, G * rank]``."""
+        tokens = a.shape[1]
+        if tokens < self.EINSUM_MAX_TOKENS:
+            z = torch.empty(
+                tokens, self.groups, self.o_lora_rank, dtype=torch.bfloat16, device=a.device
+            )
+            self._dg.fp8_einsum(
+                "bhr,hdr->bhd", (a.permute(1, 0, 2), scales.permute(1, 0, 2)), self._wo_a3, z
+            )
+            return z.view(tokens, -1)
+        z = torch.empty(
+            self.groups, tokens, self.o_lora_rank, dtype=torch.bfloat16, device=a.device
+        )
+        for g, w in enumerate(self.wo_a):
+            self._dg.fp8_gemm_nt((a[g], scales[g]), w.pair(), z[g], disable_ue8m0_cast=True)
+        return z.transpose(0, 1).reshape(tokens, -1)
 
     def __call__(
         self, o: Tensor, positions: Tensor, cos_sin_cache: Tensor, lora=None, saved=None
@@ -367,12 +372,12 @@ class OutputProjection:
         ``saved``: a dict that receives ``wo_b``'s input ``z`` for the backward."""
         tokens = o.shape[0]
         a, scales = inv_rope_fp8(o, positions, cos_sin_cache, self.groups)
-        z = torch.empty(
-            self.groups, tokens, self.o_lora_rank, dtype=torch.bfloat16, device=o.device
-        )
         if tokens:
-            self._group_gemms(a, scales, z)
-        z = z.transpose(0, 1).reshape(tokens, -1)
+            z = self._wo_a(a, scales)
+        else:
+            z = torch.empty(
+                0, self.groups * self.o_lora_rank, dtype=torch.bfloat16, device=o.device
+            )
         y = self.wo_b(z)
         if lora is not None:
             from rl_engine.models.deepseek_v4.lora import lora_apply
