@@ -425,7 +425,16 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
           (window / C4 / C128), against a forward of 1.7 / 3.1 / 2.4 ms.
         - The kernel moved from scalar to 16-byte loads (2.34 ms to 0.44 ms).
         - The rest is the FP8 dgrads, cuDNN (0.56-1.59 ms) and the compressor backward.
-  - [ ] A2 (compressor): the main / indexer compressor backward is still PyTorch
+  - [x] A2 (compressor): one kernel `dsv4_compressor_backward` (same file), one block per
+        compressed entry: the window's gated softmax pooling (online softmax over slot
+        groups), `comp_norm` RMSNorm backward and RoPE transpose. It writes `d [wkv | wgate]`
+        in BF16 for the existing `wkv_wgate` dgrad GEMM.
+        - Only the main KV compressor needs a backward: the indexer's selection is a
+          constant, so its compressor gets no gradient.
+        - Against the PyTorch reference (`_compressor_backward_reference`): rel 2e-7 to
+          1e-5; against FP32 autograd: rel 1.6e-3 (C4 and C128).
+        - Backward for one 4096-token request: C4 5.2 to 4.8 ms, C128 4.5 to 4.0 ms
+          (window 2.7 ms unchanged). The kernel is under 0.16 ms.
   - [x] MoE LoRA (`docs/operators/dsv4-moe.md`, "LoRA").
         - Adapters: routed `fc1` / `fc2` shared by all experts (Megatron default
           `share_expert_adapters=True`, EP = 1) and shared-expert `fc1` / `fc2`.

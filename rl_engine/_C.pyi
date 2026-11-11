@@ -592,6 +592,17 @@ def dsv4_norm_rope_backward(
     out: torch.Tensor,
     out_heads: int,
 ) -> None: ...
+def dsv4_compressor_backward(
+    score: torch.Tensor,
+    ape: torch.Tensor,
+    d_src: torch.Tensor,
+    meta: torch.Tensor,
+    norm_w: torch.Tensor,
+    cos_sin: torch.Tensor,
+    ratio: int,
+    eps: float,
+    d_score: torch.Tensor,
+) -> None: ...
 def moe_swiglu_quant(
     z: torch.Tensor,
     p_s: torch.Tensor,

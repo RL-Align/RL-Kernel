@@ -169,7 +169,8 @@ against FP32 autograd in its own tests.
 ## Limitations
 
 - The training forward / backward covers full-prefill batches only.
-- Attention backward, one 4096-token request: 1.6-1.9x the forward. The compressor
-  backward is still PyTorch.
+- Attention backward, one 4096-token request: 1.5-1.6x the forward (2.7 / 4.8 / 4.0 ms for
+  window / C4 / C128). cuDNN's sparse attention backward takes 0.5-1.6 ms of it; the
+  rest is the FP8 dgrads and the fused row kernels.
 - The MoE block syncs with the host (the MXFP8 finite check; with EP, the split sizes), so
   a full decode step is not CUDA-graph capturable yet. The attention layer alone is.

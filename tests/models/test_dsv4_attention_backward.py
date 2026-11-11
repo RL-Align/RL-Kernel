@@ -213,22 +213,30 @@ def test_small_backward_pieces_match_autograd():
         assert torch.allclose(fn(dyf, cos, sin), xr.grad, rtol=1e-5, atol=1e-5)
 
 
+@pytest.mark.parametrize("lens", [[300, 260], [3, 130]])
 @pytest.mark.parametrize("ratio", [4, 128])
-def test_compressor_backward_matches_autograd(ratio):
+def test_compressor_backward_matches_autograd(ratio, lens):
     """The compressor alone: entries' gradients -> dL/dhidden."""
     from rl_engine.models.deepseek_v4.attention import Dsv4Batch
-    from rl_engine.models.deepseek_v4.attention_backward import _compressor_backward
+    from rl_engine.models.deepseek_v4.attention_backward import (
+        _compressor_backward,
+        _compressor_backward_reference,
+    )
 
     attn = _layer(ratio)
     c, w = attn.c, attn.w
-    lens = [300, 260]
     batch = Dsv4Batch.from_lens(lens, lens, c.window)
     g = torch.Generator(device="cuda").manual_seed(5)
     h = torch.randn(sum(lens), c.hidden, generator=g, device="cuda").bfloat16()
     d_entries = [
         torch.randn(n // ratio, c.head_dim, generator=g, device="cuda").bfloat16() for n in lens
     ]
-    got = _compressor_backward(attn, h, batch, d_entries)
+    bases = [0, lens[0] // ratio]
+    got = _compressor_backward(attn, h, batch, torch.cat(d_entries), bases)
+    ref = _compressor_backward_reference(attn, h, batch, d_entries)
+    # Same math; only the softmax / reduction order and the BF16 d_score rounding differ.
+    rel_ref = float((got - ref).norm() / ref.norm())
+    assert rel_ref < 5e-3, rel_ref
 
     x = h.float().requires_grad_(True)
     pos = batch.positions.long()
@@ -255,6 +263,7 @@ def test_compressor_backward_matches_autograd(ratio):
         start += length
     loss.backward()
     rel = float((got - x.grad).norm() / x.grad.norm())
+    print(f"ratio {ratio}: vs reference {rel_ref:.2e}, vs FP32 autograd {rel:.2e}")
     assert rel < 2e-2, rel
 
 

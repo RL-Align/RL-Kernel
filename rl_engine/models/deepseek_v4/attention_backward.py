@@ -29,9 +29,10 @@ Backward order, for dy -> dh:
 (``rl_engine/kernels/ops/cuda/dsa_backward.py``; the user does not require a deterministic
 backward). Everything else here is gathers and row-local FP32 math. The o / q / kv /
 q_norm steps (RoPE transposes and RMSNorm backwards) run in one fused kernel,
-``csrc/cuda/attention/dsv4_attn_bwd.cu`` (``_norm_rope_bwd``). The compressor backward is
-still PyTorch. The PyTorch helpers below (``rope_transpose``, ``rms_norm_backward``) are its
-reference and the compressor's.
+``csrc/cuda/attention/dsv4_attn_bwd.cu`` (``_norm_rope_bwd``); the compressor backward
+(pooling softmax, comp_norm, RoPE) is one kernel in the same file
+(``_compressor_backward``). The PyTorch helpers below (``rope_transpose``,
+``rms_norm_backward``, ``_compressor_backward_reference``) are their references.
 """
 
 from __future__ import annotations
@@ -128,8 +129,51 @@ def _wo_a_linears(o_proj) -> list[Fp8Linear]:
     return lin
 
 
-def _compressor_backward(attn, hidden: Tensor, batch, d_entries: list[Tensor]) -> Tensor:
-    """``dL/dhidden`` FP32 through the main-KV compressor from each request's entry grads."""
+def _compressor_backward(attn, hidden: Tensor, batch, d_src: Tensor, src_base: list[int]) -> Tensor:
+    """``dL/dhidden`` FP32 through the main-KV compressor (``_C.dsv4_compressor_backward``).
+
+    Request ``b``'s entry ``e`` has its gradient in row ``src_base[b] + e`` of ``d_src``
+    (BF16 / FP32 ``[*, 512]``). The kernel writes ``d [wkv | wgate]`` (BF16) for every
+    token row an entry covers; one BF16 GEMM against ``wkv_wgate`` gives ``dL/dhidden``.
+    """
+    import importlib
+
+    from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+    from rl_engine.models.deepseek_v4.attention import _bf16_gemm
+
+    c, w = attn.c, attn.w
+    ratio = c.compress_ratio
+    tokens = hidden.shape[0]
+    out = torch.empty(tokens, hidden.shape[1], dtype=torch.float32, device=hidden.device)
+    if tokens == 0:
+        return out
+    meta, start = [], 0
+    for b, length in enumerate(batch.seq_lens.tolist()):
+        meta += [(src_base[b] + e, start, e) for e in range(length // ratio)]
+        start += length
+    score = _bf16_gemm(hidden, w.wkv_wgate, torch.float32)  # [T, 2 * width]
+    d_score = torch.zeros(score.shape, dtype=torch.bfloat16, device=hidden.device)
+    if meta:
+        ext = importlib.import_module("rl_engine._C")
+        ext.dsv4_compressor_backward(
+            score,
+            w.ape,
+            d_src,
+            torch.tensor(meta, dtype=torch.int64).to(hidden.device, non_blocking=True),
+            w.comp_norm.float().contiguous(),
+            attn.cos_sin,
+            ratio,
+            float(c.eps),
+            d_score,
+        )
+    dg, _ = require_deepgemm(hidden.device)
+    dg.bf16_gemm_nn(d_score, w.wkv_wgate.contiguous(), out)
+    return out
+
+
+def _compressor_backward_reference(attn, hidden: Tensor, batch, d_entries: list[Tensor]) -> Tensor:
+    """PyTorch reference of :func:`_compressor_backward` (``d_entries[b]``: request ``b``'s
+    entry gradients)."""
     from rl_engine.models.deepseek_v4.attention import _bf16_gemm
 
     c, w = attn.c, attn.w
@@ -317,11 +361,8 @@ def attention_backward(attn, hidden: Tensor, batch, saved: dict, dy: Tensor):
 
     # Compressor: compressed rows of the workspace -> entries.
     if ratio > 1:
-        d_entries = []
-        for b, length in enumerate(batch.seq_lens.tolist()):
-            n = length // ratio
-            d_entries.append(d_ws[b * slab : b * slab + n])
-        dh = dh + _compressor_backward(attn, hidden, batch, d_entries)
+        bases = [b * slab for b in range(batch.seq_lens.shape[0])]
+        dh = dh + _compressor_backward(attn, hidden, batch, d_ws.view(-1, d), bases)
     return dh.to(hidden.dtype), grads
 
 

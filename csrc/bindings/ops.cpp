@@ -629,6 +629,9 @@ void dsv4_norm_rope_backward(torch::Tensor dy, c10::optional<torch::Tensor> src_
                              c10::optional<torch::Tensor> positions, int64_t heads,
                              c10::optional<torch::Tensor> cos_sin, int64_t rope_sign, bool norm,
                              double eps, int64_t rows, torch::Tensor out, int64_t out_heads);
+void dsv4_compressor_backward(torch::Tensor score, torch::Tensor ape, torch::Tensor d_src,
+                              torch::Tensor meta, torch::Tensor norm_w, torch::Tensor cos_sin,
+                              int64_t ratio, double eps, torch::Tensor d_score);
 // P5 routed experts: standalone clamp-SwiGLU * p_s -> MXFP8 (csrc/cuda/moe/moe_swiglu_quant.cu)
 std::vector<torch::Tensor> moe_swiglu_quant(torch::Tensor z, torch::Tensor p_s,
                                             c10::optional<torch::Tensor> z_add,
@@ -715,6 +718,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("dy"), py::arg("src_rows"), py::arg("x"), py::arg("w"), py::arg("positions"),
           py::arg("heads"), py::arg("cos_sin"), py::arg("rope_sign"), py::arg("norm"),
           py::arg("eps"), py::arg("rows"), py::arg("out"), py::arg("out_heads"));
+    m.def("dsv4_compressor_backward", &dsv4_compressor_backward,
+          "DSv4 attention backward: main KV compressor, entry grads -> d [wkv | wgate] score",
+          py::arg("score"), py::arg("ape"), py::arg("d_src"), py::arg("meta"), py::arg("norm_w"),
+          py::arg("cos_sin"), py::arg("ratio"), py::arg("eps"), py::arg("d_score"));
     m.def("moe_swiglu_quant", &moe_swiglu_quant,
           "P5 routed experts: FP32 z -> clamp-SwiGLU * p_s -> (MXFP8 codes, scales, BF16 h), "
           "byte-equal to the fused fc1 epilogue; optional per-token z_add (LoRA fc1 delta)",
