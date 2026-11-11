@@ -405,6 +405,23 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       as in vLLM's FlashMLA backend, the window runs through the same FlashMLA sparse kernel
       (window positions appended to each query's index list; sliding-window-only layers have
       no compressed part), covered by the T05 / T07 tests for ratio 1
+- [ ] Attention backward for LoRA training (`docs/architecture/dsv4-attention-backward-proposal.md`).
+      **Not deterministic yet (user decision 2026-11-11): cuDNN's dKV uses FP32 atomics.**
+  - [x] A1: cuDNN-frontend `dsa_bwd_sm90` wrapper (`rl_engine/kernels/ops/cuda/dsa_backward.py`,
+        pinned 1.31.0); dq / dkv vs FP32 autograd; dq bitwise run to run
+  - [x] A0 + A4 (first version): `rl_engine/models/deepseek_v4/attention_backward.py`
+        (`attention_train` / `Dsv4AttentionFunction`). The forward is the BI layer, so its
+        bytes equal recompute; the backward is written out with straight-through FP8 and
+        frozen weights, for full-prefill batches. dL/dhidden against an FP32 autograd
+        rebuild of the layer: rel L2 7.3-7.8%, cosine 0.997 (window / C4 / C128; the forward
+        itself is 6.7-6.9% from FP32). The norm, RoPE and compressor pieces match autograd
+        separately. H200, one 4096-token request: backward 7.7 / 9.9 / 8.9 ms (window / C4 /
+        C128) against a forward of 1.7 / 3.0 / 2.1 ms. The cuDNN kernel is 0.6-1.6 ms of
+        it; the rest is PyTorch glue on `[T, 64, 512]` FP32 tensors
+  - [ ] A2: fused CUDA kernels for the q / kv / o-side and compressor backward (replace the
+        PyTorch glue)
+  - [ ] A3: LoRA adapters on the attention projections (forward delta + dA / dB / dX)
+  - [ ] B1: deterministic dKV (int64 fixed-point fork of `dsa_bwd_sm90`)
 - [x] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x).
       `rl_engine/models/deepseek_v4/attention.py` (`Dsv4Attention`, forward only) composes the
       byte-verified operators (FP8 / BF16 DeepGEMM projections, P1 RMSNorm, q / KV kernel,

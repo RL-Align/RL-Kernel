@@ -5,7 +5,9 @@ Status (2026-11-11): the user chose to build the backward **non-deterministic fi
 A1 is done: `rl_engine/kernels/ops/cuda/dsa_backward.py` wraps cuDNN-frontend 1.31.0
 `dsa_bwd_sm90` (pinned, fail-closed). `tests/ops/attention_dsv4/test_sparse_backward.py`
 checks dq / dkv against FP32 autograd; dq is bitwise run to run, and about 15 dkv entries
-differ between runs. The rest of Section 5 is open. Original status: proposal awaiting the
+differ between runs. A0 + A4 have a first version in
+`rl_engine/models/deepseek_v4/attention_backward.py`, with PyTorch for the small steps; see
+the design doc's Phase 2 for numbers. The rest of Section 5 is open. Original status: proposal awaiting the
 user's decisions (Section 5), 2026-11-11. It comes from source
 reading only; no GPU runs. Items marked **[unverified]** are inferences from source reading or
 arithmetic, not measurements.

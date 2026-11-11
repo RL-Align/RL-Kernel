@@ -208,12 +208,16 @@ class Dsv4Attention:
         )
         return self.forward_batch(hidden, batch, caches)
 
-    def forward_batch(self, hidden: Tensor, batch: Dsv4Batch, caches: LayerCaches) -> Tensor:
+    def forward_batch(
+        self, hidden: Tensor, batch: Dsv4Batch, caches: LayerCaches, saved: dict | None = None
+    ) -> Tensor:
         """``hidden`` BF16 ``[T, hidden]``, tokens grouped by request in ascending position.
 
         Decode steps (one token per request) use the paged indexer and a per-token
         workspace; other steps use packed indexer entries and per-request slabs.
         Both give the same bytes for the same token. Returns BF16 ``[T, hidden]``.
+        With ``saved`` (a dict), the intermediates the backward needs are stored in it
+        (``attention_backward.py``); the output bytes do not change.
         """
         c, w = self.c, self.w
         ratio = c.compress_ratio
@@ -226,6 +230,8 @@ class Dsv4Attention:
         qr = self._rmsnorm(qr_kv[:, : c.q_lora_rank].contiguous(), w.q_norm, c.eps)
         kv = self._rmsnorm(qr_kv[:, c.q_lora_rank :].contiguous(), w.kv_norm, c.eps)
         q = w.wq_b(qr).view(tokens, c.heads, c.head_dim)
+        if saved is not None:
+            saved.update(qr_kv=qr_kv, q=q)
         swa_slots = _slots(caches.swa_table, req, positions, KV_BLOCK)
         q_pad = core.q_norm_rope_kv_insert(
             q, kv, positions, self.cos_sin, caches.swa, KV_BLOCK, swa_slots, c.padded_heads, c.eps
@@ -303,7 +309,9 @@ class Dsv4Attention:
                 top_k,
                 topk,
             )
-        out, _ = core.sparse_attention(q_pad, ws, idx, lens, w.attn_sink, self.scale)
+        out, lse = core.sparse_attention(q_pad, ws, idx, lens, w.attn_sink, self.scale)
+        if saved is not None:
+            saved.update(q_pad=q_pad, ws=ws, idx=idx, lens=lens, out=out, lse=lse)
         return w.o_proj(out[:, : c.heads], positions, self.cos_sin)
 
     def _indexer(self, hidden, qr, batch: Dsv4Batch, req, req32, caches) -> Tensor:
