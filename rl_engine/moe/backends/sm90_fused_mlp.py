@@ -96,7 +96,7 @@ class Sm90FusedMoeMlp:
         pre-expansion (forward and backward) on / off. Same bytes either way."""
         self._ext = _extension()
         self._preexpand = preexpand
-        self._cache: dict[tuple[int, int], PreparedWeight] = {}
+        self._cache: dict[tuple, Any] = {}  # (weights id, kind) -> PreparedWeight or a flag
 
     # ------------------------------------------------------------ metadata
     def capabilities(self) -> dict[str, Any]:

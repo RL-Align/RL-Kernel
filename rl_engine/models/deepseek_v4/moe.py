@@ -39,6 +39,7 @@ the slot-ordered fan-in plus the shared expert's ``dx``, plus the router's ``dx`
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import torch
 import torch.distributed as dist
@@ -149,16 +150,16 @@ class Dsv4MoE:
     # Checkpoint FP8 shared expert (used instead of shared_fc1 / shared_fc2):
     # ``((q [2F_s, H], scale), (q [H, F_s], scale))``, 128x128 FP32 block scales.
     shared_fp8: tuple | None = None
-    ep_group: object = None  # torch.distributed process group; None = EP 1
+    ep_group: Any = None  # torch.distributed process group; None = EP 1
     # MXFP8 quant fail-closed check: True reads the flag back (one host sync per call);
     # "defer" ORs it into ``nonfinite`` on the device (CUDA-graph capturable; the caller
     # checks it, ``Dsv4Model.raise_if_nonfinite``); False skips it.
     check_finite: bool | str = True
     nonfinite: Tensor | None = None  # int32 [1], with check_finite == "defer"
-    lora: object = None  # MoeLora (lora.py): routed fc1 / fc2 and shared-expert adapters
-    _routed: object = field(default=None, init=False, repr=False)
-    _shared: object = field(default=None, init=False, repr=False)
-    _shared_w: object = field(default=None, init=False, repr=False)
+    lora: Any = None  # MoeLora (lora.py): routed fc1 / fc2 and shared-expert adapters
+    _routed: Any = field(default=None, init=False, repr=False)
+    _shared: Any = field(default=None, init=False, repr=False)
+    _shared_w: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._routed = _routed_backend()
@@ -404,6 +405,7 @@ class Dsv4MoE:
         dx_tokens = None
         if lo.fc1 is not None:
             ad, x = lo.fc1, ls["x"]
+            assert du_rows is not None  # the fc1 adapter returns du
             if du_rows.shape[0]:
                 du_tok = du_rows[ls["inv"]].sum(dim=1)  # [T, r], slot order
             else:

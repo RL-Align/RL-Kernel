@@ -8,7 +8,7 @@ from typing import Any
 
 import torch
 
-from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.moe.contract import ORACLE_PROFILE
 from rl_engine.moe.provider import ReferenceProvider
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import torch
 
-from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
 
 def _require_mhc_extension() -> None:

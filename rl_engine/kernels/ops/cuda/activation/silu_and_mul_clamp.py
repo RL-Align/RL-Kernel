@@ -12,6 +12,7 @@ the compiled extension lacks the symbols.
 from __future__ import annotations
 
 import importlib
+from typing import Literal, overload
 
 import torch
 from torch import Tensor
@@ -40,6 +41,26 @@ def _bf16_2d(t: Tensor, name: str) -> Tensor:
         raise TypeError(f"{name} must be a 2-D BF16 CUDA tensor.")
     t = t.contiguous()
     return t.clone() if t.data_ptr() % 16 else t
+
+
+@overload
+def silu_and_mul_clamp_quant_cuda(
+    z: Tensor,
+    limit: float = ...,
+    *,
+    scale_ue8m0: bool = ...,
+    return_h: Literal[False] = ...,
+) -> tuple[Tensor, Tensor]: ...
+
+
+@overload
+def silu_and_mul_clamp_quant_cuda(
+    z: Tensor,
+    limit: float = ...,
+    *,
+    scale_ue8m0: bool = ...,
+    return_h: Literal[True],
+) -> tuple[Tensor, Tensor, Tensor]: ...
 
 
 def silu_and_mul_clamp_quant_cuda(

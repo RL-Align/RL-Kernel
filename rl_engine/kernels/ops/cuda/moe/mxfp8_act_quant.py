@@ -27,12 +27,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
-try:
-    import envs
-except ImportError:  # installed wheel: the repo-root envs.py is not shipped
-    envs = None
-
-from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.kernels.ops.moe_common import (
     finalize_act_quant,
     validate_act_quant_input,
@@ -55,11 +50,13 @@ def _aot_available() -> bool:
 
 
 def _jit_load() -> Any:
-    require_ext = (
-        envs.env_flag(envs.RL_KERNEL_REQUIRE_EXT)
-        if envs is not None
-        else os.environ.get("RL_KERNEL_REQUIRE_EXT") == "1"
-    )
+    # Same parsing as build_tools.envs.env_flag (not shipped in the wheel).
+    require_ext = os.environ.get("RL_KERNEL_REQUIRE_EXT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     if require_ext:
         raise RuntimeError(
             "CUDA mxfp8_act_quant requires the compiled rl_engine._C extension "

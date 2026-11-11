@@ -26,6 +26,7 @@ dimensions or on the first layers of a real one.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -122,7 +123,8 @@ def rollout_schedule(
 
 def _collect(model, ids, steps, lengths, seed, *, train=False) -> Trace:
     eng = _Engine(model, ids, seed)
-    outs, layers = [], [[] for _ in model.layers]
+    outs: list[Tensor] = []
+    layers: list[list[Tensor]] = [[] for _ in model.layers]
     for parts in steps:
         if train:
             with torch.enable_grad():
@@ -136,13 +138,14 @@ def _collect(model, ids, steps, lengths, seed, *, train=False) -> Trace:
     where = _canonical(lengths, steps).to(model.embed.device)
     trace = Trace(streams=[torch.cat(acc)[where] for acc in layers], hidden=torch.cat(outs)[where])
     if model.head is not None:
-        keep, targets, base = [], [], 0
+        rows, targets, base = [], [], 0
         for r, n in enumerate(lengths):
-            keep.append(torch.arange(base, base + n - 1))
+            rows.append(torch.arange(base, base + n - 1))
             targets.append(ids[r][1:n])
             base += n
-        keep = torch.cat(keep).to(model.embed.device)
-        trace.logp = model.selected_logprob(trace.hidden[keep], torch.cat(targets))[0]
+        keep = torch.cat(rows).to(model.embed.device)
+        hidden = torch.cat(outs)[where]
+        trace.logp = model.selected_logprob(hidden[keep], torch.cat(targets))[0]
     return trace
 
 
@@ -168,6 +171,7 @@ def run_packed(model, ids, order=None, seed=2, *, train=False) -> Trace:
     idx = torch.cat(
         [torch.arange(starts[pos[r]], starts[pos[r]] + lengths[r]) for r in range(len(ids))]
     ).to(model.embed.device)
+    assert t.hidden is not None
     out = Trace(streams=[s[idx] for s in t.streams], hidden=t.hidden[idx])
     if t.logp is not None:
         lstarts, b = [], 0
@@ -210,7 +214,7 @@ def layerwise_gate(
 ) -> dict:
     """Rollout against actor recompute (and the training forward): the gate report."""
     rollout = run_rollout(model, ids, prompt_lens, token_budget)
-    report = {"tokens": sum(len(x) for x in ids), "requests": len(ids)}
+    report: dict[str, Any] = {"tokens": sum(len(x) for x in ids), "requests": len(ids)}
     report["actor"] = compare(rollout, run_packed(model, ids))
     if train:
         report["train"] = compare(rollout, run_packed(model, ids, seed=3, train=True))

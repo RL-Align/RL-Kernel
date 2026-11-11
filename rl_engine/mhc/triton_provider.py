@@ -33,5 +33,5 @@ class TritonMHCProvider(ReferenceProvider):
         )
         return provenance
 
-    rmsnorm_residual_fwd = staticmethod(triton_rmsnorm_residual_fwd)
+    rmsnorm_residual_fwd = staticmethod(triton_rmsnorm_residual_fwd)  # type: ignore[assignment]
     rmsnorm_residual_bwd = staticmethod(triton_rmsnorm_residual_bwd)

@@ -118,7 +118,7 @@ class CudaSharedExpertProvider(_StrictSharedExpertProvider):
         for symbol in ("p5_strict_gemm", "p5_swiglu_shared_forward", "p5_swiglu_shared_backward"):
             if not hasattr(_C, symbol):
                 raise NotImplementedError(f"rl_engine._C lacks {symbol}; rebuild the extension")
-        self._ext = _C
+        self._ext: Any = _C  # legacy P5 symbols; not in the current _C stub
 
     def _gemm(self, a: torch.Tensor, b: torch.Tensor, trans_b: bool) -> torch.Tensor:
         return self._ext.p5_strict_gemm(a, b, trans_b)
@@ -252,7 +252,7 @@ class CudaFusedSharedExpertProvider(_StrictSharedExpertProvider):
         for symbol in ("fused_shared_expert_fc1_swiglu", "det_gemm_fwd_rhs_transposed"):
             if not hasattr(_C, symbol):
                 raise NotImplementedError(f"rl_engine._C lacks {symbol}; rebuild the extension")
-        self._ext = _C
+        self._ext: Any = _C  # legacy P5 symbols; not in the current _C stub
 
     def _gemm(self, a: torch.Tensor, b: torch.Tensor, trans_b: bool) -> torch.Tensor:
         # Only fc2 reaches this; see CudaDetSharedExpertProvider for why the

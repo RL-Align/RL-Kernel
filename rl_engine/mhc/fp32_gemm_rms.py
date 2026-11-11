@@ -45,7 +45,7 @@ def _cuda_ext() -> Any:
     global _CUDA_EXT, _CUDA_EXT_ERROR
     if _CUDA_EXT is None and _CUDA_EXT_ERROR is None:
         try:
-            from rl_engine import _C_mhc  # noqa: PLC0415
+            from rl_engine import _C_mhc  # type: ignore[attr-defined]  # noqa: PLC0415
 
             _CUDA_EXT = _C_mhc
         except ImportError as exc:  # pragma: no cover - build-environment path

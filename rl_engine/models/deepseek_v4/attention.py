@@ -177,6 +177,7 @@ class Dsv4Batch:
 def _gather_indexer_k(caches: LayerCaches, batch: Dsv4Batch):
     """Pack each request's indexer entries (prefill): FP8 ``[E, 128]`` and FP32 scales ``[E]``."""
     slots = _slots(caches.idx_k_table, batch.idx_entry_req, batch.idx_entry_id, KV_BLOCK)
+    assert caches.idx_k is not None  # C4 layers only
     rows = caches.idx_k.view(caches.idx_k.shape[0], -1)
     stride = rows.stride(0)
     b, i = slots // KV_BLOCK, slots % KV_BLOCK
@@ -337,6 +338,7 @@ class Dsv4Attention:
         tokens = hidden.shape[0]
         positions = batch.positions
         weights = _bf16_gemm(hidden, w.idx_weights_proj, torch.bfloat16)
+        assert w.idx_wq_b is not None  # C4 layers only
         iq = w.idx_wq_b(qr).view(tokens, c.index_heads, c.index_head_dim)
         q8, w_out = indexer_q_rope_fp8_cuda(
             iq, positions, self.cos_sin, weights, c.index_head_dim**-0.5, c.index_heads**-0.5

@@ -99,9 +99,9 @@ class DeepGemmSharedExpertProvider(ReferenceProvider):
         self._capability = require_deepgemm()[1]
         Fp8GroupQuantCudaOp()  # fail closed without the quantizer
         cuda_swiglu._extension()  # fail closed without the SwiGLU kernels
-        self._det = None
+        self._det: Any = None
         if backward == "bf16_det_gemm":
-            from rl_engine.kernels.ops.base import _C, _EXT_AVAILABLE
+            from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
             if not _EXT_AVAILABLE or _C is None or not hasattr(_C, "det_gemm_fwd"):
                 raise NotImplementedError("rl_engine._C lacks det_gemm_fwd (fail-closed)")

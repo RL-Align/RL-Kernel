@@ -391,6 +391,7 @@ def _controller_backward(
     if dpost is not None:
         so = ctl["sig_post"]
         dlog.append((dpost * _c(POST_MULT, raw)) * (so * (one - so)))
+        assert dcomb is not None  # comes with dpost
         g = dcomb.float()
         for kind, m_in, d in reversed(ctl["steps"]):  # type: ignore[union-attr]
             g = _norm_backward(g, m_in, d, kind)

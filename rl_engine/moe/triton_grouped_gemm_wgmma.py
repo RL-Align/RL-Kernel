@@ -330,7 +330,8 @@ if triton is not None:
 
             acc = tl.zeros((BLOCK_M, BLOCK_K), tl.float32)
             for n_tile in range(tl.cdiv(N, BLOCK_N)):
-                valid_n = n_tile.to(tl.int64) * BLOCK_N + inner_n64 < N
+                n_off = n_tile.to(tl.int64)  # type: ignore[attr-defined]
+                valid_n = n_off * BLOCK_N + inner_n64 < N
                 dy = tl.load(
                     dy_ptrs,
                     mask=valid_m[:, None] & valid_n[None, :],

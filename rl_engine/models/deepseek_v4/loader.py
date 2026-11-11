@@ -342,9 +342,9 @@ def random_checkpoint(
             out[name], out[base + ".scale"] = q.q, q.scale.to(E8M0)
         elif dtype == torch.int8:
             n, k = shape[0], shape[1] * 2
-            q = mx_quantize(randn(n, k) / k**0.5, "e2m1")
-            out[name] = q.codes.view(torch.int8)
-            out[base + ".scale"] = q.scales.view(E8M0)
+            mx = mx_quantize(randn(n, k) / k**0.5, "e2m1")
+            out[name] = mx.codes.view(torch.int8)
+            out[base + ".scale"] = mx.scales.view(E8M0)
         elif name.endswith("tid2eid"):
             r = torch.rand(shape[0], c.n_routed_experts, generator=g, device=device)
             out[name] = r.argsort(dim=1)[:, : shape[1]].long()

@@ -182,7 +182,7 @@ class LoRADeltaTritonProvider(LoRADeltaProvider):
     numeric_profile = "triton-det-gemm-fp32-accum"
 
     def __init__(self) -> None:
-        from rl_engine.kernels.ops.triton.matmul.det_gemm import TritonDetGemmOp
+        from rl_engine.backends.shared.triton.gemm.det_gemm import TritonDetGemmOp
 
         self._op = TritonDetGemmOp()
 
