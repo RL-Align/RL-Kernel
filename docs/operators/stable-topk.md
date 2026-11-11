@@ -18,10 +18,7 @@ ordered_bits(x) = x < 0 (sign bit set) ? ~bits(x) : bits(x) ^ 0x80000000
 output       = int32 [rows, top_k]: ids in key order, then -1
 ```
 
-- Equal scores prefer the **larger** local index (vLLM's order). This differs
-  from the P2 v1 start-kit contract (`finite_score_desc_global_id_asc`,
-  `rl_engine.p2.oracle.topk512`), which is kept unchanged as a separate
-  contract.
+- Equal scores prefer the **larger** local index (vLLM's order).
 - Every FP32 bit pattern has a fixed place: `-0.0` ranks just below `+0.0`;
   NaNs with the sign bit clear rank above `+inf`, those with it set below
   `-inf`.

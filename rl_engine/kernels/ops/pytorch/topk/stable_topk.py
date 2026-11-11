@@ -19,9 +19,7 @@ the rollout uses for both prefill and decode under ``VLLM_BATCH_INVARIANT=1``:
   order, then ``-1`` once a row runs out of candidates.
 
 The key never involves the row's position in a packed batch or any other row,
-so the selection is batch-invariant by construction. This order differs from
-the P2 v1 start-kit contract (``finite_score_desc_global_id_asc``,
-``rl_engine.p2.oracle.topk512``), which is kept as it is.
+so the selection is batch-invariant by construction.
 """
 
 from __future__ import annotations
