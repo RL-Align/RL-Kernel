@@ -420,7 +420,16 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
         it; the rest is PyTorch glue on `[T, 64, 512]` FP32 tensors
   - [ ] A2: fused CUDA kernels for the q / kv / o-side and compressor backward (replace the
         PyTorch glue)
-  - [ ] A3: LoRA adapters on the attention projections (forward delta + dA / dB / dX)
+  - [x] A3: LoRA adapters (`rl_engine/models/deepseek_v4/lora.py`, profile `dsv4-lora-v1`) on
+        `wq_a`, `wkv`, `wq_b` and `wo_b` (user decision 2026-11-11; Megatron
+        `linear_q_down_proj` / `linear_kv_proj` / `linear_q_up_proj` / `linear_proj`; none on
+        `wo_a`, the compressor or the indexer).
+        - Forward is unmerged, so the rollout runs the same: `y = BF16(FP32(y_base) + scale *
+          (BF16(x A^T) B^T))` on DeepGEMM BF16 GEMMs, with the rank zero-padded to 64.
+        - The forward is batch-invariant, and the layer with adapters gives the same bytes
+          alone, in a batch and in decode.
+        - Backward adds each adapter's dX to its projection's dgrad and returns dA / dB (FP32,
+          `torch.mm`). They match FP32 autograd.
   - [ ] B1: deterministic dKV (int64 fixed-point fork of `dsa_bwd_sm90`)
 - [x] T07 full-layer attention byte comparison against the golden + benchmark (<= 1.3x).
       `rl_engine/models/deepseek_v4/attention.py` (`Dsv4Attention`, forward only) composes the

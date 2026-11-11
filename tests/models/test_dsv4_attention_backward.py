@@ -53,15 +53,36 @@ def _rope(x, cs, pos, sign=1.0):
     return torch.cat([x[..., :448], rot], -1)
 
 
-def _reference(attn, h, batch, idx, lens, dy):
+def _reference(attn, h, batch, idx, lens, dy, lora=None):
     c, w = attn.c, attn.w
     cs = attn.cos_sin
     pos = batch.positions.long()
     x = h.float().requires_grad_(True)
+    lp = {
+        k: (
+            v.a.detach().float().requires_grad_(True),
+            v.b.detach().float().requires_grad_(True),
+            v.scale,
+        )
+        for k, v in (lora or {}).items()
+    }
+
+    def delta(name, inp):
+        a, b, s = lp[name]
+        return s * ((inp @ a.t()) @ b.t())
+
     qr_kv = x @ w.fused_wqa_wkv.weight.dequantize().float().t()
-    qr = _rms(qr_kv[:, : c.q_lora_rank], w.q_norm, c.eps)
-    kvn = _rms(qr_kv[:, c.q_lora_rank :], w.kv_norm, c.eps)
-    q = (qr @ w.wq_b.weight.dequantize().float().t()).view(-1, c.heads, c.head_dim)
+    qa, kvp = qr_kv[:, : c.q_lora_rank], qr_kv[:, c.q_lora_rank :]
+    if "wq_a" in lp:
+        qa = qa + delta("wq_a", x)
+    if "wkv" in lp:
+        kvp = kvp + delta("wkv", x)
+    qr = _rms(qa, w.q_norm, c.eps)
+    kvn = _rms(kvp, w.kv_norm, c.eps)
+    q = qr @ w.wq_b.weight.dequantize().float().t()
+    if "wq_b" in lp:
+        q = q + delta("wq_b", qr)
+    q = q.view(-1, c.heads, c.head_dim)
     q_pad = _rope(_rms(q, None, c.eps), cs, pos)
     kv_r = _rope(kvn, cs, pos)
 
@@ -109,7 +130,11 @@ def _reference(attn, h, batch, idx, lens, dy):
     a = o_rot.reshape(o.shape[0], groups, -1)
     z = torch.cat([a[:, g] @ proj.wo_a[g].dequantize().float().t() for g in range(groups)], dim=1)
     y = z @ proj.wo_b.weight.dequantize().float().t()
+    if "wo_b" in lp:
+        y = y + delta("wo_b", z)
     (y * dy.float()).sum().backward()
+    if lora:
+        return y.detach(), x.grad, {k: (v[0].grad, v[1].grad) for k, v in lp.items()}
     return y.detach(), x.grad
 
 
@@ -231,3 +256,56 @@ def test_compressor_backward_matches_autograd(ratio):
     loss.backward()
     rel = float((got - x.grad).norm() / x.grad.norm())
     assert rel < 2e-2, rel
+
+
+@pytest.mark.parametrize("ratio", [4, 1])
+def test_attention_lora_backward_matches_reference(ratio):
+    """LoRA on wq_a, wkv, wq_b, wo_b: dL/dhidden and every adapter's dA / dB."""
+    from rl_engine.models.deepseek_v4.attention import Dsv4Batch, new_caches
+    from rl_engine.models.deepseek_v4.attention_backward import attention_train
+    from rl_engine.models.deepseek_v4.lora import LoraAdapter
+
+    attn = _layer(ratio)
+    c = attn.c
+    shapes = {
+        "wq_a": (c.hidden, c.q_lora_rank),
+        "wkv": (c.hidden, c.head_dim),
+        "wq_b": (c.q_lora_rank, c.heads * c.head_dim),
+        "wo_b": (c.o_groups * c.o_lora_rank, c.hidden),
+    }
+    attn.w.lora = {
+        name: LoraAdapter.init(i, o, rank=16, alpha=32, seed=k, zero_b=False)
+        for k, (name, (i, o)) in enumerate(shapes.items())
+    }
+    for ad in attn.w.lora.values():
+        ad.a.requires_grad_(True)
+        ad.b.requires_grad_(True)
+    lens = [37, 200]
+    g = torch.Generator(device="cuda").manual_seed(ratio + 10)
+    h = torch.randn(sum(lens), c.hidden, generator=g, device="cuda").bfloat16()
+    dy = (torch.randn(sum(lens), c.hidden, generator=g, device="cuda") * 0.1).bfloat16()
+    batch = Dsv4Batch.from_lens(lens, lens, c.window)
+    try:
+        x = h.clone().requires_grad_(True)
+        y = attention_train(attn, x, batch, new_caches(c, len(lens), MAX_LEN, seed=1))
+        y.backward(dy)
+        saved: dict = {}
+        with torch.no_grad():
+            attn.forward_batch(h, batch, new_caches(c, len(lens), MAX_LEN, seed=3), saved=saved)
+        y_ref, dh_ref, g_ref = _reference(
+            attn, h, batch, saved["idx"], saved["lens"], dy, lora=attn.w.lora
+        )
+    finally:
+        lora = attn.w.lora
+        attn.w.lora = {}
+
+    def rel(a, b):
+        return float((a.float() - b).norm() / b.norm())
+
+    assert rel(y, y_ref) < 0.08
+    assert rel(x.grad, dh_ref) < 0.1, rel(x.grad, dh_ref)
+    for name, (da_ref, db_ref) in g_ref.items():
+        ad = lora[name]
+        assert ad.a.grad is not None and ad.b.grad is not None, name
+        assert rel(ad.a.grad, da_ref) < 0.1, (name, rel(ad.a.grad, da_ref))
+        assert rel(ad.b.grad, db_ref) < 0.1, (name, rel(ad.b.grad, db_ref))

@@ -360,7 +360,11 @@ class OutputProjection:
         for stream in self._streams:
             main.wait_stream(stream)
 
-    def __call__(self, o: Tensor, positions: Tensor, cos_sin_cache: Tensor) -> Tensor:
+    def __call__(
+        self, o: Tensor, positions: Tensor, cos_sin_cache: Tensor, lora=None, saved=None
+    ) -> Tensor:
+        """``lora``: an optional ``wo_b`` adapter (``rl_engine.models.deepseek_v4.lora``);
+        ``saved``: a dict that receives ``wo_b``'s input ``z`` for the backward."""
         tokens = o.shape[0]
         a, scales = inv_rope_fp8(o, positions, cos_sin_cache, self.groups)
         z = torch.empty(
@@ -368,4 +372,12 @@ class OutputProjection:
         )
         if tokens:
             self._group_gemms(a, scales, z)
-        return self.wo_b(z.transpose(0, 1).reshape(tokens, -1))
+        z = z.transpose(0, 1).reshape(tokens, -1)
+        y = self.wo_b(z)
+        if lora is not None:
+            from rl_engine.models.deepseek_v4.lora import lora_apply
+
+            y = lora_apply(y, z, lora)
+        if saved is not None:
+            saved["z"] = z
+        return y

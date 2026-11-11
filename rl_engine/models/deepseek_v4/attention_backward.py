@@ -11,8 +11,9 @@ Straight-through at every FP8 point:
 - the KV cache round trip (``fp8_ds_mla``);
 - ``o`` before ``wo_a``;
 - the activations of each FP8 linear (their dgrads are DeepGEMM FP8, ``Fp8Linear.backward_dx``).
-The indexer's selection, ``attn_sink``, ``ape``, the norm weights and the projections are
-constants.
+The indexer's selection, ``attn_sink``, ``ape``, the norm weights and the base projections
+are constants. LoRA adapters on ``wq_a``, ``wkv``, ``wq_b`` and ``wo_b`` (``lora.py``) get
+their ``A`` / ``B`` gradients, and their dX joins each projection's dgrad.
 
 Backward order, for dy -> dh:
 
@@ -149,15 +150,28 @@ def _compressor_backward(attn, hidden: Tensor, batch, d_entries: list[Tensor]) -
     return out
 
 
-def attention_backward(attn, hidden: Tensor, batch, saved: dict, dy: Tensor) -> Tensor:
-    """``dL/dhidden`` BF16 ``[T, hidden]`` from ``dy`` BF16 ``[T, hidden]``."""
+def attention_backward(attn, hidden: Tensor, batch, saved: dict, dy: Tensor):
+    """``(dL/dhidden BF16 [T, hidden], {target: (dA, dB) FP32})`` from ``dy`` BF16.
+
+    The second item holds the LoRA adapters' gradients (``lora.py``), one entry per
+    adapter in ``attn.w.lora``.
+    """
+    from rl_engine.models.deepseek_v4.lora import lora_backward
+
     c, w = attn.c, attn.w
+    lora = w.lora
+    grads: dict = {}
     tokens = hidden.shape[0]
     positions = batch.positions
     cos, sin = _cos_sin(attn.cos_sin, positions)
 
     # Output projection.
-    dz = w.o_proj.wo_b.backward_dx(dy.to(torch.bfloat16).contiguous())  # [T, G * rank]
+    dy = dy.to(torch.bfloat16).contiguous()
+    dz = w.o_proj.wo_b.backward_dx(dy)  # [T, G * rank]
+    if "wo_b" in lora:
+        dx_l, da, db = lora_backward(dy, saved["z"], lora["wo_b"])
+        grads["wo_b"] = (da, db)
+        dz = (dz.float() + dx_l).to(torch.bfloat16)
     rank = w.o_proj.o_lora_rank
     d_rot = torch.cat(
         [
@@ -190,7 +204,12 @@ def attention_backward(attn, hidden: Tensor, batch, saved: dict, dy: Tensor) -> 
     # q path: per-head weightless RMSNorm + RoPE, wq_b, q_norm.
     dq_n = rope_transpose(d_qpad[:, : c.heads].float(), cos, sin)
     dq = rms_norm_backward(saved["q"].float(), dq_n, None, c.eps)
-    dqr = w.wq_b.backward_dx(dq.reshape(tokens, -1).to(torch.bfloat16))
+    dq = dq.reshape(tokens, -1)
+    dqr = w.wq_b.backward_dx(dq.to(torch.bfloat16))
+    if "wq_b" in lora:
+        dx_l, da, db = lora_backward(dq, saved["qr"], lora["wq_b"])
+        grads["wq_b"] = (da, db)
+        dqr = dqr.float() + dx_l
     qr_kv = saved["qr_kv"]
     dqr_raw = rms_norm_backward(qr_kv[:, : c.q_lora_rank], dqr, w.q_norm, c.eps)
 
@@ -206,6 +225,11 @@ def attention_backward(attn, hidden: Tensor, batch, saved: dict, dy: Tensor) -> 
 
     dh = w.fused_wqa_wkv.backward_dx(torch.cat([dqr_raw, dkv_raw], dim=1).to(torch.bfloat16))
     dh = dh.float()
+    for name, d_out in (("wq_a", dqr_raw), ("wkv", dkv_raw)):
+        if name in lora:
+            dx_l, da, db = lora_backward(d_out, hidden, lora[name])
+            grads[name] = (da, db)
+            dh = dh + dx_l
 
     # Compressor: compressed rows of the workspace -> entries.
     if ratio > 1:
@@ -214,21 +238,24 @@ def attention_backward(attn, hidden: Tensor, batch, saved: dict, dy: Tensor) -> 
             n = length // ratio
             d_entries.append(d_ws[b * slab : b * slab + n])
         dh = dh + _compressor_backward(attn, hidden, batch, d_entries)
-    return dh.to(hidden.dtype)
+    return dh.to(hidden.dtype), grads
 
 
 class Dsv4AttentionFunction(torch.autograd.Function):
-    """``y = attn.forward_batch(hidden)`` with the backward above (full-prefill batches)."""
+    """``y = attn.forward_batch(hidden)`` with the backward above (full-prefill batches).
+
+    ``lora_params`` are the adapters' ``A`` / ``B`` tensors in ``_lora_order(attn)``
+    order; they are inputs so autograd returns their gradients.
+    """
 
     @staticmethod
-    def forward(ctx, hidden, attn, batch, caches):
+    def forward(ctx, hidden, attn, batch, caches, *lora_params):
         if batch.decode or not torch.equal(batch.seq_lens, batch.query_lens):
             raise ValueError("the attention backward needs seq_lens == query_lens (full prefill)")
         saved: dict = {}
-        y = attn.forward_batch(
-            hidden, batch, caches, saved=saved if ctx.needs_input_grad[0] else None
-        )
-        if ctx.needs_input_grad[0]:
+        need = any(ctx.needs_input_grad[i] for i in [0] + list(range(4, 4 + len(lora_params))))
+        y = attn.forward_batch(hidden, batch, caches, saved=saved if need else None)
+        if need:
             ctx.attn, ctx.batch, ctx.saved = attn, batch, saved
             ctx.save_for_backward(hidden)
         return y
@@ -236,11 +263,27 @@ class Dsv4AttentionFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, dy):
         (hidden,) = ctx.saved_tensors
-        dh = attention_backward(ctx.attn, hidden, ctx.batch, ctx.saved, dy)
+        dh, grads = attention_backward(ctx.attn, hidden, ctx.batch, ctx.saved, dy)
         ctx.saved = None
-        return dh, None, None, None
+        lora_grads = []
+        for name in _lora_order(ctx.attn):
+            da, db = grads[name]
+            ad = ctx.attn.w.lora[name]
+            lora_grads += [da.to(ad.a.dtype), db.to(ad.b.dtype)]
+        return (dh if ctx.needs_input_grad[0] else None, None, None, None, *lora_grads)
+
+
+def _lora_order(attn) -> list[str]:
+    from rl_engine.models.deepseek_v4.lora import TARGETS
+
+    return [name for name in TARGETS if name in attn.w.lora]
 
 
 def attention_train(attn, hidden: Tensor, batch, caches) -> Tensor:
-    """Differentiable attention layer for training (dL/dhidden; weights frozen)."""
-    return Dsv4AttentionFunction.apply(hidden, attn, batch, caches)
+    """Differentiable attention layer for training: dL/dhidden and the LoRA adapters'
+    gradients (their ``A`` / ``B`` tensors get ``.grad``); base weights are frozen."""
+    params = []
+    for name in _lora_order(attn):
+        ad = attn.w.lora[name]
+        params += [ad.a, ad.b]
+    return Dsv4AttentionFunction.apply(hidden, attn, batch, caches, *params)

@@ -92,6 +92,8 @@ class Dsv4AttentionWeights:
     idx_wkv_wgate: Tensor | None = None  # BF16 [2 * 2 * index_head_dim, hidden]
     idx_ape: Tensor | None = None  # FP32 [4, 2 * index_head_dim]
     idx_norm: Tensor | None = None  # [index_head_dim]
+    # LoRA adapters (lora.py, profile dsv4-lora-v1) by target: wq_a, wkv, wq_b, wo_b.
+    lora: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -227,11 +229,25 @@ class Dsv4Attention:
         req32 = req.int()
 
         qr_kv = w.fused_wqa_wkv(hidden)
+        if "wq_a" in w.lora or "wkv" in w.lora:
+            from rl_engine.models.deepseek_v4.lora import lora_apply
+
+            qa, kvp = qr_kv[:, : c.q_lora_rank], qr_kv[:, c.q_lora_rank :]
+            if "wq_a" in w.lora:
+                qa = lora_apply(qa, hidden, w.lora["wq_a"])
+            if "wkv" in w.lora:
+                kvp = lora_apply(kvp, hidden, w.lora["wkv"])
+            qr_kv = torch.cat([qa, kvp], dim=1)
         qr = self._rmsnorm(qr_kv[:, : c.q_lora_rank].contiguous(), w.q_norm, c.eps)
         kv = self._rmsnorm(qr_kv[:, c.q_lora_rank :].contiguous(), w.kv_norm, c.eps)
-        q = w.wq_b(qr).view(tokens, c.heads, c.head_dim)
+        q = w.wq_b(qr)
+        if "wq_b" in w.lora:
+            from rl_engine.models.deepseek_v4.lora import lora_apply
+
+            q = lora_apply(q, qr, w.lora["wq_b"])
+        q = q.view(tokens, c.heads, c.head_dim)
         if saved is not None:
-            saved.update(qr_kv=qr_kv, q=q)
+            saved.update(qr_kv=qr_kv, qr=qr, q=q)
         swa_slots = _slots(caches.swa_table, req, positions, KV_BLOCK)
         q_pad = core.q_norm_rope_kv_insert(
             q, kv, positions, self.cos_sin, caches.swa, KV_BLOCK, swa_slots, c.padded_heads, c.eps
@@ -312,7 +328,9 @@ class Dsv4Attention:
         out, lse = core.sparse_attention(q_pad, ws, idx, lens, w.attn_sink, self.scale)
         if saved is not None:
             saved.update(q_pad=q_pad, ws=ws, idx=idx, lens=lens, out=out, lse=lse)
-        return w.o_proj(out[:, : c.heads], positions, self.cos_sin)
+        return w.o_proj(
+            out[:, : c.heads], positions, self.cos_sin, lora=w.lora.get("wo_b"), saved=saved
+        )
 
     def _indexer(self, hidden, qr, batch: Dsv4Batch, req, req32, caches) -> Tensor:
         c, w = self.c, self.w
