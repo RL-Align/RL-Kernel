@@ -293,8 +293,7 @@ class _MlpUpGemmGeluFunction(torch.autograd.Function):
         # `pre` is the fp32 pre-activation the gate needs; it is empty when the
         # call cannot need a gradient.
         ctx.save_for_backward(x2d, w, bias, pre)
-        ctx.lead_shape = x.shape[:-1]
-        return out.reshape(*ctx.lead_shape, weight.size(0))
+        return out
 
     @staticmethod
     def backward(  # type: ignore[override]
@@ -319,7 +318,6 @@ class _MlpUpGemmGeluFunction(torch.autograd.Function):
         else:
             grad_x = _C.mlp_up_gemm_gelu_cuda_dx(gate, weight)
             grad_w = _C.mlp_up_gemm_gelu_cuda_dw(gate, x2d)
-        grad_x = grad_x.reshape(*ctx.lead_shape, weight.size(1))
         grad_b: Optional[torch.Tensor] = None
         if bias is not None:
             # Ascending-row fp32 fold of the gate, shared by both CUDA paths.
@@ -375,8 +373,26 @@ class CudaMlpUpGemmGeluOp:
         bias: Optional[torch.Tensor] = None,
         pre: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Backward entry used by the byte-equality tests against the spec."""
+        """Backward entry used by the byte-equality tests against the spec.
 
+        When ``pre`` is supplied it is used verbatim as the gate's pre-activation
+        (the tests' way of isolating the transcendental out of the comparison),
+        mirroring :meth:`TritonMlpUpGemmGeluOp._grads_for_test`; otherwise the
+        backward is driven through autograd like any other call.
+        """
+
+        if pre is not None:
+            x2d = x.reshape(-1, x.size(-1)).contiguous()
+            w = weight.contiguous()
+            grad_2d = grad_output.reshape(-1, weight.size(0)).to(torch.bfloat16).contiguous()
+            gate = _C.mlp_up_gemm_gelu_cuda_gate(grad_2d, pre.contiguous())
+            if _sm90_usable(x2d, w):
+                grad_x = _C.mlp_up_gemm_gelu_cuda_dx_sm90(gate, w)
+                grad_w = _C.mlp_up_gemm_gelu_cuda_dw_sm90(gate, x2d)
+            else:
+                grad_x = _C.mlp_up_gemm_gelu_cuda_dx(gate, w)
+                grad_w = _C.mlp_up_gemm_gelu_cuda_dw(gate, x2d)
+            return grad_x.reshape(*x.shape[:-1], weight.size(1)), grad_w
         x = x.detach().requires_grad_(True)
         weight = weight.detach().requires_grad_(True)
         self.forward(x, weight, bias=bias).backward(grad_output)
@@ -436,9 +452,17 @@ class CudaMlpUpGemmGeluOp:
             raise ValueError("bias must be bf16 on the same device as x")
         if x.size(-1) != weight.size(-1):
             raise ValueError("x K must match weight K")
-        _report_route_once(x, weight)
+        # Canonicalize once and route on *these* operands: a non-contiguous view
+        # or a 16 B-misaligned base is copied into an aligned contiguous tensor,
+        # so the Hopper eligibility of the original view is not the eligibility
+        # of the kernel operands. Reporting from the originals would name the
+        # tree contract for a call the wgmma kernel actually serves.
+        x2d = x.reshape(-1, x.size(-1)).contiguous()
+        w = weight.contiguous()
+        _report_route_once(x2d, w)
         # The pre-activation is only materialized when a gradient can actually be
         # requested, and the decision has to be taken here: inside a custom
         # Function's forward torch disables grad mode.
         emit_pre = _needs_pre(x, weight, bias)
-        return _MlpUpGemmGeluFunction.apply(x, weight, bias, emit_pre)
+        out = _MlpUpGemmGeluFunction.apply(x2d, w, bias, emit_pre)
+        return out.reshape(*x.shape[:-1], weight.size(0))

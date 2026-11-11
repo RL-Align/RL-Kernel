@@ -857,15 +857,20 @@ class TestExactTruth:
 
         x, weight, bias = _inputs(shape)
         got = TritonMlpUpGemmGeluOp()(x, weight, bias=bias)
-        exact_pre = ((x.double() @ weight.double().T).float() + bias.float()).float()
+        # Bounded like every other reference call: the fp64 GELU oracle only
+        # needs a slice (the activation is elementwise), so a full tier would
+        # allocate an [M, 12288] fp64 tensor for no extra coverage.
+        rows = min(shape[0], TREE_REFERENCE_ROWS)
+        exact_pre = ((x[:rows].double() @ weight.double().T).float() + bias.float()).float()
         truth = gelu_tanh_fp32(exact_pre).bfloat16()
-        deviation = (got.float().double() - truth.float().double()).abs() / _ulp_of_max_magnitude(
-            truth
+        got_rows = got[:rows]
+        deviation = (got_rows.float().double() - truth.float().double()).abs() / (
+            _ulp_of_max_magnitude(truth)
         )
         assert (
             deviation.max().item() <= GELU_MAX_ULPS
         ), f"{shape}: worst {deviation.max().item():.3f} ulp"
-        identical = float((got == truth).float().mean())
+        identical = float((got_rows == truth).float().mean())
         assert identical >= 0.99, f"{shape}: only {identical:.4f} bit-identical"
 
     def test_backward_matches_exact_fp64(self):

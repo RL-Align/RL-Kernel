@@ -866,6 +866,10 @@ torch::Tensor mlp_up_gemm_gelu_cuda_db(torch::Tensor grad) {
     TORCH_CHECK(grad.scalar_type() == at::kBFloat16,
                 "mlp_up_gemm_gelu_cuda_db requires bf16 operands");
     const int64_t cols = grad.size(-1);
+    if (cols == 0) {
+        // grad.numel() / cols would be an integer division by zero.
+        return torch::empty({cols}, grad.options().dtype(at::kFloat));
+    }
     const int64_t rows = grad.numel() / cols;
     auto db = torch::empty({cols}, grad.options().dtype(at::kFloat));
     if (db.numel() == 0 || rows == 0) {
@@ -877,12 +881,14 @@ torch::Tensor mlp_up_gemm_gelu_cuda_db(torch::Tensor grad) {
     auto gc = grad.contiguous();
     const int blocks = static_cast<int>((cols + DB_CT - 1) / DB_CT);
     const int smem = 2 * DB_TR * DB_CT * static_cast<int>(sizeof(nv_bf16));
-    static bool configured = false;
-    if (!configured) {
+    // cudaFuncSetAttribute applies to the current device's function instance;
+    // a process-wide one-shot flag would skip the opt-in on every other device.
+    // The call is cheap and idempotent, so set it on each launch.
+    const cudaError_t attr_err =
         cudaFuncSetAttribute(mlp_up_gemm_gelu_db_fold_wide_kernel,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
-        configured = true;
-    }
+    TORCH_CHECK(attr_err == cudaSuccess, "mlp_up_gemm_gelu_cuda_db: cudaFuncSetAttribute failed: ",
+                cudaGetErrorString(attr_err));
     mlp_up_gemm_gelu_db_fold_wide_kernel<<<blocks, DB_THREADS, smem,
                                            at::cuda::getCurrentCUDAStream()>>>(
         reinterpret_cast<const nv_bf16*>(gc.data_ptr<at::BFloat16>()), db.data_ptr<float>(),

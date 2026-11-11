@@ -217,6 +217,10 @@ arithmetic contract the call took:
 fallback=<true|false> contract=<mlp-up-gemm-gelu-tree|mlp-up-gemm-gelu-mma>
 ```
 
+The report names the path the *kernel* takes, not the eligibility of the
+caller's view: the row canonicalizes non-contiguous or 16 B-misaligned operands
+once, and routing is decided on those contiguous copies.
+
 ## Tensor Contract
 
 | Argument | Shape | Dtype | Requirements |

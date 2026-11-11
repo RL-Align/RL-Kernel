@@ -605,11 +605,14 @@ void launch_wgmma(const nv_bf16* a, const nv_bf16* b, const float* bias, nv_bf16
     const dim3 grid((N + G::TN - 1) / G::TN,
                     ((my_tiles + G::RASTER_GM - 1) / G::RASTER_GM) * G::RASTER_GM);
     auto* kernel = mlp_up_gemm_gelu_sm90_kernel<A_MN, B_MN, HAS_BIAS, APPLY_GELU, EMIT_PRE, G>;
-    static bool configured = false;
-    if (!configured) {
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, G::SMEM_BYTES);
-        configured = true;
-    }
+    // Per-device attribute: a process-wide static flag would leave every other
+    // device below the 48 KB default and fail at launch. Idempotent and cheap,
+    // so set it on every launch and surface the error instead of ignoring it.
+    const cudaError_t attr_err = cudaFuncSetAttribute(
+        kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, G::SMEM_BYTES);
+    TORCH_CHECK(attr_err == cudaSuccess,
+                "mlp_up_gemm_gelu sm90: cudaFuncSetAttribute failed: ",
+                cudaGetErrorString(attr_err));
     kernel<<<grid, G::THREADS, G::SMEM_BYTES, stream>>>(tmap_a, tmap_b, bias, out, pre_out, M, N, K);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }

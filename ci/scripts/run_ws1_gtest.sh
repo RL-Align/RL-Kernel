@@ -17,7 +17,34 @@ export RL_KERNEL_REQUIRE_EXT="${RL_KERNEL_REQUIRE_EXT:-1}"
 
 echo "[ws1-gtest] interpreter=$PY out=$OUT"
 
-"$PY" -m pytest -q \
+# The row's Triton backend and, on Hopper, the CUDA-vs-Triton byte-parity class
+# are selected by module-level skips. A missing prerequisite would therefore
+# leave this gate green without validating either implementation; fail closed.
+"$PY" - <<'PY'
+import os
+
+import torch
+
+try:
+    import triton  # noqa: F401
+except Exception as exc:  # pragma: no cover - environment gate
+    raise SystemExit(f"[ws1-gtest] Triton is required for this gate: {exc}")
+if not torch.cuda.is_available():
+    raise SystemExit("[ws1-gtest] a CUDA device is required for this gate")
+if (
+    os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"
+    and torch.cuda.get_device_capability(0)[0] == 9
+):
+    from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import sm90_backend_compiled
+
+    if not sm90_backend_compiled():
+        raise SystemExit(
+            "[ws1-gtest] KERNEL_ALIGN_FORCE_SM90=1 on a Hopper GPU, but the extension "
+            "has no mlp_up_gemm_gelu wgmma entry points"
+        )
+PY
+
+"$PY" -m pytest -q -rs \
   tests/validation/operators/test_ws1_gtest_gpu.py \
   tests/ops/attention/test_triton_batch_invariant_attention.py \
   tests/ops/gemm/test_mlp_up_gemm_gelu.py \

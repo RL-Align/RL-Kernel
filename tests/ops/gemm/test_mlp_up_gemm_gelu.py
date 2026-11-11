@@ -1252,6 +1252,39 @@ class TestCudaPathsAndContracts:
         mod.CudaMlpUpGemmGeluOp()(x, weight, bias=bias)
         assert "module=mlp_up_gemm_gelu" not in capsys.readouterr().out
 
+    def test_route_report_matches_the_contiguous_copy(self, monkeypatch, capsys):
+        """A strided, 16 B-misaligned weight is canonicalized before routing.
+
+        The kernel operands are the `.contiguous()` copy, whose base is aligned;
+        the original view is not eligible for wgmma. Reporting from the view
+        would name the tree contract for a call the Hopper kernel serves.
+        """
+
+        from rl_engine.backends.cuda.gemm import mlp_up_gemm_gelu as mod
+
+        if (
+            not _hopper_serves(torch.device("cuda"))
+            or torch.cuda.get_device_capability(0)[0] != 9
+        ):
+            pytest.skip("the Hopper path is not built for a cc 9.0 device")
+        monkeypatch.setattr(mod, "_ROUTE_REPORTED", False)
+        monkeypatch.delenv(mod._BACKEND_ENV, raising=False)
+        monkeypatch.delenv("RL_KERNEL_ROUTE_REPORT", raising=False)
+        x, weight, bias = _inputs(SMALL)
+        n_dim, k_dim = weight.shape
+        storage = torch.empty(2 * n_dim * k_dim + 1, dtype=weight.dtype, device=weight.device)
+        strided = storage[1:].view(n_dim, 2 * k_dim)[:, ::2]
+        strided.copy_(weight)
+        assert not strided.is_contiguous() and strided.data_ptr() % 16 != 0
+        # The query helpers answer for the operands as given ...
+        assert mod.mlp_up_gemm_gelu_backend_used(x, strided) == "general"
+        # ... while the call canonicalizes first and takes the Hopper kernel.
+        got = mod.CudaMlpUpGemmGeluOp()(x, strided, bias=bias)
+        expected = mod.CudaMlpUpGemmGeluOp()(x, weight, bias=bias)
+        assert torch.equal(got, expected)
+        out = capsys.readouterr().out
+        assert "actual=hopper" in out and f"contract={mod.MMA_CONTRACT}" in out
+
     def test_route_report_names_the_contract_and_the_pin(self, monkeypatch, capsys):
         """A pinned `general` reports the tree contract and how to pin it back."""
 
@@ -1480,6 +1513,36 @@ class TestBackward:
         gate = _gate_device(grad, pre)
         assert torch.equal(bias.grad.cpu(), _gate_fold(gate))
 
+    def test_db_handles_empty_last_dimension(self):
+        """An empty last dimension must return empty, not divide by zero."""
+
+        from rl_engine.backends.extension import _C
+
+        if not hasattr(_C, "mlp_up_gemm_gelu_cuda_db"):
+            pytest.skip("the CUDA extension has no mlp_up_gemm_gelu db entry point")
+        grad = torch.empty(3, 0, dtype=torch.bfloat16, device="cuda")
+        db = _C.mlp_up_gemm_gelu_cuda_db(grad)
+        assert db.shape == (0,) and db.dtype == torch.float32 and db.is_cuda
+
+    def test_grads_for_test_uses_the_supplied_pre(self):
+        """``pre`` is the gate's input, not a hint: a saturated pre zeros the gate."""
+
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+
+        shape = (24, MODEL_K, MODEL_N)
+        x, weight, bias = _inputs(shape)
+        grad = _grad_of(shape, seed=15)
+        op = CudaMlpUpGemmGeluOp()
+        saturated = torch.full((shape[0], shape[2]), -1e4, dtype=torch.float32, device="cuda")
+        grad_x, grad_w = op._grads_for_test(x, weight, grad, bias=bias, pre=saturated)
+        assert grad_x.count_nonzero() == 0 and grad_w.count_nonzero() == 0
+        # The autograd path forms its own pre and must not be zero: this is what
+        # distinguishes "used the supplied pre" from "silently ignored it".
+        xr = x.clone().requires_grad_(True)
+        wr = weight.clone().requires_grad_(True)
+        op(xr, wr, bias=bias).backward(grad)
+        assert xr.grad.count_nonzero() > 0 and wr.grad.count_nonzero() > 0
+
     def test_gradients_deterministic(self):
         x, weight, bias = _inputs(SMALL)
         grad = _grad_of(SMALL, seed=13)
@@ -1599,15 +1662,20 @@ class TestExactTruth:
 
         x, weight, bias = _inputs(shape)
         got = op_forward(x, weight, bias)
-        exact_pre = ((x.double() @ weight.double().T).float() + bias.float()).float()
+        # The GELU is elementwise, so the oracle is bounded to the same slice the
+        # rest of the suite uses: the full-tier fp64 GEMM would materialize an
+        # [M, 12288] fp64 tensor (~0.4-0.7 GB per tier) for no extra coverage.
+        rows = min(shape[0], TREE_REFERENCE_ROWS)
+        exact_pre = ((x[:rows].double() @ weight.double().T).float() + bias.float()).float()
         truth = gelu_tanh_fp32(exact_pre).bfloat16()
-        deviation = (got.float().double() - truth.float().double()).abs() / _ulp_of_max_magnitude(
-            truth
+        got_rows = got[:rows]
+        deviation = (got_rows.float().double() - truth.float().double()).abs() / (
+            _ulp_of_max_magnitude(truth)
         )
         assert (
             deviation.max().item() <= GELU_MAX_ULPS
         ), f"{shape}: worst {deviation.max().item():.3f} ulp"
-        identical = float((got == truth).float().mean())
+        identical = float((got_rows == truth).float().mean())
         assert identical >= 0.99, f"{shape}: only {identical:.4f} bit-identical"
 
     def test_backward_matches_exact_fp64(self):
@@ -1772,6 +1840,7 @@ class TestIntegration:
     def test_fail_closed_on_non_cuda_device(self):
         from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
 
-        x, weight, bias = _cpu_inputs(SMALL)
+        # bf16 so the device check, not the dtype check, is what must fire.
+        x, weight, bias = _cpu_inputs(SMALL, dtype=torch.bfloat16)
         with pytest.raises((ValueError, RuntimeError)):
             CudaMlpUpGemmGeluOp()(x, weight, bias=bias)
