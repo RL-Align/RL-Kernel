@@ -277,7 +277,7 @@ For a longer consistency run, reuse the same settings:
 ./rlk run "${RUN_ARGS[@]}" --steps 200
 ```
 
-## What we are building next
+## Current model work and next integrations
 
 Qwen3-8B on CUDA and ROCm is our starting point. We are extending the same
 training and rollout consistency checks across models, RL frameworks and hardware:
