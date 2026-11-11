@@ -27,7 +27,8 @@ The norm weight is BF16 `[H]`, as in vLLM.
 
 **Controller GEMM.** DeepGEMM `tf32_hc_prenorm_gemm` runs with a fixed 16 splits, so the
 result is batch-invariant. It produces the partials `pmix [16, T, Np]` and `pss [16, T]`
-(`Np` is the row count of `fn` rounded up to a multiple of 8). Each value is reduced by
+(`Np` is the row count of `fn` rounded up to a multiple of 8; `hc_head`'s padded FP32 `fn`
+is built once per tensor and cached, which took 2-3 µs off each call, 16.8 to 14.1 µs at T = 1). Each value is reduced by
 halving: `p[0:8] + p[8:16]`, then 4, 2, 1.
 
 **Per token.** Every step is correctly rounded with no FMA contraction, except the

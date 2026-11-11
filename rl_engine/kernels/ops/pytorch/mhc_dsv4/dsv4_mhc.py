@@ -53,6 +53,8 @@ rare FP32 ties.
 
 from __future__ import annotations
 
+import weakref
+
 import torch
 from torch import Tensor
 
@@ -145,16 +147,36 @@ def gemm_partials(residual: Tensor, fn: Tensor) -> tuple[Tensor, Tensor]:
     dg, _ = require_deepgemm(residual.device)
     t = residual.shape[0]
     x = residual.reshape(t, residual.shape[1] * residual.shape[2]).contiguous()
-    n = fn.shape[0]
-    n_pad = (n + 7) // 8 * 8
-    f = fn.float()
-    if n_pad != n:
-        f = torch.cat([f, f.new_zeros(n_pad - n, f.shape[1])])
-    pm = torch.empty(SPLITS, t, n_pad, dtype=torch.float32, device=residual.device)
+    f = _padded_fn(fn)
+    pm = torch.empty(SPLITS, t, f.shape[0], dtype=torch.float32, device=residual.device)
     ps = torch.empty(SPLITS, t, dtype=torch.float32, device=residual.device)
     if t:
-        dg.tf32_hc_prenorm_gemm(x, f.contiguous(), pm, ps, SPLITS)
+        dg.tf32_hc_prenorm_gemm(x, f, pm, ps, SPLITS)
     return pm, ps
+
+
+_FN_CACHE: dict = {}
+
+
+def _padded_fn(fn: Tensor) -> Tensor:
+    """FP32 contiguous ``fn`` with rows zero-padded to a multiple of 8, cached per tensor
+    (the mHC parameters are frozen; an in-place update bumps ``fn._version`` and
+    refreshes the entry). Saves ``hc_head`` a pad / copy per call."""
+    n = fn.shape[0]
+    n_pad = (n + 7) // 8 * 8
+    if n_pad == n and fn.dtype == torch.float32 and fn.is_contiguous():
+        return fn
+    hit = _FN_CACHE.get(id(fn))
+    if hit is not None and hit[0]() is fn and hit[1] == fn._version:
+        return hit[2]
+    f = fn.detach().float()
+    if n_pad != n:
+        f = torch.cat([f, f.new_zeros(n_pad - n, f.shape[1])])
+    f = f.contiguous()
+    if len(_FN_CACHE) > 256:
+        _FN_CACHE.clear()
+    _FN_CACHE[id(fn)] = (weakref.ref(fn), fn._version, f)
+    return f
 
 
 def rms_scale(ss: Tensor, k: int, eps: float = RMS_EPS) -> Tensor:
