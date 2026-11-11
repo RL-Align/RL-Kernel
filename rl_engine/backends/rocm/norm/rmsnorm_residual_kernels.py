@@ -30,7 +30,7 @@ def _forward(
     row = tl.program_id(0).to(tl.int64)
     acc = tl.zeros((1,), tl.float32)
     for col in tl.range(0, D, loop_unroll_factor=1):
-        value = tl.load(X + row * X0 + col * X1).to(tl.float32)
+        value = tl.load(X + row * X0 + col.to(tl.int64) * X1).to(tl.float32)
         acc = acc + value * value
     mean = tl.div_rn(acc, tl.full((1,), D, tl.float32))
     r = tl.rsqrt(mean + EPS)
@@ -38,7 +38,7 @@ def _forward(
 
     out = row * D
     for start in tl.range(0, D, BLOCK):
-        cols = start + tl.arange(0, BLOCK)
+        cols = (start + tl.arange(0, BLOCK)).to(tl.int64)
         mask = cols < D
         x_bf16 = tl.load(X + row * X0 + cols * X1, mask, 0.0)
         x32 = x_bf16.to(tl.float32)
@@ -70,16 +70,16 @@ def _backward_dx(
     r = tl.load(R + row + tl.arange(0, 1))
     q = tl.zeros((1,), tl.float32)
     for col in tl.range(0, D, loop_unroll_factor=1):
-        dy = tl.load(DY + row * DY0 + col * DY1).to(tl.float32)
+        dy = tl.load(DY + row * DY0 + col.to(tl.int64) * DY1).to(tl.float32)
         gamma = tl.load(GAMMA + col)
-        x = tl.load(X + row * X0 + col * X1).to(tl.float32)
+        x = tl.load(X + row * X0 + col.to(tl.int64) * X1).to(tl.float32)
         q = q + (dy * gamma) * x
     r3 = (r * r) * r
     d32 = tl.full((1,), D, tl.float32)
 
     out = row * D
     for start in tl.range(0, D, BLOCK):
-        cols = start + tl.arange(0, BLOCK)
+        cols = (start + tl.arange(0, BLOCK)).to(tl.int64)
         mask = cols < D
         dy = tl.load(DY + row * DY0 + cols * DY1, mask, 0.0).to(tl.float32)
         dres = tl.load(DRES + row * DR0 + cols * DR1, mask, 0.0).to(tl.float32)
@@ -109,8 +109,9 @@ def _backward_dgamma(
     mask = cols < D
     acc = tl.zeros((BLOCK,), tl.float32)
     for row in tl.range(0, T, loop_unroll_factor=1):
-        dy = tl.load(DY + row * DY0 + cols * DY1, mask, 0.0).to(tl.float32)
-        x = tl.load(X + row * X0 + cols * X1, mask, 0.0).to(tl.float32)
-        r = tl.load(R + row)
+        row64 = row.to(tl.int64)
+        dy = tl.load(DY + row64 * DY0 + cols * DY1, mask, 0.0).to(tl.float32)
+        x = tl.load(X + row64 * X0 + cols * X1, mask, 0.0).to(tl.float32)
+        r = tl.load(R + row64)
         acc = acc + (dy * x) * r
     tl.store(DGAMMA + cols, acc, mask)
