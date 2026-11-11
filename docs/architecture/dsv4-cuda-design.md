@@ -255,9 +255,10 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
 - [x] Only on failure: step 2 (heuristic patch) / step 3 (zhuzilin branch + capability
       probe): not needed
 - [x] Decide the dense FP8 GEMM path and record it in D3 (step 1 passed)
-- [ ] Afterwards: write `docs/architecture/dsv4-sm90-batch-invariant-profile.md` (D1-D7, the
+- [x] Afterwards: write `docs/architecture/dsv4-sm90-batch-invariant-profile.md` (D1-D7, the
       seven rules in section 3, the reuse map in section 4, the reduction-order contract for
-      each M-module, the performance budget)
+      each M-module, the performance budget). Done 2026-11-11, with the five rules learned
+      on this branch and the list of places the rollout must patch
 
 ### Phase 2 - P2 attention (critical path)
 
