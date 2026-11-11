@@ -288,7 +288,7 @@ training and rollout consistency checks across models, RL frameworks and hardwar
 - Next framework integrations: AReaL, verl, verl-omni, miles and
   [Alibaba ROLL](https://github.com/alibaba/ROLL). Each integration needs a
   reproducible training and rollout run and a clear numerical comparison.
-- Next vendor coordination: MetaX, T-Head Zhenwu and NVIDIA for broader
+- Hardware vendors: MetaX, T-Head Zhenwu and NVIDIA for broader
   model and backend coverage. MUSA work in the miles roadmap and
   [Ascend with verl](https://github.com/RL-Align/RL-Kernel/issues/563)
   remain separate ongoing tracks.
