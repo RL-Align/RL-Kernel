@@ -546,6 +546,11 @@ class TritonSwiGLUOp:
                 raise TypeError("packed_input cannot be combined with gate or up")
             if packed_order is None:
                 raise ValueError("packed_order is required with packed_input")
+            if not isinstance(packed_order, SwiGLUPackedOrder):
+                raise TypeError(
+                    f"packed_order must be a {SwiGLUPackedOrder.__name__} member, "
+                    f"got {packed_order!r}"
+                )
             _validate_swiglu_packed_input(packed_input)
             output_dtype = torch.float32 if fp32_output else packed_input.dtype
             return _PackedSwiGLUTritonFunction.apply(packed_input, output_dtype, packed_order)

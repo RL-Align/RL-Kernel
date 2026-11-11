@@ -180,6 +180,11 @@ class NativeSwiGLUOp(nn.Module):
                 raise TypeError("packed_input cannot be combined with gate or up")
             if packed_order is None:
                 raise ValueError("packed_order is required with packed_input")
+            if not isinstance(packed_order, SwiGLUPackedOrder):
+                raise TypeError(
+                    f"packed_order must be a {SwiGLUPackedOrder.__name__} member, "
+                    f"got {packed_order!r}"
+                )
             _validate_swiglu_packed_input(packed_input)
             first, second = packed_input.chunk(2, dim=-1)
             if packed_order is SwiGLUPackedOrder.GATE_UP:
