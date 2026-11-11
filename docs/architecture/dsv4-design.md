@@ -38,7 +38,7 @@ token the same bytes whatever else is in the batch.
 |---|---|
 | Forward (rollout, actor recompute, training forward) | **Bitwise batch-invariant.** A token's bytes do not depend on the other tokens in the step, the batch order, or whether its request runs as one prefill, chunked prefill or decode. `forward_train` is byte-equal to `forward_batch`. |
 | Selected-token logprob | Bitwise batch-invariant, and invariant to a vocab-TP split (TP 1/2/4/8). |
-| Expert parallelism | EP = 2 forward and dX bitwise equal to EP = 1 (tested on 2 GPUs). |
+| Expert parallelism | EP = 2 forward and dX bitwise equal to EP = 1 (tested on 2 GPUs, without LoRA; `check_dsv4_moe_ep.py --lora` has not run yet). |
 | Backward (LoRA, dX path) | Correct against FP32 autograd per component. **Not required to be deterministic** (user decision 2026-11-11): cuDNN's sparse-attention dKV uses FP32 atomics. |
 | LoRA weight gradients | Deterministic for fixed shapes; not batch-invariant (a reduction over tokens). |
 | Performance | Every forward operator within 1.3x of its non-invariant baseline (section 9). |
@@ -79,8 +79,7 @@ the MoE and model tests skip. Never build with `--use_fast_math` (section 13).
 
 ### 2.3 Tests
 
-The full DSv4 regression on one GPU (about 90 s on an H200, 1095 tests at the time of
-writing):
+The full DSv4 regression on one GPU (H200, 2026-11-11: 1217 passed, 72 skipped, 80 s):
 
 ```bash
 export DSV4_META=/path/to/dsv4-meta DSV4_REF=/path/to/dsv4-inference   # optional, see below
@@ -503,6 +502,8 @@ layerwise gate on one device.
 
 Open, needs the multi-GPU machine:
 
+- [ ] EP = 2 with LoRA adapters: `torchrun --nproc-per-node 2 scripts/check_dsv4_moe_ep.py
+      --lora` (written, not run yet).
 - [ ] EP = 4 / 8 with real collectives; DeepEP (`zhuzilin/DeepEP@align_fp8_quantization`)
       transport with the same bytes, fixed-capacity staging, route-metadata capture.
 - [ ] verl integration: rollout patch (section 10), actor recompute on this kernel set,
