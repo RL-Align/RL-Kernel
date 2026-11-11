@@ -209,8 +209,9 @@ python -m pytest -q -p no:cacheprovider tests/ops/logprob_dsv4 tests/ops/mhc_dsv
 
 ## 9. Open items
 
-- Layerwise exact-zero hidden-state gate and the #230 cross-config M0-M10 logprob gate
-  (Phase 4).
+- The layerwise gate passes on one device (rollout vs actor vs training forward,
+  `scripts/check_dsv4_layerwise_gate.py`); against the vLLM rollout and on the real
+  checkpoint it is still open, as is the #230 cross-config M0-M10 logprob gate (Phase 4).
 - EP > 1 on real hardware (DeepEP dispatch / combine, fixed order); multi-GPU end-to-end
   runs move to another machine.
 - DCP attention needs one comparator across local and global selection (out of scope for v1).

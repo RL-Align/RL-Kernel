@@ -162,21 +162,32 @@ class Dsv4Model:
 
             raise ValueError(NON_FINITE_MESSAGE)
 
-    def forward_train(self, input_ids: Tensor, batch: Dsv4Batch, caches: list[LayerCaches]):
+    def forward_train(
+        self,
+        input_ids: Tensor,
+        batch: Dsv4Batch,
+        caches: list[LayerCaches],
+        *,
+        return_streams: bool = False,
+    ):
         """Final hidden BF16 ``[T, H]`` under autograd, byte-equal to :meth:`forward_batch`.
 
         Full-prefill batches only (``seq_lens == query_lens``, fresh caches). Gradients
         reach the LoRA adapters (:meth:`lora_parameters`); the embedding and every base
-        weight are frozen.
+        weight are frozen. ``return_streams`` also returns each layer's output streams.
         """
         from rl_engine.kernels.ops.cuda.mhc_dsv4 import hc_head
 
         input_ids = input_ids.long()
         streams = self.embed_streams(input_ids)
+        per_layer = []
         for layer, cache in zip(self.layers, caches):
             streams = layer.forward_train(streams, batch, cache, input_ids)
+            if return_streams:
+                per_layer.append(streams)
         p = self.hc_head
-        return hc_head(streams, p.fn, p.scale, p.base, p.norm)
+        out = hc_head(streams, p.fn, p.scale, p.base, p.norm)
+        return (out, per_layer) if return_streams else out
 
     def lora_parameters(self) -> list[Tensor]:
         """Every LoRA adapter tensor (``A`` and ``B``) of every layer."""

@@ -644,6 +644,17 @@ batch-invariant. The vLLM-fork golden is deferred (see "Deferred - vLLM golden")
       the window-only layers too, so the rollout patch must use our table on every layer.
       Forward only (no SM90 sparse attention backward yet)
 - [ ] Layerwise exact-zero hidden-state diff gate, advancing one layer at a time from layer 0
+  - [x] Single device (`rl_engine/models/deepseek_v4/layerwise_gate.py`,
+        `scripts/check_dsv4_layerwise_gate.py`): a continuous-batching rollout (staggered
+        arrivals, chunked prefill under a token budget, decode next to prefill chunks)
+        against the actor recompute (one packed prefill, reversed request order) and the
+        training forward, compared per layer per token. H200, random checkpoint at the
+        real dimensions with nonzero LoRA (window / C4 / C128, hash and scored routing):
+        0 differing tokens at every layer, final hidden and logprob identical, 4 layers
+        with training and 8 layers, 2108 tokens. A one-element change in layer 2 is
+        reported at layer 2 (negative control, `test_dsv4_layerwise_gate.py`)
+  - [ ] Against the vLLM rollout (patched) and on the real checkpoint (`--ckpt DIR
+        --layers N`): on the multi-GPU machine
 - [ ] #230 cross_config M0-M10 selected-token logprob bitwise; add a logprob threshold to CI
       (target 0; slime's 1.9e-7 MAE is the reference upper bound)
 - [ ] verl integration: rollout and actor recompute produce the same selected-token logprob

@@ -166,6 +166,23 @@ The all-hash copy is needed because, with scored routing, a parameter step can f
 choices, which makes finite differences too noisy. Each component is checked exactly
 against FP32 autograd in its own tests.
 
+## Layerwise gate
+
+`rl_engine/models/deepseek_v4/layerwise_gate.py` checks that rollout and actor give every
+token the same bytes at every layer, on one device:
+- **rollout**: continuous batching. Requests arrive staggered, prompts are prefilled in
+  chunks under a token budget, and decode tokens share steps with prefill chunks.
+- **actor**: one packed prefill of every sequence, requests in reverse order.
+- **train**: the same packed prefill through `forward_train`.
+
+It reports, per layer, how many tokens differ and the largest difference; the first
+nonzero layer is where to look. `scripts/check_dsv4_layerwise_gate.py` runs it on a random
+checkpoint or on the first `--layers` layers of a real one (`--ckpt`).
+
+H200, random checkpoint at the real dimensions, nonzero LoRA adapters, 6 requests (2108
+tokens): every layer identical for 4 layers (with the training forward) and for 8 layers.
+A one-element change to layer 2 is reported at layer 2 with layers 0-1 clean.
+
 ## Limitations
 
 - The training forward / backward covers full-prefill batches only.
