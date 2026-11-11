@@ -139,9 +139,7 @@ def test_batch_invariance_across_expert_boundaries(backend):
             elem_format="e4m3",
             shape=(1, batch.hidden),
         )
-        assert torch.equal(
-            backend.forward(one, xq1)[0], y[m]
-        ), f"row {m} diverged"
+        assert torch.equal(backend.forward(one, xq1)[0], y[m]), f"row {m} diverged"
 
 
 @requires_cuda

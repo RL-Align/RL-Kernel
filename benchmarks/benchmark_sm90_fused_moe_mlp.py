@@ -71,9 +71,7 @@ def main() -> int:
     H, F, E = args.hidden, args.ffn, args.experts
     g = torch.Generator().manual_seed(2026)
     print(f"H={H} F={F} E={E} ({torch.cuda.get_device_name(0)})")
-    print(
-        f"{'rows':>7} {'forward ms':>11} {'bf16 loop ms':>13} {'ratio':>6} {'TFLOPS':>7}"
-    )
+    print(f"{'rows':>7} {'forward ms':>11} {'bf16 loop ms':>13} {'ratio':>6} {'TFLOPS':>7}")
     for M in [int(v) for v in args.rows.split(",")]:
         x = (torch.randn(M, H, generator=g) * 0.5).bfloat16().cuda()
         w1 = (torch.randn(E, 2 * F, H, generator=g) / H**0.5).bfloat16().cuda()
@@ -112,9 +110,7 @@ def main() -> int:
         t2 = time_ms(lambda: be.forward(batch, x_q))
         tb = time_ms(bf16_loop)
         flops = 6.0 * M * H * F
-        print(
-            f"{M:>7} {t2:11.3f} {tb:13.3f} {t2 / tb:6.2f} {flops / (t2 * 1e-3) / 1e12:7.0f}"
-        )
+        print(f"{M:>7} {t2:11.3f} {tb:13.3f} {t2 / tb:6.2f} {flops / (t2 * 1e-3) / 1e12:7.0f}")
     return 0
 
 
