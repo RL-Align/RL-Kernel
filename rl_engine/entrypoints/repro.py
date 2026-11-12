@@ -24,6 +24,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 EXAMPLE_RELATIVE = Path("rl_engine/integrations/orchestrators/vime/experiments/dense")
 DEFAULT_PROFILE = Path("configs/integrations/orchestrators/vime/dense/qwen3-8b-tp4-cp2.json")
 ARM_ALIASES = {
@@ -268,18 +271,28 @@ def _git_clean(path: Path) -> bool:
     return result.returncode == 0 and not result.stdout.strip()
 
 
-def _gpu_names() -> list[str] | None:
-    nvidia_smi = shutil.which("nvidia-smi")
-    if not nvidia_smi:
+def _gpu_names(backend: str = "cuda") -> list[str] | None:
+    command = "rocm-smi" if backend == "rocm" else "nvidia-smi"
+    executable = shutil.which(command)
+    if not executable:
         return None
-    result = subprocess.run(
-        [nvidia_smi, "--query-gpu=name", "--format=csv,noheader"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    if backend == "rocm":
+        command_line = [executable, "--showproductname", "--json"]
+    else:
+        command_line = [executable, "--query-gpu=name", "--format=csv,noheader"]
+    result = subprocess.run(command_line, check=False, capture_output=True, text=True)
     if result.returncode:
         return None
+    if backend == "rocm":
+        try:
+            value = json.loads(result.stdout[result.stdout.index("{") :])
+        except (ValueError, json.JSONDecodeError):
+            return None
+        names = []
+        for key, card in value.items():
+            if key.startswith("card") and isinstance(card, dict):
+                names.append(str(card.get("Card series") or card.get("Card SKU") or key))
+        return names or None
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
@@ -326,7 +339,12 @@ def _python_versions(python: Path) -> dict[str, str]:
 
 def _version_matches(actual: str, expected: str) -> bool:
     """Accept an exact frozen version with an optional local wheel suffix."""
-    return actual == expected or actual.split("+", 1)[0] == expected
+    normalized = actual.split("+", 1)[0]
+    return (
+        actual == expected
+        or normalized == expected
+        or (expected.count(".") == 1 and normalized.startswith(expected + "."))
+    )
 
 
 def doctor(
@@ -337,6 +355,7 @@ def doctor(
     as_json: bool = False,
     rollout_layout: str = "regular",
     mode: str = "native",
+    backend: str = "cuda",
 ) -> int:
     requirements = profile.get("requirements", {})
     expected = int(requirements.get("gpus", 8))
@@ -345,7 +364,14 @@ def doctor(
     def add(name: str, passed: bool, detail: str) -> None:
         checks.append({"name": name, "passed": passed, "detail": detail})
 
-    gpu_names = _gpu_names()
+    try:
+        gpu_names = _gpu_names(backend)
+    except TypeError:
+        # Keep the small test seam and third-party callers that monkeypatch the
+        # historical zero-argument probe working for the default CUDA path.
+        if backend != "cuda":
+            raise
+        gpu_names = _gpu_names()
     gpu_count = len(gpu_names) if gpu_names is not None else None
     add(
         "gpu",
@@ -363,6 +389,8 @@ def doctor(
         )
     for name, path in asdict(paths).items():
         if name in {"workspace", "data_root", "output_root"}:
+            continue
+        if backend == "rocm" and name == "cuda_runtime_root":
             continue
         exists = path.exists()
         add(name, exists, str(path) if exists else f"missing: {path}")
@@ -447,6 +475,7 @@ def doctor(
 
     payload = {
         "profile": profile.get("name"),
+        "backend": backend,
         "paths": {key: str(value) for key, value in asdict(paths).items()},
         "checks": checks,
         "passed": all(item["passed"] for item in checks),
@@ -894,10 +923,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="rlk-repro", description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    discover_parser = subparsers.add_parser(
+        "discover", help="automatically align unfamiliar native HF/vLLM model blocks"
+    )
+    discover_parser.add_argument("model", type=Path, help="local HF safetensors checkpoint")
+    discover_parser.add_argument("--tokens", type=Path, required=True, help="JSON token-ID batch")
+    discover_parser.add_argument(
+        "--output", type=Path, required=True, help="new evidence directory"
+    )
+    discover_parser.add_argument(
+        "--dtype",
+        choices=("bfloat16", "float16", "float32"),
+        default="bfloat16",
+    )
+    discover_parser.add_argument(
+        "--training-stack", help="optional confirmation for ambiguous stacks"
+    )
+    discover_parser.add_argument(
+        "--rollout-stack", help="optional confirmation for ambiguous stacks"
+    )
+
     doctor_parser = subparsers.add_parser(
         "doctor", help="check host, runtime, assets, and topology"
     )
     _add_path_options(doctor_parser)
+    doctor_parser.add_argument("--backend", choices=("cuda", "rocm"), default=None)
     doctor_parser.add_argument(
         "--mode",
         default="native",
@@ -948,7 +998,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="convert the configured local Qwen3-8B model to Megatron torch-dist",
     )
 
-    for command in ("plan", "run", "verify"):
+    for command in ("plan", "run", "verify", "debug"):
         command_parser = subparsers.add_parser(command, help=f"{command} one reproduction mode")
         _add_path_options(command_parser)
         command_parser.add_argument("--backend", choices=("cuda", "rocm"), default="cuda")
@@ -1056,6 +1106,36 @@ def build_parser() -> argparse.ArgumentParser:
             default=os.environ.get("RAY_API_SERVER_ADDRESS", "http://127.0.0.1:8265"),
             help="Ray Jobs API address",
         )
+        if command == "debug":
+            command_parser.add_argument(
+                "source", type=Path, help="Saved run, rollout .pt, or frozen replay JSON"
+            )
+            command_parser.add_argument(
+                "--sample", type=int, default=0, help="Sample to replay (default: 0)"
+            )
+            command_parser.add_argument("--step", type=int, default=0, help="Saved rollout step")
+            command_parser.add_argument(
+                "--matrix",
+                default="auto",
+                help="auto, attribute, full, or comma-separated Mxxx groups",
+            )
+            command_parser.add_argument(
+                "--baseline",
+                help="Original Mxxx configuration; inferred from source or native M000",
+            )
+            command_parser.add_argument(
+                "--report-only",
+                action="store_true",
+                help="Analyze existing snapshots without GPU execution",
+            )
+
+            command_parser.add_argument(
+                "--resume",
+                type=Path,
+                default=None,
+                help="Continue an incomplete diagnostic directory, revalidating completed arms",
+            )
+            command_parser.add_argument("--json", action="store_true", dest="as_json")
 
     validate_parser = subparsers.add_parser("validate", help="validate one completed run")
     validate_parser.add_argument("--run-dir", type=Path, required=True)
@@ -1072,10 +1152,24 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     argv = list(sys.argv[1:] if argv is None else argv)
+    if len(argv) >= 2 and argv[0] == "debug" and argv[1] == "doctor":
+        parser.error("'debug doctor' was removed; use 'doctor' instead")
     args = parser.parse_args(argv)
     try:
+        if args.command == "discover":
+            from rl_engine.alignment.debug.discover_runtime import run_cli
+
+            return run_cli(args)
+        if args.command == "debug" and (
+            args.report_only
+            or (args.source / "capture-manifest.json").is_file()
+            or (args.source / "discovery-manifest.json").is_file()
+        ):
+            from rl_engine.alignment.debug.entry import main as diagnostic_main
+
+            return diagnostic_main([str(args.source)])
         profile, _profile_path_value = _load_profile(getattr(args, "profile", None))
-        if args.command in ("plan", "run", "verify"):
+        if args.command in ("plan", "run", "verify", "debug"):
             defaults = profile.get("defaults", {})
             allowed = {
                 "backend",
@@ -1114,13 +1208,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             # machine-profile CP. An explicit --cp always takes precedence.
             if explicit & {"--tp", "--tp-size"} and not explicit & {"--cp", "--cp-size"}:
                 defaults.pop("cp", None)
-            if args.command == "verify":
+            if args.command in {"verify", "debug"}:
                 for key in ("rollouts", "steps", "max-response-length", "max-response-len"):
                     defaults.pop(key, None)
             flags = [part for key, value in defaults.items() for part in (f"--{key}", str(value))]
             args = parser.parse_args([argv[0], *flags, *argv[1:]])
             args.explicit_flags = explicit
-        elif profile.get("requirements", {}).get("backend") == "rocm":
+        elif profile.get("requirements", {}).get("backend") == "rocm" and args.command not in {
+            "doctor"
+        }:
             raise ReproError(
                 "This ROCm profile supports plan and run (including automatic validation); "
                 f"the {args.command} command is currently CUDA-only"
@@ -1139,7 +1235,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run(command).returncode
 
         paths = _resolved_paths(profile, args)
+        if args.command == "debug":
+            from rl_engine.alignment.debug.adapters import run_debug
+
+            return run_debug(paths, profile, args)
         if args.command == "doctor":
+            backend = args.backend or profile.get("requirements", {}).get("backend", "cuda")
             return doctor(
                 paths,
                 profile,
@@ -1147,6 +1248,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 as_json=args.as_json,
                 rollout_layout=args.rollout_layout,
                 mode=args.arm,
+                backend=backend,
             )
         if args.command == "prepare":
             return prepare(paths, profile, args)
