@@ -49,6 +49,15 @@ topology. Formal evidence runs must use clean source checkouts and must not pass
 
 ## Supported reference configuration
 
+For the experimental single-node Prefill/Decode split, see the
+[Qwen3-8B dense example](../integrations/orchestrators/vime/dense/README.md).
+It is opt-in with `--pd`, limited to H100 TP4/CP2 training
+and one TP4 engine per rollout role; it is not part of the GPU-validated
+regular-engine reference matrix below.
+The one-step H100 smoke passed exact logprob checks; the example documents
+the separate two-update acceptance and the 25% vLLM memory fraction needed
+for colocated Prefill/Decode KV cache wakeup.
+
 The bundled CUDA profile targets one Linux node with eight 80 GB NVIDIA H100 GPUs.
 Megatron runs TP4/CP2 and two colocated vLLM engines run TP4. The frozen runtime
 contract is Python 3.11.15, PyTorch 2.9.1, vLLM 0.16.0, Ray 2.57.0, and
@@ -242,13 +251,24 @@ Activate the existing ROCm environment and select the machine profile once.
 The supplied profile describes the isolated MI300X experiment checkouts; copy
 it and edit `paths` for another installation. All four companion checkouts
 (RL-Kernel, VIME, Megatron and vLLM) must include the ROCm integration patches.
-The [companion patch bundle](../../examples/vime_rocm_attention_ablation/companion_patches/README.md)
+The [companion patch bundle](https://github.com/RL-Align/RL-Kernel/blob/main/rl_engine/integrations/orchestrators/vime/patches/rocm_attention/README.md)
 records exact bases, patch hashes and validation scope.
+
+**vLLM source pin:** the recorded base `11d76fc7259b3c1d70e2043b7513226aec9a665a`
+is a local ROCm build commit, not a fetchable commit in `vllm-project/vllm`.
+For a fresh checkout, follow the
+[public-upstream reconstruction steps](https://github.com/RL-Align/RL-Kernel/blob/main/rl_engine/integrations/orchestrators/vime/patches/rocm_attention/README.md#reconstruct-the-vllm-base-from-public-upstream):
+start at upstream `b22afe45ac797ae58e67a7a3ad79ee5714024420`, apply
+`vllm-base.patch` and then `vllm.patch`, and verify both recorded source trees.
+The base patch fixes ROCm VMM host access, not KV-cache tensor layout. A patch
+applying to another release such as `v0.27.1` does not establish equivalent
+sources or numerical behavior. The documented GPU validation is MI300X/gfx942;
+MI355 and other version/layout combinations require their own runtime checks.
 
 ```bash
 cd /path/to/RL-Kernel
 export PATH="$PWD/bin:/opt/venv/bin:$PATH"
-export RLK_REPRO_PROFILE="$PWD/examples/vime_rocm_attention_ablation/profiles/mi300x-qwen3-8b.json"
+export RLK_REPRO_PROFILE="$PWD/configs/integrations/orchestrators/vime/rocm_attention/mi300x-qwen3-8b.json"
 
 # One complete round: eight samples, maximum response length 7168.
 ./rlk run --tp 2 --rollout-tp 4 --temperature 0.7 --top-p 0.95 --steps 1
@@ -265,7 +285,7 @@ the profile's `defaults`; these defaults include backend, mode, topology,
 sampling, round count, workload sizes, Ray ports and memory fraction. The short
 flags are aliases for `--tp-size`, `--cp-size`, `--rollout-tp-size`,
 `--rollout-temperature` and `--rollout-top-p`. The module spelling
-`python -m rl_engine.repro` is equivalent to `rlk-repro`.
+`python -m rl_engine.entrypoints.repro` is equivalent to `rlk-repro`.
 
 The ROCm runner waits for completion, records the expanded command and source
 fingerprints, and validates operator readbacks, eight compared samples and
@@ -302,7 +322,7 @@ Rebuild the extension and apply the updated VIME companion patch. See the
 configuration, explicit sampling/LR options, and limits of the historical
 4.44% end-to-end throughput comparison. Rollout-logprob reuse remains off.
 
-The direct `examples.vime_rocm_attention_ablation.run_qwen3_8b` module remains
+The direct `rl_engine.integrations.orchestrators.vime.experiments.rocm_attention.run_qwen3_8b` module remains
 available for older scripts. `--num-rollout` is its compatibility alias.
 Numerical evidence certifies train/rollout logprobs for the tested rounds;
 it does not certify identical trajectories or gradients across all topologies.
@@ -316,7 +336,7 @@ Use the following order of precedence:
 3. A copied JSON profile for a shared, reviewed experiment definition.
 
 To create a custom profile, copy
-`examples/vime_qwen3_8b_tp4_cp2_200/profiles/qwen3-8b-tp4-cp2.json`, update
+`configs/integrations/orchestrators/vime/dense/qwen3-8b-tp4-cp2.json`, update
 repository revisions, paths, or `runner_args`, and pass `--profile FILE` to
 every command. Run `rlk-repro plan` and review the expanded command before
 submission.
@@ -343,5 +363,5 @@ Ray API addresses are not reasons to edit a script.
 - **A run directory already exists:** choose a new `--run-id`. Run directories
   are append-only and are never overwritten.
 
-The long-form [reproduction runbook](../../examples/vime_qwen3_8b_tp4_cp2_200/REPRODUCTION.md)
+The long-form [reproduction runbook](https://github.com/RL-Align/RL-Kernel/blob/main/docs/integrations/orchestrators/vime/dense/REPRODUCTION.md)
 remains the audit reference for historical experiments and manual recovery.

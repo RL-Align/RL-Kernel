@@ -1,0 +1,58 @@
+{
+  "include": [
+    "**/*.{cu,cuh,hip}",
+    "tests/**",
+    "rl_engine/validation/**"
+  ],
+  "exclude": [
+    "**/__pycache__/**",
+    "**/*.generated.*"
+  ],
+  "rules": [
+    {
+      "path": "{tests,rl_engine/validation}/**",
+      "merge_system_rule": false,
+      "rule": "Review validation logic for false passes: skipped or empty cases counted as success, incorrect masks or token alignment, self-comparison instead of independent recomputation, lost rank failures, and weakened acceptance thresholds. Follow the applicable accuracy and invariance contracts separately. Report a missing test only when tied to a concrete changed behavior and failure case; do not ask for generic coverage."
+    },
+    {
+      "path": "{csrc,rl_engine/backends,rl_engine/kernels}/**",
+      "merge_system_rule": false,
+      "rule": "Check kernel and launch correctness: bounds and tail masks, tensor layouts and strides, dtype and accumulation precision, device capability guards, synchronization and stream ordering, temporary-buffer lifetimes, and forward/backward semantics. Trace changed reduction order or fusion to the relevant numerical contract and callers. Identify the concrete shape, mode or hardware that triggers a defect. Do not infer measured performance or bitwise parity from source alone."
+    },
+    {
+      "path": "rl_engine/distributed/**",
+      "merge_system_rule": false,
+      "rule": "Check rank and process-group mapping, partition and padding semantics, collective participation and ordering, reduction arithmetic, communication-buffer lifetimes and error propagation. Verify the relevant TP/CP/EP/DP configurations and unsupported cases against their declared contracts. Report deadlocks and numerical mismatches with a concrete configuration and execution path."
+    },
+    {
+      "path": "rl_engine/runtime/**",
+      "merge_system_rule": false,
+      "rule": "Check implementation eligibility before performance selection: hardware capabilities, dtype, layout, topology, numerical contract and provenance must satisfy the request. Check strict-mode failure behavior and diagnostic fallbacks against existing policy. Flag silent fallback or incorrect backend attribution when it violates the declared behavior. Preserve legacy imports' shared registry and module state."
+    },
+    {
+      "path": "rl_engine/integrations/**",
+      "merge_system_rule": false,
+      "rule": "Trace rollout and training callers for weight publication/versioning, tokenizer and vocabulary alignment, active-token masks, sampling and logprob semantics, tensor layout, parallel configuration and autograd behavior. Check that independently recomputed scores actually use matching inputs and weights. Apply the declared engine/backend support scope and identify a concrete mismatch rather than assuming all engines are supported."
+    },
+    {
+      "path": "rl_engine/{ops,contracts,reference,models,layers}/**",
+      "merge_system_rule": false,
+      "rule": "Check public operator semantics, shape/dtype constraints, forward and backward behavior, reference independence and model assembly against existing numerical contracts. Distinguish reference accuracy from invariance and bitwise requirements. Flag contract weakening or unsupported support claims only with specific evidence. Keep model topology, semantic interfaces, device arithmetic and engine hooks in their documented owning layers."
+    },
+    {
+      "path": "{.github,ci,build_tools}/**",
+      "merge_system_rule": false,
+      "rule": "Check actual trigger and build behavior, fork PR permissions, trusted-base orchestration, secret exposure, artifact provenance, backend selection and target-hardware validation. Treat PR files and metadata as untrusted data. Flag executing PR-controlled code with privileged credentials, missing required build resources, or skipped device checks being reported as validation success."
+    },
+    {
+      "path": "benchmarks/**",
+      "merge_system_rule": false,
+      "rule": "Check whether changed measurements compare equivalent workloads and numerical contracts, use correct device synchronization and timing boundaries, and identify the backend that actually executed. Report concrete measurement errors affecting conclusions. Do not propose performance thresholds or infer speedups without measurements."
+    },
+    {
+      "path": "**/*",
+      "merge_system_rule": false,
+      "rule": "Report actionable defects introduced by the change with a concrete trigger, affected code and impact. Prioritize correctness, numerical contracts, security, compatibility and execution failures. Avoid style preferences, speculative refactors, generic documentation or test requests, and unrelated pre-existing problems."
+    }
+  ]
+}

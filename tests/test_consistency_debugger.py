@@ -5,6 +5,10 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -184,6 +188,26 @@ def test_unknown_model_localized_without_rl_kernel_or_machine_profile(
     assert "[input evidence] equal" in out
     assert "no live adapter" in out
     assert (tmp_path / "first-divergence.pt").is_file()
+
+
+@pytest.mark.parametrize(
+    "launcher", ["rlk", "rl_engine/repro.py", "rl_engine/entrypoints/repro.py"]
+)
+def test_offline_cli_uses_this_checkout_without_a_profile(tmp_path, launcher):
+    bundle = tmp_path / "bundle"
+    portable(bundle)
+    env = dict(os.environ, RLK_REPRO_PROFILE=str(tmp_path / "missing-profile.json"))
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parents[1] / launcher), "debug", str(bundle)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads((bundle / "diagnostic-report.json").read_text())["status"] == "equal"
 
 
 def test_auto_capture_generates_portable_bundle_without_adapter(tmp_path):

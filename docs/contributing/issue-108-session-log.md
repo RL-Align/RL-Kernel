@@ -8,7 +8,7 @@ This document records the engineering decisions made while building the ISSUE-10
 - Keep changes minimal and independently verifiable.
 - Be explicit when a path is only a smoke test or an experimental path.
 - Do not present failed CUDA paths as supported capabilities.
-- Gold implementations must come from `rl_engine.kernels.ops.pytorch`.
+- Gold implementations must come from `rl_engine.reference`.
 
 ## Goal
 
@@ -33,11 +33,11 @@ rl_engine/kernels/gtest/
   tolerance.py
   tolerance_contract.json
 
-scripts/check_operator.py
+tools/validation/operators/check_operator.py
 
-tests/test_op_checks.py
-tests/test_operator_inputs.py
-tests/test_tolerance_contract.py
+tests/validation/operators/test_op_checks.py
+tests/validation/operators/test_operator_inputs.py
+tests/contracts/test_tolerance_contract.py
 ```
 
 ## Key Design Decisions
@@ -47,9 +47,9 @@ tests/test_tolerance_contract.py
 Files:
 
 ```text
-rl_engine/kernels/gtest/tolerance.py
-rl_engine/kernels/gtest/tolerance_contract.json
-tests/test_tolerance_contract.py
+rl_engine/contracts/numerical.py
+rl_engine/contracts/profiles/precision/ws1.json
+tests/contracts/test_tolerance_contract.py
 ```
 
 Decision:
@@ -71,8 +71,8 @@ logprob
 Files:
 
 ```text
-rl_engine/kernels/gtest/op_checks.py
-tests/test_op_checks.py
+rl_engine/validation/operators/op_checks.py
+tests/validation/operators/test_op_checks.py
 ```
 
 Decision:
@@ -92,8 +92,8 @@ Review follow-up:
 Files:
 
 ```text
-rl_engine/kernels/gtest/operator_inputs.py
-tests/test_operator_inputs.py
+rl_engine/validation/operators/operator_inputs.py
+tests/validation/operators/test_operator_inputs.py
 ```
 
 Decision:
@@ -123,21 +123,21 @@ kv_cache_attention
 File:
 
 ```text
-rl_engine/kernels/gtest/operator_specs.py
+rl_engine/validation/operators/operator_specs.py
 ```
 
 Decision:
 
-- Keep operator-specific registration outside `scripts/check_operator.py`.
+- Keep operator-specific registration outside `tools/validation/operators/check_operator.py`.
 - Register PyTorch gold paths and backend candidate paths in one place.
-- Require `gold_path` to point into `rl_engine.kernels.ops.pytorch`.
+- Require `gold_path` to point into `rl_engine.reference`.
 
 Current minimal registered operator:
 
 ```text
 op: logp
 op_class: logprob
-gold: rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp
+gold: rl_engine.reference.logprob.logp.NativeLogpOp
 candidates:
   pytorch      -> NativeLogpOp
   cuda         -> FusedLogpGenericOp
@@ -171,19 +171,19 @@ Long-term rule:
 CPU smoke check against the PyTorch candidate:
 
 ```bash
-python scripts/check_operator.py   --op logp   --candidate pytorch   --device cpu   --dtype fp32   --batch 1   --seq 2   --vocab 17
+python tools/validation/operators/check_operator.py   --op logp   --candidate pytorch   --device cpu   --dtype fp32   --batch 1   --seq 2   --vocab 17
 ```
 
 CUDA candidate check against the PyTorch gold path:
 
 ```bash
-python scripts/check_operator.py   --op logp   --candidate cuda   --device cuda   --dtype bf16   --arch-key sm90   --batch 1   --seq 1   --vocab 4096
+python tools/validation/operators/check_operator.py   --op logp   --candidate cuda   --device cuda   --dtype bf16   --arch-key sm90   --batch 1   --seq 1   --vocab 4096
 ```
 
 JSON report:
 
 ```bash
-python scripts/check_operator.py   --op logp   --candidate pytorch   --device cpu   --dtype fp32   --batch 1   --seq 2   --vocab 17   --json
+python tools/validation/operators/check_operator.py   --op logp   --candidate pytorch   --device cpu   --dtype fp32   --batch 1   --seq 2   --vocab 17   --json
 ```
 
 Supported key options:
@@ -224,7 +224,7 @@ To add a new operator, keep the shared checker flow unchanged. Add only operator
 File:
 
 ```text
-rl_engine/kernels/gtest/operator_inputs.py
+rl_engine/validation/operators/operator_inputs.py
 ```
 
 Update `make_operator_inputs()`:
@@ -266,7 +266,7 @@ Rules:
 File:
 
 ```text
-rl_engine/kernels/gtest/operator_specs.py
+rl_engine/validation/operators/operator_specs.py
 ```
 
 Add an `OperatorSpec` entry:
@@ -275,18 +275,18 @@ Add an `OperatorSpec` entry:
 "new_op": OperatorSpec(
     name="new_op",
     op_class="elementwise",
-    gold_path="rl_engine.kernels.ops.pytorch....NativeNewOp",
+    gold_path="rl_engine.reference....NativeNewOp",
     candidate_paths={
-        "pytorch": "rl_engine.kernels.ops.pytorch....NativeNewOp",
-        "cuda": "rl_engine.kernels.ops.cuda....CudaNewOp",
-        "triton": "rl_engine.kernels.ops.triton....TritonNewOp",
+        "pytorch": "rl_engine.reference....NativeNewOp",
+        "cuda": "rl_engine.backends.cuda....CudaNewOp",
+        "triton": "rl_engine.backends.shared.triton....TritonNewOp",
     },
 )
 ```
 
 Rules:
 
-- `gold_path` must come from `rl_engine.kernels.ops.pytorch`.
+- `gold_path` must come from `rl_engine.reference`.
 - Backend implementations are candidates only.
 - `candidate=pytorch` is for checker smoke tests only.
 - Do not compare operators with different math.
@@ -296,7 +296,7 @@ Rules:
 File:
 
 ```text
-rl_engine/kernels/gtest/tolerance_contract.json
+rl_engine/contracts/profiles/precision/ws1.json
 ```
 
 Reuse an existing class when possible:
@@ -314,8 +314,8 @@ If a new class is needed, add dtype tolerances and set `op_class` accordingly in
 Files:
 
 ```text
-tests/test_operator_inputs.py
-tests/test_op_checks.py
+tests/validation/operators/test_operator_inputs.py
+tests/validation/operators/test_op_checks.py
 ```
 
 Minimum expected coverage:
@@ -327,19 +327,19 @@ Minimum expected coverage:
 ### 5. Validate
 
 ```bash
-python -m pytest tests/test_tolerance_contract.py tests/test_op_checks.py tests/test_operator_inputs.py -q
+python -m pytest tests/contracts/test_tolerance_contract.py tests/validation/operators/test_op_checks.py tests/validation/operators/test_operator_inputs.py -q
 ```
 
 Then run the CLI:
 
 ```bash
-python scripts/check_operator.py   --op new_op   --candidate pytorch   --device cpu   --dtype fp32
+python tools/validation/operators/check_operator.py   --op new_op   --candidate pytorch   --device cpu   --dtype fp32
 ```
 
 For CUDA:
 
 ```bash
-python scripts/check_operator.py   --op new_op   --candidate cuda   --device cuda   --dtype bf16   --arch-key sm90
+python tools/validation/operators/check_operator.py   --op new_op   --candidate cuda   --device cuda   --dtype bf16   --arch-key sm90
 ```
 
 ## CUDA Validation Notes
@@ -362,19 +362,19 @@ SM90 fused logp is not marked as a passing path in this PR. It compiled and load
 ## Validation Performed
 
 ```bash
-python -m pytest tests/test_tolerance_contract.py tests/test_op_checks.py tests/test_operator_inputs.py -q
+python -m pytest tests/contracts/test_tolerance_contract.py tests/validation/operators/test_op_checks.py tests/validation/operators/test_operator_inputs.py -q
 ```
 
 CPU CLI smoke test:
 
 ```bash
-python scripts/check_operator.py   --op logp   --candidate pytorch   --device cpu   --dtype fp32   --batch 1   --seq 2   --vocab 17
+python tools/validation/operators/check_operator.py   --op logp   --candidate pytorch   --device cpu   --dtype fp32   --batch 1   --seq 2   --vocab 17
 ```
 
 Backward CLI smoke test:
 
 ```bash
-python scripts/check_operator.py   --op logp   --candidate pytorch   --device cpu   --dtype fp32   --batch 1   --seq 2   --vocab 17   --check-grad
+python tools/validation/operators/check_operator.py   --op logp   --candidate pytorch   --device cpu   --dtype fp32   --batch 1   --seq 2   --vocab 17   --check-grad
 ```
 
 ## PR Review Updates
@@ -384,7 +384,7 @@ python scripts/check_operator.py   --op logp   --candidate pytorch   --device cp
 Files:
 
 ```text
-tests/test_logp.py
+tests/ops/logprob/test_logp.py
 docs/contributing/issue-108-session-log.md
 ```
 
@@ -396,17 +396,17 @@ Reasoning:
 
 - The checker PR already validates forward output values, but review feedback called out that logprob coverage should also prove gradient propagation and batch invariance.
 - The new gradient test compares the op gradient against a direct PyTorch `log_softmax + gather` reference under a non-unit upstream gradient.
-- Batch invariance was already covered by `TestNativeLogpOpBatchInvariance` in `tests/test_logp.py`, so no duplicate batch-invariance test was added.
+- Batch invariance was already covered by `TestNativeLogpOpBatchInvariance` in `tests/ops/logprob/test_logp.py`, so no duplicate batch-invariance test was added.
 
 ### GTest Backward Check Support
 
 Files:
 
 ```text
-rl_engine/kernels/gtest/op_checks.py
-rl_engine/kernels/gtest/operator_specs.py
-scripts/check_operator.py
-tests/test_op_checks.py
+rl_engine/validation/operators/op_checks.py
+rl_engine/validation/operators/operator_specs.py
+tools/validation/operators/check_operator.py
+tests/validation/operators/test_op_checks.py
 docs/contributing/issue-108-session-log.md
 ```
 
@@ -416,7 +416,7 @@ Change:
 - Added `run_operator_suite(..., check_grad=True)`.
 - Added `_run_case_backward()` to compare candidate forward outputs and selected input gradients against the PyTorch gold path.
 - Added `OperatorSpec.grad_input_names`; `logp` declares `("logits",)`.
-- Added `scripts/check_operator.py --check-grad`.
+- Added `tools/validation/operators/check_operator.py --check-grad`.
 - Added `--grad-mode ones|random` and `--grad-seed` for backward checks.
 
 Reasoning:
@@ -438,9 +438,9 @@ Known backend limitation:
 Files:
 
 ```text
-rl_engine/kernels/gtest/operator_inputs.py
-rl_engine/kernels/gtest/operator_specs.py
-tests/test_operator_inputs.py
+rl_engine/validation/operators/operator_inputs.py
+rl_engine/validation/operators/operator_specs.py
+tests/validation/operators/test_operator_inputs.py
 docs/contributing/issue-108-session-log.md
 ```
 
@@ -461,7 +461,7 @@ Reasoning:
 Example Triton smoke command:
 
 ```bash
-python scripts/check_operator.py   --op linear_logp   --candidate triton   --device cuda   --dtype bf16   --batch 1   --seq 2   --vocab 1024   --normalized-dim 4096   --check-grad   --grad-mode random   --grad-seed 123
+python tools/validation/operators/check_operator.py   --op linear_logp   --candidate triton   --device cuda   --dtype bf16   --batch 1   --seq 2   --vocab 1024   --normalized-dim 4096   --check-grad   --grad-mode random   --grad-seed 123
 ```
 
 Observed bf16 result on H100:

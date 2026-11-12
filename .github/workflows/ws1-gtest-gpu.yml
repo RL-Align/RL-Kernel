@@ -12,38 +12,54 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "rl_engine/kernels/gtest/**"
-      - "rl_engine/kernels/ops/**"
-      - "rl_engine/testing/**"
-      - "scripts/sweep_ws1_four_judgments.py"
-      - "scripts/check_forward_invariance.py"
-      - "scripts/check_gradient_invariance.py"
-      - "scripts/ws1_candidate_evidence.py"
-      - "tests/test_ws1_*.py"
-      - "tests/test_forward_invariance.py"
-      - "tests/test_gradient_invariance.py"
-      - "tests/test_four_judgment_matrix.py"
-      - "tests/test_triton_batch_invariant_attention.py"
-      - "ci/run_ws1_gtest.sh"
-      - "ci/run_gpu_ci.sh"
+      - "rl_engine/validation/**"
+      - "rl_engine/backends/**"
+      - "rl_engine/config/**"
+      - "rl_engine/contracts/**"
+      - "rl_engine/ops/**"
+      - "rl_engine/models/**"
+      - "rl_engine/runtime/**"
+      - "rl_engine/reference/**"
+      - "build_tools/**"
+      - "csrc/**"
+      - "tools/validation/operators/sweep_ws1_four_judgments.py"
+      - "tools/validation/operators/check_forward_invariance.py"
+      - "tools/validation/operators/check_gradient_invariance.py"
+      - "tools/validation/operators/ws1_candidate_evidence.py"
+      - "tests/validation/**"
+      - "tests/models/**"
+      - "tests/validation/operators/test_forward_invariance.py"
+      - "tests/validation/operators/test_gradient_invariance.py"
+      - "tests/validation/operators/test_four_judgment_matrix.py"
+      - "tests/ops/attention/test_triton_batch_invariant_attention.py"
+      - "ci/scripts/run_ws1_gtest.sh"
+      - "ci/scripts/run_gpu_ci.sh"
       - ".github/workflows/ws1-gtest-gpu.yml"
   push:
     branches: [ main ]
     paths:
-      - "rl_engine/kernels/gtest/**"
-      - "rl_engine/kernels/ops/**"
-      - "rl_engine/testing/**"
-      - "scripts/sweep_ws1_four_judgments.py"
-      - "scripts/check_forward_invariance.py"
-      - "scripts/check_gradient_invariance.py"
-      - "scripts/ws1_candidate_evidence.py"
-      - "tests/test_ws1_*.py"
-      - "tests/test_forward_invariance.py"
-      - "tests/test_gradient_invariance.py"
-      - "tests/test_four_judgment_matrix.py"
-      - "tests/test_triton_batch_invariant_attention.py"
-      - "ci/run_ws1_gtest.sh"
-      - "ci/run_gpu_ci.sh"
+      - "rl_engine/validation/**"
+      - "rl_engine/backends/**"
+      - "rl_engine/config/**"
+      - "rl_engine/contracts/**"
+      - "rl_engine/ops/**"
+      - "rl_engine/models/**"
+      - "rl_engine/runtime/**"
+      - "rl_engine/reference/**"
+      - "build_tools/**"
+      - "csrc/**"
+      - "tools/validation/operators/sweep_ws1_four_judgments.py"
+      - "tools/validation/operators/check_forward_invariance.py"
+      - "tools/validation/operators/check_gradient_invariance.py"
+      - "tools/validation/operators/ws1_candidate_evidence.py"
+      - "tests/validation/**"
+      - "tests/models/**"
+      - "tests/validation/operators/test_forward_invariance.py"
+      - "tests/validation/operators/test_gradient_invariance.py"
+      - "tests/validation/operators/test_four_judgment_matrix.py"
+      - "tests/ops/attention/test_triton_batch_invariant_attention.py"
+      - "ci/scripts/run_ws1_gtest.sh"
+      - "ci/scripts/run_gpu_ci.sh"
       - ".github/workflows/ws1-gtest-gpu.yml"
   workflow_dispatch:
 
@@ -73,13 +89,19 @@ jobs:
           persist-credentials: false
 
       - name: Install runpodctl
+        # Pinned with its published checksum: a moving "latest" changes CLI
+        # behavior under CI without a commit here. To upgrade, set both values:
+        # sha256 = the runpodctl-linux-amd64 line of checksums_<ver>_sha256.txt
+        # in the release.
+        env:
+          RUNPODCTL_VERSION: v2.9.0
+          RUNPODCTL_SHA256: 06e6f54957db79d5cd9f1909a7f1d365076826751ba2f5df65d75dde43a64148
         run: |
-          wget -qO runpodctl https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64
+          wget -qO runpodctl "https://github.com/runpod/runpodctl/releases/download/${RUNPODCTL_VERSION}/runpodctl-linux-amd64"
+          echo "${RUNPODCTL_SHA256}  runpodctl" | sha256sum -c -
           chmod +x runpodctl
           sudo mv runpodctl /usr/local/bin/runpodctl
-
-      - name: Configure runpodctl
-        run: runpodctl config --apiKey "${{ secrets.RUNPOD_API_KEY }}"
+          runpodctl version
 
       - name: Setup SSH key
         run: |
@@ -97,7 +119,7 @@ jobs:
           TARGET_SM: ${{ matrix.target_sm }}
           KERNEL_ALIGN_FORCE_SM90: ${{ matrix.force_sm90 }}
           TEST_SUITE: ws1-gtest
-        run: bash ci/run_gpu_ci.sh
+        run: bash ci/scripts/run_gpu_ci.sh
 
       - name: Upload C8 execute JSON
         if: always()

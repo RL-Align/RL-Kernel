@@ -1,0 +1,377 @@
+diff --git a/vime/backends/megatron_utils/loss.py b/vime/backends/megatron_utils/loss.py
+index a33f1243..d79646ed 100644
+--- a/vime/backends/megatron_utils/loss.py
++++ b/vime/backends/megatron_utils/loss.py
+@@ -3,6 +3,8 @@ from argparse import Namespace
+ from collections.abc import Callable, Iterator, Mapping
+ from typing import Any
+ 
++import os
++
+ import torch
+ import torch.distributed as dist
+ import torch.nn.functional as F
+@@ -419,6 +421,132 @@ def _build_topp_keep_mask(
+     return keep
+ 
+ 
++def _fill_topp_sparse_rows(
++    sparse_ids: torch.Tensor,
++    ids: list[int],
++    offsets: list[int],
++    response_start: int,
++    local_start: int,
++    length: int,
++) -> None:
++    """Copy ragged rollout nuclei into rows of a compact padded tensor."""
++
++    end = min(response_start + length, max(len(offsets) - 1, 0))
++    for response_idx in range(response_start, end):
++        nucleus = ids[offsets[response_idx] : offsets[response_idx + 1]]
++        row = local_start + response_idx - response_start
++        if nucleus:
++            sparse_ids[row, : len(nucleus)] = torch.tensor(
++                nucleus, device=sparse_ids.device, dtype=torch.long
++            )
++
++
++def _build_topp_sparse_ids(
++    target_ids: torch.Tensor,
++    top_p_token_ids: list[list[int]],
++    top_p_token_offsets: list[list[int]],
++    total_lengths: list[int],
++    response_lengths: list[int],
++    allgather_cp: bool,
++) -> torch.Tensor:
++    """Build compact ``[T, K]`` global nucleus IDs for strict replay.
++
++    Non-response rows are initialized to their target only.  Those rows are
++    discarded by response extraction, while this avoids any full-vocabulary
++    work for them.  The strict provider canonicalizes and de-duplicates each
++    row before scoring.
++    """
++
++    normalized_ids = [t.tolist() if torch.is_tensor(t) else list(t) for t in top_p_token_ids]
++    normalized_offsets = [
++        t.tolist() if torch.is_tensor(t) else list(t) for t in top_p_token_offsets
++    ]
++    max_nucleus = max(
++        (
++            offsets[index + 1] - offsets[index]
++            for offsets in normalized_offsets
++            for index in range(max(len(offsets) - 1, 0))
++        ),
++        default=1,
++    )
++    max_nucleus = max(int(max_nucleus), 1)
++    sparse_ids = torch.full(
++        (target_ids.numel(), max_nucleus),
++        -1,
++        dtype=torch.long,
++        device="cpu",
++    )
++    sparse_ids[:, 0] = target_ids.detach().to(device="cpu", dtype=torch.long)
++
++    cp_size = mpu.get_context_parallel_world_size()
++    if cp_size > 1 and not allgather_cp:
++        local_base = 0
++        for ids, offsets, total_length, response_length in zip(
++            normalized_ids,
++            normalized_offsets,
++            total_lengths,
++            response_lengths,
++            strict=False,
++        ):
++            prompt_length = total_length - response_length
++            chunk_size_cp, chunks_offset, logits_offset, tokens_offset = get_logits_and_tokens_offset_with_cp(
++                total_length, response_length
++            )
++            for half, base in ((0, local_base), (1, local_base + chunk_size_cp)):
++                local_start = base + logits_offset[half][0] - chunks_offset[half][0]
++                length = logits_offset[half][1] - logits_offset[half][0]
++                response_start = tokens_offset[half][0] - prompt_length
++                _fill_topp_sparse_rows(
++                    sparse_ids, ids, offsets, response_start, local_start, length
++                )
++            local_base += 2 * chunk_size_cp
++        return sparse_ids.to(device=target_ids.device, non_blocking=True)
++
++    if allgather_cp:
++        cp_rank = mpu.get_context_parallel_rank()
++        local_len = target_ids.numel()
++        chunk_start = cp_rank * local_len
++        chunk_end = chunk_start + local_len
++        seq_start = 0
++        for ids, offsets, total_length, response_length in zip(
++            normalized_ids,
++            normalized_offsets,
++            total_lengths,
++            response_lengths,
++            strict=False,
++        ):
++            prompt_length = total_length - response_length
++            logit_global_start = seq_start + prompt_length - 1
++            logit_global_end = seq_start + total_length - 1
++            start = max(logit_global_start, chunk_start)
++            end = min(logit_global_end, chunk_end)
++            if end > start:
++                _fill_topp_sparse_rows(
++                    sparse_ids,
++                    ids,
++                    offsets,
++                    start - logit_global_start,
++                    start - chunk_start,
++                    end - start,
++                )
++            seq_start += total_length
++        return sparse_ids.to(device=target_ids.device, non_blocking=True)
++
++    offset = 0
++    for ids, offsets, total_length, response_length in zip(
++        normalized_ids,
++        normalized_offsets,
++        total_lengths,
++        response_lengths,
++        strict=False,
++    ):
++        end = offset + total_length
++        start = end - response_length
++        _fill_topp_sparse_rows(sparse_ids, ids, offsets, 0, start - 1, response_length)
++        offset += total_length
++    return sparse_ids.to(device=target_ids.device, non_blocking=True)
++
++
+ def _extract_per_sample(
+     log_prob_full: torch.Tensor,
+     entropy_full: torch.Tensor | None,
+@@ -529,9 +657,14 @@ def get_log_probs_and_entropy(
+     assert logits.size(0) == 1, f"{logits.shape}"
+     logits = logits.squeeze(0)
+ 
+-    # Apply rollout temperature scaling to logits to match rollout-time log-probs.
++    # The sparse provider applies temperature inside the same HIP kernel as
++    # rollout. Pre-scaling here changes FP32 rounding before the reduction.
++    sparse_replay = (
++        os.environ.get("RL_KERNEL_SPARSE_TOP_P_REPLAY") == "1"
++        and top_p_token_ids is not None and top_p_token_offsets is not None
++    )
+     rollout_temperature = getattr(args, "rollout_temperature", 1.0)
+-    if rollout_temperature != 1.0:
++    if not sparse_replay and rollout_temperature != 1.0:
+         logits = logits / rollout_temperature
+     logits = logits.contiguous()
+     T = logits.size(0)
+@@ -547,16 +680,16 @@ def get_log_probs_and_entropy(
+ 
+     # --- build top-p nucleus keep-mask (logprob only; entropy stays unmasked) ---
+     top_p_keep_mask = None
+-    if top_p_token_ids is not None and top_p_token_offsets is not None:
++    top_p_sparse_ids = None
++    if sparse_replay:
++        top_p_sparse_ids = _build_topp_sparse_ids(
++            full_tokens, top_p_token_ids, top_p_token_offsets,
++            total_lengths, response_lengths, args.allgather_cp,
++        )
++    elif top_p_token_ids is not None and top_p_token_offsets is not None:
+         top_p_keep_mask = _build_topp_keep_mask(
+-            T,
+-            logits.size(-1),
+-            device,
+-            top_p_token_ids,
+-            top_p_token_offsets,
+-            total_lengths,
+-            response_lengths,
+-            args.allgather_cp,
++            T, logits.size(-1), device, top_p_token_ids, top_p_token_offsets,
++            total_lengths, response_lengths, args.allgather_cp,
+         )
+ 
+     cp_world_size = mpu.get_context_parallel_world_size()
+@@ -577,11 +710,12 @@ def get_log_probs_and_entropy(
+         context=linear_logp_context,
+         temperature=rollout_temperature,
+         metadata={
+-            "logits_are_temperature_scaled": True,
++            "logits_are_temperature_scaled": not sparse_replay,
+             "real_vocab_size": getattr(args, "vocab_size", None),
+             "padded_vocab_size": getattr(args, "padded_vocab_size", None),
+             "tp_rank": mpu.get_tensor_model_parallel_rank(),
+             "tp_world_size": mpu.get_tensor_model_parallel_world_size(),
++            "top_p_sparse_token_ids": top_p_sparse_ids,
+         },
+     )
+     # The provider owns linear_logp math and its TP reduction. Vime
+diff --git a/vime/backends/megatron_utils/update_weight/update_weight_from_distributed.py b/vime/backends/megatron_utils/update_weight/update_weight_from_distributed.py
+index edf4c157..279e4357 100644
+--- a/vime/backends/megatron_utils/update_weight/update_weight_from_distributed.py
++++ b/vime/backends/megatron_utils/update_weight/update_weight_from_distributed.py
+@@ -24,6 +24,13 @@ except ImportError:  # Colocated IPC runs do not need the distributed transfer b
+     NCCLTrainerSendWeightsArgs = None
+     NCCLWeightTransferEngine = None
+ 
++try:
++    from vllm.distributed.weight_transfer.nccl_common import (
++        trainer_init as _trainer_init_endpoint,
++    )
++except ImportError:
++    _trainer_init_endpoint = None
++
+ from vime.utils.distributed_utils import get_gloo_group
+ 
+ from ..megatron_to_hf import convert_to_hf
+@@ -456,13 +463,20 @@ def connect_rollout_engines_from_distributed(
+         device,
+         os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+     )
+-    model_update_groups = NCCLWeightTransferEngine.trainer_init(
+-        {
+-            "master_address": master_address,
+-            "master_port": master_port,
+-            "world_size": world_size,
+-        }
+-    )
++    init_info = {
++        "master_address": master_address,
++        "master_port": master_port,
++        "world_size": world_size,
++    }
++    # vLLM kept the original low-overhead PR377 transfer protocol but moved
++    # the trainer endpoint from the worker class into nccl_common.  Support
++    # both layouts without switching this hot path to the newer stateful API.
++    trainer_init = getattr(NCCLWeightTransferEngine, "trainer_init", None)
++    if trainer_init is None:
++        if _trainer_init_endpoint is None:
++            raise RuntimeError("vLLM does not expose a trainer NCCL endpoint")
++        trainer_init = _trainer_init_endpoint
++    model_update_groups = trainer_init(init_info)
+ 
+     ray.get(refs)
+     return model_update_groups
+@@ -527,7 +541,20 @@ def update_weights_from_distributed(
+         for name, param in converted_named_tensors
+     )
+     if NCCLTrainerSendWeightsArgs is None:
+-        NCCLWeightTransferEngine.trainer_send_weights(named_gpu_iter, group, packed=True)
++        trainer_send_weights = getattr(NCCLWeightTransferEngine, "trainer_send_weights", None)
++        if trainer_send_weights is None or "Removed" in str(getattr(trainer_send_weights, "__doc__", "")):
++            from vllm.distributed.weight_transfer.packed_tensor import (
++                packed_nccl_broadcast_producer,
++            )
++
++            packed_nccl_broadcast_producer(
++                iterator=named_gpu_iter,
++                group=group,
++                src=0,
++                post_iter_func=lambda item: item[1],
++            )
++        else:
++            trainer_send_weights(named_gpu_iter, group, packed=True)
+     else:
+         NCCLWeightTransferEngine.trainer_send_weights(
+             named_gpu_iter,
+diff --git a/vime/backends/vllm_utils/vllm_engine.py b/vime/backends/vllm_utils/vllm_engine.py
+index 7d239457..bd21dc15 100644
+--- a/vime/backends/vllm_utils/vllm_engine.py
++++ b/vime/backends/vllm_utils/vllm_engine.py
+@@ -257,6 +257,12 @@ class VLLMEngine(RayActor):
+             return {"ok": True}
+         return response.json()
+ 
++    def start_profile(self):
++        return self._make_request("start_profile")
++
++    def stop_profile(self):
++        return self._make_request("stop_profile")
++
+     def health_generate(self, timeout: float = 5.0) -> bool:
+         if self.node_rank != 0:
+             return True
+@@ -426,6 +432,9 @@ class VLLMEngine(RayActor):
+                     "master_port": master_port,
+                     "rank_offset": rank_offset,
+                     "world_size": world_size,
++                    # Newer vLLM freezes the wire format at initialization;
++                    # PR377's trainer path always uses packed buckets.
++                    "packed": True,
+                 }
+             },
+         )
+@@ -450,7 +459,6 @@ class VLLMEngine(RayActor):
+             "names": names,
+             "dtype_names": dtype_names,
+             "shapes": [list(s) for s in shapes],
+-            "packed": True,
+         }
+         result = self._make_request("update_weights", {"update_info": update_info})
+         self._weight_version = str(weight_version)
+@@ -585,11 +593,25 @@ def _compute_server_args(
+         "nnodes": nnodes,
+         "node_rank": node_rank,
+         "tensor_parallel_size": tp,
+-        "logprobs_mode": "processed_logprobs",
++        "logprobs_mode": "processed_logits" if os.environ.get("RL_KERNEL_SPARSE_TOP_P_REPLAY") == "1" else "processed_logprobs",
+         "enable_prompt_tokens_details": True,
+         "enable_server_load_tracking": True,
+     }
+ 
++    profiler_root = os.environ.get("RL_KERNEL_TORCH_PROFILE_DIR")
++    if profiler_root:
++        profiler_dir = os.path.join(profiler_root, f"engine-{rank}")
++        os.makedirs(profiler_dir, exist_ok=True)
++        from vllm.config import ProfilerConfig
++
++        kwargs["profiler_config"] = ProfilerConfig(
++            profiler="torch",
++            torch_profiler_dir=profiler_dir,
++            torch_profiler_with_stack=False,
++            torch_profiler_with_flops=False,
++            torch_profiler_use_gzip=True,
++        )
++
+     if pp > 1:
+         kwargs["pipeline_parallel_size"] = pp
+ 
+diff --git a/vime/ray/rollout.py b/vime/ray/rollout.py
+index ec88fbfd..486b2abe 100644
+--- a/vime/ray/rollout.py
++++ b/vime/ray/rollout.py
+@@ -558,7 +558,14 @@ class RolloutManager:
+         self.health_monitoring_resume()
+         if self.args.ci_test and self.args.use_fault_tolerance and rollout_id >= 2:
+             self._try_ci_fault_injection()
+-        data, metrics = self._get_rollout_data(rollout_id=rollout_id)
++        profile_rollout = os.environ.get("RL_KERNEL_PROFILE_ROLLOUT") == "1"
++        if profile_rollout:
++            ray.get([engine.start_profile.remote() for engine in self.rollout_engines])
++        try:
++            data, metrics = self._get_rollout_data(rollout_id=rollout_id)
++        finally:
++            if profile_rollout:
++                ray.get([engine.stop_profile.remote() for engine in self.rollout_engines])
+         self._save_debug_rollout_data(data, rollout_id=rollout_id, evaluation=False)
+         _log_rollout_data(rollout_id, self.args, data, metrics, time.time() - start_time)
+         if self.args.debug_rollout_only:
+diff --git a/vime/rollout/vllm_rollout.py b/vime/rollout/vllm_rollout.py
+index 7e657e71..8ceae419 100644
+--- a/vime/rollout/vllm_rollout.py
++++ b/vime/rollout/vllm_rollout.py
+@@ -390,6 +390,19 @@ async def generate(args: Namespace, sample: Sample, sampling_params: dict[str, A
+         meta["completion_tokens"] = usage.get("completion_tokens", 0)
+         meta["cached_tokens"] = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+ 
++    for key in ("top_p_token_ids", "top_p_token_offsets"):
++        encoded = choice.get(key)
++        if encoded is not None:
++            raw = base64.b64decode(encoded.encode("ascii"), validate=True)
++            meta[key] = np.load(io.BytesIO(raw), allow_pickle=False)
++    if float(sampling_params.get("top_p", 1.0)) < 1.0:
++        ids = meta.get("top_p_token_ids")
++        offsets = meta.get("top_p_token_offsets")
++        if ids is None or offsets is None or len(offsets) != len(new_response_tokens) + 1:
++            raise RuntimeError("top-p requires complete sampler support for every generated token")
++        if int(offsets[0]) != 0 or int(offsets[-1]) != len(ids) or np.any(np.diff(offsets) <= 0):
++            raise RuntimeError("invalid top-p retained-token spans")
++
+     # MoE routing replay: vLLM ships routed_experts as a base64 .npy blob on the choice;
+     # decode here and route through meta_info. #183: guard on value (null when replay off).
+     routed_experts = choice.get("routed_experts")

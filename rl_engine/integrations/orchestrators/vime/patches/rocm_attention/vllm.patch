@@ -1,0 +1,218 @@
+diff --git a/vllm/distributed/weight_transfer/ipc_engine.py b/vllm/distributed/weight_transfer/ipc_engine.py
+index 8a7d8744c8..d8da832e4c 100644
+--- a/vllm/distributed/weight_transfer/ipc_engine.py
++++ b/vllm/distributed/weight_transfer/ipc_engine.py
+@@ -75,6 +75,8 @@ class IPCWeightTransferUpdateInfo(WeightTransferUpdateInfo):
+     tensor_sizes: list[int] | None = None
+     """Per-parameter sizes in bytes within the packed buffer.
+     Required when packed=True, unused otherwise."""
++    packed: bool = False
++    """Backward-compatible per-update packed-mode flag."""
+ 
+     def __post_init__(self):
+         if self.ipc_handles_pickled is not None:
+@@ -191,7 +193,7 @@ class IPCWeightTransferEngine(
+         # rebuilt on the device the model lives on.
+         device_index = self.device.index
+ 
+-        if self.packed:
++        if self.packed or update_info.packed:
+             if update_info.tensor_sizes is None:
+                 raise ValueError("`tensor_sizes` is required when packed=True")
+             assert isinstance(update_info.ipc_handles, dict)
+diff --git a/vllm/entrypoints/scale_out/token_in_token_out/protocol.py b/vllm/entrypoints/scale_out/token_in_token_out/protocol.py
+index 86c0a8c8b1..b6f860422a 100644
+--- a/vllm/entrypoints/scale_out/token_in_token_out/protocol.py
++++ b/vllm/entrypoints/scale_out/token_in_token_out/protocol.py
+@@ -200,6 +200,10 @@ class GenerateResponseChoice(BaseModel):
+     # ``None`` if (a) the request was aborted before any forward pass,
+     # or (b) ``enable_return_routed_experts`` is off server-side.
+     routed_experts: str | None = None
++    # Exact retained nucleus for every generated token, each encoded as a
++    # base64 ``.npy`` int32 vector.  Token r uses ids[offsets[r]:offsets[r+1]].
++    top_p_token_ids: str | None = None
++    top_p_token_offsets: str | None = None
+ 
+     @field_validator("token_ids")
+     @classmethod
+@@ -215,6 +219,8 @@ class GenerateResponseStreamChoice(BaseModel):
+     finish_reason: str | None = None
+     token_ids: list[int] | None = None
+     routed_experts: str | None = None
++    top_p_token_ids: str | None = None
++    top_p_token_offsets: str | None = None
+ 
+ 
+ class GenerateStreamResponse(BaseModel):
+diff --git a/vllm/entrypoints/scale_out/token_in_token_out/serving.py b/vllm/entrypoints/scale_out/token_in_token_out/serving.py
+index 7b5e2bbb3d..7de59da69e 100644
+--- a/vllm/entrypoints/scale_out/token_in_token_out/serving.py
++++ b/vllm/entrypoints/scale_out/token_in_token_out/serving.py
+@@ -58,6 +58,27 @@ from .protocol import (
+ logger = init_logger(__name__)
+ 
+ 
++def _encode_int32_array(values: list[int]) -> str:
++    buf = io.BytesIO()
++    np.save(buf, np.asarray(values, dtype=np.int32))
++    return base64.b64encode(buf.getvalue()).decode("ascii")
++
++
++def _encode_top_p_token_spans(top_logprobs) -> tuple[str, str]:
++    """Encode every finite processed-logprob token as ragged top-p spans."""
++    token_ids: list[int] = []
++    offsets = [0]
++    for position in top_logprobs:
++        if position is not None:
++            token_ids.extend(
++                int(token_id)
++                for token_id, logprob in position.items()
++                if np.isfinite(logprob.logprob)
++            )
++        offsets.append(len(token_ids))
++    return _encode_int32_array(token_ids), _encode_int32_array(offsets)
++
++
+ class ServingTokens(GenerateBaseServing):
+     """Provides Tokens IN <> Tokens OUT functionality to vLLM API."""
+ 
+@@ -280,6 +301,16 @@ class ServingTokens(GenerateBaseServing):
+             else:
+                 logprobs = None
+ 
++            top_p_token_ids_b64 = None
++            top_p_token_offsets_b64 = None
++            if sampling_params.top_p < 1.0:
++                assert out_logprobs is not None, (
++                    "top-p replay requires processed logprobs"
++                )
++                top_p_token_ids_b64, top_p_token_offsets_b64 = (
++                    _encode_top_p_token_spans(out_logprobs)
++                )
++
+             # Encode routed_experts for transport. JSON can't carry raw
+             # bytes, so we write the ndarray as a ``.npy`` byte stream
+             # and base64-encode it. ``pybase64`` is ~3x faster than the
+@@ -298,6 +329,8 @@ class ServingTokens(GenerateBaseServing):
+                 finish_reason=output.finish_reason if output.finish_reason else "stop",
+                 token_ids=as_list(output.token_ids),
+                 routed_experts=routed_experts_b64,
++                top_p_token_ids=top_p_token_ids_b64,
++                top_p_token_offsets=top_p_token_offsets_b64,
+             )
+ 
+             choices.append(choice_data)
+@@ -407,6 +440,16 @@ class ServingTokens(GenerateBaseServing):
+                     else:
+                         logprobs = None
+ 
++                    top_p_token_ids_b64 = None
++                    top_p_token_offsets_b64 = None
++                    if sampling_params.top_p < 1.0:
++                        assert out_logprobs is not None, (
++                            "top-p replay requires processed logprobs"
++                        )
++                        top_p_token_ids_b64, top_p_token_offsets_b64 = (
++                            _encode_top_p_token_spans(out_logprobs)
++                        )
++
+                     routed_experts_b64 = None
+                     if output.routed_experts is not None:
+                         buf = io.BytesIO()
+@@ -424,6 +467,8 @@ class ServingTokens(GenerateBaseServing):
+                                 finish_reason=finish_reason,
+                                 token_ids=as_list(delta_token_ids),
+                                 routed_experts=routed_experts_b64,
++                                top_p_token_ids=top_p_token_ids_b64,
++                                top_p_token_offsets=top_p_token_offsets_b64,
+                             )
+                         ],
+                     )
+diff --git a/vllm/v1/engine/logprobs.py b/vllm/v1/engine/logprobs.py
+index 74a45ab1e4..6e66e673db 100644
+--- a/vllm/v1/engine/logprobs.py
++++ b/vllm/v1/engine/logprobs.py
+@@ -2,6 +2,7 @@
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+ import itertools
++import math
+ from collections.abc import Iterable
+ from dataclasses import dataclass
+ 
+@@ -89,6 +90,20 @@ class LogprobsProcessor:
+             rank = rank_np.tolist()
+             logprobs = logprobs_np.tolist()
+             token_ids = token_ids_np.tolist()
++            # Sparse top-p replay uses a fixed GPU-side capacity to avoid a
++            # per-token device-to-host synchronization.  Drop its -inf
++            # padding before detokenization and Python object construction.
++            if len(logprobs) > 1:
++                retained = [0]
++                retained.extend(
++                    index
++                    for index, value in enumerate(logprobs[1:], start=1)
++                    if math.isfinite(value)
++                )
++                if isinstance(rank, list):
++                    rank = [rank[index] for index in retained]
++                logprobs = [logprobs[index] for index in retained]
++                token_ids = [token_ids[index] for index in retained]
+             # Detokenize (non-incrementally).
+             decoded_tokens: list[str] | Iterable[None]
+             if self.tokenizer is None:
+@@ -115,7 +130,11 @@ class LogprobsProcessor:
+                 logprobs,
+                 decoded_tokens,
+                 rank,
+-                self.num_logprobs,
++                # The sampler may attach the complete finite top-p nucleus
++                # after the sampled-token entry.  Retain all supplied entries;
++                # serving code still limits the ordinary OpenAI top_logprobs
++                # view to the user-requested count.
++                max(self.num_logprobs or 0, len(token_ids) - 1),
+             )
+ 
+     def _update_prompt_logprobs(
+diff --git a/vllm/v1/sample/sampler.py b/vllm/v1/sample/sampler.py
+index ac8512f22c..7ea1df6b3f 100644
+--- a/vllm/v1/sample/sampler.py
++++ b/vllm/v1/sample/sampler.py
+@@ -102,6 +102,14 @@ class Sampler(nn.Module):
+         sampled, processed_logprobs = self.sample(logits, sampling_metadata)
+         if processed_logprobs is not None:
+             raw_logprobs = processed_logprobs
++            # ``processed_logprobs`` contains -inf outside the exact nucleus
++            # used by the sampler.  Preserve every finite entry so the token-in
++            # API can return the retained top-p set for training-side replay.
++            if sampling_metadata.top_p is not None:
++                # Return the complete nucleus. Sampling runs outside model graphs;
++                # the dynamic size avoids a semantic cap on supported top-p values.
++                finite_counts = torch.isfinite(processed_logprobs).sum(dim=-1)
++                num_logprobs = int(finite_counts.max().item())
+         # Convert sampled token ids to int64 (long) type to ensure compatibility
+         # with subsequent operations that may use these values as indices.
+         # This conversion is necessary because FlashInfer sampling operations
+diff --git a/vllm/v1/worker/gpu/sample/sampler.py b/vllm/v1/worker/gpu/sample/sampler.py
+index 2f03355e5d..bfdeb2577e 100644
+--- a/vllm/v1/worker/gpu/sample/sampler.py
++++ b/vllm/v1/worker/gpu/sample/sampler.py
+@@ -113,6 +113,18 @@ class Sampler:
+             expanded_logits = logits.shape[0] != idx_mapping_np.shape[0]
+             cu_num_logits = cu_num_logits_np.tolist() if expanded_logits else None
+             num_logprobs = max_num_logprobs if max_num_logprobs != NO_LOGPROBS else 0
++            # Keep the complete finite nucleus in LogprobsTensors.  The normal
++            # API response still exposes the requested number of top logprobs;
++            # the token-in endpoint additionally serializes this retained set
++            # for exact training-side top-p replay.
++            top_p_values = self.sampling_states.top_p.np[idx_mapping_np]
++            if self.logprobs_mode in PROCESSED_LOGPROBS_MODES and np.any(
++                top_p_values != 1.0
++            ):
++                # Return the complete nucleus. Sampling runs outside model graphs;
++                # the dynamic size avoids a semantic cap on supported top-p values.
++                finite_counts = torch.isfinite(logits).sum(dim=-1)
++                num_logprobs = int(finite_counts.max().item())
+             logprobs_tensors = compute_topk_scores(
+                 logits,
+                 num_logprobs,

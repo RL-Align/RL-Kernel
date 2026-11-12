@@ -66,7 +66,7 @@ the CUDA tree-depth budget.
 ## Usage
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 gemm = kernel_registry.get_op("det_gemm")     # CUDA if built, else Triton
 c = gemm(a, b)                                 # a:[M,K] bf16, b:[K,N] bf16
 ```
@@ -79,6 +79,6 @@ Out: tensor-parallel GEMM (WS2), FP8, ROCm-native kernel (Triton covers ROCm).
 ## Performance
 
 `det_gemm` trades speed for determinism. The naive CUDA kernel is slow by
-design; see `benchmarks/benchmark_det_gemm.py`. Overhead is reported vs cuBLAS
+design; see `benchmarks/operators/gemm/benchmark_det_gemm.py`. Overhead is reported vs cuBLAS
 with TF32 disabled (the fair, same-FP32-path baseline), not as a speedup. A
 slower deterministic baseline is the accepted first milestone (#146).

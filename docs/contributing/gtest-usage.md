@@ -1,7 +1,7 @@
 # gtest usage guide (operator candidate vs gold)
 
 > **Audience:** contributors implementing train–inference / batch-invariant operators
-> **Entry point:** `scripts/check_operator.py` + `rl_engine/kernels/gtest/*`
+> **Entry point:** `tools/validation/operators/check_operator.py` + `rl_engine/kernels/gtest/*`
 > **Numerical SSOT:** [#267](https://github.com/RL-Align/RL-Kernel/issues/267) four-judgment contract
 
 This is the official how-to for the gtest harness: register an op, build inputs, run the CLI for forward/backward checks, and obtain tolerances from the shared contract (not private `atol`/`rtol`).
@@ -39,7 +39,7 @@ The CLI primarily covers **accuracy** (candidate vs gold).
         ↓
 3) gtest/operator_inputs.py → build input shapes / values
         ↓
-4) scripts/check_operator.py → run suite, load tolerance_contract.json
+4) tools/validation/operators/check_operator.py → run suite, load tolerance_contract.json
         ↓
 5) report max_abs / tol / passed
 ```
@@ -48,41 +48,41 @@ The CLI primarily covers **accuracy** (candidate vs gold).
 
 | Path | Role |
 |------|------|
-| `rl_engine/kernels/gtest/operator_specs.py` | `OP_SPECS`: name, `op_class`, gold, candidates, grad inputs |
-| `rl_engine/kernels/gtest/operator_inputs.py` | Default Qwen3-8B dims + `make_operator_inputs` |
-| `rl_engine/kernels/gtest/op_checks.py` | Suite execution and comparison |
-| `rl_engine/kernels/gtest/tolerance_contract.json` | Numerical contract SSOT |
-| `rl_engine/kernels/gtest/tolerance.py` | `load_contract` / `resolve_tolerance` / chain aggregates |
-| `scripts/check_operator.py` | **CLI entry** (accuracy) |
-| `rl_engine/kernels/gtest/gradient_invariance.py` | C4 gradient invariance API |
-| `rl_engine/kernels/gtest/gradient_adapters.py` | C4 enumerable adapters + status matrix |
-| `rl_engine/kernels/gtest/elementwise_inventory.py` | C5 elementwise / RoPE inventory |
-| `rl_engine/kernels/gtest/four_judgment_matrix.py` | C8 four-judgment matrix schema |
-| `scripts/check_gradient_invariance.py` | C4 GPU evidence CLI |
-| `rl_engine/kernels/gtest/kv_consistency.py` | C6/C7 decode–prefill + stateful KV |
-| `rl_engine/alignment/qwen3_dense.py` | C9 full Qwen3-8B Dense BI model |
-| `rl_engine/kernels/gtest/chain_gate.py` | C10 model-level #150 + train/infer gate |
-| `scripts/check_decode_prefill.py` | C6 GPU CLI |
-| `scripts/check_stateful_kv.py` | C7 GPU CLI |
-| `scripts/ws1_chain_fwd_bwd.py` | C9 one-command fwd+bwd (assembly only) |
-| `scripts/ws1_chain_gate.py` | C10/C11 full-model required gate |
+| `rl_engine/validation/operators/operator_specs.py` | `OP_SPECS`: name, `op_class`, gold, candidates, grad inputs |
+| `rl_engine/validation/operators/operator_inputs.py` | Default Qwen3-8B dims + `make_operator_inputs` |
+| `rl_engine/validation/operators/op_checks.py` | Suite execution and comparison |
+| `rl_engine/contracts/profiles/precision/ws1.json` | Numerical contract SSOT |
+| `rl_engine/contracts/numerical.py` | `load_contract` / `resolve_tolerance` / chain aggregates |
+| `tools/validation/operators/check_operator.py` | **CLI entry** (accuracy) |
+| `rl_engine/validation/operators/gradient_invariance.py` | C4 gradient invariance API |
+| `rl_engine/validation/operators/gradient_adapters.py` | C4 enumerable adapters + status matrix |
+| `rl_engine/validation/operators/elementwise_inventory.py` | C5 elementwise / RoPE inventory |
+| `rl_engine/validation/operators/four_judgment_matrix.py` | C8 four-judgment matrix schema |
+| `tools/validation/operators/check_gradient_invariance.py` | C4 GPU evidence CLI |
+| `rl_engine/validation/operators/kv_consistency.py` | C6/C7 decode–prefill + stateful KV |
+| `rl_engine/models/qwen3/reference.py` | C9 full Qwen3-8B Dense BI model |
+| `rl_engine/validation/models/chain_gate.py` | C10 model-level #150 + train/infer gate |
+| `tools/validation/operators/check_decode_prefill.py` | C6 GPU CLI |
+| `tools/validation/operators/check_stateful_kv.py` | C7 GPU CLI |
+| `tools/validation/models/ws1_chain_fwd_bwd.py` | C9 one-command fwd+bwd (assembly only) |
+| `tools/validation/models/ws1_chain_gate.py` | C10/C11 full-model required gate |
 
 ---
 
 ## 3. Step 1: register the op in `OP_SPECS`
 
-Edit `rl_engine/kernels/gtest/operator_specs.py` and add an entry to `OP_SPECS`. Example shape (logp / linear_logp):
+Edit `rl_engine/validation/operators/operator_specs.py` and add an entry to `OP_SPECS`. Example shape (logp / linear_logp):
 
 ```python
 "logp": OperatorSpec(
     name="logp",
     op_class="logprob",          # selects the contract op_class row
-    gold_path="rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp",
+    gold_path="rl_engine.reference.logprob.logp.NativeLogpOp",
     gold_method="forward_fp32",  # method invoked on the gold instance
     candidate_paths={
-        "pytorch": "rl_engine.kernels.ops.pytorch.loss.logp.NativeLogpOp",
-        "cuda": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
-        "cuda-sm90": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpSM90Op",
+        "pytorch": "rl_engine.reference.logprob.logp.NativeLogpOp",
+        "cuda": "rl_engine.backends.cuda.logprob.logp.FusedLogpGenericOp",
+        "cuda-sm90": "rl_engine.backends.cuda.logprob.logp.FusedLogpSM90Op",
     },
     grad_input_names=("logits",),  # inputs compared under --check-grad
 ),
@@ -124,7 +124,7 @@ require a four-judgment row.
 
 ## 4. Step 2: build inputs
 
-File: `rl_engine/kernels/gtest/operator_inputs.py`.
+File: `rl_engine/validation/operators/operator_inputs.py`.
 
 ### 4.1 Default model dims (Qwen3-8B Dense semantics)
 
@@ -169,31 +169,31 @@ Prefer short `S` when VRAM is tight; full-model gates are owned by #266 / C2.
 C6 (direct decode, both profiles; chunked-prefill is not a substitute):
 
 ```bash
-python scripts/check_decode_prefill.py --backend-profile cuda_bf16
-python scripts/check_decode_prefill.py --backend-profile triton_cuda_bf16
+python tools/validation/operators/check_decode_prefill.py --backend-profile cuda_bf16
+python tools/validation/operators/check_decode_prefill.py --backend-profile triton_cuda_bf16
 ```
 
 C7 (B1 stateful allocate→write→read→decode + generate-rescore). Concat-only
 `NativeKVCacheAttnOp` is not B1. B2 is explicitly `absent`.
 
 ```bash
-python scripts/check_stateful_kv.py --backend-profile cuda_bf16
-python scripts/check_stateful_kv.py --backend-profile triton_cuda_bf16
+python tools/validation/operators/check_stateful_kv.py --backend-profile cuda_bf16
+python tools/validation/operators/check_stateful_kv.py --backend-profile triton_cuda_bf16
 ```
 
 C9 (assembly only; not EXIT). Official 36-layer Qwen3-8B Dense, pinned weights:
 
 ```bash
-python scripts/prepare_ws1_weights.py --output "$QWEN3_8B" --verify-only
-python scripts/ws1_chain_fwd_bwd.py --backend-profile cuda_bf16 --weights hf --weights-path $QWEN3_8B
-python scripts/ws1_chain_fwd_bwd.py --backend-profile triton_cuda_bf16 --weights hf --weights-path $QWEN3_8B
+python tools/weights/prepare_ws1_weights.py --output "$QWEN3_8B" --verify-only
+python tools/validation/models/ws1_chain_fwd_bwd.py --backend-profile cuda_bf16 --weights hf --weights-path $QWEN3_8B
+python tools/validation/models/ws1_chain_fwd_bwd.py --backend-profile triton_cuda_bf16 --weights hf --weights-path $QWEN3_8B
 ```
 
 C10/C11 required full-model gate (H20; no skip / xfail / synthetic-as-pass):
 
 ```bash
-python scripts/ws1_chain_gate.py --backend-profile cuda_bf16 --model qwen3-8b-dense --dtype bfloat16 --weights required --weights-path $QWEN3_8B --json
-python scripts/ws1_chain_gate.py --backend-profile triton_cuda_bf16 --model qwen3-8b-dense --dtype bfloat16 --weights required --weights-path $QWEN3_8B --json
+python tools/validation/models/ws1_chain_gate.py --backend-profile cuda_bf16 --model qwen3-8b-dense --dtype bfloat16 --weights required --weights-path $QWEN3_8B --json
+python tools/validation/models/ws1_chain_gate.py --backend-profile triton_cuda_bf16 --model qwen3-8b-dense --dtype bfloat16 --weights required --weights-path $QWEN3_8B --json
 ```
 
 Omitting `--seed` uses the manifest-pinned execution seed. A supplied seed is
@@ -220,7 +220,7 @@ explicit packed-versus-FP32 forward and gradient accuracy rows.
 
 ```bash
 # From the repo root; prefer an editable install: pip install -e .
-python scripts/check_operator.py --op logp --candidate pytorch --device cpu --dtype fp32 --batch 1 --seq 2 --vocab 17
+python tools/validation/operators/check_operator.py --op logp --candidate pytorch --device cpu --dtype fp32 --batch 1 --seq 2 --vocab 17
 ```
 
 ### 5.1 Common examples
@@ -228,7 +228,7 @@ python scripts/check_operator.py --op logp --candidate pytorch --device cpu --dt
 **Smoke (CPU / PyTorch self-check)**
 
 ```bash
-python scripts/check_operator.py \
+python tools/validation/operators/check_operator.py \
   --op logp --candidate pytorch --device cpu --dtype fp32 \
   --batch 1 --seq 2 --vocab 17
 ```
@@ -236,7 +236,7 @@ python scripts/check_operator.py \
 **Triton `linear_logp` + backward (BF16)**
 
 ```bash
-python scripts/check_operator.py \
+python tools/validation/operators/check_operator.py \
   --op linear_logp --candidate triton --device cuda --dtype bf16 \
   --batch 1 --seq 2 --vocab 1024 --normalized-dim 4096 \
   --check-grad
@@ -245,7 +245,7 @@ python scripts/check_operator.py \
 **CUDA deterministic attention + gradients**
 
 ```bash
-python scripts/check_operator.py \
+python tools/validation/operators/check_operator.py \
   --op attention --candidate cuda --device cuda --dtype bf16 \
   --batch 2 --seq 64 --check-grad --grad-mode random
 ```
@@ -253,7 +253,7 @@ python scripts/check_operator.py \
 **Full JSON report**
 
 ```bash
-python scripts/check_operator.py --op rms_norm --candidate cuda --dtype bf16 --device cuda --json
+python tools/validation/operators/check_operator.py --op rms_norm --candidate cuda --dtype bf16 --device cuda --json
 ```
 
 ### 5.2 CLI flags
@@ -304,11 +304,11 @@ python scripts/check_operator.py --op rms_norm --candidate cuda --dtype bf16 --d
 Batch/chunk **bitwise invariance** and train/infer **three aggregates** are not separate `check_operator.py` switches. Use C3/C4. C3 now runs the same enumerable WS1 ops as C4 (`make_forward_runner`):
 
 ```python
-from rl_engine.kernels.gtest import (
+from rl_engine.validation.operators import (
     assert_forward_batch_invariant,
     assert_gradient_batch_invariant,
 )
-from rl_engine.kernels.gtest.gradient_adapters import get_adapter
+from rl_engine.validation.operators.gradient_adapters import get_adapter
 
 # C4: training-style gradient accuracy + invariance (thresholds from C1 only)
 adapter = get_adapter("rms_norm")
@@ -329,14 +329,14 @@ Gradient pass/fail uses only independent `gradient_accuracy` /
 `gradient_invariance` verdicts. GPU evidence:
 
 ```bash
-python scripts/check_gradient_invariance.py \
+python tools/validation/operators/check_gradient_invariance.py \
   --op rms_norm --candidate cuda --backend-profile cuda_bf16
 ```
 
 C4 does not claim the full-model C10 gate. Use:
 
 ```python
-from rl_engine.kernels.gtest.tolerance import (
+from rl_engine.contracts.numerical import (
     load_contract,
     resolve_tolerance,
     compute_logprob_aggregates,
@@ -382,7 +382,7 @@ verdict = judge_logprob_aggregates(agg, contract, execution_dtype="bfloat16")
 WS1 evidence must attach checked provenance to its candidate report:
 
 ```python
-from rl_engine.kernels.gtest import BackendProvenance, CandidateSpec
+from rl_engine.validation.operators import BackendProvenance, CandidateSpec
 
 provenance = BackendProvenance(
     backend_profile="cuda_bf16",  # use triton_cuda_bf16 + triton for Triton
@@ -461,9 +461,9 @@ comes from the shared resolver—not hard-coded constants inside `check_operator
 
 | Path | Use |
 |------|-----|
-| `python scripts/check_operator.py ...` | Fast single-op shape/debug loops |
+| `python tools/validation/operators/check_operator.py ...` | Fast single-op shape/debug loops |
 | `pytest tests/test_*.py` | Regression, invariance, integration |
-| `pytest tests/test_tolerance_contract.py` | Contract schema / resolver |
+| `pytest tests/contracts/test_tolerance_contract.py` | Contract schema / resolver |
 
 Both paths should take thresholds from `tolerance_contract.json`.
 New pytest code should call `resolve_tolerance` instead of copying magic numbers.

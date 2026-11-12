@@ -5,7 +5,7 @@ based on the current device and available compiled extensions.
 
 ```python
 import torch
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 logits = torch.randn(16, 4096, device="cuda", dtype=torch.bfloat16).contiguous()
 token_ids = torch.randint(0, 4096, (16,), device="cuda", dtype=torch.int32)
@@ -20,11 +20,11 @@ available PyTorch implementation when supported by the operator type.
 ## Validate Dispatch
 
 ```bash
-python -m pytest rl_engine/tests/test_dispatch.py -v
+python -m pytest tests/runtime/test_dispatch.py -v
 ```
 
 ## Validate Operator Accuracy
 
 ```bash
-python tests/test_op_accuracy.py
+python tests/ops/test_op_accuracy.py
 ```

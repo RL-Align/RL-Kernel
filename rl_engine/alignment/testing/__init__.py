@@ -1,18 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-"""Test-only integration helpers for the alignment framework."""
+from importlib import import_module
 
-from .smoke_ops import (
-    SMOKE_ONLY_LOGP_OFFSET_BACKEND_ID,
-    SMOKE_ONLY_LOGP_REFERENCE_BACKEND_ID,
-    register_smoke_operators,
-    smoke_operator_descriptors,
-)
 
-__all__ = [
-    "SMOKE_ONLY_LOGP_OFFSET_BACKEND_ID",
-    "SMOKE_ONLY_LOGP_REFERENCE_BACKEND_ID",
-    "register_smoke_operators",
-    "smoke_operator_descriptors",
-]
+def __getattr__(name):
+    return getattr(import_module("rl_engine.validation.fixtures"), name)

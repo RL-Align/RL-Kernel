@@ -1,0 +1,4 @@
+setuptools>=64
+wheel
+build
+ninja

@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 RL-Kernel Contributors
+"""Compatibility import; the canonical module is loaded below."""
 
-from . import activation  # noqa: F401
-from . import linear  # noqa: F401
-from . import loss  # noqa: F401
-from . import matmul  # noqa: F401
-from . import norm  # noqa: F401
-from . import rotary_embedding  # noqa: F401
+from importlib import import_module
+
+
+def __getattr__(name):
+    return getattr(import_module("rl_engine.backends.ascend"), name)

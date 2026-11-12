@@ -22,7 +22,7 @@ Parallel](#tensor-and-data-parallel) below.
 
 ## Entry Point
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 grpo_loss = kernel_registry.get_op("grpo_loss")
 
@@ -82,7 +82,7 @@ Gradients flow into `policy_logits` only (`ref_logits` is frozen; `old_logps` is
 ## Tensor and Data Parallel
 
 `DistributedGRPOLossOp`
-(`rl_engine/kernels/ops/pytorch/loss/distributed_grpo_loss.py`)
+(`rl_engine/reference/loss/distributed_grpo_loss.py`)
 **Every TP × DP degree produces bit-identical loss, per-sequence totals, and
 gradients.** It is a reference backend on top of the deterministic
 [vocab-parallel logprob](batch-invariant-logp.md#tensor-parallel); the backends
@@ -149,10 +149,10 @@ numerical identity and travels in the contract fingerprint.
 Usage goes through the contract-aware entry point:
 
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 dispatched = kernel_registry.get_loss_op(contract)   # GRPOLossContract from
-result = dispatched.op.apply(                        # rl_engine.kernels.loss_contract
+result = dispatched.op.apply(                        # rl_engine.contracts.operators.loss
     policy_local_logits,   # [n, local_vocab] differentiable
     action_ids,            # [n]
     old_logps,             # [n]
@@ -220,8 +220,8 @@ reward normalization and the clipped-surrogate reduction operate on `[B, T]` ten
 negligible.
 
 ```bash
-python benchmarks/benchmark_grpo_loss.py
-python benchmarks/benchmark_grpo_loss.py --configs "4,8,256,32768;4,8,256,131072"
+python benchmarks/operators/loss/benchmark_grpo_loss.py
+python benchmarks/operators/loss/benchmark_grpo_loss.py --configs "4,8,256,32768;4,8,256,131072"
 ```
 
 Indicative results (RTX PRO 6000, SM120, fp16, B=32, T=256; native PyTorch vs Triton):
@@ -239,9 +239,9 @@ online — the forward peak is independent of `V`.
 ## Tests
 
 ```bash
-python -m pytest tests/test_grpo_loss.py -v            # single-GPU backends
-python -m pytest tests/test_grpo_loss_contract.py -v   # TP/DP/CP contract, CPU only
-python -m pytest tests/test_distributed_grpo_loss.py -v
+python -m pytest tests/ops/loss/test_grpo_loss.py -v            # single-GPU backends
+python -m pytest tests/contracts/operators/test_grpo_loss_contract.py -v   # TP/DP/CP contract, CPU only
+python -m pytest tests/distributed/tp/test_distributed_grpo_loss.py -v
 ```
 
 `test_grpo_loss.py` covers the native reference (group advantages + loss from logits),
@@ -259,11 +259,11 @@ a node with a running training job.
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/loss/grpo_loss.py`
-- `rl_engine/kernels/ops/triton/loss/grpo_loss.py`
-- `rl_engine/kernels/ops/triton/loss/ratio_kl.py`, `rl_engine/kernels/ops/pytorch/loss/ratio_kl.py`
-- `rl_engine/kernels/ops/pytorch/loss/distributed_grpo_loss.py`
-- `rl_engine/kernels/loss_contract.py`
-- `rl_engine/kernels/registry.py` (`register_loss_backend`, `get_loss_op`)
-- `tests/test_grpo_loss.py`, `tests/test_grpo_loss_contract.py`, `tests/test_distributed_grpo_loss.py`
-- `benchmarks/benchmark_ratio_kl.py`
+- `rl_engine/reference/loss/grpo_loss.py`
+- `rl_engine/backends/shared/triton/loss/grpo_loss.py`
+- `rl_engine/backends/shared/triton/loss/ratio_kl.py`, `rl_engine/reference/loss/ratio_kl.py`
+- `rl_engine/reference/loss/distributed_grpo_loss.py`
+- `rl_engine/contracts/operators/loss.py`
+- `rl_engine/runtime/registry.py` (`register_loss_backend`, `get_loss_op`)
+- `tests/ops/loss/test_grpo_loss.py`, `tests/contracts/operators/test_grpo_loss_contract.py`, `tests/distributed/tp/test_distributed_grpo_loss.py`
+- `benchmarks/operators/loss/benchmark_ratio_kl.py`

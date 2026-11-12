@@ -11,7 +11,7 @@ change more often than RL-Kernel's public API.
 
 | Goal | Recommended install | GPU required | Notes |
 | --- | --- | --- | --- |
-| Read docs or edit docs | `pip install -r requirements-docs.txt` | No | Use `mkdocs build --strict -f mkdocs.yaml` before opening a PR. |
+| Read docs or edit docs | `pip install -r requirements/docs.txt` | No | Use `mkdocs build --strict -f mkdocs.yaml` before opening a PR. |
 | Run CPU/mock tests | `pip install -e ".[dev]"` | No | Matches the default CI style: fallback and mocked integration coverage. |
 | Run CUDA operators | `RL_KERNEL_REQUIRE_EXT=1 pip install --no-build-isolation -e ".[cuda]"` | Yes, NVIDIA | Requires a CUDA-enabled PyTorch wheel and a working CUDA toolchain. |
 | Run ROCm operators | `RL_KERNEL_REQUIRE_EXT=1 pip install --no-build-isolation -e ".[rocm]"` | Yes, AMD | Requires a ROCm-enabled PyTorch wheel and ROCm compiler/runtime environment. |
@@ -144,7 +144,7 @@ For docs-only work:
 python3 -m venv .venv-docs
 . .venv-docs/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements-docs.txt
+pip install -r requirements/docs.txt
 mkdocs build --strict -f mkdocs.yaml
 ```
 
@@ -259,20 +259,20 @@ and mocked vLLM sampler tests do not require the real vLLM package.
 Run the mocked vLLM coverage with:
 
 ```bash
-python3 -m pytest tests/test_vllm_rollout_sampler.py -q
+python3 -m pytest tests/integrations/engines/rollout/vllm/test_vllm_rollout_sampler.py -q
 ```
 
 Install `.[vllm]` only for real rollout or vLLM-specific benchmark work.
 
 ### Do I need vLLM for the single-GPU GRPO example?
 
-No. `examples/grpo_single_gpu.py` is a minimal single-device GRPO training script
+No. `examples/post_training/grpo_single_gpu.py` is a minimal single-device GRPO training script
 and does not require vLLM, Ray, or DeepSpeed.
 
 Run its smoke tests with:
 
 ```bash
-python3 -m pytest tests/test_grpo_single_gpu_example.py -q
+python3 -m pytest tests/e2e/test_grpo_single_gpu_example.py -q
 ```
 
 `--require-fused-logp` is stricter than the default example path. Use it only when
@@ -289,7 +289,7 @@ model name. Prefix caching is enabled by default.
 Example shape:
 
 ```python
-from rl_engine.executors.rollout import RolloutExecutor
+from rl_engine.integrations.engines.rollout.interface import RolloutExecutor
 
 executor = RolloutExecutor(
     {
@@ -315,7 +315,7 @@ the vLLM runtime supports token prompts.
 
 ### How does RL-Kernel choose an operator backend?
 
-Operators are selected through `rl_engine.kernels.registry.kernel_registry`.
+Operators are selected through `rl_engine.runtime.registry.kernel_registry`.
 The registry checks the detected platform and tries backends in priority order.
 If an optional backend cannot be imported or instantiated, the registry records
 that failure and tries the next candidate.
@@ -326,7 +326,7 @@ implementation.
 ### How do I validate dispatch locally?
 
 ```bash
-python3 -m pytest rl_engine/tests/test_dispatch.py -v
+python3 -m pytest tests/runtime/test_dispatch.py -v
 ```
 
 This is the fastest check for fallback and registry behavior.
@@ -334,13 +334,13 @@ This is the fastest check for fallback and registry behavior.
 ### How do I validate operator accuracy?
 
 ```bash
-python3 -m pytest tests/test_op_accuracy.py -q
+python3 -m pytest tests/ops/test_op_accuracy.py -q
 ```
 
 For focused areas, run the relevant test file:
 
 ```bash
-python3 -m pytest tests/test_reference_ops.py tests/test_op_accuracy.py -q
+python3 -m pytest tests/validation/common/test_reference_ops.py tests/ops/test_op_accuracy.py -q
 ```
 
 GPU-specific test files may require a matching backend and may exercise known
@@ -364,7 +364,7 @@ log-prob wrapper for dense, indexed, online, and `out` variants. Validate that
 contract with:
 
 ```bash
-python3 -m pytest tests/test_op_accuracy.py -q
+python3 -m pytest tests/ops/test_op_accuracy.py -q
 ```
 
 ## Benchmarks
@@ -374,9 +374,9 @@ python3 -m pytest tests/test_op_accuracy.py -q
 Start with smoke-sized workloads:
 
 ```bash
-python3 scripts/run_profile_suite.py --smoke --workloads logp-native --no-summary \
+python3 tools/benchmarking/run_profile_suite.py --smoke --workloads logp-native --no-summary \
   --output-dir /tmp/rl-kernel-smoke-reports
-python3 benchmarks/profiler.py --smoke --workloads logp-native --no-summary
+python3 benchmarks/common/profiler.py --smoke --workloads logp-native --no-summary
 ```
 
 For CUDA profiling, choose shapes that fit your GPU memory. Large vocabulary,
@@ -435,7 +435,7 @@ match `softmax(logits / temperature)`; temperature should be applied once.
 Run the FlashInfer temperature regression test with:
 
 ```bash
-python3 -m pytest tests/test_sampler_temperature.py -q
+python3 -m pytest tests/ops/sampling/test_sampler_temperature.py -q
 ```
 
 ## Documentation
@@ -443,7 +443,7 @@ python3 -m pytest tests/test_sampler_temperature.py -q
 ### How do I build the documentation locally?
 
 ```bash
-pip install -r requirements-docs.txt
+pip install -r requirements/docs.txt
 mkdocs build --strict -f mkdocs.yaml
 ```
 
@@ -484,8 +484,8 @@ file as well.
 Start with:
 
 ```bash
-python3 -m pytest rl_engine/tests/test_dispatch.py -v
-python3 -m pytest tests/test_reference_ops.py -q
+python3 -m pytest tests/runtime/test_dispatch.py -v
+python3 -m pytest tests/validation/common/test_reference_ops.py -q
 ```
 
 Then run the focused tests for the component you changed. Add `needs-gpu-ci` if
@@ -513,7 +513,7 @@ Use this order:
 2. Confirm PyTorch sees the intended CPU/CUDA/ROCm backend.
 3. Confirm optional tools such as `nvcc`, `rocminfo`, or `vllm` are installed only
    when the task requires them.
-4. Run `python3 -m pytest rl_engine/tests/test_dispatch.py -v`.
+4. Run `python3 -m pytest tests/runtime/test_dispatch.py -v`.
 5. Run the smallest relevant smoke benchmark or test.
 
 If the failure appears before step 4, it is usually an environment or dependency

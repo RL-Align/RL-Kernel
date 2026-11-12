@@ -9,7 +9,7 @@ threshold, and the worst active selected-token delta.
 Generate the offline desktop bundle from one completed attempt:
 
 ```bash
-python -m rl_engine.alignment.cross_config report \
+python -m rl_engine.validation.cross_config report \
   runs/<experiment>/cases/<case>/attempt-0001 \
   --output /tmp/qwen3-tp2-cp2.rlk-drift
 ```

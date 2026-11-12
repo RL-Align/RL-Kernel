@@ -19,7 +19,7 @@ hidden --up_proj----> up ----/
 
 ## Entry Point
 ```python
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 silu = kernel_registry.get_op("silu")
 swiglu = kernel_registry.get_op("swiglu")
@@ -93,8 +93,8 @@ the CANN environment and build the existing NPU extension:
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 KERNEL_ALIGN_FORCE_ASCEND=1 KERNEL_ALIGN_ASCEND_ARCH=dav-2201 \
   python -m pip install --no-build-isolation -e .
-python -m pytest tests/test_swiglu.py -v
-python scripts/check_operator.py --op swiglu --candidate ascend --dtype bf16 --device npu --check-grad
+python -m pytest tests/ops/activation/test_swiglu.py -v
+python tools/validation/operators/check_operator.py --op swiglu --candidate ascend --dtype bf16 --device npu --check-grad
 ```
 
 The kernel uses the A2/A3 vector programming model (`dav-2201`). Other architectures
@@ -104,7 +104,7 @@ require separate build and device validation. `setup.py` automatically includes 
 ```python
 import torch
 import torch_npu
-from rl_engine.kernels.registry import kernel_registry
+from rl_engine.runtime.registry import kernel_registry
 
 swiglu = kernel_registry.get_op("swiglu", device="npu")
 gate = torch.randn(2, 12288, device="npu", dtype=torch.bfloat16, requires_grad=True)
@@ -153,9 +153,9 @@ CUDA and Triton candidates are registered in `OP_SPECS` and can be checked with 
 shared issue-#108 CLI:
 
 ```bash
-python scripts/check_operator.py --op silu --candidate cuda --dtype bf16 --device cuda
-python scripts/check_operator.py --op swiglu --candidate triton --dtype bf16 --device cuda --check-grad
-python scripts/check_operator.py --op silu --candidate pytorch --dtype fp32 --device cpu --check-grad
+python tools/validation/operators/check_operator.py --op silu --candidate cuda --dtype bf16 --device cuda
+python tools/validation/operators/check_operator.py --op swiglu --candidate triton --dtype bf16 --device cuda --check-grad
+python tools/validation/operators/check_operator.py --op silu --candidate pytorch --dtype fp32 --device cpu --check-grad
 ```
 
 Gold path: `NativeSiLUOp.forward_fp32` / `NativeSwiGLUOp.forward_fp32`.
@@ -169,7 +169,7 @@ item and should continue to validate against this reference.
 ## Tests
 
 ```bash
-python -m pytest tests/test_swiglu.py -v
+python -m pytest tests/ops/activation/test_swiglu.py -v
 ```
 
 Covers: correctness vs an independent fp32 formula, dtype paths, Axis-A batch invariance
@@ -178,18 +178,18 @@ native forward+backward, registry dispatch, and the issue-#108 `OP_SPECS` harnes
 
 ## Implementation Files
 
-- `rl_engine/kernels/ops/pytorch/activation/swiglu.py` — gold
-- `rl_engine/kernels/ops/cuda/activation/swiglu.py` — CUDA wrappers
-- `rl_engine/kernels/ops/triton/activation/swiglu.py` — Triton kernels
-- `rl_engine/kernels/ops/ascend/activation/swiglu.py` — Ascend SwiGLU autograd wrapper
-- `rl_engine/kernels/ops/ascend/activation/silu.py` — Ascend SiLU autograd wrapper
+- `rl_engine/reference/activation/swiglu.py` — gold
+- `rl_engine/backends/cuda/activation/swiglu.py` — CUDA wrappers
+- `rl_engine/backends/shared/triton/activation/swiglu.py` — Triton kernels
+- `rl_engine/backends/ascend/activation/swiglu.py` — Ascend SwiGLU autograd wrapper
+- `rl_engine/backends/ascend/activation/silu.py` — Ascend SiLU autograd wrapper
 - `csrc/ascend/activation.asc` — Ascend C SiLU + SwiGLU forward/backward kernels
 - `csrc/ascend/bindings.asc` — shared NPU extension bindings
-- `csrc/cuda/activation.cu` — CUDA kernels
-- `rl_engine/kernels/registry.py`
-- `rl_engine/kernels/gtest/operator_specs.py`
-- `tests/test_swiglu.py`
-- `tests/test_silu_ascend.py`
+- `csrc/cuda/activation/activation.cu` — CUDA kernels
+- `rl_engine/runtime/registry.py`
+- `rl_engine/validation/operators/operator_specs.py`
+- `tests/ops/activation/test_swiglu.py`
+- `tests/backends/ascend/test_silu_ascend.py`
 
 ## Known Limitations
 

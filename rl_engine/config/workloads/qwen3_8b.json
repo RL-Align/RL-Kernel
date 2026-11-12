@@ -1,0 +1,3010 @@
+{
+  "version": "ws1-c2-v8",
+  "workload_id": "ws1-qwen3-8b-dense-primary-v6",
+  "seed": 20260812,
+  "model_identity": {
+    "model_id": "Qwen/Qwen3-8B",
+    "hf_repo": "Qwen/Qwen3-8B",
+    "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "architecture": "Qwen3ForCausalLM",
+    "model_type": "qwen3",
+    "density": "dense",
+    "exit_forbids_architecture_shrink": true,
+    "config_fingerprint": {
+      "num_hidden_layers": 36,
+      "hidden_size": 4096,
+      "intermediate_size": 12288,
+      "num_attention_heads": 32,
+      "num_key_value_heads": 8,
+      "head_dim": 128,
+      "vocab_size": 151936,
+      "max_position_embeddings": 40960,
+      "rope_theta": 1000000.0,
+      "rope_scaling": null,
+      "rms_norm_eps": 1e-06,
+      "hidden_act": "silu",
+      "swiglu": true,
+      "tie_word_embeddings": false,
+      "attention_bias": false,
+      "attention_dropout": 0.0,
+      "use_sliding_window": false,
+      "sliding_window": null,
+      "qk_norm": true,
+      "qk_norm_note": "Qwen3 applies per-head RMSNorm on Q and K before RoPE; not a separate HF config flag."
+    },
+    "weight_snapshot": {
+      "pin_method": "hf_revision_plus_index_sha256_plus_all_lfs_shard_sha256",
+      "index_file": "model.safetensors.index.json",
+      "index_sha256": "f9fdbcb91c23971c13ec5d5f2573d2349e8f61f2f049371ec699281748fdb1bc",
+      "tensor_total_size_bytes": 16381470720,
+      "weight_files_total_size_bytes": 16381516776,
+      "total_size_bytes": 16381470720,
+      "content_hash_algorithm": "sha256-of-sorted-shard-records-v1",
+      "content_hash": "fc664a19c52c82b6f5ddb33d4fe2723181daeb93a344b16fee6369963e5a13a5",
+      "shards": [
+        {
+          "filename": "model-00001-of-00005.safetensors",
+          "sha256": "31d6a825ae35f11fb85b195b4c42c146c051e446433125a215336abdf95cbf5f",
+          "size_bytes": 3996250744
+        },
+        {
+          "filename": "model-00002-of-00005.safetensors",
+          "sha256": "5991236cea6fe21f3d43cab0f0e84448734fbbe0789816202989f2ddc9d18282",
+          "size_bytes": 3993160032
+        },
+        {
+          "filename": "model-00003-of-00005.safetensors",
+          "sha256": "c5185c4794be2d8a9784d5753c9922db38df478ce11f9ed0b415b7304d896836",
+          "size_bytes": 3959604768
+        },
+        {
+          "filename": "model-00004-of-00005.safetensors",
+          "sha256": "b5ee7de71fbf17db3d5704e0c8f2bc7d005ca9e1d7ca2aeb19827b0cfcaa917a",
+          "size_bytes": 3187841392
+        },
+        {
+          "filename": "model-00005-of-00005.safetensors",
+          "sha256": "20c2d6366ab85c90786ccdd829cd2b9e7d30ef3b2ebbb998280e7e4014b542ff",
+          "size_bytes": 1244659840
+        }
+      ],
+      "source": "HF LFS x-linked-etag at the pinned revision; each value is the shard content SHA-256"
+    }
+  },
+  "chain_semantics": {
+    "execution_dtype": "bfloat16",
+    "reference_dtype": "float32",
+    "accumulation_dtype": "float32",
+    "temperature": 1.0,
+    "loss_reduction": "sum_over_active_tokens_then_optional_mean_by_active_count",
+    "logprob_selection": "selected_token_logprob_on_active_mask",
+    "active_token_policy": "active selected tokens only",
+    "aggregates": [
+      "max_abs_dlogp",
+      "approx_kl0",
+      "clipfrac0"
+    ],
+    "clip_interval": [
+      0.8,
+      1.2
+    ],
+    "clip_interval_note": "Pinned for clipfrac0; must match C1 chain_logprob_aggregates.default_clip_interval unless an explicit contract revision changes both.",
+    "comparison_roles_source": "rl_engine/kernels/gtest/tolerance_contract.json",
+    "forbidden_comparison_roles": [
+      "baseline",
+      "singleton_aggregate"
+    ],
+    "singleton_aggregate_note": "singleton_aggregate is a C2 execution/aggregation mode only. It must never populate comparison_lhs_role or comparison_rhs_role.",
+    "tf32_policy_ref": "rl_engine/kernels/gtest/tolerance_contract.json#/policy/tf32",
+    "tf32_note": "WS1 TF32 enable/disable is owned by the C1 contract; C2 gates must not introduce a private TF32 policy.",
+    "report_naming": {
+      "comparison_lhs_role": "from_c1_by_report_kind",
+      "comparison_rhs_role": "from_c1_by_report_kind",
+      "forbidden_in_reports": [
+        "baseline",
+        "singleton_aggregate"
+      ],
+      "singleton_aggregate_is": "c2_execution_aggregation_mode_only",
+      "note": "C2 freezes naming rules; C3+ emit reports that must obey these roles."
+    },
+    "backend_actual_semantics": {
+      "c2_representative_actual_source": "scripts/ws1_candidate_evidence.py runtime execution",
+      "full_model_runtime_observed_actual_owner": [
+        "C3",
+        "C8",
+        "C10",
+        "C11"
+      ],
+      "note": "C2 executes every representative case and records runtime-observed actual backend/kernel provenance. Later children own full-model dispatch provenance."
+    }
+  },
+  "stochastic_policy": {
+    "dropout": 0.0,
+    "attention_dropout": 0.0,
+    "sampling_in_logprob_parity": false,
+    "canonical_gate_uses_dropout_zero": true,
+    "rng_source": "manifest_seed_plus_logical_sample_token_identity",
+    "undeclared_randomness": "hard_fail",
+    "retained_stochastic_ops": []
+  },
+  "primary_matrix": {
+    "description": "Fixed #150 Batch \u00d7 Chunked-Prefill matrix prerequisite workload cells.",
+    "N": 4,
+    "batch_size_bn": 4,
+    "sample_ids": [
+      "s0",
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "sample_order_fixed": true,
+    "batch_permutation": {
+      "enabled": true,
+      "permutation": [
+        2,
+        0,
+        3,
+        1
+      ],
+      "target_sample_position_in_bn": 0,
+      "note": "Permutation exercises layout invariance; logical compare restores sample_id order."
+    },
+    "chunk": {
+      "chunk_size_tokens": 7,
+      "require_ge_2_chunks": true,
+      "non_divisible_case": true,
+      "note": "Longest primary seq_len=19 with chunk_size=7 yields chunks [7,7,5]."
+    },
+    "cells": [
+      {
+        "cell_id": "B1-singleton_aggregate/full",
+        "batch_mode": "singleton_aggregate",
+        "batch_size_per_run": 1,
+        "num_runs": 4,
+        "prefill_mode": "full",
+        "aggregation": {
+          "order": "sample_ids",
+          "denominator": "active_token_count_across_all_samples"
+        }
+      },
+      {
+        "cell_id": "BN/full",
+        "batch_mode": "batched",
+        "batch_size_per_run": 4,
+        "num_runs": 1,
+        "prefill_mode": "full",
+        "aggregation": {
+          "order": "sample_ids",
+          "denominator": "active_token_count_across_all_samples"
+        }
+      },
+      {
+        "cell_id": "B1-singleton_aggregate/chunked",
+        "batch_mode": "singleton_aggregate",
+        "batch_size_per_run": 1,
+        "num_runs": 4,
+        "prefill_mode": "chunked",
+        "aggregation": {
+          "order": "sample_ids",
+          "denominator": "active_token_count_across_all_samples"
+        }
+      },
+      {
+        "cell_id": "BN/chunked",
+        "batch_mode": "batched",
+        "batch_size_per_run": 4,
+        "num_runs": 1,
+        "prefill_mode": "chunked",
+        "aggregation": {
+          "order": "sample_ids",
+          "denominator": "active_token_count_across_all_samples"
+        }
+      }
+    ]
+  },
+  "fixtures": {
+    "prompt_template": "ws1_fixed_token_fixture",
+    "dtype_for_token_tensors": "int64",
+    "position_ids": {
+      "basis": "logical_zero_based_per_sample",
+      "reset_after_pack_boundary": true
+    },
+    "attention_mask": {
+      "active_value": 1,
+      "padding_value": 0,
+      "causal": true
+    },
+    "primary_seq_len": 19,
+    "primary_prompt_len": 8,
+    "short_seq_len": 8,
+    "long_seq_len": 32,
+    "varlen_seq_lens": [
+      11,
+      16,
+      13,
+      19
+    ],
+    "padding": {
+      "modes": [
+        "right",
+        "left"
+      ],
+      "pad_token_id": 151643,
+      "primary_padded_len": 20
+    },
+    "packing": {
+      "status": "supported",
+      "implementation": "rl_engine.kernels.ops.pytorch.packing.pack.NativePackOp",
+      "packed_fixture": {
+        "sample_order": [
+          "s0",
+          "s1",
+          "s2",
+          "s3"
+        ],
+        "segment_lengths": [
+          11,
+          16,
+          13,
+          19
+        ],
+        "total_tokens": 59,
+        "restore_key": [
+          "sample_id",
+          "token_position"
+        ]
+      }
+    },
+    "loss_mask": {
+      "prompt_tokens_active": false,
+      "completion_tokens_active": true
+    },
+    "samples": [
+      {
+        "sample_id": "s0",
+        "seq_len": 11,
+        "prompt_len": 8,
+        "token_ids": [
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          200,
+          201,
+          202
+        ]
+      },
+      {
+        "sample_id": "s1",
+        "seq_len": 16,
+        "prompt_len": 8,
+        "token_ids": [
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          210,
+          211,
+          212,
+          213,
+          214,
+          215,
+          216,
+          217
+        ]
+      },
+      {
+        "sample_id": "s2",
+        "seq_len": 13,
+        "prompt_len": 8,
+        "token_ids": [
+          120,
+          121,
+          122,
+          123,
+          124,
+          125,
+          126,
+          127,
+          220,
+          221,
+          222,
+          223,
+          224
+        ]
+      },
+      {
+        "sample_id": "s3",
+        "seq_len": 19,
+        "prompt_len": 8,
+        "token_ids": [
+          130,
+          131,
+          132,
+          133,
+          134,
+          135,
+          136,
+          137,
+          230,
+          231,
+          232,
+          233,
+          234,
+          235,
+          236,
+          237,
+          238,
+          239,
+          240
+        ]
+      }
+    ],
+    "short_full_model_fixture": {
+      "fixture_id": "short_full_model_seq8",
+      "seq_len": 8,
+      "prompt_len": 4,
+      "token_ids": [
+        310,
+        311,
+        312,
+        313,
+        410,
+        411,
+        412,
+        413
+      ],
+      "note": "Shorter sequence on full architecture+weights only; never shrinks layers/hidden/heads/vocab.",
+      "candidate_case_ids": [
+        "gemm-short-m8-k4096-n4096-cuda-v2",
+        "gemm-short-m8-k4096-n4096-triton-v2",
+        "logp-short-vocab151936-t4-cuda-v2",
+        "logp-short-vocab151936-t4-triton-v2",
+        "attn-short-prefill-gqa-b1-sq8-skv8-cuda-v2",
+        "attn-short-prefill-gqa-b1-sq8-skv8-triton-v2",
+        "rms-norm-short-t8-cuda-v2",
+        "rms-norm-short-t8-triton-v2",
+        "qk-norm-short-t8-cuda-v2",
+        "qk-norm-short-t8-triton-v2",
+        "silu-short-t8-cuda-v2",
+        "silu-short-t8-triton-v2",
+        "swiglu-short-t8-cuda-v2",
+        "swiglu-short-t8-triton-v2",
+        "rope-short-t8-cuda-v2",
+        "rope-short-t8-triton-v2",
+        "embedding-short-t8-cuda-v2",
+        "embedding-short-t8-triton-v2",
+        "lm-head-short-t8-cuda-v2",
+        "lm-head-short-t8-triton-v2",
+        "batch-invariant-logp-short-vocab151936-t4-cuda-v1",
+        "batch-invariant-logp-short-vocab151936-t4-triton-v1",
+        "gemm-short-m8-k4096-n4096-ascend-v2",
+        "logp-short-vocab151936-t4-ascend-v2",
+        "attn-short-prefill-gqa-b1-sq8-skv8-ascend-v2",
+        "rms-norm-short-t8-ascend-v2",
+        "qk-norm-short-t8-ascend-v2",
+        "silu-short-t8-ascend-v2",
+        "swiglu-short-t8-ascend-v2",
+        "rope-short-t8-ascend-v2",
+        "embedding-short-t8-ascend-v2",
+        "lm-head-short-t8-ascend-v2",
+        "batch-invariant-logp-short-vocab151936-t4-ascend-v1"
+      ]
+    },
+    "long_full_model_fixture": {
+      "fixture_id": "long_full_model_seq32",
+      "seq_len": 32,
+      "prompt_len": 16,
+      "token_ids": [
+        500,
+        501,
+        502,
+        503,
+        504,
+        505,
+        506,
+        507,
+        508,
+        509,
+        510,
+        511,
+        512,
+        513,
+        514,
+        515,
+        600,
+        601,
+        602,
+        603,
+        604,
+        605,
+        606,
+        607,
+        608,
+        609,
+        610,
+        611,
+        612,
+        613,
+        614,
+        615
+      ],
+      "note": "Long fixed sequence on the same full architecture and pinned weight snapshot.",
+      "candidate_case_ids": [
+        "attn-long-decode-gqa-b1-sq1-skv32-cuda-v2",
+        "attn-long-decode-gqa-b1-sq1-skv32-triton-v2",
+        "attn-long-decode-gqa-b1-sq1-skv32-ascend-v2"
+      ]
+    },
+    "representative_full_model_fixture": {
+      "fixture_id": "rep_full_model_seq16",
+      "seq_len": 16,
+      "prompt_len": 8,
+      "sample_ids": [
+        "s0",
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "note": "Primary variable-length matrix fixture; full architecture+weights.",
+      "candidate_case_ids": [
+        "gemm-primary-m59-k4096-n12288-cuda-v2",
+        "gemm-primary-m59-k4096-n12288-triton-v2",
+        "attn-primary-prefill-gqa-b4-sq19-skv19-cuda-v2",
+        "attn-primary-prefill-gqa-b4-sq19-skv19-triton-v2",
+        "rms-norm-primary-t59-cuda-v2",
+        "rms-norm-primary-t59-triton-v2",
+        "qk-norm-primary-t59-cuda-v2",
+        "qk-norm-primary-t59-triton-v2",
+        "silu-primary-t59-cuda-v2",
+        "silu-primary-t59-triton-v2",
+        "swiglu-primary-t59-cuda-v2",
+        "swiglu-primary-t59-triton-v2",
+        "rope-primary-t59-cuda-v2",
+        "rope-primary-t59-triton-v2",
+        "embedding-primary-t59-cuda-v2",
+        "embedding-primary-t59-triton-v2",
+        "lm-head-primary-t59-cuda-v2",
+        "lm-head-primary-t59-triton-v2",
+        "logp-primary-vocab151936-t27-cuda-v1",
+        "logp-primary-vocab151936-t27-triton-v1",
+        "batch-invariant-logp-primary-vocab151936-t27-cuda-v1",
+        "batch-invariant-logp-primary-vocab151936-t27-triton-v1",
+        "gemm-primary-m59-k4096-n12288-ascend-v2",
+        "attn-primary-prefill-gqa-b4-sq19-skv19-ascend-v2",
+        "rms-norm-primary-t59-ascend-v2",
+        "qk-norm-primary-t59-ascend-v2",
+        "silu-primary-t59-ascend-v2",
+        "swiglu-primary-t59-ascend-v2",
+        "rope-primary-t59-ascend-v2",
+        "embedding-primary-t59-ascend-v2",
+        "lm-head-primary-t59-ascend-v2",
+        "logp-primary-vocab151936-t27-ascend-v1",
+        "batch-invariant-logp-primary-vocab151936-t27-ascend-v1"
+      ]
+    },
+    "prompt_lens": [
+      8,
+      8,
+      8,
+      8
+    ],
+    "completion_lens": [
+      3,
+      8,
+      5,
+      11
+    ],
+    "max_completion_len": 11
+  },
+  "logical_identity": {
+    "key": [
+      "sample_id",
+      "token_position"
+    ],
+    "token_position_basis": "logical_unpadded_index_in_sample",
+    "restore_before_compare_after": [
+      "pad",
+      "pack",
+      "chunk",
+      "batch_permute"
+    ],
+    "gradient_singleton_aggregate": {
+      "definition": "N independent B=1 runs of the same N logical samples, aggregated with fixed sample order and active-token denominator",
+      "compare_to": "single B=N run of the same logical sample/token multiset",
+      "forbid_different_sample_sets": true
+    }
+  },
+  "capabilities": {
+    "packing": {
+      "status": "supported",
+      "detail": "NativePackOp is present; C2 pins and round-trips the packed variable-length fixture even though packing is outside the primary 2x2 matrix."
+    },
+    "qk_norm": {
+      "status": "required_on_chain",
+      "detail": "Qwen3-8B Dense applies QK-Norm before RoPE on every layer."
+    },
+    "operator_spec_map": {
+      "embedding": "embedding",
+      "rms_norm": "rms_norm",
+      "det_gemm": "det_gemm",
+      "qk_norm": "qk_norm",
+      "rope": "rope",
+      "attention": "attention",
+      "swiglu": "swiglu",
+      "silu": "silu",
+      "lm_head": "lm_head",
+      "logprob": "logp",
+      "batch_invariant_logp": "batch_invariant_logp"
+    },
+    "required_chain_ops": [
+      {
+        "op": "embedding",
+        "status": "required"
+      },
+      {
+        "op": "rms_norm",
+        "status": "required"
+      },
+      {
+        "op": "det_gemm",
+        "status": "required"
+      },
+      {
+        "op": "qk_norm",
+        "status": "required"
+      },
+      {
+        "op": "rope",
+        "status": "required"
+      },
+      {
+        "op": "attention",
+        "status": "required"
+      },
+      {
+        "op": "swiglu",
+        "status": "required"
+      },
+      {
+        "op": "silu",
+        "status": "required"
+      },
+      {
+        "op": "lm_head",
+        "status": "required"
+      },
+      {
+        "op": "logprob",
+        "status": "required"
+      },
+      {
+        "op": "batch_invariant_logp",
+        "status": "required"
+      },
+      {
+        "op": "linear_logp",
+        "status": "optional_fused_path"
+      }
+    ]
+  },
+  "backend_profiles": {
+    "cuda_bf16": {
+      "backend_family": "cuda",
+      "execution_dtype": "bfloat16",
+      "required_nodes": [
+        {
+          "node": "embedding",
+          "expected_backend_id": "cuda-sm90",
+          "expected_kernel_config_id": "sm90_embedding",
+          "algorithm_property": "deterministic_table_lookup",
+          "status": "declared"
+        },
+        {
+          "node": "rms_norm",
+          "expected_backend_id": "cuda",
+          "expected_kernel_config_id": "cuda_rmsnorm_bf16",
+          "algorithm_property": "fused_batch_invariant_rmsnorm",
+          "status": "declared"
+        },
+        {
+          "node": "det_gemm",
+          "expected_backend_id": "cuda",
+          "expected_kernel_config_id": "cuda_det_gemm_no_splitk",
+          "algorithm_property": "no_split_k_deterministic_gemm",
+          "status": "declared"
+        },
+        {
+          "node": "qk_norm",
+          "expected_backend_id": "cuda",
+          "expected_kernel_config_id": "cuda_rmsnorm_qk",
+          "algorithm_property": "per_head_rms_on_q_k",
+          "status": "declared"
+        },
+        {
+          "node": "rope",
+          "expected_backend_id": "cuda-sm90",
+          "expected_kernel_config_id": "sm90_rope",
+          "algorithm_property": "rotate_half_theta_1e6",
+          "status": "declared"
+        },
+        {
+          "node": "attention",
+          "expected_backend_id": "cuda",
+          "expected_kernel_config_id": "cuda_deterministic_attn_no_splitkv",
+          "algorithm_property": "no_split_kv_batch_invariant_attention",
+          "status": "declared"
+        },
+        {
+          "node": "swiglu",
+          "expected_backend_id": "cuda",
+          "expected_kernel_config_id": "cuda_swiglu",
+          "algorithm_property": "elementwise_swiglu",
+          "status": "declared"
+        },
+        {
+          "node": "silu",
+          "expected_backend_id": "cuda",
+          "expected_kernel_config_id": "cuda_silu",
+          "algorithm_property": "elementwise_silu",
+          "status": "declared"
+        },
+        {
+          "node": "lm_head",
+          "expected_backend_id": "cuda-sm90",
+          "expected_kernel_config_id": "sm90_lm_head",
+          "algorithm_property": "deterministic_untied_lm_head",
+          "status": "declared"
+        },
+        {
+          "node": "logprob",
+          "expected_backend_id": "cuda",
+          "expected_kernel_config_id": "cuda_fused_logp_generic",
+          "algorithm_property": "deterministic_selected_logprob",
+          "status": "declared"
+        },
+        {
+          "node": "batch_invariant_logp",
+          "expected_backend_id": "cuda-sm90",
+          "expected_kernel_config_id": "sm90_batch_invariant_logp",
+          "algorithm_property": "batch_invariant_logprob_reduction",
+          "status": "declared"
+        }
+      ]
+    },
+    "triton_cuda_bf16": {
+      "backend_family": "triton",
+      "execution_dtype": "bfloat16",
+      "required_nodes": [
+        {
+          "node": "embedding",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_embedding",
+          "algorithm_property": "deterministic_table_lookup_atomic_free_backward",
+          "status": "declared"
+        },
+        {
+          "node": "rms_norm",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_rmsnorm_bf16",
+          "algorithm_property": "fused_batch_invariant_rmsnorm",
+          "status": "declared"
+        },
+        {
+          "node": "det_gemm",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_det_gemm_no_splitk",
+          "algorithm_property": "no_split_k_deterministic_gemm",
+          "status": "declared"
+        },
+        {
+          "node": "qk_norm",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_rmsnorm_qk",
+          "algorithm_property": "per_head_rms_on_q_k",
+          "status": "declared"
+        },
+        {
+          "node": "rope",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_rope",
+          "algorithm_property": "rotate_half_theta_1e6",
+          "status": "declared"
+        },
+        {
+          "node": "attention",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_batch_invariant_attn_no_splitkv",
+          "algorithm_property": "no_split_kv_batch_invariant_attention",
+          "status": "declared"
+        },
+        {
+          "node": "swiglu",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_swiglu",
+          "algorithm_property": "elementwise_swiglu",
+          "status": "declared"
+        },
+        {
+          "node": "silu",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_silu",
+          "algorithm_property": "elementwise_silu",
+          "status": "declared"
+        },
+        {
+          "node": "lm_head",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_lm_head_no_splitk",
+          "algorithm_property": "deterministic_no_split_k_lm_head",
+          "status": "declared"
+        },
+        {
+          "node": "logprob",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_selected_logp",
+          "algorithm_property": "deterministic_selected_logprob",
+          "status": "declared"
+        },
+        {
+          "node": "batch_invariant_logp",
+          "expected_backend_id": "triton",
+          "expected_kernel_config_id": "triton_batch_invariant_logp",
+          "algorithm_property": "batch_invariant_logprob_reduction",
+          "status": "declared"
+        }
+      ]
+    },
+    "ascend_bf16": {
+      "backend_family": "ascend",
+      "execution_dtype": "bfloat16",
+      "required_nodes": [
+        {
+          "node": "embedding",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_embedding",
+          "algorithm_property": "deterministic_table_lookup",
+          "status": "declared"
+        },
+        {
+          "node": "rms_norm",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_rmsnorm_bf16",
+          "algorithm_property": "fused_batch_invariant_rmsnorm",
+          "status": "declared"
+        },
+        {
+          "node": "det_gemm",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_det_gemm_no_splitk",
+          "algorithm_property": "no_split_k_deterministic_gemm",
+          "status": "declared"
+        },
+        {
+          "node": "qk_norm",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_rmsnorm_qk",
+          "algorithm_property": "per_head_rms_on_q_k",
+          "status": "declared"
+        },
+        {
+          "node": "rope",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_rope",
+          "algorithm_property": "rotate_half_theta_1e6",
+          "status": "declared"
+        },
+        {
+          "node": "attention",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_deterministic_attn_no_splitkv",
+          "algorithm_property": "no_split_kv_batch_invariant_attention",
+          "status": "declared"
+        },
+        {
+          "node": "swiglu",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_swiglu",
+          "algorithm_property": "elementwise_swiglu",
+          "status": "declared"
+        },
+        {
+          "node": "silu",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_silu",
+          "algorithm_property": "elementwise_silu",
+          "status": "declared"
+        },
+        {
+          "node": "lm_head",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_lm_head",
+          "algorithm_property": "deterministic_untied_lm_head",
+          "status": "declared"
+        },
+        {
+          "node": "logprob",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_fused_logp",
+          "algorithm_property": "deterministic_selected_logprob",
+          "status": "declared"
+        },
+        {
+          "node": "batch_invariant_logp",
+          "expected_backend_id": "ascend",
+          "expected_kernel_config_id": "ascend_batch_invariant_logp",
+          "algorithm_property": "batch_invariant_logprob_reduction",
+          "status": "declared"
+        }
+      ]
+    }
+  },
+  "representative_cases": [
+    {
+      "case_id": "gemm-short-m8-k4096-n4096-cuda-v2",
+      "family": "gemm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "det_gemm",
+      "shape": {
+        "M": 8,
+        "K": 4096,
+        "N": 4096,
+        "note": "Short-fixture flattened-token M; non-tile-aligned on full-model projection K/N."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_k_deterministic_gemm",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp",
+        "algorithm_source": "csrc/cuda/gemm/det_gemm_kernel.cu:det_gemm_naive",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id gemm-short-m8-k4096-n4096-cuda-v2"
+      }
+    },
+    {
+      "case_id": "gemm-primary-m59-k4096-n12288-cuda-v2",
+      "family": "gemm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "det_gemm",
+      "shape": {
+        "M": 59,
+        "K": 4096,
+        "N": 12288,
+        "note": "Primary varlen fixture total tokens; full gate/up projection width."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_k_deterministic_gemm",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp",
+        "algorithm_source": "csrc/cuda/gemm/det_gemm_kernel.cu:det_gemm_naive",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id gemm-primary-m59-k4096-n12288-cuda-v2"
+      }
+    },
+    {
+      "case_id": "gemm-short-m8-k4096-n4096-triton-v2",
+      "family": "gemm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "det_gemm",
+      "shape": {
+        "M": 8,
+        "K": 4096,
+        "N": 4096,
+        "note": "Short-fixture flattened-token M on Triton det_gemm path."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_k_deterministic_gemm",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/matmul/det_gemm.py:_det_gemm_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id gemm-short-m8-k4096-n4096-triton-v2"
+      }
+    },
+    {
+      "case_id": "gemm-primary-m59-k4096-n12288-triton-v2",
+      "family": "gemm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "det_gemm",
+      "shape": {
+        "M": 59,
+        "K": 4096,
+        "N": 12288,
+        "note": "Primary varlen fixture total tokens and full gate/up projection width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_k_deterministic_gemm",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/matmul/det_gemm.py:_det_gemm_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id gemm-primary-m59-k4096-n12288-triton-v2"
+      }
+    },
+    {
+      "case_id": "attn-primary-prefill-gqa-b4-sq19-skv19-cuda-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "attention",
+      "shape": {
+        "B": 4,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 19,
+        "Skv": 19,
+        "D": 128,
+        "mode": "prefill",
+        "note": "Primary max-varlen prefill; non-tile-aligned sequence and official GQA."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp",
+        "algorithm_source": "csrc/cuda/attention/deterministic_attention.cu:deterministic_attention_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id attn-primary-prefill-gqa-b4-sq19-skv19-cuda-v2"
+      }
+    },
+    {
+      "case_id": "attn-long-decode-gqa-b1-sq1-skv32-cuda-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "long_full_model_seq32",
+      "operator_spec": "attention",
+      "shape": {
+        "B": 1,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 1,
+        "Skv": 32,
+        "D": 128,
+        "mode": "decode",
+        "note": "Decode step over the fixed long fixture KV length."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp",
+        "algorithm_source": "csrc/cuda/attention/deterministic_attention.cu:deterministic_attention_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id attn-long-decode-gqa-b1-sq1-skv32-cuda-v2"
+      }
+    },
+    {
+      "case_id": "attn-primary-prefill-gqa-b4-sq19-skv19-triton-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "attention",
+      "shape": {
+        "B": 4,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 19,
+        "Skv": 19,
+        "D": 128,
+        "mode": "prefill",
+        "note": "Triton primary max-varlen prefill; non-power-of-two sequence."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAttentionOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAttentionOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAttentionOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/attention/standard_attn.py:_standard_attn_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id attn-primary-prefill-gqa-b4-sq19-skv19-triton-v2"
+      }
+    },
+    {
+      "case_id": "attn-long-decode-gqa-b1-sq1-skv32-triton-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "long_full_model_seq32",
+      "operator_spec": "attention",
+      "shape": {
+        "B": 1,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 1,
+        "Skv": 32,
+        "D": 128,
+        "mode": "decode",
+        "note": "Triton decode over the fixed long fixture KV length."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAttentionOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAttentionOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAttentionOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/attention/standard_attn.py:_standard_attn_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id attn-long-decode-gqa-b1-sq1-skv32-triton-v2"
+      }
+    },
+    {
+      "case_id": "logp-short-vocab151936-t4-cuda-v2",
+      "family": "logprob",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "logp",
+      "shape": {
+        "B": 1,
+        "T": 4,
+        "vocab": 151936,
+        "note": "Short-fixture active selected tokens; full vocab crosses the CUDA reduction boundary."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_selected_logprob",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
+        "algorithm_source": "csrc/fused_logp_kernel.cu:fused_logp_forward_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id logp-short-vocab151936-t4-cuda-v2"
+      }
+    },
+    {
+      "case_id": "logp-short-vocab151936-t4-triton-v2",
+      "family": "logprob",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "logp",
+      "shape": {
+        "B": 1,
+        "T": 4,
+        "vocab": 151936,
+        "note": "Short-fixture active selected tokens; full vocab crosses Triton BLOCK_V reductions."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_selected_logprob",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/loss/logp.py:TritonLogpOp",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id logp-short-vocab151936-t4-triton-v2"
+      }
+    },
+    {
+      "case_id": "attn-short-prefill-gqa-b1-sq8-skv8-cuda-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "attention",
+      "op_name": "attention",
+      "shape": {
+        "B": 1,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 8,
+        "Skv": 8,
+        "D": 128,
+        "mode": "prefill",
+        "note": "Short-fixture prefill; official GQA head_dim=128."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp",
+        "algorithm_source": "csrc/cuda/attention/deterministic_attention.cu:deterministic_attention_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id attn-short-prefill-gqa-b1-sq8-skv8-cuda-v2"
+      }
+    },
+    {
+      "case_id": "attn-short-prefill-gqa-b1-sq8-skv8-triton-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "attention",
+      "op_name": "attention",
+      "shape": {
+        "B": 1,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 8,
+        "Skv": 8,
+        "D": 128,
+        "mode": "prefill",
+        "note": "Short-fixture prefill; official GQA head_dim=128."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAttentionOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAttentionOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.attention.standard_attn.TritonBatchInvariantAttentionOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/attention/standard_attn.py:_standard_attn_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id attn-short-prefill-gqa-b1-sq8-skv8-triton-v2"
+      }
+    },
+    {
+      "case_id": "rms-norm-short-t8-cuda-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "rms_norm",
+      "op_name": "rms_norm",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "fused_batch_invariant_rmsnorm",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+        "algorithm_source": "csrc/cuda/rmsnorm.cu:rmsnorm_forward_cuda",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id rms-norm-short-t8-cuda-v2"
+      }
+    },
+    {
+      "case_id": "rms-norm-primary-t59-cuda-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "rms_norm",
+      "op_name": "rms_norm",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "fused_batch_invariant_rmsnorm",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+        "algorithm_source": "csrc/cuda/rmsnorm.cu:rmsnorm_forward_cuda",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id rms-norm-primary-t59-cuda-v2"
+      }
+    },
+    {
+      "case_id": "rms-norm-short-t8-triton-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "rms_norm",
+      "op_name": "rms_norm",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "fused_batch_invariant_rmsnorm",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/rmsnorm_triton.py:_rmsnorm_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id rms-norm-short-t8-triton-v2"
+      }
+    },
+    {
+      "case_id": "rms-norm-primary-t59-triton-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "rms_norm",
+      "op_name": "rms_norm",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "fused_batch_invariant_rmsnorm",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/rmsnorm_triton.py:_rmsnorm_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id rms-norm-primary-t59-triton-v2"
+      }
+    },
+    {
+      "case_id": "qk-norm-short-t8-cuda-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "qk_norm",
+      "op_name": "qk_norm",
+      "shape": {
+        "T": 8,
+        "note": "Per-head RMSNorm (head_dim=128) over the fixture token rows; not a hidden-width RMSNorm stand-in.",
+        "head_dim": 128
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "per_head_rms_on_q_k",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+        "algorithm_source": "csrc/cuda/rmsnorm.cu:rmsnorm_forward_cuda",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id qk-norm-short-t8-cuda-v2"
+      }
+    },
+    {
+      "case_id": "qk-norm-primary-t59-cuda-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "qk_norm",
+      "op_name": "qk_norm",
+      "shape": {
+        "T": 59,
+        "note": "Per-head RMSNorm (head_dim=128) over the fixture token rows; not a hidden-width RMSNorm stand-in.",
+        "head_dim": 128
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "per_head_rms_on_q_k",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp",
+        "algorithm_source": "csrc/cuda/rmsnorm.cu:rmsnorm_forward_cuda",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id qk-norm-primary-t59-cuda-v2"
+      }
+    },
+    {
+      "case_id": "qk-norm-short-t8-triton-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "qk_norm",
+      "op_name": "qk_norm",
+      "shape": {
+        "T": 8,
+        "note": "Per-head RMSNorm (head_dim=128) over the fixture token rows; not a hidden-width RMSNorm stand-in.",
+        "head_dim": 128
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "per_head_rms_on_q_k",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/rmsnorm_triton.py:_rmsnorm_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id qk-norm-short-t8-triton-v2"
+      }
+    },
+    {
+      "case_id": "qk-norm-primary-t59-triton-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "qk_norm",
+      "op_name": "qk_norm",
+      "shape": {
+        "T": 59,
+        "note": "Per-head RMSNorm (head_dim=128) over the fixture token rows; not a hidden-width RMSNorm stand-in.",
+        "head_dim": 128
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "per_head_rms_on_q_k",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/rmsnorm_triton.py:_rmsnorm_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id qk-norm-primary-t59-triton-v2"
+      }
+    },
+    {
+      "case_id": "silu-short-t8-cuda-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "silu",
+      "op_name": "silu",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_silu",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp",
+        "algorithm_source": "csrc/cuda/activation.cu:silu_forward_cuda",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id silu-short-t8-cuda-v2"
+      }
+    },
+    {
+      "case_id": "silu-primary-t59-cuda-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "silu",
+      "op_name": "silu",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_silu",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp",
+        "algorithm_source": "csrc/cuda/activation.cu:silu_forward_cuda",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id silu-primary-t59-cuda-v2"
+      }
+    },
+    {
+      "case_id": "silu-short-t8-triton-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "silu",
+      "op_name": "silu",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_silu",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/activation/swiglu.py:_silu_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id silu-short-t8-triton-v2"
+      }
+    },
+    {
+      "case_id": "silu-primary-t59-triton-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "silu",
+      "op_name": "silu",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_silu",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/activation/swiglu.py:_silu_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id silu-primary-t59-triton-v2"
+      }
+    },
+    {
+      "case_id": "swiglu-short-t8-cuda-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "swiglu",
+      "op_name": "swiglu",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_swiglu",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp",
+        "algorithm_source": "csrc/cuda/activation.cu:swiglu_forward_cuda",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id swiglu-short-t8-cuda-v2"
+      }
+    },
+    {
+      "case_id": "swiglu-primary-t59-cuda-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "swiglu",
+      "op_name": "swiglu",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_swiglu",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp",
+        "algorithm_source": "csrc/cuda/activation.cu:swiglu_forward_cuda",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id swiglu-primary-t59-cuda-v2"
+      }
+    },
+    {
+      "case_id": "swiglu-short-t8-triton-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "swiglu",
+      "op_name": "swiglu",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_swiglu",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/activation/swiglu.py:_swiglu_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id swiglu-short-t8-triton-v2"
+      }
+    },
+    {
+      "case_id": "swiglu-primary-t59-triton-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "swiglu",
+      "op_name": "swiglu",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_swiglu",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/activation/swiglu.py:_swiglu_fwd_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id swiglu-primary-t59-triton-v2"
+      }
+    },
+    {
+      "case_id": "rope-short-t8-cuda-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "rope",
+      "op_name": "rope",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda-sm90",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op",
+      "actual_backend_id": "cuda-sm90",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "rotate_half_theta_1e6",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda-sm90",
+        "resolved_path": "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op",
+        "algorithm_source": "rl_engine/kernels/ops/cuda/rotary_embedding/rope.py:RoPESM90Op",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id rope-short-t8-cuda-v2"
+      }
+    },
+    {
+      "case_id": "rope-primary-t59-cuda-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "rope",
+      "op_name": "rope",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda-sm90",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op",
+      "actual_backend_id": "cuda-sm90",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "rotate_half_theta_1e6",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda-sm90",
+        "resolved_path": "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op",
+        "algorithm_source": "rl_engine/kernels/ops/cuda/rotary_embedding/rope.py:RoPESM90Op",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id rope-primary-t59-cuda-v2"
+      }
+    },
+    {
+      "case_id": "rope-short-t8-triton-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "rope",
+      "op_name": "rope",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "rotate_half_theta_1e6",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/rotary_embedding/rope.py:_rope_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id rope-short-t8-triton-v2"
+      }
+    },
+    {
+      "case_id": "rope-primary-t59-triton-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "rope",
+      "op_name": "rope",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "rotate_half_theta_1e6",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/rotary_embedding/rope.py:_rope_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id rope-primary-t59-triton-v2"
+      }
+    },
+    {
+      "case_id": "embedding-short-t8-cuda-v2",
+      "family": "embedding",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "embedding",
+      "op_name": "embedding",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda-sm90",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp",
+      "actual_backend_id": "cuda-sm90",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_table_lookup",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda-sm90",
+        "resolved_path": "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp",
+        "algorithm_source": "rl_engine/kernels/ops/cuda/linear/embedding.py:SM90EmbeddingOp",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id embedding-short-t8-cuda-v2"
+      }
+    },
+    {
+      "case_id": "embedding-primary-t59-cuda-v2",
+      "family": "embedding",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "embedding",
+      "op_name": "embedding",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda-sm90",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp",
+      "actual_backend_id": "cuda-sm90",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_table_lookup",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda-sm90",
+        "resolved_path": "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp",
+        "algorithm_source": "rl_engine/kernels/ops/cuda/linear/embedding.py:SM90EmbeddingOp",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id embedding-primary-t59-cuda-v2"
+      }
+    },
+    {
+      "case_id": "lm-head-short-t8-cuda-v2",
+      "family": "lm_head",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "lm_head",
+      "op_name": "lm_head",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda-sm90",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp",
+      "actual_backend_id": "cuda-sm90",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_untied_lm_head",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda-sm90",
+        "resolved_path": "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp",
+        "algorithm_source": "rl_engine/kernels/ops/cuda/linear/lm_head.py:SM90LMHeadOp",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id lm-head-short-t8-cuda-v2"
+      }
+    },
+    {
+      "case_id": "lm-head-primary-t59-cuda-v2",
+      "family": "lm_head",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "lm_head",
+      "op_name": "lm_head",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "cuda-sm90",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp",
+      "actual_backend_id": "cuda-sm90",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_untied_lm_head",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda-sm90",
+        "resolved_path": "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp",
+        "algorithm_source": "rl_engine/kernels/ops/cuda/linear/lm_head.py:SM90LMHeadOp",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id lm-head-primary-t59-cuda-v2"
+      }
+    },
+    {
+      "case_id": "embedding-short-t8-triton-v2",
+      "family": "embedding",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "embedding",
+      "op_name": "embedding",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_table_lookup_atomic_free_backward",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/linear/embedding.py:_embedding_fwd",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id embedding-short-t8-triton-v2 --check-grad"
+      }
+    },
+    {
+      "case_id": "embedding-primary-t59-triton-v2",
+      "family": "embedding",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "embedding",
+      "op_name": "embedding",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_table_lookup_atomic_free_backward",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/linear/embedding.py:_embedding_fwd",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id embedding-primary-t59-triton-v2 --check-grad"
+      }
+    },
+    {
+      "case_id": "lm-head-short-t8-triton-v2",
+      "family": "lm_head",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "lm_head",
+      "op_name": "lm_head",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_no_split_k_lm_head",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/linear/lm_head.py:TritonLMHeadOp",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id lm-head-short-t8-triton-v2 --check-grad"
+      }
+    },
+    {
+      "case_id": "lm-head-primary-t59-triton-v2",
+      "family": "lm_head",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "lm_head",
+      "op_name": "lm_head",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_no_split_k_lm_head",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.linear.lm_head.TritonLMHeadOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/linear/lm_head.py:TritonLMHeadOp",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id lm-head-primary-t59-triton-v2 --check-grad"
+      }
+    },
+    {
+      "case_id": "logp-primary-vocab151936-t27-cuda-v1",
+      "family": "logprob",
+      "revision": 1,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "logp",
+      "shape": {
+        "B": 4,
+        "T": 27,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "cuda",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
+      "actual_backend_id": "cuda",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_selected_logprob",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda",
+        "resolved_path": "rl_engine.kernels.ops.cuda.loss.logp.FusedLogpGenericOp",
+        "algorithm_source": "csrc/fused_logp_kernel.cu:fused_logp_forward_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id logp-primary-vocab151936-t27-cuda-v1"
+      }
+    },
+    {
+      "case_id": "logp-primary-vocab151936-t27-triton-v1",
+      "family": "logprob",
+      "revision": 1,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "logp",
+      "shape": {
+        "B": 4,
+        "T": 27,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_selected_logprob",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.loss.logp.TritonLogpOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/loss/logp.py:TritonLogpOp",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id logp-primary-vocab151936-t27-triton-v1"
+      }
+    },
+    {
+      "case_id": "batch-invariant-logp-short-vocab151936-t4-cuda-v1",
+      "family": "batch_invariant_logp",
+      "revision": 1,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "batch_invariant_logp",
+      "shape": {
+        "B": 1,
+        "T": 4,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "cuda-sm90",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp.BatchInvariantLogpSM90Op",
+      "actual_backend_id": "cuda-sm90",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp.BatchInvariantLogpSM90Op",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "batch_invariant_logprob_reduction",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda-sm90",
+        "resolved_path": "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp.BatchInvariantLogpSM90Op",
+        "algorithm_source": "rl_engine/kernels/ops/cuda/loss/batch_invariant_logp.py:BatchInvariantLogpSM90Op",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id batch-invariant-logp-short-vocab151936-t4-cuda-v1"
+      }
+    },
+    {
+      "case_id": "batch-invariant-logp-primary-vocab151936-t27-cuda-v1",
+      "family": "batch_invariant_logp",
+      "revision": 1,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "batch_invariant_logp",
+      "shape": {
+        "B": 4,
+        "T": 27,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "cuda-sm90",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp.BatchInvariantLogpSM90Op",
+      "actual_backend_id": "cuda-sm90",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp.BatchInvariantLogpSM90Op",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "batch_invariant_logprob_reduction",
+      "profile_ids": [
+        "cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "cuda-sm90",
+        "resolved_path": "rl_engine.kernels.ops.cuda.loss.batch_invariant_logp.BatchInvariantLogpSM90Op",
+        "algorithm_source": "rl_engine/kernels/ops/cuda/loss/batch_invariant_logp.py:BatchInvariantLogpSM90Op",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id batch-invariant-logp-primary-vocab151936-t27-cuda-v1"
+      }
+    },
+    {
+      "case_id": "batch-invariant-logp-short-vocab151936-t4-triton-v1",
+      "family": "batch_invariant_logp",
+      "revision": 1,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "batch_invariant_logp",
+      "shape": {
+        "B": 1,
+        "T": 4,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "batch_invariant_logprob_reduction",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/loss/batch_invariant_logp.py:_batch_invariant_logp_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id batch-invariant-logp-short-vocab151936-t4-triton-v1"
+      }
+    },
+    {
+      "case_id": "batch-invariant-logp-primary-vocab151936-t27-triton-v1",
+      "family": "batch_invariant_logp",
+      "revision": 1,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "batch_invariant_logp",
+      "shape": {
+        "B": 4,
+        "T": 27,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "triton",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp",
+      "actual_backend_id": "triton",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "batch_invariant_logprob_reduction",
+      "profile_ids": [
+        "triton_cuda_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "triton",
+        "resolved_path": "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp",
+        "algorithm_source": "rl_engine/kernels/ops/triton/loss/batch_invariant_logp.py:_batch_invariant_logp_kernel",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --case-id batch-invariant-logp-primary-vocab151936-t27-triton-v1"
+      }
+    },
+    {
+      "case_id": "gemm-short-m8-k4096-n4096-ascend-v2",
+      "family": "gemm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "det_gemm",
+      "shape": {
+        "M": 8,
+        "K": 4096,
+        "N": 4096,
+        "note": "Short-fixture flattened-token M; non-tile-aligned on full-model projection K/N."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_k_deterministic_gemm",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+        "algorithm_source": "csrc/ascend/gemm/det_gemm_ascend.asc:det_gemm_ascend_fwd",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id gemm-short-m8-k4096-n4096-ascend-v2"
+      }
+    },
+    {
+      "case_id": "gemm-primary-m59-k4096-n12288-ascend-v2",
+      "family": "gemm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "det_gemm",
+      "shape": {
+        "M": 59,
+        "K": 4096,
+        "N": 12288,
+        "note": "Primary varlen fixture total tokens; full gate/up projection width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_k_deterministic_gemm",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.matmul.det_gemm.DetGemmAscendOp",
+        "algorithm_source": "csrc/ascend/gemm/det_gemm_ascend.asc:det_gemm_ascend_fwd",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id gemm-primary-m59-k4096-n12288-ascend-v2"
+      }
+    },
+    {
+      "case_id": "attn-primary-prefill-gqa-b4-sq19-skv19-ascend-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "attention",
+      "shape": {
+        "B": 4,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 19,
+        "Skv": 19,
+        "D": 128,
+        "mode": "prefill",
+        "note": "Primary max-varlen prefill; non-tile-aligned sequence and official GQA."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+        "algorithm_source": "csrc/ascend/attention/deterministic_attention_ascend.asc:deterministic_attention_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id attn-primary-prefill-gqa-b4-sq19-skv19-ascend-v2"
+      }
+    },
+    {
+      "case_id": "attn-long-decode-gqa-b1-sq1-skv32-ascend-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "long_full_model_seq32",
+      "operator_spec": "attention",
+      "shape": {
+        "B": 1,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 1,
+        "Skv": 32,
+        "D": 128,
+        "mode": "decode",
+        "note": "Decode step over the fixed long fixture KV length."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+        "algorithm_source": "csrc/ascend/attention/deterministic_attention_ascend.asc:deterministic_attention_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id attn-long-decode-gqa-b1-sq1-skv32-ascend-v2"
+      }
+    },
+    {
+      "case_id": "logp-short-vocab151936-t4-ascend-v2",
+      "family": "logprob",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "logp",
+      "shape": {
+        "B": 1,
+        "T": 4,
+        "vocab": 151936,
+        "note": "Short-fixture active selected tokens; full vocab crosses the CUDA reduction boundary."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_selected_logprob",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+        "algorithm_source": "csrc/ascend/fused_logp_ascend.asc:fused_logp_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id logp-short-vocab151936-t4-ascend-v2"
+      }
+    },
+    {
+      "case_id": "attn-short-prefill-gqa-b1-sq8-skv8-ascend-v2",
+      "family": "attention",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "attention",
+      "op_name": "attention",
+      "shape": {
+        "B": 1,
+        "Hq": 32,
+        "Hkv": 8,
+        "Sq": 8,
+        "Skv": 8,
+        "D": 128,
+        "mode": "prefill",
+        "note": "Short-fixture prefill; official GQA head_dim=128."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "no_split_kv_batch_invariant_attention",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.attention.deterministic_attn.DeterministicAttentionAscendOp",
+        "algorithm_source": "csrc/ascend/attention/deterministic_attention_ascend.asc:deterministic_attention_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id attn-short-prefill-gqa-b1-sq8-skv8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "rms-norm-short-t8-ascend-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "rms_norm",
+      "op_name": "rms_norm",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "fused_batch_invariant_rmsnorm",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+        "algorithm_source": "csrc/ascend/rmsnorm_ascend.asc:rmsnorm_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id rms-norm-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "rms-norm-primary-t59-ascend-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "rms_norm",
+      "op_name": "rms_norm",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "fused_batch_invariant_rmsnorm",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+        "algorithm_source": "csrc/ascend/rmsnorm_ascend.asc:rmsnorm_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id rms-norm-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "qk-norm-short-t8-ascend-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "qk_norm",
+      "op_name": "qk_norm",
+      "shape": {
+        "T": 8,
+        "note": "Per-head RMSNorm (head_dim=128) over the fixture token rows; not a hidden-width RMSNorm stand-in.",
+        "head_dim": 128
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "per_head_rms_on_q_k",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+        "algorithm_source": "csrc/ascend/rmsnorm_ascend.asc:rmsnorm_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id qk-norm-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "qk-norm-primary-t59-ascend-v2",
+      "family": "norm",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "qk_norm",
+      "op_name": "qk_norm",
+      "shape": {
+        "T": 59,
+        "note": "Per-head RMSNorm (head_dim=128) over the fixture token rows; not a hidden-width RMSNorm stand-in.",
+        "head_dim": 128
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "per_head_rms_on_q_k",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.norm.rmsnorm.RMSNormAscendOp",
+        "algorithm_source": "csrc/ascend/rmsnorm_ascend.asc:rmsnorm_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id qk-norm-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "silu-short-t8-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "silu",
+      "op_name": "silu",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_silu",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+        "algorithm_source": "csrc/ascend/activation.asc:silu_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id silu-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "silu-primary-t59-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "silu",
+      "op_name": "silu",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_silu",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp",
+        "algorithm_source": "csrc/ascend/activation.asc:silu_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id silu-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "swiglu-short-t8-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "swiglu",
+      "op_name": "swiglu",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_swiglu",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+        "algorithm_source": "csrc/ascend/activation.asc:swiglu_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id swiglu-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "swiglu-primary-t59-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "swiglu",
+      "op_name": "swiglu",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "elementwise_swiglu",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp",
+        "algorithm_source": "csrc/ascend/activation.asc:swiglu_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id swiglu-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "rope-short-t8-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "rope",
+      "op_name": "rope",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "rotate_half_theta_1e6",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+        "algorithm_source": "csrc/ascend/rope_ascend.asc:rope_apply_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id rope-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "rope-primary-t59-ascend-v2",
+      "family": "elementwise",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "rope",
+      "op_name": "rope",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "rotate_half_theta_1e6",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp",
+        "algorithm_source": "csrc/ascend/rope_ascend.asc:rope_apply_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id rope-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "embedding-short-t8-ascend-v2",
+      "family": "embedding",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "embedding",
+      "op_name": "embedding",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_table_lookup",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+        "algorithm_source": "csrc/ascend/embedding_ascend.asc:embedding_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id embedding-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "embedding-primary-t59-ascend-v2",
+      "family": "embedding",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "embedding",
+      "op_name": "embedding",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_table_lookup",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.linear.embedding.AscendEmbeddingOp",
+        "algorithm_source": "csrc/ascend/embedding_ascend.asc:embedding_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id embedding-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "lm-head-short-t8-ascend-v2",
+      "family": "lm_head",
+      "revision": 2,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "lm_head",
+      "op_name": "lm_head",
+      "shape": {
+        "T": 8,
+        "note": "Short-fixture flattened tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_untied_lm_head",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+        "algorithm_source": "csrc/ascend/lm_head_ascend.asc:lm_head_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id lm-head-short-t8-ascend-v2"
+      }
+    },
+    {
+      "case_id": "lm-head-primary-t59-ascend-v2",
+      "family": "lm_head",
+      "revision": 2,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "lm_head",
+      "op_name": "lm_head",
+      "shape": {
+        "T": 59,
+        "note": "Primary varlen fixture total tokens on the official Qwen3-8B Dense width."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_untied_lm_head",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.linear.lm_head.AscendLMHeadOp",
+        "algorithm_source": "csrc/ascend/lm_head_ascend.asc:lm_head_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id lm-head-primary-t59-ascend-v2"
+      }
+    },
+    {
+      "case_id": "logp-primary-vocab151936-t27-ascend-v1",
+      "family": "logprob",
+      "revision": 1,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "logp",
+      "shape": {
+        "B": 4,
+        "T": 27,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "deterministic_selected_logprob",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.loss.logp.FusedLogpAscendOp",
+        "algorithm_source": "csrc/ascend/fused_logp_ascend.asc:fused_logp_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id logp-primary-vocab151936-t27-ascend-v1"
+      }
+    },
+    {
+      "case_id": "batch-invariant-logp-short-vocab151936-t4-ascend-v1",
+      "family": "batch_invariant_logp",
+      "revision": 1,
+      "fixture_id": "short_full_model_seq8",
+      "operator_spec": "batch_invariant_logp",
+      "shape": {
+        "B": 1,
+        "T": 4,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "batch_invariant_logprob_reduction",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+        "algorithm_source": "csrc/ascend/batch_invariant_logp_ascend.asc:batch_invariant_logp_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id batch-invariant-logp-short-vocab151936-t4-ascend-v1"
+      }
+    },
+    {
+      "case_id": "batch-invariant-logp-primary-vocab151936-t27-ascend-v1",
+      "family": "batch_invariant_logp",
+      "revision": 1,
+      "fixture_id": "rep_full_model_seq16",
+      "operator_spec": "batch_invariant_logp",
+      "shape": {
+        "B": 4,
+        "T": 27,
+        "vocab": 151936,
+        "note": "Selected-token logprob on the fixture completion tokens; full vocab."
+      },
+      "expected_backend_id": "ascend",
+      "expected_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+      "actual_backend_id": "ascend",
+      "actual_kernel_config_id": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+      "provenance_status": "runtime_evidence_required",
+      "algorithm_property": "batch_invariant_logprob_reduction",
+      "profile_ids": [
+        "ascend_bf16"
+      ],
+      "architecture_identity": "full_qwen3_8b_dense",
+      "provenance_evidence": {
+        "kind": "runtime_execution_via_operator_specs",
+        "registry": "rl_engine/kernels/gtest/operator_specs.py",
+        "candidate_name": "ascend",
+        "resolved_path": "rl_engine.kernels.ops.ascend.loss.batch_invariant_logp.BatchInvariantLogpAscendOp",
+        "algorithm_source": "csrc/ascend/batch_invariant_logp_ascend.asc:batch_invariant_logp_ascend_forward",
+        "runtime_evidence_command": "python scripts/ws1_candidate_evidence.py --device npu --case-id batch-invariant-logp-primary-vocab151936-t27-ascend-v1"
+      }
+    }
+  ],
+  "fixture_identity_sha256": "fe17c160af1c3ca87bb8b2c043494480c591af991675aa6c9b4a975c7a9d16d4",
+  "provenance_boundary": {
+    "c2_scope": "logical_workload_identity_and_executed_representative_candidate_binding",
+    "not_in_c2": [
+      "full_model_forward",
+      "numerical_150_asserts",
+      "full_model_runtime_kernel_dispatch_observation",
+      "multi_gpu"
+    ],
+    "runtime_evidence_owner": [
+      "C3",
+      "C8",
+      "C10",
+      "C11"
+    ]
+  }
+}
