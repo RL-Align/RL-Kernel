@@ -209,6 +209,20 @@ def test_registry_explicit_cuda_device_honors_mlp_down_gemm_pin(monkeypatch, pin
     assert loaded == [OpBackend.CUDA_MLP_DOWN_GEMM]
 
 
+def test_registry_pinned_mlp_down_gemm_reports_a_missing_native_backend(monkeypatch):
+    """A pin names the native contract: its absence must not become a generic error."""
+
+    if torch.version.hip is not None:
+        pytest.skip("the row's selector is CUDA-only")
+
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "general")
+    registry = KernelRegistry()
+    monkeypatch.setattr(registry, "_get_or_create_backend", lambda backend: None)
+
+    with pytest.raises(RuntimeError, match="RL_KERNEL_MLP_DOWN_GEMM_BACKEND=general"):
+        registry.get_op("mlp_down_gemm", device="cuda:0")
+
+
 def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
     registry = KernelRegistry()
     loaded = []

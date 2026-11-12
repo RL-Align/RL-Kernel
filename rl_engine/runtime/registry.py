@@ -1037,6 +1037,17 @@ class KernelRegistry:
         if mlp_down_backend in {"hopper", "general"}:
             if device_ctx.device_type == "cuda":
                 self._priority_map["cuda"]["mlp_down_gemm"] = [OpBackend.CUDA_MLP_DOWN_GEMM]
+            else:
+                # Valid pin, but this process's default platform is not CUDA: the
+                # pin is still honored by `get_op(device="cuda")`, so this is a
+                # diagnostic rather than a misconfiguration error.
+                logger.info(
+                    "RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s selects the CUDA backend; this "
+                    "process defaults to %s, so the pin applies to explicit CUDA dispatch "
+                    "only.",
+                    mlp_down_backend,
+                    device_ctx.device_type,
+                )
         elif mlp_down_backend not in {"", "auto"}:
             logger.warning(
                 "Unknown RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s; using the default "
@@ -1118,11 +1129,22 @@ class KernelRegistry:
         """Select the best legacy operator for the requested device."""
 
         platform = self._platform_for_device(device)
-        candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
         if platform == "cuda" and op_type == "mlp_down_gemm":
             pinned = self._mlp_down_gemm_pinned_backend()
             if pinned is not None:
-                candidates = [pinned]
+                op_instance = self._get_or_create_backend(pinned)
+                if op_instance is None:
+                    # The pin names the contract, so an unavailable native backend
+                    # must fail closed here with the reason rather than fall back
+                    # to Triton (a different backend) or to a generic "no backend".
+                    pin = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
+                    raise RuntimeError(
+                        f"mlp_down_gemm: RL_KERNEL_MLP_DOWN_GEMM_BACKEND={pin} selects the "
+                        "native CUDA backend, which this build cannot serve; build the "
+                        "extension for sm_80+ or unset the selector to use Triton."
+                    )
+                return op_instance
+        candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:
             op_instance = self._get_or_create_backend(backend)

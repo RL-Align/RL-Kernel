@@ -257,9 +257,13 @@ def main() -> None:
     fwd_bwd_mb = _peak_extra_mb(forward_backward)
     reduced = timed_rows != rows
     # At a reduced row count the fixed launch cost dominates, so the TFLOP/s
-    # columns would not be comparable with a full-shape row: suppress them.
-    fwd_tflops = "n/a" if reduced else f"{gemm_flops / fwd_ms / 1e9:.2f}"
-    fwd_bwd_tflops = "n/a" if reduced else f"{3 * gemm_flops / fwd_bwd_ms / 1e9:.2f}"
+    # columns would not be comparable with a full-shape row: suppress them. The
+    # fp64-emulated reference is suppressed at any row count, because its cost is
+    # a CPU-bound tree walk and a TFLOP/s figure would be meaningless next to a
+    # kernel row even when it happens to run at the requested shape.
+    suppressed = reduced or args.backend == "pytorch"
+    fwd_tflops = "n/a" if suppressed else f"{gemm_flops / fwd_ms / 1e9:.2f}"
+    fwd_bwd_tflops = "n/a" if suppressed else f"{3 * gemm_flops / fwd_bwd_ms / 1e9:.2f}"
     table = [
         "| case | backend | dtype | M | K | N | fwd ms | fwd TFLOP/s | fwd MB | "
         "fwd+bwd ms | fwd+bwd TFLOP/s | fwd+bwd MB |",
@@ -287,6 +291,11 @@ def main() -> None:
             f"note: timing uses {timed_rows} of {rows} rows; the fp64-emulated reference "
             "is not timed at the model shape (its cost is linear in rows), so its "
             "TFLOP/s columns are suppressed as not comparable to a full-shape row."
+        )
+    elif args.backend == "pytorch":
+        report.append(
+            "note: TFLOP/s is suppressed for the fp64-emulated reference: its cost is a "
+            "CPU-bound tree walk, so the figure is not comparable to a kernel row."
         )
     report.append("")
     print("\n".join(report))
