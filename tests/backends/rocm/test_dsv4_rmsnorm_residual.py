@@ -45,7 +45,8 @@ def _inputs(t, d, seed, grad_dtype=torch.bfloat16):
 def _run(impl, x, gamma, dy, dres):
     y, residual, saved = impl.forward(x, gamma, EPS)
     dx, dgamma = impl.backward(dy, dres, x, gamma, saved)
-    assert residual.data_ptr() != x.data_ptr()
+    if x.numel():
+        assert residual.data_ptr() != x.data_ptr()
     for value in (y, saved.r, dx, dgamma):
         assert torch.isfinite(value).all()
     return y, residual, saved.r, dx, dgamma
