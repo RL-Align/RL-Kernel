@@ -86,7 +86,8 @@ Supporting rules:
 | Any NVIDIA GPU cc >= 8.0 (Ampere, Ada, Hopper, Blackwell) without the Hopper build | Triton, then the portable CUDA tree path | 10.9-11.0 forward, 12.2 end to end (byte-equal to the reference) |
 | Below cc 8.0 | the CUDA paths **raise** (no kernel exists); Triton if it supports the target, else fail closed | reference |
 | ROCm / MUSA | Triton, else fail closed | not measured here |
-| CPU / NPU | the fp32 reference | reference |
+| CPU | the fp32 reference | reference |
+| Ascend NPU | fails closed (no NPU kernel; the CPU reference is not inherited) | - |
 | An fp32 call on CUDA/ROCm/MUSA | **raises** (the device row is bf16 only); call the PyTorch reference explicitly | - |
 
 The two CUDA paths live in separate sources, the repository's SM90 convention: the
@@ -166,7 +167,7 @@ contract's accuracy is pinned against an independent fp64 oracle.
 
 - CUDA: Triton, then the native CUDA kernel; otherwise the row fails closed.
 - ROCm / MUSA: Triton; otherwise the row fails closed.
-- CPU / NPU: the PyTorch reference only.
+- CPU: the PyTorch reference only; NPU fails closed (the CPU row is not inherited).
 
 The fp32 reference is the accuracy gold, not a dispatch fallback (WS1 standard:
 reference-as-candidate is a hard fail): landing on it silently would change the

@@ -62,7 +62,6 @@
 #include <cuda_runtime.h>
 
 #include <cstdint>
-#include <mutex>
 #include <optional>
 
 namespace {
@@ -746,14 +745,13 @@ torch::Tensor mlp_down_gemm_cuda_db(torch::Tensor grad) {
     auto gc = grad.contiguous();
     const int blocks = static_cast<int>((cols + DB_CT - 1) / DB_CT);
     const int smem = 2 * DB_TR * DB_CT * static_cast<int>(sizeof(nv_bf16));
-    static std::once_flag configured;
-    std::call_once(configured, [smem] {
-        const cudaError_t st = cudaFuncSetAttribute(
-            mlp_down_db_fold_wide_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
-        TORCH_CHECK(st == cudaSuccess,
-                    "mlp_down_gemm_cuda_db: setting max dynamic smem failed: ",
-                    cudaGetErrorString(st));
-    });
+    // Per-device kernel state: set it on every call so a second device in the
+    // same process is configured too (a once-per-process flag would skip it).
+    const cudaError_t st = cudaFuncSetAttribute(
+        mlp_down_db_fold_wide_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    TORCH_CHECK(st == cudaSuccess,
+                "mlp_down_gemm_cuda_db: setting max dynamic smem failed: ",
+                cudaGetErrorString(st));
     mlp_down_db_fold_wide_kernel<<<blocks, DB_THREADS, smem, at::cuda::getCurrentCUDAStream()>>>(
         reinterpret_cast<const nv_bf16*>(gc.data_ptr<at::BFloat16>()), db.data_ptr<float>(),
         static_cast<int>(rows), static_cast<int>(cols));
