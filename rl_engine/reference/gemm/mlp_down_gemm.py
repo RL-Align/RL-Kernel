@@ -104,6 +104,8 @@ def mlp_down_gemm_reference_forward(
 ) -> torch.Tensor:
     """FP32 tree result plus the bias added once in fp32 (no output cast)."""
 
+    if x.size(-1) != weight.size(-1):
+        raise ValueError("x K must match weight K")
     out = tree_gemm(x, weight.t().contiguous())
     if bias is not None:
         # The gold path must fail closed too: a broadcastable but wrong-length

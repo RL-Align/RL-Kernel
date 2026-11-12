@@ -203,7 +203,7 @@ def _hopper_serves(device=None) -> bool:
         return False
     if device is None:
         return False
-    return torch.cuda.get_device_capability(device)[0] >= 9
+    return torch.cuda.get_device_capability(device)[0] == 9
 
 
 # ---------------------------------------------------------------------------

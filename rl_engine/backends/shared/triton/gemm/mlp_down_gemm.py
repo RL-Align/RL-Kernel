@@ -349,6 +349,9 @@ def _launch_forward(
     rows, k_dim = x2d.shape
     n_dim = weight.size(0)
     out = torch.empty((rows, n_dim), dtype=torch.bfloat16, device=x2d.device)
+    if rows == 0 or n_dim == 0:
+        # A zero grid dimension is not a portable launch; the result is empty.
+        return out
     grid = (triton.cdiv(rows, tile.block_m), triton.cdiv(n_dim, tile.block_n))
     # The kernel indexes the bias at unit stride, so a view has to be made
     # contiguous here -- exactly as the CUDA backend's ``bias->to(kFloat)`` does.
@@ -384,6 +387,12 @@ def _launch_dx(grad2d: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
     rows, n_dim = grad2d.shape
     k_dim = weight.size(1)
     dx = torch.empty((rows, k_dim), dtype=torch.bfloat16, device=grad2d.device)
+    if rows == 0 or k_dim == 0:
+        return dx
+    if n_dim == 0:
+        # Empty reduction: dx is exact zero.
+        dx.zero_()
+        return dx
     grid = (triton.cdiv(rows, tile.block_m), triton.cdiv(k_dim, tile.block_k))
     _mlp_down_gemm_dx_kernel[grid](
         grad2d,
@@ -412,6 +421,8 @@ def _launch_dw(grad2d: torch.Tensor, x2d: torch.Tensor) -> torch.Tensor:
     rows, n_dim = grad2d.shape
     k_dim = x2d.size(1)
     dw = torch.empty((n_dim, k_dim), dtype=torch.bfloat16, device=grad2d.device)
+    if n_dim == 0 or k_dim == 0:
+        return dw
     grid = (triton.cdiv(n_dim, tile.block_n), triton.cdiv(k_dim, tile.block_k))
     _mlp_down_gemm_dw_kernel[grid](
         grad2d,
@@ -439,6 +450,8 @@ def _launch_db(grad2d: torch.Tensor) -> torch.Tensor:
     tile = _DB_TILE
     rows, n_dim = grad2d.shape
     db = torch.empty((n_dim,), dtype=torch.bfloat16, device=grad2d.device)
+    if n_dim == 0:
+        return db
     grid = (triton.cdiv(n_dim, tile.block_n),)
     _mlp_down_gemm_db_kernel[grid](
         grad2d,

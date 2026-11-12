@@ -80,7 +80,7 @@ def _hopper_available() -> bool:
         return False
     if not (cuda_backend_available() and sm90_backend_compiled()):
         return False
-    return bool(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9)
+    return bool(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] == 9)
 
 
 def _hopper_op():
