@@ -600,12 +600,14 @@ class KernelRegistry:
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 # Triton first: on Hopper it lowers the same pinned schedule to
                 # wgmma, which is measured byte-identical to the hand-written
-                # mma.sync kernel and ~2.5x its forward throughput. The native
-                # kernel is the no-Triton fallback, then the fp32 reference.
+                # mma.sync kernel and ~2.5x its forward throughput; the native
+                # kernel is the no-Triton fallback. The fp32 reference is the
+                # gold/benchmark target and deliberately not a dispatch
+                # candidate (WS1 standard: reference-as-candidate is a hard
+                # fail), so a build with neither backend fails closed.
                 "mlp_down_gemm": [
                     OpBackend.TRITON_MLP_DOWN_GEMM,
                     OpBackend.CUDA_MLP_DOWN_GEMM,
-                    OpBackend.PYTORCH_MLP_DOWN_GEMM,
                 ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -661,11 +663,10 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
-                # The CUDA sources are NVIDIA PTX; Triton serves ROCm.
-                "mlp_down_gemm": [
-                    OpBackend.TRITON_MLP_DOWN_GEMM,
-                    OpBackend.PYTORCH_MLP_DOWN_GEMM,
-                ],
+                # The CUDA sources are NVIDIA PTX; Triton serves ROCm. The
+                # fp32 reference is not a dispatch candidate (see the CUDA
+                # entry): without Triton this row fails closed.
+                "mlp_down_gemm": [OpBackend.TRITON_MLP_DOWN_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -708,11 +709,10 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
-                # The CUDA sources are NVIDIA PTX; Triton serves MUSA.
-                "mlp_down_gemm": [
-                    OpBackend.TRITON_MLP_DOWN_GEMM,
-                    OpBackend.PYTORCH_MLP_DOWN_GEMM,
-                ],
+                # The CUDA sources are NVIDIA PTX; Triton serves MUSA. The
+                # fp32 reference is not a dispatch candidate (see the CUDA
+                # entry): without Triton this row fails closed.
+                "mlp_down_gemm": [OpBackend.TRITON_MLP_DOWN_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -1028,7 +1028,15 @@ class KernelRegistry:
         # (general) or refuse the tree fallback (hopper).
         mlp_down_backend = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
         if mlp_down_backend in {"hopper", "general"}:
-            self._priority_map["cuda"]["mlp_down_gemm"] = [OpBackend.CUDA_MLP_DOWN_GEMM]
+            if device_ctx.device_type == "cuda":
+                self._priority_map["cuda"]["mlp_down_gemm"] = [OpBackend.CUDA_MLP_DOWN_GEMM]
+            else:
+                logger.warning(
+                    "RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s selects the CUDA backend only; "
+                    "this process runs on %s, so the platform's own priority is unchanged.",
+                    mlp_down_backend,
+                    device_ctx.device_type,
+                )
         elif mlp_down_backend not in {"", "auto"}:
             logger.warning(
                 "Unknown RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s; using the default "

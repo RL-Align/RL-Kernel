@@ -633,6 +633,7 @@ torch::Tensor mlp_down_gemm_cuda_forward(torch::Tensor x, torch::Tensor weight,
                                         std::optional<torch::Tensor> bias) {
     const c10::cuda::CUDAGuard guard(x.device());
     TORCH_CHECK(x.is_cuda() && weight.is_cuda(), "x and weight must be CUDA tensors");
+    TORCH_CHECK(x.device() == weight.device(), "x and weight must live on the same device");
     TORCH_CHECK(mlp_tree_device_ok(), kMlpTreeNeedsSm80);
     TORCH_CHECK(x.scalar_type() == at::kBFloat16 && weight.scalar_type() == at::kBFloat16,
                 "mlp-down-gemm-tree requires bf16 operands");
@@ -666,6 +667,7 @@ torch::Tensor mlp_down_gemm_cuda_forward(torch::Tensor x, torch::Tensor weight,
 torch::Tensor mlp_down_gemm_cuda_dx(torch::Tensor g, torch::Tensor weight) {
     const c10::cuda::CUDAGuard guard(g.device());
     TORCH_CHECK(g.is_cuda() && weight.is_cuda(), "g and weight must be CUDA tensors");
+    TORCH_CHECK(g.device() == weight.device(), "g and weight must live on the same device");
     TORCH_CHECK(mlp_tree_device_ok(), kMlpTreeNeedsSm80);
     TORCH_CHECK(g.scalar_type() == at::kBFloat16 && weight.scalar_type() == at::kBFloat16,
                 "mlp-down-gemm-tree requires bf16 operands");
@@ -692,6 +694,7 @@ torch::Tensor mlp_down_gemm_cuda_dx(torch::Tensor g, torch::Tensor weight) {
 torch::Tensor mlp_down_gemm_cuda_dw(torch::Tensor g, torch::Tensor x) {
     const c10::cuda::CUDAGuard guard(g.device());
     TORCH_CHECK(g.is_cuda() && x.is_cuda(), "g and x must be CUDA tensors");
+    TORCH_CHECK(g.device() == x.device(), "g and x must live on the same device");
     TORCH_CHECK(mlp_tree_device_ok(), kMlpTreeNeedsSm80);
     TORCH_CHECK(g.scalar_type() == at::kBFloat16 && x.scalar_type() == at::kBFloat16,
                 "mlp-down-gemm-tree requires bf16 operands");

@@ -601,6 +601,7 @@ torch::Tensor mlp_down_gemm_cuda_forward_sm90(torch::Tensor x, torch::Tensor wei
                                              std::optional<torch::Tensor> bias) {
     const c10::cuda::CUDAGuard guard(x.device());
     TORCH_CHECK(x.is_cuda() && weight.is_cuda(), "x and weight must be CUDA tensors");
+    TORCH_CHECK(x.device() == weight.device(), "x and weight must live on the same device");
     TORCH_CHECK(x.scalar_type() == at::kBFloat16 && weight.scalar_type() == at::kBFloat16,
                 "mlp-down-gemm-mma requires bf16 operands");
     TORCH_CHECK(x.dim() == 2 && weight.dim() == 2, "x and weight must be 2-D");
@@ -642,6 +643,7 @@ torch::Tensor mlp_down_gemm_cuda_forward_sm90(torch::Tensor x, torch::Tensor wei
 torch::Tensor mlp_down_gemm_cuda_dx_sm90(torch::Tensor g, torch::Tensor weight) {
     const c10::cuda::CUDAGuard guard(g.device());
     TORCH_CHECK(g.is_cuda() && weight.is_cuda(), "g and weight must be CUDA tensors");
+    TORCH_CHECK(g.device() == weight.device(), "g and weight must live on the same device");
     TORCH_CHECK(g.scalar_type() == at::kBFloat16 && weight.scalar_type() == at::kBFloat16,
                 "mlp-down-gemm-mma requires bf16 operands");
     TORCH_CHECK(g.dim() == 2 && weight.dim() == 2, "g and weight must be 2-D");
@@ -670,6 +672,7 @@ torch::Tensor mlp_down_gemm_cuda_dx_sm90(torch::Tensor g, torch::Tensor weight) 
 torch::Tensor mlp_down_gemm_cuda_dw_sm90(torch::Tensor g, torch::Tensor x) {
     const c10::cuda::CUDAGuard guard(g.device());
     TORCH_CHECK(g.is_cuda() && x.is_cuda(), "g and x must be CUDA tensors");
+    TORCH_CHECK(g.device() == x.device(), "g and x must live on the same device");
     TORCH_CHECK(g.scalar_type() == at::kBFloat16 && x.scalar_type() == at::kBFloat16,
                 "mlp-down-gemm-mma requires bf16 operands");
     TORCH_CHECK(g.dim() == 2 && x.dim() == 2, "g and x must be 2-D");

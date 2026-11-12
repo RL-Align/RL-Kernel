@@ -76,7 +76,7 @@ Supporting rules:
 | Triton | `TritonMlpDownGemmOp` | `rl_engine/backends/shared/triton/gemm/mlp_down_gemm.py` | One portable source for CUDA, ROCm and MUSA: Triton is JIT-compiled per device, so there is no `*_sm90.py` counterpart and no build switch -- the arch-specific instruction is chosen by Triton's own lowering, which is why this file is the ROCm slot. CUDA default. Autotune disabled, tiles pinned, no split-K. On Hopper `tl.dot` lowers to `wgmma.mma_async.m64n256k16`; that lowering was measured byte-identical to the hand-written kernel, at the same throughput within noise (755 vs 736 TFLOP/s forward at M=4096 on the H100 80GB HBM3 below). Portable / ROCm fallback and cross-backend reference. |
 | CUDA (Hopper) | `CudaMlpDownGemmOp` | `csrc/cuda/gemm/mlp_down_gemm_sm90.cu` | TMA 2-D bulk-tensor loads (`CU_TENSOR_MAP_SWIZZLE_128B`, OOB fill zero, `mbarrier.arrive.expect_tx` / `try_wait.parity`) per-contraction instantiations: the forward runs `TM=128, TN=256, BK=64` with two warpgroups of `m64n256k16` and a 4-slot `wgmma.wait_group<1>` ring, while `dx`/`dW` keep `TM=256, TN=128, BK=64` with four warpgroups of `m64n128k16`. Compiled only when the extension is built with `KERNEL_ALIGN_FORCE_SM90=1`, the repository-wide SM90 switch, in the same way as the other `*_sm90.cu` sources. |
 | CUDA (portable) | `CudaMlpDownGemmOp` | `csrc/cuda/gemm/mlp_down_gemm.cu` | The `mlp-down-gemm-tree` order on FP32 CUDA cores: 64x64 smem tiles, conflict-free k-major staging, a 4x4 register block and a per-thread partial stack that merges as the reference's mid-split tree does; **byte-equal to the FP32 CPU reference**. Always compiled; NVIDIA SM80+; the fallback whenever the SM90 build or the device is absent. ~14 TFLOP/s forward. |
-| PyTorch | `NativeMlpDownGemmOp` | `rl_engine/reference/gemm/mlp_down_gemm.py` | Independent FP32 CPU reference: a 32-wide-leaf, mid-split FP32 tree over the same reduction length, deliberately a *different* association order, so agreement is a declared tolerance rather than a copy. Also the fp32 device fallback. |
+| PyTorch | `NativeMlpDownGemmOp` | `rl_engine/reference/gemm/mlp_down_gemm.py` | Independent FP32 CPU reference: a 32-wide-leaf, mid-split FP32 tree over the same reduction length, deliberately a *different* association order, so agreement is a declared tolerance rather than a copy. The CPU/NPU backend and the accuracy gold; deliberately *not* a CUDA/ROCm/MUSA dispatch candidate (WS1 standard: reference-as-candidate is a hard fail). |
 
 ## Backend selection at a glance
 
@@ -84,9 +84,10 @@ Supporting rules:
 | --- | --- | --- |
 | Hopper (cc 9.0) and the extension built with `KERNEL_ALIGN_FORCE_SM90=1` | Triton, then the CUDA TMA+wgmma path | 448/476 forward, 395/384 end to end |
 | Any NVIDIA GPU cc >= 8.0 (Ampere, Ada, Hopper, Blackwell) without the Hopper build | Triton, then the portable CUDA tree path | 10.9-11.0 forward, 12.2 end to end (byte-equal to the reference) |
-| Below cc 8.0 | the CUDA paths **raise** (no kernel exists); Triton if it supports the target, else the fp32 reference | reference |
-| ROCm / MUSA | Triton, else the fp32 reference | not measured here |
-| CPU / NPU, or any fp32 call | the fp32 reference | reference |
+| Below cc 8.0 | the CUDA paths **raise** (no kernel exists); Triton if it supports the target, else fail closed | reference |
+| ROCm / MUSA | Triton, else fail closed | not measured here |
+| CPU / NPU | the fp32 reference | reference |
+| An fp32 call on CUDA/ROCm/MUSA | **raises** (the device row is bf16 only); call the PyTorch reference explicitly | - |
 
 The two CUDA paths live in separate sources, the repository's SM90 convention: the
 portable fp32-tree kernel is always compiled from `csrc/cuda/gemm/mlp_down_gemm.cu`, and the
@@ -163,12 +164,15 @@ contract's accuracy is pinned against an independent fp64 oracle.
 
 ## Dispatch Behavior
 
-- CUDA: Triton, then the native CUDA kernel, then the PyTorch reference.
-- ROCm / MUSA: Triton, then the PyTorch reference.
+- CUDA: Triton, then the native CUDA kernel; otherwise the row fails closed.
+- ROCm / MUSA: Triton; otherwise the row fails closed.
 - CPU / NPU: the PyTorch reference only.
 
-The CUDA and Triton backends raise on fp32 input and on non-CUDA tensors; the
-PyTorch reference covers fp32 and every device without a kernel.
+The fp32 reference is the accuracy gold, not a dispatch fallback (WS1 standard:
+reference-as-candidate is a hard fail): landing on it silently would change the
+arithmetic order the row declares. The CUDA and Triton backends raise on fp32 input
+and on non-CUDA tensors; use the PyTorch reference explicitly for fp32 or on a
+machine without a kernel.
 
 ## Accuracy
 

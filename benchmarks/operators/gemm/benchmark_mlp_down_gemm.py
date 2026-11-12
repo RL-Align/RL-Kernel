@@ -8,7 +8,9 @@ a selectable backend, and gates every run against the independent fp32 CPU
 reference before reporting timings (a fast-but-wrong kernel is not a result).
 
 The three backends are imported lazily, so ``--backend triton`` never needs the
-CUDA extension and ``--backend pytorch`` never needs Triton.
+CUDA extension and ``--backend pytorch`` never needs Triton. The PyTorch
+reference is the fp64-emulated tree: its per-row cost is far above the kernels',
+so ``--backend pytorch`` is timed at ``--gate-rows`` rows and the report says so.
 
 Usage::
 
@@ -184,17 +186,39 @@ def main() -> None:
     rows = args.batch * args.seq
     dtype = torch.bfloat16
     op = _load_backend(args.backend)
-    x, weight, bias = _inputs(rows, args.k_dim, args.n_dim, dtype, seed=args.seed)
+    # The PyTorch backend is the fp64-emulated tree: timing the model shape
+    # would take minutes per iteration, so it is measured at the gate window
+    # (its cost is linear in rows) and the report states the scale.
+    timed_rows = min(rows, args.gate_rows) if args.backend == "pytorch" else rows
+    x, weight, bias = _inputs(timed_rows, args.k_dim, args.n_dim, dtype, seed=args.seed)
 
     out = op(x, weight, bias=bias)
-    assert out.dtype is torch.bfloat16 and out.shape == (rows, args.n_dim), (out.dtype, out.shape)
+    assert out.dtype is torch.bfloat16 and out.shape == (timed_rows, args.n_dim), (
+        out.dtype,
+        out.shape,
+    )
+
+    # A `cuda` row takes one of two frozen contracts depending on the build,
+    # the device and RL_KERNEL_MLP_DOWN_GEMM_BACKEND; record the resolved one so
+    # the numbers are not compared across different arithmetic orders.
+    resolved = args.backend
+    if args.backend == "cuda":
+        from rl_engine.backends.cuda.gemm.mlp_down_gemm import (
+            mlp_down_gemm_backend_used,
+            mlp_down_gemm_contract_used,
+        )
+
+        resolved = (
+            f"cuda ({mlp_down_gemm_backend_used(x, weight)}, "
+            f"{mlp_down_gemm_contract_used(x, weight)})"
+        )
 
     gate_passed, gate_lines = _accuracy_gate(op, x, weight, bias, args.gate_rows, backward=True)
 
     xr = x.detach().clone().requires_grad_(True)
     wr = weight.detach().clone().requires_grad_(True)
     br = bias.detach().clone().requires_grad_(True)
-    grad_out = torch.randn(rows, args.n_dim, generator=torch.Generator().manual_seed(7))
+    grad_out = torch.randn(timed_rows, args.n_dim, generator=torch.Generator().manual_seed(7))
     grad_out = grad_out.to(dtype).to(DEV)
 
     def forward_only():
@@ -207,20 +231,21 @@ def main() -> None:
     fwd_ms = _time(forward_only, args.warmup, args.iters)
     fwd_bwd_ms = _time(forward_backward, args.warmup, args.iters)
 
-    gemm_flops = 2.0 * rows * args.k_dim * args.n_dim
+    gemm_flops = 2.0 * timed_rows * args.k_dim * args.n_dim
     fwd_mb = _peak_extra_mb(forward_only)
     fwd_bwd_mb = _peak_extra_mb(forward_backward)
     table = [
         "| case | backend | dtype | M | K | N | fwd ms | fwd TFLOP/s | fwd MB | "
         "fwd+bwd ms | fwd+bwd TFLOP/s | fwd+bwd MB |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|",
-        f"| mlp_down_gemm | {args.backend} | {args.dtype} | {rows} | {args.k_dim} | {args.n_dim} | "
+        f"| mlp_down_gemm | {resolved} | {args.dtype} | {timed_rows} | {args.k_dim} | "
+        f"{args.n_dim} | "
         f"{fwd_ms:.3f} | {gemm_flops / fwd_ms / 1e9:.2f} | {fwd_mb:.0f} | {fwd_bwd_ms:.3f} | "
         f"{3 * gemm_flops / fwd_bwd_ms / 1e9:.2f} | {fwd_bwd_mb:.0f} |",
     ]
     # fwd+bwd = fwd + dx + dW, i.e. three equal-sized GEMMs (db is a fold).
     report = [
-        f"mlp_down_gemm ({args.backend}, {torch.cuda.get_device_name()})",
+        f"mlp_down_gemm ({resolved}, {torch.cuda.get_device_name()})",
         "",
         *table,
         "",
@@ -229,8 +254,13 @@ def main() -> None:
         f"  gate verdict: {'PASS' if gate_passed else 'FAIL'} "
         f"(declared: identical >= {DECLARED_MIN_IDENTICAL_FRACTION * 100:.0f}%, "
         f"worst <= {DECLARED_MAX_ULPS} bf16-ulp)",
-        "",
     ]
+    if timed_rows != rows:
+        report.append(
+            f"note: timing uses {timed_rows} of {rows} rows; the fp64-emulated reference "
+            "is not timed at the model shape (its cost is linear in rows)."
+        )
+    report.append("")
     print("\n".join(report))
     if args.out:
         with open(args.out, "w") as handle:
