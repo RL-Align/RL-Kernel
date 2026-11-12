@@ -245,6 +245,15 @@ class TestReferenceModel:
             op.forward_fp32(x, weight, bias=bias), mlp_down_gemm_reference_forward(x, weight, bias)
         )
 
+    def test_reference_fails_closed_on_operand_rank(self):
+        """The gold rejects the same malformed operands as the device backends."""
+
+        x, weight, bias = _inputs(SMALL, dtype=torch.float32, device="cpu")
+        with pytest.raises(ValueError):
+            mlp_down_gemm_reference_forward(x, weight.unsqueeze(0), bias)
+        with pytest.raises(ValueError):
+            NativeMlpDownGemmOp()(x, weight, bias=bias.unsqueeze(0))
+
     def test_backward_restores_leading_dims(self):
         """A batched cotangent must come back shaped like ``x``, not flattened."""
 
@@ -769,6 +778,13 @@ class TestCudaPathsAndContracts:
         x, weight, bias = _inputs(SMALL)
         empty = CudaMlpDownGemmOp()(x[:0].contiguous(), weight, bias=bias)
         assert empty.shape == (0, SMALL[2])
+        # The Hopper entry returns an empty output before any TMA/wgmma launch,
+        # so a pinned empty batch is an empty result, not an unsupported call.
+        with _pinned("hopper"):
+            assert CudaMlpDownGemmOp()(x[:0].contiguous(), weight, bias=bias).shape == (
+                0,
+                SMALL[2],
+            )
         x3 = torch.randn(4, 8, SMALL[1], generator=torch.Generator().manual_seed(1))
         x3 = x3.to(torch.bfloat16).cuda()
         flat = x3.reshape(-1, SMALL[1])

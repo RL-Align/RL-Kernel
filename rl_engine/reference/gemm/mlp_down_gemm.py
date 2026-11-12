@@ -104,14 +104,16 @@ def mlp_down_gemm_reference_forward(
 ) -> torch.Tensor:
     """FP32 tree result plus the bias added once in fp32 (no output cast)."""
 
+    if x.dim() != 2 or weight.dim() != 2:
+        raise ValueError("mlp_down_gemm reference expects x [M, K] and weight [N, K]")
     if x.size(-1) != weight.size(-1):
         raise ValueError("x K must match weight K")
     out = tree_gemm(x, weight.t().contiguous())
     if bias is not None:
         # The gold path must fail closed too: a broadcastable but wrong-length
-        # bias would silently produce a wrong reference.
-        if bias.numel() != weight.size(0):
-            raise ValueError("bias must have N elements")
+        # or wrong-rank bias would silently produce a wrong reference.
+        if bias.dim() != 1 or bias.size(0) != weight.size(0):
+            raise ValueError("bias must be 1-D with N elements")
         out = out + bias.float()
     return out
 
@@ -192,12 +194,14 @@ class NativeMlpDownGemmOp:
     ) -> torch.Tensor:
         """Dtype path: returns ``x.dtype`` with the single output cast."""
 
+        if x.dim() < 1 or weight.dim() != 2:
+            raise ValueError("mlp_down_gemm expects x [*, K] and weight [N, K]")
         if x.size(-1) != weight.size(-1):
             raise ValueError("x K must match weight K")
         if x.dtype not in (torch.bfloat16, torch.float32):
             raise ValueError(f"supported dtypes are bf16/fp32 (contract scope), got {x.dtype}")
-        if bias is not None and bias.numel() != weight.size(0):
-            raise ValueError("bias must have N elements")
+        if bias is not None and (bias.dim() != 1 or bias.size(0) != weight.size(0)):
+            raise ValueError("bias must be 1-D with N elements")
         return _MlpDownGemmTreeFunction.apply(x, weight, bias)
 
     def forward_fp32(

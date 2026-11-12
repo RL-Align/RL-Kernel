@@ -578,7 +578,8 @@ bool sm90_device_ok() {
 void check_sm90_operands(const void* a, const void* b, int64_t K, int64_t N) {
     TORCH_CHECK(K > 0 && N > 0, "mlp_down_gemm_sm90: K and N must be positive");
     TORCH_CHECK(K % 8 == 0 && N % 8 == 0,
-                "mlp_down_gemm_sm90 needs K and N multiples of 8 (TMA row strides); got K=", K,
+                "mlp_down_gemm_sm90 needs K and N multiples of 8 (TMA row stride and the "
+                "wgmma N tile); got K=", K,
                 ", N=", N);
     TORCH_CHECK(reinterpret_cast<uintptr_t>(a) % 16 == 0 &&
                     reinterpret_cast<uintptr_t>(b) % 16 == 0,

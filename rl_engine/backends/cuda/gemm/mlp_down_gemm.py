@@ -209,9 +209,9 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor, *, strict: bool = True) 
     """Whether the Hopper path can serve this contraction.
 
     Requires the 90a entry points, a compute capability 9.0 (Hopper) device, and the
-    operand views the TMA tensor maps are built on: bf16 2-D operands whose
-    row strides (the contiguous extents of x and weight) are multiples of 8
-    elements (16 B) and whose bases are 16 B aligned. Anything else runs on the
+    operand views the TMA tensor maps and wgmma tiles are built on: bf16 2-D
+    operands with K and N both multiples of 8 elements (the C++ entry enforces the
+    same pair), and 16 B-aligned bases. Anything else runs on the
     portable tree kernel instead -- which computes a different, also frozen,
     contract, so request ``auto``/``general`` knowingly, or
     ``hopper`` to make the change an error.
@@ -239,8 +239,12 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor, *, strict: bool = True) 
         return False
     hopper_ok = (
         torch.cuda.get_device_capability(x.device)[0] == 9
-        # An empty reduction/output has no wgmma contraction; the portable tree
-        # defines it (zeros or the broadcast bias), so leave those to it.
+        # An empty reduction or empty output has no wgmma contraction to order:
+        # the C++ entry returns such an output before any TMA/wgmma launch, and
+        # for K == 0 the portable tree defines the result (zeros or the
+        # broadcast bias), so keep K == 0 and N == 0 off the Hopper path. An
+        # empty row count (M == 0) is returned early by the entry point too, so
+        # either path may serve it.
         and x.size(-1) > 0
         and weight.size(0) > 0
         and x.size(-1) % 8 == 0
@@ -251,7 +255,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor, *, strict: bool = True) 
     if not hopper_ok and must_serve:
         raise RuntimeError(
             "mlp_down_gemm: backend 'hopper' needs a compute capability 9.0 (Hopper) device and "
-            "bf16 operands whose row strides are multiples of 8 elements; it serves the "
+            "bf16 operands with K and N multiples of 8 elements; it serves the "
             f"hardware order -- {_HOPPER_PIN_HINT}, or request 'general' "
             "for the portable fp32-tree path"
         )
