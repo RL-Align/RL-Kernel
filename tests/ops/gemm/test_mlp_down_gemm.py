@@ -119,7 +119,7 @@ def _deviation(got, ref):
     # Round the reference to the output dtype first: the store's own rounding
     # is not a deviation from the declared contract, and the Triton suite
     # measures the same quantity this way.
-    ref_f = ref.to(torch.bfloat16).float()
+    ref_f = ref.detach().to(torch.bfloat16).float()
     got_c = got.detach().float().cpu()
     identical = float((got_c == ref_f).float().mean())
     ulp = BF16_ULP * ref_f.abs().max().clamp_min(1e-12)
@@ -1191,7 +1191,6 @@ class TestIntegration:
         with pytest.raises((ValueError, RuntimeError)):
             CudaMlpDownGemmOp()(x, weight, bias=bias[:-1].contiguous())
 
-    @CUDA
     @CUDA
     def test_backend_helpers_match_the_call_for_offset_views(self):
         """The route helpers normalize operands exactly like the forward call."""

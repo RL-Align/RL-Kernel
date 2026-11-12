@@ -768,7 +768,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("mlp_down_gemm_cuda_dw_sm90", &mlp_down_gemm_cuda_dw_sm90,
           "MLP down dW (Hopper TMA + wgmma, mlp-down-gemm-mma)");
 #endif  // KERNEL_ALIGN_WITH_SM90
-#endif  // !USE_ROCM
+#endif  // !USE_ROCM && !KERNEL_ALIGN_WITH_ROCM
     // registry Batch-Invariant Deterministic GEMM
     m.def("det_gemm_sm90_compiled", &det_gemm_sm90_compiled,
           "Whether the extension contains the SM90 deterministic GEMM implementation");
