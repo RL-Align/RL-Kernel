@@ -9,8 +9,10 @@ output AdaLN and image output. Q/K RMSNorm has head-sharded activations and
 replicated gain, so its parameter gradient also needs communication.
 
 The adapters reuse the existing CUDA Linear, RMSNorm, FP32 row fold,
-canonical backward session and deterministic AllGather. They add no CUDA
-kernel and do not change the existing WS1 entries.
+canonical backward session and deterministic AllGather. The shared Linear
+also distributes independent token rows across blocks and reuses loaded
+rows when computing weight gradients. Existing WS1 interfaces, summation
+order and cast boundaries are preserved.
 
 ## Entry Point
 
@@ -151,6 +153,14 @@ Replicated modules perform the full computation on every rank; increasing
 TP does not divide their GEMM work. Q/K normalization additionally gathers
 unreduced gain contributions to preserve its global FP32 summation order.
 
+The shared Linear keeps its original small-row schedule below 1024 rows.
+Larger inputs distribute independent row tiles across at most 256 partitions;
+FP32 forward uses the existing four-column, one-load-ahead configuration.
+Weight gradients reuse a shared-memory tile while preserving ascending-row
+Neumaier compensation and FMA product residuals. Input-gradient partials and
+their Kahan fold retain the original layout and arithmetic. These are native
+dispatch choices; callers use the same interface.
+
 ## Tests
 
 ```bash
@@ -160,6 +170,10 @@ python3.11 -m pytest tests/distributed/tp/test_qwenimage_tp_replicated_modules.p
 An eight-GPU host exercises TP2/4/8 rather than skipping those cases. Tests
 include frozen Linear/QK leaves, noncontiguous inputs and upstream gradients,
 noncurrent-device Q/K execution, and a shared-condition cancellation witness.
+Dispatch-boundary tests compare 1023/1024/1025 rows with independent CPU
+autograd and row-layout transformations. Native weight-gradient checks cover
+tile tails, mixed BF16/FP32 input/output types and empty weights with a
+trainable bias.
 A composed BF16 VJP probe connects replicated input/norm/modulation to the
 existing TP QKV, attention-output and MLP adapters, followed by replicated
 image output; it checks all parameter gradients and local shard ownership.

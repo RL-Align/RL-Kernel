@@ -467,3 +467,62 @@ def test_distinct_stream_parameters_in_shared_session():
     for index, gold in enumerate(expected):
         actual = (ys[index], *derivatives[index * 3 : index * 3 + 3])
         assert all(equal_bytes(a, b) for a, b in zip(actual, gold))
+
+
+@cuda
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("rows", [1023, 1024, 1025])
+def test_linear_dispatch_boundary_precision_and_layouts(dtype, rows):
+    x, parameters, grad, keys = make_replicated_case("image_input", rows, dtype, "cuda")
+    expected = evaluate_replicated("image_input", x, parameters, grad, keys, [(0, rows)])
+    cpu = evaluate_replicated(
+        "image_input",
+        x.float().cpu(),
+        tuple(p.float().cpu() for p in parameters),
+        grad.float().cpu(),
+        keys.cpu(),
+        [(0, rows)],
+        backend="pytorch",
+    )
+    for index, (value, gold) in enumerate(zip(expected, cpu)):
+        atol = (0.05 if index == 0 else 0.1) if dtype == torch.bfloat16 else 1e-4
+        torch.testing.assert_close(
+            value.float().cpu(),
+            gold.float(),
+            atol=atol,
+            rtol=0.02 if dtype == torch.bfloat16 else 1e-4,
+        )
+    for layout in ("reverse", "microbatch", "padding", "repeat"):
+        a, dy, k, cuts = replicated_layout(x, grad, keys, layout)
+        actual = evaluate_replicated("image_input", a, parameters, dy, k, cuts)
+        assert all(equal_bytes(a, b) for a, b in zip(actual, expected)), (rows, layout)
+
+
+@cuda
+@pytest.mark.parametrize("input_dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("output_dtype", [torch.bfloat16, torch.float32])
+def test_native_weight_tails_and_mixed_gradient_dtype(input_dtype, output_dtype):
+    from rl_engine.backends.extension import _C
+
+    grad = torch.ones((1024, 17), device="cuda", dtype=torch.float32)
+    grad[0], grad[-1] = 2**26, -(2**26)
+    x = torch.ones((1024, 7), device="cuda", dtype=input_dtype)
+    x[:, 1::2] = 1.5
+    dw, db = _C.qwenimage_det_linear_backward_weight(grad, x, output_dtype, True)
+    expected = grad.double().cpu().T @ x.double().cpu()
+    expected_bias = grad.double().cpu().sum(0)
+    assert equal_bytes(dw.cpu(), expected.to(output_dtype))
+    assert equal_bytes(db.cpu(), expected_bias.to(output_dtype))
+
+
+@cuda
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_native_empty_weight_keeps_bias_gradient(dtype):
+    from rl_engine.backends.extension import _C
+
+    x = torch.empty((1024, 0), device="cuda", dtype=dtype)
+    grad = torch.zeros((1024, 17), device="cuda", dtype=torch.float32)
+    grad[0], grad[1], grad[2] = 1.0, 2**-24, -1.0
+    dw, db = _C.qwenimage_det_linear_backward_weight(grad, x, dtype, True)
+    assert dw.shape == (17, 0) and dw.dtype == dtype
+    assert equal_bytes(db.cpu(), grad.double().cpu().sum(0).to(dtype))

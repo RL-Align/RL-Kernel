@@ -116,6 +116,7 @@ def main():
                             )
                             args.output.parent.mkdir(parents=True, exist_ok=True)
                             sources = [
+                                "csrc/cuda/model_specific/qwenimage/det_linear.cu",
                                 (
                                     "rl_engine/backends/cuda/model_specific/qwenimage/"
                                     "replicated_modules.py"
