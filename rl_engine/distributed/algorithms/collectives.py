@@ -45,7 +45,12 @@ def _ipc_allocation_context():
     return nullcontext()
 
 
-@torch.library.custom_op(DETERMINISTIC_ALL_REDUCE_OP, mutates_args={"input"})
+# PyTorch 2.4 cannot infer schemas from postponed string annotations.
+@torch.library.custom_op(
+    DETERMINISTIC_ALL_REDUCE_OP,
+    mutates_args={"input"},
+    schema="(Tensor(a!) input, int collective_handle) -> ()",
+)
 def _deterministic_all_reduce_(input: torch.Tensor, collective_handle: int) -> None:
     """Expose the stateful IPC reduction as an explicit graph mutation."""
 
@@ -76,7 +81,11 @@ def deterministic_all_reduce_inplace(
     return input
 
 
-@torch.library.custom_op(DETERMINISTIC_STAGING_RESERVE_OP, mutates_args={"staging"})
+@torch.library.custom_op(
+    DETERMINISTIC_STAGING_RESERVE_OP,
+    mutates_args={"staging"},
+    schema="(Tensor(a!) staging, int collective_handle) -> ()",
+)
 def _deterministic_staging_reserve_(staging: torch.Tensor, collective_handle: int) -> None:
     """Wait until every peer has finished reading the shared direct-output slot."""
 
@@ -96,7 +105,11 @@ def _deterministic_staging_reserve_fake(
     del staging, collective_handle
 
 
-@torch.library.custom_op(DETERMINISTIC_STAGED_ALL_REDUCE_OP, mutates_args=())
+@torch.library.custom_op(
+    DETERMINISTIC_STAGED_ALL_REDUCE_OP,
+    mutates_args=(),
+    schema="(Tensor staging, int collective_handle) -> Tensor",
+)
 def _deterministic_staged_all_reduce(
     staging: torch.Tensor,
     collective_handle: int,
