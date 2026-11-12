@@ -359,6 +359,60 @@ __global__ void det_linear_dinput_partial_kernel(const g_t* __restrict__ grad,
   }
 }
 
+// Share weights and upstream gradients; each 64-channel Neumaier sum is unchanged.
+template <typename w_t, int kRows, int kCols>
+__global__ void det_linear_dinput_tiled_kernel(const float* __restrict__ grad,
+                                      const w_t* __restrict__ weight,
+                                      float* __restrict__ partial,
+                                      int64_t rows, int64_t n_out, int64_t k_in) {
+  __shared__ float sg[kRows][64];
+  __shared__ float sw[64][kCols];
+  const int tid = threadIdx.x, lane = tid % 32, warp = tid / 32;
+  const int64_t r0 = static_cast<int64_t>(blockIdx.z) * kRows;
+  const int64_t k0 = static_cast<int64_t>(blockIdx.x) * kCols;
+  const int64_t n0 = static_cast<int64_t>(blockIdx.y) * 64;
+  for (int i = tid; i < kRows * 64; i += 256) {
+    const int r = i / 64, n = i % 64;
+    sg[r][n] = r0 + r < rows && n0 + n < n_out
+        ? grad[(r0 + r) * n_out + n0 + n] : 0.0f;
+  }
+  for (int i = tid; i < 64 * kCols; i += 256) {
+    const int n = i / kCols, k = i % kCols;
+    sw[n][k] = n0 + n < n_out && k0 + k < k_in
+        ? to_float(weight[(n0 + n) * k_in + k0 + k]) : 0.0f;
+  }
+  __syncthreads();
+  float acc[kRows / 8][kCols / 32] = {};
+  float correction[kRows / 8][kCols / 32] = {};
+  for (int n = 0; n < 64 && n0 + n < n_out; ++n) {
+#pragma unroll
+    for (int ri = 0; ri < kRows / 8; ++ri) {
+      const float gv = sg[warp + ri * 8][n];
+#pragma unroll
+      for (int ki = 0; ki < kCols / 32; ++ki) {
+        const float wv = sw[n][lane + ki * 32];
+        const float product = __fmul_rn(gv, wv);
+        const float product_error = __fmaf_rn(gv, wv, -product);
+        const float next = __fadd_rn(acc[ri][ki], product);
+        const float sum_error = fabsf(acc[ri][ki]) >= fabsf(product)
+            ? __fadd_rn(__fsub_rn(acc[ri][ki], next), product)
+            : __fadd_rn(__fsub_rn(product, next), acc[ri][ki]);
+        correction[ri][ki] = __fadd_rn(correction[ri][ki], __fadd_rn(sum_error, product_error));
+        acc[ri][ki] = next;
+      }
+    }
+  }
+#pragma unroll
+  for (int ri = 0; ri < kRows / 8; ++ri) {
+#pragma unroll
+    for (int ki = 0; ki < kCols / 32; ++ki) {
+      const int64_t r = r0 + warp + ri * 8, k = k0 + lane + ki * 32;
+      if (r < rows && k < k_in)
+        partial[(blockIdx.y * rows + r) * k_in + k] = __fadd_rn(acc[ri][ki], correction[ri][ki]);
+    }
+  }
+}
+
 template <typename out_t>
 __global__ void det_fold_chunks_kernel(const float* __restrict__ partial, out_t* __restrict__ out,
                                        int64_t chunks, int64_t elems) {
@@ -400,6 +454,69 @@ __global__ void det_linear_dweight_kernel(const g_t* __restrict__ grad, const x_
       acc = next;
     }
     dw[i] = from_float<w_t>(__fadd_rn(acc, correction));
+  }
+}
+
+// Reuse input tiles without splitting or reordering the ascending-row Neumaier sum.
+template <typename x_t, typename out_t, int kOutRows, int kCols, int kLoadRows>
+__global__ void det_linear_dweight_tiled_kernel(const float* __restrict__ grad,
+                                        const x_t* __restrict__ x,
+                                        out_t* __restrict__ dw,
+                                        int64_t rows, int64_t n_out, int64_t k_in) {
+  constexpr int kThreads = 256;
+  constexpr int kNPerThread = kOutRows / 8;
+  constexpr int kKPerThread = kCols / 32;
+  __shared__ float sx[kLoadRows][kCols];
+  __shared__ float sg[kLoadRows][kOutRows];
+  const int tid = threadIdx.x;
+  const int lane = tid % 32;
+  const int warp = tid / 32;
+  const int64_t n0 = static_cast<int64_t>(blockIdx.y) * kOutRows;
+  const int64_t k0 = static_cast<int64_t>(blockIdx.x) * kCols;
+  float acc[kNPerThread][kKPerThread] = {};
+  float correction[kNPerThread][kKPerThread] = {};
+  for (int64_t t0 = 0; t0 < rows; t0 += kLoadRows) {
+    for (int i = tid; i < kLoadRows * kCols; i += kThreads) {
+      const int t = i / kCols, k = i % kCols;
+      sx[t][k] = t0 + t < rows && k0 + k < k_in
+          ? to_float(x[(t0 + t) * k_in + k0 + k]) : 0.0f;
+    }
+    for (int i = tid; i < kLoadRows * kOutRows; i += kThreads) {
+      const int t = i / kOutRows, n = i % kOutRows;
+      sg[t][n] = t0 + t < rows && n0 + n < n_out
+          ? grad[(t0 + t) * n_out + n0 + n] : 0.0f;
+    }
+    __syncthreads();
+    for (int t = 0; t < kLoadRows && t0 + t < rows; ++t) {
+#pragma unroll
+      for (int ni = 0; ni < kNPerThread; ++ni) {
+        const float gv = sg[t][warp + ni * 8];
+#pragma unroll
+        for (int ki = 0; ki < kKPerThread; ++ki) {
+          const float xv = sx[t][lane + ki * 32];
+          const float product = __fmul_rn(gv, xv);
+          const float product_error = __fmaf_rn(gv, xv, -product);
+          const float next = __fadd_rn(acc[ni][ki], product);
+          const float sum_error = fabsf(acc[ni][ki]) >= fabsf(product)
+              ? __fadd_rn(__fsub_rn(acc[ni][ki], next), product)
+              : __fadd_rn(__fsub_rn(product, next), acc[ni][ki]);
+          correction[ni][ki] = __fadd_rn(
+              correction[ni][ki], __fadd_rn(sum_error, product_error));
+          acc[ni][ki] = next;
+        }
+      }
+    }
+    __syncthreads();
+  }
+#pragma unroll
+  for (int ni = 0; ni < kNPerThread; ++ni) {
+#pragma unroll
+    for (int ki = 0; ki < kKPerThread; ++ki) {
+      const int64_t n = n0 + warp + ni * 8;
+      const int64_t k = k0 + lane + ki * 32;
+      if (n < n_out && k < k_in)
+        dw[n * k_in + k] = from_float<out_t>(__fadd_rn(acc[ni][ki], correction[ni][ki]));
+    }
   }
 }
 
@@ -458,6 +575,12 @@ int64_t grid_for(int64_t work, int64_t per_block) {
 
 // Launch shape only: the row tile, the columns per warp and the load depth
 // change which loads are in flight, never a column's accumulation order.
+// Long head-sharded QKV matrices reuse data while keeping the original arithmetic.
+bool use_qkv_row_tiles(int64_t rows, int64_t n_out, int64_t k_in) {
+  return rows >= 128 && k_in == 3072 &&
+      (n_out == 9216 || n_out == 4608 || n_out == 2304 || n_out == 1152);
+}
+
 struct ForwardConfig {
   int rows;
   int cols;
@@ -483,11 +606,13 @@ template <typename T, int kRows>
 void launch_forward_rows(const ForwardConfig& cfg, const T* x, const T* w, const T* bias, T* out,
                          float* pre, int64_t rows, int64_t n_out, int64_t k_in,
                          int64_t activation, cudaStream_t stream) {
-#define QWENIMAGE_FWD_CASE(C, A)                                                                  \
-  if (cfg.cols == C && cfg.ahead == A) {                                                   \
-    launch_forward_impl<T, kRows, C, A>(x, w, bias, out, pre, rows, n_out, k_in, activation, \
-                                        stream);                                           \
-    return;                                                                                \
+#define QWENIMAGE_FWD_CASE(C, A)                                                        \
+  if constexpr (kRows * C <= kWarp) {                                                  \
+    if (cfg.cols == C && cfg.ahead == A) {                                             \
+      launch_forward_impl<T, kRows, C, A>(x, w, bias, out, pre, rows, n_out, k_in,       \
+                                          activation, stream);                      \
+      return;                                                                         \
+    }                                                                                 \
   }
   QWENIMAGE_FWD_CONFIGS
 #undef QWENIMAGE_FWD_CASE
@@ -503,6 +628,8 @@ void launch_forward(const ForwardConfig& cfg, const T* x, const T* w, const T* b
     launch_forward_rows<T, 1>(cfg, x, w, bias, out, pre, rows, n_out, k_in, activation, stream);
   } else if (cfg.rows == 2) {
     launch_forward_rows<T, 2>(cfg, x, w, bias, out, pre, rows, n_out, k_in, activation, stream);
+  } else if (cfg.rows == 8) {
+    launch_forward_rows<T, 8>(cfg, x, w, bias, out, pre, rows, n_out, k_in, activation, stream);
   } else {
     launch_forward_rows<T, 4>(cfg, x, w, bias, out, pre, rows, n_out, k_in, activation, stream);
   }
@@ -544,7 +671,9 @@ std::vector<torch::Tensor> qwenimage_det_linear_forward(torch::Tensor x, torch::
   if (save_pre_activation) pre = torch::empty({rows, n_out}, x.options().dtype(at::kFloat));
   auto stream = at::cuda::getCurrentCUDAStream();
   if (x.scalar_type() == at::kFloat) {
-    const ForwardConfig cfg = pick_forward_config(rows);
+    ForwardConfig cfg = pick_forward_config(rows);
+    if (use_qkv_row_tiles(rows, n_out, k_in) && activation == kActNone &&
+        QWENIMAGE_FWD_F32_COLS == 2) cfg.rows = 8;
     launch_forward<float>(cfg, cptr<float>(x), cptr<float>(weight),
                           bias.has_value() ? cptr<float>(*bias) : nullptr, mptr<float>(out),
                           save_pre_activation ? pre.data_ptr<float>() : nullptr, rows, n_out,
@@ -564,40 +693,69 @@ std::vector<torch::Tensor> qwenimage_det_linear_forward(torch::Tensor x, torch::
   return {out};
 }
 
-// grad [T, N] (float32), weight [N, K] -> grad_input [T, K] in out_dtype.
-torch::Tensor qwenimage_det_linear_backward_input(torch::Tensor grad, torch::Tensor weight,
-                                           c10::ScalarType out_dtype) {
+// Expose the existing 64-column partials before the final fold for TP transport.
+torch::Tensor qwenimage_det_linear_input_partials(torch::Tensor grad, torch::Tensor weight) {
   TORCH_CHECK(grad.is_cuda() && grad.dim() == 2 && grad.is_contiguous() &&
                   grad.scalar_type() == at::kFloat,
               "grad must be a contiguous 2-D float32 CUDA tensor");
   check_matrix(weight, "weight");
   TORCH_CHECK(grad.device() == weight.device(), "grad and weight must be on the same device");
   TORCH_CHECK(grad.size(1) == weight.size(0), "grad N != weight N");
-  TORCH_CHECK(out_dtype == at::kFloat || out_dtype == at::kBFloat16,
-              "out_dtype must be float32 or bfloat16");
   const int64_t rows = grad.size(0);
   TORCH_CHECK(rows > 0, "grad must have at least one row");
   const int64_t n_out = weight.size(0);
   const int64_t k_in = weight.size(1);
   const c10::cuda::CUDAGuard device_guard(grad.device());
-  auto out = torch::empty({rows, k_in}, grad.options().dtype(out_dtype));
-  if (k_in == 0) return out;
-  if (n_out == 0) return out.zero_();
   const int64_t chunks = (n_out + kDInputChunk - 1) / kDInputChunk;
   auto partial = torch::empty({chunks, rows, k_in}, grad.options());
+  if (k_in == 0 || n_out == 0) return partial;
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
   dim3 grid(static_cast<unsigned>((k_in + threads - 1) / threads), static_cast<unsigned>(chunks));
+  const bool tiled = use_qkv_row_tiles(rows, n_out, k_in);
+  const dim3 tiled_grid((k_in + 63) / 64, chunks, (rows + 15) / 16);
   if (weight.scalar_type() == at::kFloat) {
-    det_linear_dinput_partial_kernel<float, float><<<grid, threads, 0, stream>>>(
-        grad.data_ptr<float>(), cptr<float>(weight), partial.data_ptr<float>(), rows, n_out,
-        k_in);
+    if (tiled) {
+      det_linear_dinput_tiled_kernel<float, 16, 64><<<tiled_grid, threads, 0, stream>>>(
+          grad.data_ptr<float>(), cptr<float>(weight), partial.data_ptr<float>(), rows, n_out,
+          k_in);
+    } else {
+      det_linear_dinput_partial_kernel<float, float><<<grid, threads, 0, stream>>>(
+          grad.data_ptr<float>(), cptr<float>(weight), partial.data_ptr<float>(), rows, n_out,
+          k_in);
+    }
   } else {
-    det_linear_dinput_partial_kernel<float, __nv_bfloat16><<<grid, threads, 0, stream>>>(
-        grad.data_ptr<float>(), cptr<at::BFloat16>(weight), partial.data_ptr<float>(), rows,
-        n_out, k_in);
+    if (tiled) {
+      det_linear_dinput_tiled_kernel<__nv_bfloat16, 16, 64><<<tiled_grid, threads, 0, stream>>>(
+          grad.data_ptr<float>(), cptr<at::BFloat16>(weight), partial.data_ptr<float>(), rows,
+          n_out, k_in);
+    } else {
+      det_linear_dinput_partial_kernel<float, __nv_bfloat16><<<grid, threads, 0, stream>>>(
+          grad.data_ptr<float>(), cptr<at::BFloat16>(weight), partial.data_ptr<float>(), rows,
+          n_out, k_in);
+    }
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return partial;
+}
+
+// Transport only moves these FP32 partials. Their global order defines the fold.
+torch::Tensor qwenimage_det_linear_fold_input_partials(torch::Tensor partial,
+                                                     c10::ScalarType out_dtype) {
+  TORCH_CHECK(partial.is_cuda() && partial.dim() == 3 && partial.is_contiguous() &&
+                  partial.scalar_type() == at::kFloat,
+              "partial must be a contiguous 3-D float32 CUDA tensor");
+  TORCH_CHECK(out_dtype == at::kFloat || out_dtype == at::kBFloat16,
+              "out_dtype must be float32 or bfloat16");
+  const c10::cuda::CUDAGuard device_guard(partial.device());
+  const int64_t chunks = partial.size(0);
+  const int64_t rows = partial.size(1);
+  const int64_t k_in = partial.size(2);
+  auto out = torch::empty({rows, k_in}, partial.options().dtype(out_dtype));
+  if (out.numel() == 0) return out;
+  if (chunks == 0) return out.zero_();
+  auto stream = at::cuda::getCurrentCUDAStream();
+  const int threads = 256;
   const int64_t elems = rows * k_in;
   const unsigned fold_blocks = static_cast<unsigned>((elems + threads - 1) / threads);
   if (out_dtype == at::kFloat) {
@@ -609,6 +767,15 @@ torch::Tensor qwenimage_det_linear_backward_input(torch::Tensor grad, torch::Ten
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return out;
+}
+
+// grad [T, N] (float32), weight [N, K] -> grad_input [T, K] in out_dtype.
+torch::Tensor qwenimage_det_linear_backward_input(torch::Tensor grad, torch::Tensor weight,
+                                                c10::ScalarType out_dtype) {
+  TORCH_CHECK(out_dtype == at::kFloat || out_dtype == at::kBFloat16,
+              "out_dtype must be float32 or bfloat16");
+  return qwenimage_det_linear_fold_input_partials(
+      qwenimage_det_linear_input_partials(grad, weight), out_dtype);
 }
 
 // grad [T, N] float32, x [T, K] (float32 or bfloat16) -> (dW [N, K], dbias [N]) in w_dtype.
@@ -638,9 +805,19 @@ std::vector<torch::Tensor> qwenimage_det_linear_backward_weight(torch::Tensor gr
   const int64_t total = n_out * k_in;
   const unsigned blocks = static_cast<unsigned>(grid_for(total, threads));
   const float* g = grad.data_ptr<float>();
-#define QWENIMAGE_DW_LAUNCH(XT, XC, WT, WC)                                                     \
-  det_linear_dweight_kernel<float, XC, WC><<<blocks, threads, 0, stream>>>(             \
-      g, cptr<XT>(x), mptr<WT>(dw), rows, n_out, k_in)
+  const bool tiled = use_qkv_row_tiles(rows, n_out, k_in);
+  const dim3 tiled_grid((k_in + 63) / 64, (n_out + 15) / 16);
+#define QWENIMAGE_DW_LAUNCH(XT, XC, WT, WC)                                           \
+  do {                                                                               \
+    if (tiled) {                                                                     \
+      det_linear_dweight_tiled_kernel<XC, WC, 16, 64, 64>                              \
+          <<<tiled_grid, threads, 0, stream>>>(                                       \
+              g, cptr<XT>(x), mptr<WT>(dw), rows, n_out, k_in);                       \
+    } else {                                                                         \
+      det_linear_dweight_kernel<float, XC, WC><<<blocks, threads, 0, stream>>>(         \
+          g, cptr<XT>(x), mptr<WT>(dw), rows, n_out, k_in);                             \
+    }                                                                                \
+  } while (false)
   if (x.scalar_type() == at::kFloat && w_dtype == at::kFloat) {
     QWENIMAGE_DW_LAUNCH(float, float, float, float);
   } else if (x.scalar_type() == at::kFloat) {
