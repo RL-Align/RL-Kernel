@@ -780,7 +780,7 @@ class TestCudaPathsAndContracts:
         assert empty.shape == (0, SMALL[2])
         # The Hopper entry returns an empty output before any TMA/wgmma launch,
         # so a pinned empty batch is an empty result, not an unsupported call.
-        with _pinned("hopper"):
+        with _backend("hopper"):
             assert CudaMlpDownGemmOp()(x[:0].contiguous(), weight, bias=bias).shape == (
                 0,
                 SMALL[2],

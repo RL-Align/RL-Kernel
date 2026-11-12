@@ -521,8 +521,12 @@ void init_kmap(CUtensorMap* tmap, const void* base, uint64_t red, uint64_t mn, u
 }
 
 // MN-major operand [red][MN]: dim0 = MN (contiguous), dim1 = reduction rows.
-void init_mnmap(CUtensorMap* tmap, const void* base, uint64_t red, uint64_t mn, int swizzle) {
-    init_tmap(tmap, base, mn, red, 64, 64, swizzle);
+// Both box extents are the geometry's BK: the inner one is the swizzle span in
+// elements (BK * 2 bytes), and the row extent is the reduction chunk. Hard-coding
+// 64 would silently break a BK=32 (SWIZZLE_64B) instantiation.
+void init_mnmap(CUtensorMap* tmap, const void* base, uint64_t red, uint64_t mn,
+                uint32_t box_red, uint32_t box_inner, int swizzle) {
+    init_tmap(tmap, base, mn, red, box_red, box_inner, swizzle);
 }
 
 // D[M][N] = sum_k A * B, with each operand either K-major or MN-major.
@@ -532,12 +536,12 @@ void launch_wgmma(const nv_bf16* a, const nv_bf16* b, const float* bias, nv_bf16
     CUtensorMap tmap_a;
     CUtensorMap tmap_b;
     if (A_MN) {
-        init_mnmap(&tmap_a, a, K, M, G::SWIZZLE);
+        init_mnmap(&tmap_a, a, K, M, G::BK, G::BK, G::SWIZZLE);
     } else {
         init_kmap(&tmap_a, a, K, M, G::TM, G::BK, G::SWIZZLE);
     }
     if (B_MN) {
-        init_mnmap(&tmap_b, b, K, N, G::SWIZZLE);
+        init_mnmap(&tmap_b, b, K, N, G::BK, G::BK, G::SWIZZLE);
     } else {
         init_kmap(&tmap_b, b, K, N, G::TN, G::BK, G::SWIZZLE);
     }

@@ -1066,6 +1066,13 @@ class KernelRegistry:
         device: a process that initializes on CPU can still dispatch this row to
         CUDA through ``get_op(device="cuda")``, and that call must honor the
         pin too.
+
+        Unlike the logp rows adjusted by :meth:`_adjust_priority_for_hardware`,
+        this row has no arch-gated registry priority: its hardware, dtype and
+        alignment gate is per call inside ``CudaMlpDownGemmOp``. The registry's
+        only eligibility check is therefore that the backend instantiates at
+        all; when it cannot, ``get_op`` raises the pin-specific error instead of
+        falling through to another backend.
         """
 
         pin = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()

@@ -217,7 +217,10 @@ def test_registry_pinned_mlp_down_gemm_reports_a_missing_native_backend(monkeypa
 
     monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "general")
     registry = KernelRegistry()
-    monkeypatch.setattr(registry, "_get_or_create_backend", lambda backend: None)
+    # Simulate the module being absent, then exercise the real
+    # `_get_or_create_backend` contract (it returns None) that `get_op` relies on.
+    monkeypatch.setattr(registry, "_load_backend", lambda backend: None)
+    assert registry._get_or_create_backend(OpBackend.CUDA_MLP_DOWN_GEMM) is None
 
     with pytest.raises(RuntimeError, match="RL_KERNEL_MLP_DOWN_GEMM_BACKEND=general"):
         registry.get_op("mlp_down_gemm", device="cuda:0")
