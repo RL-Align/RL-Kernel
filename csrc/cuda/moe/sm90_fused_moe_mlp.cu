@@ -60,6 +60,7 @@
 #include <cuda.h>
 #include <cudaTypedefs.h>
 #include "../gemm/det_gemm_tma.cuh"
+#include "moe_tile_map.cuh"
 #endif
 
 namespace {
@@ -252,6 +253,7 @@ struct GemmArgs {
   __nv_bfloat16* y;          // [M, N]   (FC3_Y)
   int M, N, K, E;            // N = weight rows per expert (2F for fc1, H for fc3)
   int num_tb, num_nt;        // grid: token-block upper bound x n-tiles (1-D, grouped)
+  moe_tile_map::TileMap tiles;   // token block -> (expert, first row); see moe_tile_map.cuh
 };
 
 template <int STAGES>
@@ -278,23 +280,16 @@ struct SmemLayoutPre {
   static constexpr int kTotal = kBar + 3 * STAGES * 8;
 };
 
-// Map blockIdx.x -> (expert, token block of BM rows). Returns false if past the end.
-template <int BM = kBM>
-__device__ __forceinline__ bool locate_token_block(const int32_t* offsets, int E, int bid,
+// Token block bid -> (expert, first row, end row) from the prebuilt map. Returns false
+// past the last block (the grid is sized from a host-side upper bound).
+__device__ __forceinline__ bool locate_token_block(const moe_tile_map::TileMap& tiles,
+                                                   const int32_t* offsets, int bid,
                                                    int& expert, int& row0, int& row_end) {
-  int acc = 0;
-  for (int e = 0; e < E; ++e) {
-    const int lo = offsets[e], hi = offsets[e + 1];
-    const int nb = (hi - lo + BM - 1) / BM;
-    if (bid < acc + nb) {
-      expert = e;
-      row0 = lo + (bid - acc) * BM;
-      row_end = hi;
-      return true;
-    }
-    acc += nb;
-  }
-  return false;
+  if (bid >= *tiles.count) return false;
+  expert = tiles.expert[bid];
+  row0 = tiles.row0[bid];
+  row_end = offsets[expert + 1];
+  return true;
 }
 
 // Global weight row (output column) held by B-tile row r of this n-tile.
@@ -397,7 +392,6 @@ __global__ void __launch_bounds__(kNumThreads, 1)
 sm90_moe_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
                      const __grid_constant__ CUtensorMap w_tmap, GemmArgs args) {
   using L = std::conditional_t<kPreB, SmemLayoutPre<STAGES>, SmemLayout<STAGES>>;
-  constexpr int BMt = kPreB ? kBMPre : kBM;
   constexpr int kStageA = kPreB ? kStageAPreBytes : kStageABytes;
   extern __shared__ __align__(1024) uint8_t smem[];
   uint8_t* sA = smem + L::kA;
@@ -423,8 +417,8 @@ sm90_moe_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
     const int g_rows = min(kRasterGroup, args.num_tb - group * kRasterGroup);
     const int within = tile - group * kRasterGroup * args.num_nt;
     nt = within / g_rows;
-    return locate_token_block<BMt>(args.offsets, args.E, group * kRasterGroup + within % g_rows,
-                                   ex, rw0, rwe);
+    return locate_token_block(args.tiles, args.offsets, group * kRasterGroup + within % g_rows,
+                              ex, rw0, rwe);
   };
   int n_tile = 0, expert = 0, row0 = 0, row_end = 0;
   if (!kPreB && !decode(blockIdx.x, n_tile, expert, row0, row_end)) return;
@@ -889,8 +883,13 @@ void launch_gemm(const torch::Tensor& a_codes, const torch::Tensor& w_codes, con
   init_tmap_u8_sw128(&a_tmap, a_codes.data_ptr(), static_cast<uint64_t>(M),
                      static_cast<uint64_t>(K), kBM, kBK);
   const int bm = w8.has_value() ? kBMPre : kBM;
-  args.num_tb = static_cast<int>((M + bm - 1) / bm + E);   // token-block upper bound
+  const int64_t num_tb = moe_tile_map::token_block_bound(M, E, bm);
+  args.num_tb = static_cast<int>(num_tb);
   args.num_nt = grid_y;
+  at::Tensor tile_storage;   // stream-ordered: freed to the caching allocator after the GEMM is queued
+  args.tiles = w8.has_value()
+                   ? moe_tile_map::build<kBMPre>(args.offsets, E, num_tb, a_codes.options(), stream, tile_storage)
+                   : moe_tile_map::build<kBM>(args.offsets, E, num_tb, a_codes.options(), stream, tile_storage);
   const dim3 grid(static_cast<unsigned>(static_cast<int64_t>(args.num_tb) * grid_y));
   if (w8.has_value()) {
     const auto& t = *w8;

@@ -41,6 +41,7 @@
 #include <cuda.h>
 #include <cudaTypedefs.h>
 #include "../gemm/det_gemm_tma.cuh"
+#include "moe_tile_map.cuh"
 #endif
 
 namespace {
@@ -168,6 +169,7 @@ struct BwdArgs {
   float* dps_part;          // DH_SWIGLU: [M, Kw / 64]
   int M, Nw, Kw, E;
   int num_tb;               // token-block upper bound (grid rows)
+  moe_tile_map::TileMap tiles;   // token block -> (expert, first row); see moe_tile_map.cuh
 };
 
 struct Smem {
@@ -179,21 +181,14 @@ struct Smem {
   static constexpr int kTotal = kBar + 3 * kStages * 8;
 };
 
-__device__ __forceinline__ bool locate_token_block(const int32_t* offsets, int E, int bid, int& expert,
+__device__ __forceinline__ bool locate_token_block(const moe_tile_map::TileMap& tiles,
+                                                   const int32_t* offsets, int bid, int& expert,
                                                    int& row0, int& row_end) {
-  int acc = 0;
-  for (int e = 0; e < E; ++e) {
-    const int lo = offsets[e], hi = offsets[e + 1];
-    const int nb = (hi - lo + kBM - 1) / kBM;
-    if (bid < acc + nb) {
-      expert = e;
-      row0 = lo + (bid - acc) * kBM;
-      row_end = hi;
-      return true;
-    }
-    acc += nb;
-  }
-  return false;
+  if (bid >= *tiles.count) return false;
+  expert = tiles.expert[bid];
+  row0 = tiles.row0[bid];
+  row_end = offsets[expert + 1];
+  return true;
 }
 
 // Producer: expand one stage of packed E2M1 rows (kBR = 64 reduced rows x 64
@@ -258,7 +253,7 @@ sm90_moe_bwd_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
   const int o_tile = within / g_rows;
 
   int expert, row0, row_end;
-  if (!locate_token_block(args.offsets, args.E, tb, expert, row0, row_end)) return;
+  if (!locate_token_block(args.tiles, args.offsets, tb, expert, row0, row_end)) return;
 
   const uint32_t bar0 = static_cast<uint32_t>(__cvta_generic_to_shared(bars));
   auto full = [&](int s) { return bar0 + 8u * s; };
@@ -538,7 +533,10 @@ void launch_impl(const torch::Tensor& a, const void* w_ptr, BwdArgs args, int64_
     C10_CUDA_CHECK(cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, Smem::kTotal));
     attr_set = true;
   }
-  args.num_tb = static_cast<int>((M + kBM - 1) / kBM + E);
+  const int64_t num_tb = moe_tile_map::token_block_bound(M, E, kBM);
+  args.num_tb = static_cast<int>(num_tb);
+  at::Tensor tile_storage;   // stream-ordered: freed to the caching allocator after the GEMM is queued
+  args.tiles = moe_tile_map::build<kBM>(args.offsets, E, num_tb, a.options(), stream, tile_storage);
   const int64_t blocks = static_cast<int64_t>(args.num_tb) * (args.Kw / kBO);
   kernel<<<static_cast<unsigned>(blocks), kNumThreads, Smem::kTotal, stream>>>(a_tmap, w_tmap, args);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
