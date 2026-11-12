@@ -3,13 +3,24 @@
 
 #include <torch/extension.h>
 #include <cuda_bf16.h>
+#include <optional>
 
 
 #ifdef KERNEL_ALIGN_WITH_CUDA
 bool qwenimage_strict_math_compiled();
+std::vector<torch::Tensor> mlp_up_gemm_gelu_cuda_forward(torch::Tensor, torch::Tensor, std::optional<torch::Tensor>, bool);
+torch::Tensor mlp_up_gemm_gelu_cuda_tree_fp32(torch::Tensor, torch::Tensor);
+torch::Tensor mlp_up_gemm_gelu_cuda_gate(torch::Tensor, torch::Tensor);
+torch::Tensor mlp_up_gemm_gelu_cuda_dx(torch::Tensor, torch::Tensor);
+torch::Tensor mlp_up_gemm_gelu_cuda_dw(torch::Tensor, torch::Tensor);
+torch::Tensor mlp_up_gemm_gelu_cuda_db(torch::Tensor);
+torch::Tensor qwenimage_attn_out_tree_gemm(torch::Tensor, torch::Tensor);
+torch::Tensor qwenimage_attn_out_weight_grad(torch::Tensor, torch::Tensor);
 torch::Tensor qwenimage_det_linear_backward_bias(torch::Tensor, c10::ScalarType);
 std::vector<torch::Tensor> qwenimage_det_linear_forward(torch::Tensor, torch::Tensor, c10::optional<torch::Tensor>, int64_t, bool);
 torch::Tensor qwenimage_det_linear_backward_input(torch::Tensor, torch::Tensor, c10::ScalarType);
+torch::Tensor qwenimage_det_linear_input_partials(torch::Tensor, torch::Tensor);
+torch::Tensor qwenimage_det_linear_fold_input_partials(torch::Tensor, c10::ScalarType);
 std::vector<torch::Tensor> qwenimage_det_linear_backward_weight(torch::Tensor, torch::Tensor, c10::ScalarType, bool);
 #endif
 
@@ -512,8 +523,18 @@ at::Tensor prefix_shared_attention(
 // PyBind11 Module Registration
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 #ifdef KERNEL_ALIGN_WITH_CUDA
+  m.def("mlp_up_gemm_gelu_cuda_forward", &mlp_up_gemm_gelu_cuda_forward);
+  m.def("mlp_up_gemm_gelu_cuda_tree_fp32", &mlp_up_gemm_gelu_cuda_tree_fp32);
+  m.def("mlp_up_gemm_gelu_cuda_gate", &mlp_up_gemm_gelu_cuda_gate);
+  m.def("mlp_up_gemm_gelu_cuda_dx", &mlp_up_gemm_gelu_cuda_dx);
+  m.def("mlp_up_gemm_gelu_cuda_dw", &mlp_up_gemm_gelu_cuda_dw);
+  m.def("mlp_up_gemm_gelu_cuda_db", &mlp_up_gemm_gelu_cuda_db);
+  m.def("qwenimage_attn_out_tree_gemm", &qwenimage_attn_out_tree_gemm);
+  m.def("qwenimage_attn_out_weight_grad", &qwenimage_attn_out_weight_grad);
   m.def("qwenimage_det_linear_forward", &qwenimage_det_linear_forward);
   m.def("qwenimage_det_linear_backward_input", &qwenimage_det_linear_backward_input);
+  m.def("qwenimage_det_linear_input_partials", &qwenimage_det_linear_input_partials);
+  m.def("qwenimage_det_linear_fold_input_partials", &qwenimage_det_linear_fold_input_partials);
   m.def("qwenimage_det_linear_backward_weight", &qwenimage_det_linear_backward_weight);
   m.def("qwenimage_strict_math_compiled", &qwenimage_strict_math_compiled);
   m.def("qwenimage_det_linear_backward_bias", &qwenimage_det_linear_backward_bias);
