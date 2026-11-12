@@ -550,7 +550,7 @@ constexpr int DB_THREADS = 256;
 __global__ void __launch_bounds__(DB_THREADS, 2)
 mlp_down_db_fold_wide_kernel(const nv_bf16* __restrict__ grad, float* __restrict__ db, int rows,
                              int cols) {
-    extern __shared__ nv_bf16 db_tile[];
+    extern __shared__ __align__(16) nv_bf16 db_tile[];
     const int n0 = blockIdx.x * DB_CT;
     const int tid = threadIdx.x;
     const int ncols = (cols - n0 < DB_CT) ? (cols - n0) : DB_CT;

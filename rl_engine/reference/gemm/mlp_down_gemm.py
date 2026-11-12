@@ -106,6 +106,10 @@ def mlp_down_gemm_reference_forward(
 
     out = tree_gemm(x, weight.t().contiguous())
     if bias is not None:
+        # The gold path must fail closed too: a broadcastable but wrong-length
+        # bias would silently produce a wrong reference.
+        if bias.numel() != weight.size(0):
+            raise ValueError("bias must have N elements")
         out = out + bias.float()
     return out
 

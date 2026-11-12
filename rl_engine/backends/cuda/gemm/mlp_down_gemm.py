@@ -211,6 +211,10 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
         return False
     hopper_ok = (
         torch.cuda.get_device_capability(x.device)[0] == 9
+        # An empty reduction/output has no wgmma contraction; the portable tree
+        # defines it (zeros or the broadcast bias), so leave those to it.
+        and x.size(-1) > 0
+        and weight.size(0) > 0
         and x.size(-1) % 8 == 0
         and weight.size(0) % 8 == 0
         and x.data_ptr() % 16 == 0
