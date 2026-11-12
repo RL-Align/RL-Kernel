@@ -263,8 +263,16 @@ def main() -> None:
     fixture = make_fixture(load_upstream(args.upstream_file))
     if args.check:
         sealed = json.loads(args.out.read_text(encoding="utf-8"))
-        for key in fixture.keys() - {"environment"}:
-            if sealed.get(key) != fixture[key]:
+        expected_keys = fixture.keys() - {"environment"}
+        sealed_keys = sealed.keys() - {"environment"}
+        if sealed_keys != expected_keys:
+            raise SystemExit(
+                "pinned upstream fixture keys mismatch "
+                f"(missing: {sorted(expected_keys - sealed_keys)}, "
+                f"unexpected: {sorted(sealed_keys - expected_keys)}); no file was changed"
+            )
+        for key in expected_keys:
+            if sealed[key] != fixture[key]:
                 raise SystemExit(f"pinned upstream fixture mismatch in {key}; no file was changed")
         print(
             f"PASS: {len(fixture['cases'])} source-pinned cases match; "
