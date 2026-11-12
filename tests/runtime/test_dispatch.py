@@ -4,6 +4,7 @@
 import sys
 from types import ModuleType
 
+import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -179,6 +180,33 @@ def test_registry_explicit_device_selects_device_platform(monkeypatch):
         OpBackend.ROCM_AITER if torch.version.hip is not None else OpBackend.CUDA_FUSED_LOGP_GENERIC
     )
     assert loaded[0] == expected
+
+
+@pytest.mark.parametrize("pin", ["general", "hopper"])
+def test_registry_explicit_cuda_device_honors_mlp_down_gemm_pin(monkeypatch, pin):
+    """The row's CUDA selector follows the dispatch device, not the process default."""
+
+    if torch.version.hip is not None:
+        pytest.skip("the row's selector is CUDA-only")
+
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", pin)
+    registry = KernelRegistry()
+    loaded = []
+
+    class DummyOp:
+        pass
+
+    def fake_load_backend(backend):
+        loaded.append(backend)
+        return DummyOp
+
+    monkeypatch.setattr(registry, "_load_backend", fake_load_backend)
+
+    # The process default is irrelevant here: `device=` selects the platform.
+    op = registry.get_op("mlp_down_gemm", device="cuda:0")
+
+    assert isinstance(op, DummyOp)
+    assert loaded == [OpBackend.CUDA_MLP_DOWN_GEMM]
 
 
 def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):

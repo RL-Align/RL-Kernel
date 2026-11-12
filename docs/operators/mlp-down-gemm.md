@@ -192,8 +192,12 @@ model-like scaled inputs (`benchmarks/operators/gemm/benchmark_mlp_down_gemm.py`
 | `dW` | 99.998% | 0.69 bf16-ulp |
 | `db` | 100.000% | 0.00 bf16-ulp |
 
-Below `K = 128` the two fixed orders cannot disagree and the output is
-bit-identical (`torch.equal`) to the reference. The harness tolerance contract
+Below `K = 128` the mma order stays inside one bf16 ulp of the reference but
+is not byte-equal to it: the tensor core's k16 grouping and the reference's
+correctly-rounded FMA chain can round an element's last fp32 bit differently
+(measured at `K` in {16, 32, 48, 64, 96, 112, 128}: >= 99.97% identical,
+<= 0.21 bf16 ulp; the short-K suite asserts that one-ulp bound). The portable
+tree path is the one that is byte-identical at every `K`. The harness tolerance contract
 (`atol = 5e-2`, `rtol = 2e-2` for the forward, `atol = 1e-1` for the gradients)
 is looser than these bounds.
 

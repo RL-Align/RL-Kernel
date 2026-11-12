@@ -1030,24 +1030,34 @@ class KernelRegistry:
         # CUDA backend, but CUDA dispatch tries Triton first. Without this
         # override the pinned backend would never be entered on a Triton-capable
         # box, so a deployment could not actually force the frozen tree contract
-        # (general) or refuse the tree fallback (hopper).
+        # (general) or refuse the tree fallback (hopper). This is only the
+        # process-default fast path: `get_op(device=...)` also applies the pin to
+        # the device it actually dispatches to.
         mlp_down_backend = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
         if mlp_down_backend in {"hopper", "general"}:
             if device_ctx.device_type == "cuda":
                 self._priority_map["cuda"]["mlp_down_gemm"] = [OpBackend.CUDA_MLP_DOWN_GEMM]
-            else:
-                logger.warning(
-                    "RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s selects the CUDA backend only; "
-                    "this process runs on %s, so the platform's own priority is unchanged.",
-                    mlp_down_backend,
-                    device_ctx.device_type,
-                )
         elif mlp_down_backend not in {"", "auto"}:
             logger.warning(
                 "Unknown RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s; using the default "
                 "Triton-first CUDA priority.",
                 mlp_down_backend,
             )
+
+    @staticmethod
+    def _mlp_down_gemm_pinned_backend() -> Optional[OpBackend]:
+        """The row's CUDA-only selector, parsed at the dispatch site.
+
+        The pin is a property of the CUDA backend, not of the process's default
+        device: a process that initializes on CPU can still dispatch this row to
+        CUDA through ``get_op(device="cuda")``, and that call must honor the
+        pin too.
+        """
+
+        pin = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
+        if pin in {"hopper", "general"}:
+            return OpBackend.CUDA_MLP_DOWN_GEMM
+        return None
 
     def _adjust_priority_for_hardware(self):
         """Adjust CUDA priorities for hardware-gated kernels."""
@@ -1109,6 +1119,10 @@ class KernelRegistry:
 
         platform = self._platform_for_device(device)
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
+        if platform == "cuda" and op_type == "mlp_down_gemm":
+            pinned = self._mlp_down_gemm_pinned_backend()
+            if pinned is not None:
+                candidates = [pinned]
 
         for backend in candidates:
             op_instance = self._get_or_create_backend(backend)

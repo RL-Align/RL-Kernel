@@ -174,13 +174,16 @@ def mlp_down_gemm_backend_used(x: torch.Tensor, weight: torch.Tensor) -> str:
     requested/actual backend and fallback state the roadmap's operator-trace work
     item asks every row to be able to report;
     :func:`mlp_down_gemm_contract_used` names the arithmetic the path implements.
+    Under a `hopper` pin, an operand set this helper classifies as ``general``
+    makes the call itself fail closed; the helper never raises, so a monitor can
+    still report the route.
     """
 
     # The dispatch call flattens x and copies both operands before the gate, so
     # these helpers must classify the same operands the kernel will see.
     x2d = _flatten_leading(x).contiguous()
     w = weight.contiguous()
-    return "hopper" if _sm90_usable(x2d, w) else "general"
+    return "hopper" if _sm90_usable(x2d, w, strict=False) else "general"
 
 
 def mlp_down_gemm_contract_used(x: torch.Tensor, weight: torch.Tensor) -> str:
@@ -192,15 +195,17 @@ def mlp_down_gemm_contract_used(x: torch.Tensor, weight: torch.Tensor) -> str:
     portable fp32 tree kernel does (byte-equal to that reference by
     construction). The two are different association orders of the same sum, so
     a consumer that needs a stable contract should pin
-    ``RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper``.
+    ``RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper``. Like
+    :func:`mlp_down_gemm_backend_used` this helper classifies without raising
+    under a strict pin.
     """
 
     x2d = _flatten_leading(x).contiguous()
     w = weight.contiguous()
-    return MMA_CONTRACT if _sm90_usable(x2d, w) else TREE_CONTRACT
+    return MMA_CONTRACT if _sm90_usable(x2d, w, strict=False) else TREE_CONTRACT
 
 
-def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
+def _sm90_usable(x: torch.Tensor, weight: torch.Tensor, *, strict: bool = True) -> bool:
     """Whether the Hopper path can serve this contraction.
 
     Requires the 90a entry points, a compute capability 9.0 (Hopper) device, and the
@@ -210,13 +215,18 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
     portable tree kernel instead -- which computes a different, also frozen,
     contract, so request ``auto``/``general`` knowingly, or
     ``hopper`` to make the change an error.
+
+    ``strict`` carries the ``hopper`` pin's fail-closed contract: the dispatch
+    gate passes ``True`` and raises when the pinned path cannot serve, while the
+    reporting helpers pass ``False`` and classify the operands without raising.
     """
 
     requested = mlp_down_gemm_backend()
     if requested == _GENERAL_BACKEND:
         return False
+    must_serve = strict and requested == _HOPPER_BACKEND
     if not sm90_backend_compiled() or not x.is_cuda:
-        if requested == _HOPPER_BACKEND:
+        if must_serve:
             raise RuntimeError(
                 "mlp_down_gemm: backend 'hopper' was requested but the extension has no "
                 "Hopper entry points; rebuild with KERNEL_ALIGN_FORCE_SM90=1, or request "
@@ -224,7 +234,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
             )
         return False
     if x.dtype != torch.bfloat16:
-        if requested == _HOPPER_BACKEND:
+        if must_serve:
             raise RuntimeError("mlp_down_gemm: backend 'hopper' requires bf16 operands")
         return False
     hopper_ok = (
@@ -238,7 +248,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
         and x.data_ptr() % 16 == 0
         and weight.data_ptr() % 16 == 0
     )
-    if not hopper_ok and requested == _HOPPER_BACKEND:
+    if not hopper_ok and must_serve:
         raise RuntimeError(
             "mlp_down_gemm: backend 'hopper' needs a compute capability 9.0 (Hopper) device and "
             "bf16 operands whose row strides are multiples of 8 elements; it serves the "

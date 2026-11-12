@@ -56,13 +56,16 @@ from rl_engine.reference.gemm.mlp_down_gemm import (
 CUDA = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA backend requires a GPU")
 
 # --- measured contract bounds (H100 PCIe, bf16; see the docs page) -----------
-# Below the mma's k-chunk count the fp32 accumulation order cannot differ, so
-# the bf16 result is bit-identical to the reference. Above it the two fixed
-# orders diverge; the measured (worst case at K = 12288, seed-fixed inputs)
-# is >= 99% bit-identical elements with every element inside a few bf16 ulps
-# of the reference magnitude, which is what the row declares.
+# Below the mma chain's K = 128 the two fixed orders stay inside one bf16 ulp,
+# but they are not byte-equal: the tensor core's k16 grouping and the reference's
+# correctly-rounded FMA chain can round an element's last fp32 bit differently.
+# Measured at K in {16, 32, 48, 64, 96, 112, 128}: >= 99.97% identical, <= 0.21
+# bf16 ulp. Above it the two fixed orders diverge; the measured (worst case at
+# K = 12288, seed-fixed inputs) is >= 99% bit-identical elements with every
+# element inside a few bf16 ulps of the reference magnitude, which is what the
+# row declares.
 BF16_ULP = 2.0**-8
-BIT_EXACT_MAX_K = 128
+ONE_ULP_MAX_K = 128
 DECLARED_MIN_IDENTICAL_FRACTION = 0.99
 DECLARED_MAX_ULPS = 8.0
 
@@ -83,7 +86,7 @@ IMG_MLP_DOWN_SHAPE = (REF_TOKENS[0], MODEL_K, MODEL_N)  # img_mlp.net.2
 TXT_MLP_DOWN_SHAPE = (ANCHOR_TOKENS, MODEL_K, MODEL_N)  # txt_mlp.net.2: prompt length
 
 SMALL = (64, MODEL_K, MODEL_N)  # short token count, the model's K and N
-SHORT_K = (64, 96, MODEL_N)  # below the mma chain length: bit-exactness must hold
+SHORT_K = (64, 96, MODEL_N)  # below the mma chain length: one-ulp agreement must hold
 
 
 def _inputs(shape, dtype=torch.bfloat16, seed=0, device="cuda"):
@@ -337,7 +340,7 @@ class TestAccuracy:
         from rl_engine.backends.cuda.gemm.mlp_down_gemm import CudaMlpDownGemmOp
 
         rows, k_dim, n_dim = shape
-        assert k_dim <= BIT_EXACT_MAX_K
+        assert k_dim <= ONE_ULP_MAX_K
         x, weight, bias = _inputs(shape)
         got = CudaMlpDownGemmOp()(x, weight, bias=bias)
         identical, worst = _deviation(got, _reference(x, weight, bias))
@@ -714,6 +717,7 @@ class TestCudaPathsAndContracts:
         )
 
         x, weight, _ = _inputs(SMALL)
+        monkeypatch.delenv(BACKEND_ENV, raising=False)
         assert mlp_down_gemm_backend() == "auto"
         actual = mlp_down_gemm_backend_used(x, weight)
         assert actual in ("hopper", "general")
@@ -723,6 +727,21 @@ class TestCudaPathsAndContracts:
         monkeypatch.setenv(BACKEND_ENV, "general")
         assert mlp_down_gemm_backend_used(x, weight) == "general"
         assert mlp_down_gemm_contract_used(x, weight) == TREE_CONTRACT
+
+    def test_report_helpers_classify_under_a_hopper_pin_without_raising(self, monkeypatch):
+        """A monitor asking for the route must not hit the pin's fail-closed raise."""
+
+        from rl_engine.backends.cuda.gemm import mlp_down_gemm as mod
+
+        monkeypatch.setenv(mod._BACKEND_ENV, "hopper")
+        # A cc 8.0 device cannot serve the Hopper path: the pin makes a call
+        # raise, while the reporting helpers still classify the operands.
+        monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (8, 0))
+        x, weight, bias = _inputs(SMALL)
+        assert mod.mlp_down_gemm_backend_used(x, weight) == "general"
+        assert mod.mlp_down_gemm_contract_used(x, weight) == mod.TREE_CONTRACT
+        with pytest.raises(RuntimeError):
+            mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
 
     def test_rocm_dispatch_uses_triton(self, monkeypatch):
         """On a ROCm torch the registry resolves this row to the Triton backend."""

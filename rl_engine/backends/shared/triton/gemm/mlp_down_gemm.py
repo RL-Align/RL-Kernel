@@ -493,7 +493,15 @@ def _requested_backend() -> str:
 
 
 def _report_route_once() -> None:
-    """Emit the row's route line for the default Triton path, once per process."""
+    """Emit the row's route line for the default Triton path, once per process.
+
+    The selector is the CUDA backend's (auto/hopper/general), and this op is the
+    Triton backend. The registry honors a pin by dispatching to the CUDA backend,
+    so when this line is emitted under a pin the selector is *not* served here:
+    the contract is still ``mlp-down-gemm-mma`` but ``fallback`` must say so and
+    a warning is emitted, rather than claiming a pinned tree contract while
+    executing the mma order.
+    """
 
     global _ROUTE_REPORTED
     if torch._dynamo.is_compiling() or not route_report_enabled():
@@ -502,10 +510,20 @@ def _report_route_once() -> None:
         if _ROUTE_REPORTED:
             return
         _ROUTE_REPORTED = True
+    requested = _requested_backend()
+    fell_back = requested != "auto"
+    if fell_back:
+        logger.warning(
+            "%s=%s selects a CUDA backend; the Triton path still serves the mma contract, "
+            "so the selector is not honored by this call.",
+            _BACKEND_ENV,
+            requested,
+        )
+    reason = " reason=selector_is_honored_by_the_cuda_backend" if fell_back else ""
     print(
         f"[RL-Kernel][route] mode={rl_kernel_mode().value} module=mlp_down_gemm "
-        f"requested={_requested_backend()} actual=triton fallback=false "
-        f"contract={MLP_DOWN_GEMM_CONTRACT}",
+        f"requested={requested} actual=triton fallback={str(fell_back).lower()} "
+        f"contract={MLP_DOWN_GEMM_CONTRACT}{reason}",
         flush=True,
     )
 

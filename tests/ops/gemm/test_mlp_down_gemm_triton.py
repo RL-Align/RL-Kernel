@@ -126,7 +126,10 @@ def _pinned(name):
 
 # --- declared contract bounds (see the row's docs page) ----------------------
 BF16_ULP = 2.0**-8
-BIT_EXACT_MAX_K = 128
+# Below this K the mma order stays <= 1 bf16 ulp of the reference; it is not
+# byte-equal (the tensor core's k16 grouping rounds the last fp32 bit its own
+# way), which is why the short-K test asserts a one-ulp bound.
+ONE_ULP_MAX_K = 128
 DECLARED_MIN_IDENTICAL_FRACTION = 0.99
 DECLARED_MAX_ULPS = 8.0
 
@@ -144,7 +147,7 @@ ANCHOR_TOKENS = 256  # the sigma schedule's low-token anchor
 
 IMG_MLP_DOWN_SHAPE = (REF_TOKENS[0], MODEL_K, MODEL_N)  # img_mlp.net.2
 SMALL = (64, MODEL_K, MODEL_N)  # short token count, the model's K and N
-SHORT_K = (64, 96, MODEL_N)  # below the mma chain length: bit-exactness must hold
+SHORT_K = (64, 96, MODEL_N)  # below the mma chain length: one-ulp agreement must hold
 GATE_SHAPE = (ANCHOR_TOKENS, MODEL_K, MODEL_N)  # what the fp32 CPU gate affords
 BACKWARD_GATE_SHAPE = (32, MODEL_K, MODEL_N)
 
@@ -427,7 +430,7 @@ class TestAccuracy:
         moves an element's bf16 rounding when it sits within ~1e-6 of a boundary.
         """
 
-        assert k_dim <= BIT_EXACT_MAX_K
+        assert k_dim <= ONE_ULP_MAX_K
         x, weight, bias = _inputs((32, k_dim, MODEL_N))
         got = TritonMlpDownGemmOp()(x, weight, bias=bias)
         identical, worst = _deviation(got, _reference_forward(x, weight, bias))
@@ -705,12 +708,12 @@ class TestCudaByteEquality:
             want_nobias = _hopper_op()(x, weight)
         _assert_same_bytes(TritonMlpDownGemmOp()(x, weight), want_nobias, "forward no bias")
 
-        # below the mma chain: K = 128 is the row's exactness boundary
-        x, weight, bias = _inputs((33, BIT_EXACT_MAX_K, MODEL_N), seed=6)
+        # below the mma chain: K = 128 is the outermost one-ulp bound
+        x, weight, bias = _inputs((33, ONE_ULP_MAX_K, MODEL_N), seed=6)
         got = TritonMlpDownGemmOp()(x, weight, bias=bias)
         with _pinned("hopper"):
             want = _hopper_op()(x, weight, bias=bias)
-        _assert_same_bytes(got, want, f"forward K={BIT_EXACT_MAX_K}")
+        _assert_same_bytes(got, want, f"forward K={ONE_ULP_MAX_K}")
 
     @pytest.mark.parametrize("rows", [7, 129, *REF_TOKENS])
     def test_backward_bytes_equal(self, rows):
@@ -762,3 +765,20 @@ def test_route_report_is_emitted_once(monkeypatch, capsys):
     assert f"contract={mod.MLP_DOWN_GEMM_CONTRACT}" in first
     mod.TritonMlpDownGemmOp()(x, weight, bias=bias)
     assert "module=mlp_down_gemm" not in capsys.readouterr().out
+
+
+def test_route_report_marks_an_unserved_pin(monkeypatch, capsys):
+    """The Triton path reports a pinned selector as not served, and warns."""
+
+    from rl_engine.backends.shared.triton.gemm import mlp_down_gemm as mod
+
+    monkeypatch.setattr(mod, "_ROUTE_REPORTED", False)
+    monkeypatch.setenv(mod._BACKEND_ENV, "general")
+    monkeypatch.delenv("RL_KERNEL_ROUTE_REPORT", raising=False)
+    x, weight, bias = _inputs(SMALL)
+    mod.TritonMlpDownGemmOp()(x, weight, bias=bias)
+    out = capsys.readouterr().out
+    assert "requested=general" in out and "actual=triton" in out
+    assert "fallback=true" in out
+    assert "selector_is_honored_by_the_cuda_backend" in out
+    assert f"contract={mod.MLP_DOWN_GEMM_CONTRACT}" in out
