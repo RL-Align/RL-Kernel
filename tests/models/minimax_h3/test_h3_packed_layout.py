@@ -137,6 +137,14 @@ def test_upstream_fields_are_preserved_and_each_row_is_addressable(case_id):
             assert identity["output_selection_index"] == (None if stream == "text" else source_row)
 
 
+@pytest.mark.parametrize("field", ("num_condition_video_rows", "num_condition_audio_rows"))
+def test_condition_row_counts_must_be_provided(field):
+    inputs = upstream_inputs("ref2va_video_audio")
+    del inputs[field]
+    with pytest.raises(TypeError, match=field):
+        H3PackedLayout(**inputs)
+
+
 def test_hand_written_permutation_matches_every_independent_expected_field():
     layout = H3PackedLayout(**hand_inputs())
     before = layout.to_dict()
@@ -302,8 +310,14 @@ fields = {
 fields['position_ids'].view(torch.int64)[0] = torch.tensor([-2**63, 1, -2**63 + 1])
 before = fields['position_ids'].view(torch.int64).clone()
 torch.set_flush_denormal(True)
-layout = H3PackedLayout(**fields, provenance={
-    'checkpoint_revision': '0' * 40, 'runtime_revision': '1' * 40, 'task_family': 'FL2VA'})
+layout = H3PackedLayout(
+    **fields,
+    num_condition_video_rows=1,
+    num_condition_audio_rows=0,
+    provenance={
+        'checkpoint_revision': '0' * 40, 'runtime_revision': '1' * 40, 'task_family': 'FL2VA',
+    },
+)
 restored = H3PackedLayout.from_dict(layout.to_dict())
 assert torch.equal(restored.position_ids.view(torch.int64), before)
 """
@@ -370,6 +384,8 @@ def inputs(bits):
         video_indices=torch.arange(size), token_tags=torch.zeros(size, dtype=torch.int64),
         timestep=torch.tensor(bits, dtype=torch.int32).view(torch.float32),
         timestep_indices=torch.arange(size), position_ids=torch.zeros(size, 3, dtype=torch.float64),
+        num_condition_video_rows=0,
+        num_condition_audio_rows=0,
         provenance={'checkpoint_revision': '0' * 40, 'runtime_revision': '1' * 40,
                     'task_family': 'FL2VA'},
     )

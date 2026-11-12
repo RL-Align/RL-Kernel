@@ -235,12 +235,13 @@ class H3PackedLayout:
         timestep_indices: torch.Tensor,
         position_ids: torch.Tensor,
         provenance: Mapping[str, Any],
+        num_condition_video_rows: int,
+        num_condition_audio_rows: int,
         batch_size: int = 1,
-        num_condition_video_rows: int = 0,
-        num_condition_audio_rows: int = 0,
     ) -> None:
         """Validate and copy layout metadata.
 
+        Pass the producer's condition row counts, using ``0`` for streams without condition rows.
         Required provenance: checkpoint_revision and runtime_revision (40 lowercase hex),
         and task_family ("FL2VA" or "Ref2VA"). Optional: JSON-compatible preparation.
         """

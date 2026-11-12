@@ -382,16 +382,16 @@ are implemented and evidenced.
 
 ## 10. CPU v1 interface and a runnable example
 
-`H3PackedLayout(...)` checks and owns the metadata immediately. Invalid inputs
+`H3PackedLayout(...)` checks and owns the metadata immediately. Invalid metadata
 raise `H3PackedLayoutError`, a `ValueError` subclass. It does not silently cast,
 move metadata to CPU, or sort selectors/timesteps. Tensor properties and
 `provenance` return independent copies. `source_lengths` gives the expected
 row count for each source stream, derived from its selector. Before scatter,
 the adapter checks the feature tensors' batch size and row counts against
 `batch_size` and `source_lengths`.
-Batch size defaults to one and condition counts default to zero; adapters must
-pass the producer's actual condition/reference counts instead of inferring
-them from tags or packed positions.
+Batch size defaults to one. Both condition counts are required. The adapter
+passes the producer's video and audio condition/reference counts, including
+`0` for streams without condition rows.
 
 `row_identity(packed_row, batch_index=0)` returns a dictionary containing the
 source stream/slot, modality, time reference/value, coordinate, output slot,
@@ -438,6 +438,7 @@ layout = H3PackedLayout(
         dtype=torch.float64,
     ),
     num_condition_video_rows=1,
+    num_condition_audio_rows=0,
     provenance={
         "checkpoint_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
         "runtime_revision": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
