@@ -62,6 +62,23 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "mlp_down_gemm": OperatorSpec(
+        name="mlp_down_gemm",
+        op_class="reduction",
+        gold_path="rl_engine.reference.gemm.mlp_down_gemm.NativeMlpDownGemmOp",
+        gold_method="forward_fp32",
+        # The fp32 reference is `gold_path`; it is not a candidate (that would
+        # compare it with itself and count as a backend pass). There is no CPU
+        # candidate for the same reason: an unknown name raises in make_candidate.
+        candidate_paths={
+            "cuda": "rl_engine.backends.cuda.gemm.mlp_down_gemm.CudaMlpDownGemmOp",
+            "triton": ("rl_engine.backends.shared.triton.gemm.mlp_down_gemm.TritonMlpDownGemmOp"),
+        },
+        # `bias` is a real parameter on every path (the ascending-row fp32 `db`
+        # fold); the suite's backward compares it against the reference fold, so
+        # a missing gradient fails rather than being skipped.
+        grad_input_names=("x", "weight", "bias"),
+    ),
     "qk_norm": OperatorSpec(
         name="qk_norm",
         op_class="reduction",

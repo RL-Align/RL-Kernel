@@ -123,6 +123,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # NON-deterministic reference (torch.matmul); reference/benchmark ONLY,
     # intentionally excluded from det_gemm dispatch (cuBLAS breaks invariance).
     PYTORCH_GEMM = "rl_engine.kernels.ops.pytorch.matmul.det_gemm.NativeGemmOp"
+    # Qwen-Image WS1 MLP down projection (pinned tensor-core schedule)
+    CUDA_MLP_DOWN_GEMM = "rl_engine.backends.cuda.gemm.mlp_down_gemm.CudaMlpDownGemmOp"
+    PYTORCH_MLP_DOWN_GEMM = "rl_engine.reference.gemm.mlp_down_gemm.NativeMlpDownGemmOp"
+    TRITON_MLP_DOWN_GEMM = "rl_engine.backends.shared.triton.gemm.mlp_down_gemm.TritonMlpDownGemmOp"
     # Batch-invariant selected-logprob (WS1 #148: locked reduction order)
     TRITON_BATCH_INVARIANT_LOGP = (
         "rl_engine.kernels.ops.triton.loss.batch_invariant_logp.TritonBatchInvariantLogpOp"
@@ -594,6 +598,22 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
+                # Triton first: on Hopper it lowers the same pinned schedule to
+                # wgmma, which is measured byte-identical to the hand-written
+                # kernel and ~2.5x its forward throughput; the native kernel is
+                # the no-Triton fallback. On pre-Hopper parts Triton lowers the
+                # same pinned k-chunk order to mma.sync, but byte-parity with the
+                # hand-written path is not measured there, so that slot is
+                # covered by the tolerance gate rather than a byte-equality
+                # claim (pin `general` for the reference-equal tree contract).
+                # The fp32 reference is the gold/benchmark target and
+                # deliberately not a dispatch candidate (WS1 standard:
+                # reference-as-candidate is a hard fail), so a build with neither
+                # backend fails closed.
+                "mlp_down_gemm": [
+                    OpBackend.TRITON_MLP_DOWN_GEMM,
+                    OpBackend.CUDA_MLP_DOWN_GEMM,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -648,6 +668,10 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                # The CUDA sources are NVIDIA PTX; Triton serves ROCm. The
+                # fp32 reference is not a dispatch candidate (see the CUDA
+                # entry): without Triton this row fails closed.
+                "mlp_down_gemm": [OpBackend.TRITON_MLP_DOWN_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -690,6 +714,10 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                # The CUDA sources are NVIDIA PTX; Triton serves MUSA. The
+                # fp32 reference is not a dispatch candidate (see the CUDA
+                # entry): without Triton this row fails closed.
+                "mlp_down_gemm": [OpBackend.TRITON_MLP_DOWN_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -731,6 +759,12 @@ class KernelRegistry:
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
+                # CPU has no device kernel for this row: the fp32 reference
+                # *is* the CPU implementation, not an accelerator fallback. This
+                # is runtime dispatch only; `operator_specs` deliberately keeps
+                # it out of `candidate_paths`, so validation never compares the
+                # gold with itself.
+                "mlp_down_gemm": [OpBackend.PYTORCH_MLP_DOWN_GEMM],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
@@ -797,6 +831,9 @@ class KernelRegistry:
         # CUDA strict operators deliberately have no reference fallback.
         for platform in ("rocm", "npu", "musa"):
             self._priority_map[platform]["qwenimage_adaln_mod_projection"] = []
+        # The MLP down row is a device operator with no NPU kernel: do not
+        # inherit the CPU row's reference as an NPU fallback (fail closed).
+        self._priority_map["npu"]["mlp_down_gemm"] = []
         self._priority_map["cuda"]["qwenimage_adaln_mod_projection"] = [
             OpBackend.CUDA_QWENIMAGE_ADALN_MOD_PROJECTION
         ]
@@ -997,6 +1034,52 @@ class KernelRegistry:
                 rocm_attn_backend,
             )
 
+        # The MLP down row's contract selector (auto/hopper/general) lives in the
+        # CUDA backend, but CUDA dispatch tries Triton first. `get_op` re-reads
+        # the selector at dispatch time (for the device it actually dispatches
+        # to), so the priority map keeps its default: parsing the env here as
+        # well would make a construction-time snapshot that can disagree with
+        # the live environment (a "sticky" pin).
+        mlp_down_backend = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
+        if mlp_down_backend in {"hopper", "general"} and device_ctx.device_type != "cuda":
+            # Valid pin, but this process's default platform is not CUDA: the
+            # pin is still honored by `get_op(device="cuda")`, so this is a
+            # diagnostic rather than a misconfiguration error.
+            logger.info(
+                "RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s selects the CUDA backend; this "
+                "process defaults to %s, so the pin applies to explicit CUDA dispatch "
+                "only.",
+                mlp_down_backend,
+                device_ctx.device_type,
+            )
+        elif mlp_down_backend not in {"", "auto", "hopper", "general"}:
+            logger.warning(
+                "Unknown RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s; using the default "
+                "Triton-first CUDA priority.",
+                mlp_down_backend,
+            )
+
+    @staticmethod
+    def _mlp_down_gemm_pin() -> Optional[str]:
+        """The row's CUDA-only selector (``hopper``/``general``), parsed at dispatch.
+
+        The pin is a property of the CUDA backend, not of the process's default
+        device: a process that initializes on CPU can still dispatch this row to
+        CUDA through ``get_op(device="cuda")``, and that call must honor the
+        pin too. Callers use the returned value for both the branch and the
+        diagnostic, so the two cannot disagree.
+
+        Unlike the logp rows adjusted by :meth:`_adjust_priority_for_hardware`,
+        this row has no arch-gated registry priority: its hardware, dtype and
+        alignment gate is per call inside ``CudaMlpDownGemmOp``. The registry's
+        only eligibility check is therefore that the backend instantiates at
+        all; when it cannot, ``get_op`` raises the pin-specific error instead of
+        falling through to another backend.
+        """
+
+        pin = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
+        return pin if pin in {"hopper", "general"} else None
+
     def _adjust_priority_for_hardware(self):
         """Adjust CUDA priorities for hardware-gated kernels."""
 
@@ -1056,6 +1139,33 @@ class KernelRegistry:
         """Select the best legacy operator for the requested device."""
 
         platform = self._platform_for_device(device)
+        if op_type == "mlp_down_gemm":
+            pin = self._mlp_down_gemm_pin()
+            if pin is not None:
+                if platform != "cuda":
+                    # `general` on CPU is served by the fp32 reference itself (the
+                    # tree contract), so that pair stays valid; every other
+                    # non-CUDA dispatch would silently serve a different
+                    # backend/contract under a pin, which must fail closed.
+                    if not (platform == "cpu" and pin == "general"):
+                        raise RuntimeError(
+                            f"mlp_down_gemm: RL_KERNEL_MLP_DOWN_GEMM_BACKEND={pin} selects "
+                            f"the CUDA backend, which platform '{platform}' cannot serve; "
+                            "unset the selector for that platform's own backend."
+                        )
+                else:
+                    op_instance = self._get_or_create_backend(OpBackend.CUDA_MLP_DOWN_GEMM)
+                    if op_instance is None:
+                        # The pin names the contract, so an unavailable native
+                        # backend must fail closed here with the reason rather
+                        # than fall back to Triton (a different backend) or to a
+                        # generic "no backend".
+                        raise RuntimeError(
+                            f"mlp_down_gemm: RL_KERNEL_MLP_DOWN_GEMM_BACKEND={pin} selects "
+                            "the native CUDA backend, which this build cannot serve; build "
+                            "the extension for sm_80+ or unset the selector to use Triton."
+                        )
+                    return op_instance
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:

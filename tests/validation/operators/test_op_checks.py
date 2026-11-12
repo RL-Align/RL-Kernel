@@ -14,10 +14,18 @@ from rl_engine.reference.embedding.lm_head import NativeLMHeadOp
 from rl_engine.reference.logprob.logp import NativeLogpOp
 from rl_engine.validation.operators.op_checks import CandidateSpec, OperatorCase, run_operator_suite
 from rl_engine.validation.operators.operator_specs import (
+    OP_SPECS,
     make_candidate,
     make_operator_case,
     operator_names,
 )
+
+
+def test_mlp_down_gemm_validation_candidates_exclude_its_gold():
+    """The CPU row dispatches the gold, so validation must not list it as a candidate."""
+
+    spec = OP_SPECS["mlp_down_gemm"]
+    assert spec.gold_path not in spec.candidate_paths.values()
 
 
 def _logp_case(name: str, dtype: torch.dtype, *, seed: int = 0) -> OperatorCase:

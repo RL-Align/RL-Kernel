@@ -4,6 +4,7 @@
 import sys
 from types import ModuleType
 
+import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -141,6 +142,9 @@ class TestMusaPlatform:
             ],
             "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
             "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+            # Qwen-Image WS1 MLP down projection: the CUDA sources are NVIDIA PTX, so
+            # Triton is the validated backend on MUSA too.
+            "mlp_down_gemm": [OpBackend.TRITON_MLP_DOWN_GEMM],
         }
         for op_name, candidates in expected.items():
             assert registry._priority_map["musa"][op_name] == candidates
@@ -176,6 +180,100 @@ def test_registry_explicit_device_selects_device_platform(monkeypatch):
         OpBackend.ROCM_AITER if torch.version.hip is not None else OpBackend.CUDA_FUSED_LOGP_GENERIC
     )
     assert loaded[0] == expected
+
+
+@pytest.mark.parametrize("pin", ["general", "hopper"])
+def test_registry_explicit_cuda_device_honors_mlp_down_gemm_pin(monkeypatch, pin):
+    """The row's CUDA selector follows the dispatch device, not the process default."""
+
+    if torch.version.hip is not None:
+        pytest.skip("the row's selector is CUDA-only")
+
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", pin)
+    registry = KernelRegistry()
+    loaded = []
+
+    class DummyOp:
+        pass
+
+    def fake_load_backend(backend):
+        loaded.append(backend)
+        return DummyOp
+
+    monkeypatch.setattr(registry, "_load_backend", fake_load_backend)
+
+    # The process default is irrelevant here: `device=` selects the platform.
+    op = registry.get_op("mlp_down_gemm", device="cuda:0")
+
+    assert isinstance(op, DummyOp)
+    assert loaded == [OpBackend.CUDA_MLP_DOWN_GEMM]
+
+
+def test_registry_mlp_down_gemm_pin_follows_the_live_env(monkeypatch):
+    """The registry must not freeze a construction-time snapshot of the selector."""
+
+    if torch.version.hip is not None:
+        pytest.skip("the row's selector is CUDA-only")
+
+    monkeypatch.delenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", raising=False)
+    registry = KernelRegistry()
+    loaded = []
+
+    class DummyOp:
+        pass
+
+    def fake_load_backend(backend):
+        loaded.append(backend)
+        return DummyOp
+
+    monkeypatch.setattr(registry, "_load_backend", fake_load_backend)
+
+    # Pinned after construction: dispatch honors it.
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "general")
+    assert isinstance(registry.get_op("mlp_down_gemm", device="cuda:0"), DummyOp)
+
+    # Unset again: the default Triton-first order must return, not a sticky pin.
+    monkeypatch.delenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", raising=False)
+    assert isinstance(registry.get_op("mlp_down_gemm", device="cuda:0"), DummyOp)
+
+    assert loaded == [OpBackend.CUDA_MLP_DOWN_GEMM, OpBackend.TRITON_MLP_DOWN_GEMM]
+
+
+def test_registry_pinned_mlp_down_gemm_reports_a_missing_native_backend(monkeypatch):
+    """A pin names the native contract: its absence must not become a generic error."""
+
+    if torch.version.hip is not None:
+        pytest.skip("the row's selector is CUDA-only")
+
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "general")
+    registry = KernelRegistry()
+    # Simulate the module being absent, then exercise the real
+    # `_get_or_create_backend` contract (it returns None) that `get_op` relies on.
+    monkeypatch.setattr(registry, "_load_backend", lambda backend: None)
+    assert registry._get_or_create_backend(OpBackend.CUDA_MLP_DOWN_GEMM) is None
+
+    with pytest.raises(RuntimeError, match="RL_KERNEL_MLP_DOWN_GEMM_BACKEND=general"):
+        registry.get_op("mlp_down_gemm", device="cuda:0")
+
+
+def test_registry_pin_on_a_non_cuda_platform_fails_closed(monkeypatch):
+    """A pin that names CUDA must not be silently served by another backend."""
+
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "hopper")
+    registry = KernelRegistry()
+
+    with pytest.raises(RuntimeError, match="platform 'cpu' cannot serve"):
+        registry.get_op("mlp_down_gemm", device="cpu")
+
+
+def test_registry_cpu_general_pin_uses_the_reference_tree(monkeypatch):
+    """`general` on CPU is the reference itself, so it is not a silent swap."""
+
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "general")
+    registry = KernelRegistry()
+
+    op = registry.get_op("mlp_down_gemm", device="cpu")
+    assert type(op).__name__ == "NativeMlpDownGemmOp"
 
 
 def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):

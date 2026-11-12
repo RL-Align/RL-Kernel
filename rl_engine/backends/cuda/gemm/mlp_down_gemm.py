@@ -1,0 +1,448 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+
+"""Hand-written CUDA backend for the MLP down projection: two contracts, two paths.
+
+The row's CUDA backend serves the same operator with two *different*, both
+frozen, arithmetic orders, and which one a call takes is reported:
+
+* ``mlp-down-gemm-mma`` -- the hardware order. The K reduction walks
+  ascending k-chunks of 16, one fp32 accumulator chained in place per output
+  element, no split-K, no atomics, bias added once in fp32, exactly one bf16
+  cast at the store. Two kernels implement it and they are **byte-identical** to
+  each other: ``cuda_wgmma_tma_hopper_pinned_schedule``
+  (``csrc/cuda/gemm/mlp_down_gemm_sm90.cu``: Hopper TMA bulk-tensor staging
+  driving ``wgmma.mma_async...m64n128k16``, built only with
+  ``KERNEL_ALIGN_FORCE_SM90=1``, used only on compute capability 9.0) and the
+  Triton backend, whose ``wgmma.m64n128k16`` lowering is byte-identical to it.
+  On this contract the output is within the declared tolerance of the row's
+  independent fp32 CPU reference, not equal to it.
+
+* ``mlp-down-gemm-tree`` -- the portable order, implemented by
+  ``cuda_fp32_tree_schedule`` (``csrc/cuda/gemm/mlp_down_gemm.cu``): the fp32
+  32-wide-leaf mid-split tree *is* the operator's contract, so this path is
+  byte-equal to ``mlp_down_gemm_reference_forward`` /
+  ``mlp_down_gemm_reference_backward`` on every shape (checked by the suite at
+  the model's K = 12288, N = 3072 and at the RFC's synthetic tails). It runs on
+  fp32 CUDA cores -- a tree cannot use tensor cores -- so it is far slower than
+  the Hopper path; it needs no tensor cores and no TMA, which is why it serves
+  every device and every operand layout the row supports, with no fallback.
+
+``auto`` (the default) prefers the Hopper path when it is built and the device
+is cc 9.0, and runs the portable tree otherwise. ``general`` forces the tree
+even on a Hopper device (that is how the two are A/B compared on one machine),
+and ``hopper`` refuses instead of silently changing the arithmetic order --
+which is what a deployment that must not change contract should pin. Both
+paths share the forward/backward entry points, the epilogue discipline (bias
+once in fp32, one cast at the store) and the ``db`` left fold, so ``db`` is
+bit-identical under either contract.
+
+bf16 only: this is the model's runtime dtype, and an fp32 call fails closed
+rather than silently running an SGEMM.
+"""
+
+from __future__ import annotations
+
+import os
+from math import prod
+from threading import Lock
+from typing import Optional
+
+import torch
+
+from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.runtime.policy import rl_kernel_mode, route_report_enabled
+from rl_engine.utils.logger import logger
+
+MMA_CONTRACT = "mlp-down-gemm-mma"
+TREE_CONTRACT = "mlp-down-gemm-tree"
+_REQUIRED_SYMBOLS = (
+    "mlp_down_gemm_cuda_forward",
+    "mlp_down_gemm_cuda_dx",
+    "mlp_down_gemm_cuda_dw",
+    "mlp_down_gemm_cuda_db",
+)
+# Hopper (SM90) TMA + wgmma backend for the mma order.
+_SM90_SYMBOLS = (
+    "mlp_down_gemm_cuda_forward_sm90",
+    "mlp_down_gemm_cuda_dx_sm90",
+    "mlp_down_gemm_cuda_dw_sm90",
+)
+_HOPPER_IMPL = "cuda_wgmma_tma_hopper_pinned_schedule"
+_TREE_IMPL = "cuda_fp32_tree_schedule"
+_HOPPER_PIN_HINT = "pin RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper for the hardware-order path"
+
+
+def cuda_backend_available() -> bool:
+    """True when the extension contains the portable CUDA entry points.
+
+    Both contracts share these four symbols (the tree serves every operand set
+    and is the fallback of the mma order as well), so this is the CUDA backend's
+    availability, not the Hopper wgmma build's -- that one is
+    :func:`sm90_backend_compiled`.
+    """
+
+    return _EXT_AVAILABLE and all(hasattr(_C, name) for name in _REQUIRED_SYMBOLS)
+
+
+def sm90_backend_compiled() -> bool:
+    """True when the extension contains the Hopper wgmma entry points."""
+
+    return _EXT_AVAILABLE and all(hasattr(_C, name) for name in _SM90_SYMBOLS)
+
+
+_ROUTE_REPORTED_KEY: Optional[tuple[str, str, str]] = None
+_ROUTE_REPORT_LOCK = Lock()
+
+_BACKEND_ENV = "RL_KERNEL_MLP_DOWN_GEMM_BACKEND"
+_AUTO_BACKEND = "auto"
+_HOPPER_BACKEND = "hopper"
+_GENERAL_BACKEND = "general"
+_VALID_BACKENDS = (_AUTO_BACKEND, _HOPPER_BACKEND, _GENERAL_BACKEND)
+
+
+def mlp_down_gemm_backend() -> str:
+    """Requested CUDA backend for this row: ``auto`` (default), ``hopper``, ``general``.
+
+    Mirrors ``RL_KERNEL_DET_GEMM_BACKEND``. ``general`` forces the portable
+    fp32-tree kernel even on a Hopper device with the wgmma build present, which is
+    how the two contracts are A/B compared on one machine; ``hopper`` forces the
+    hardware order and refuses (rather than falling back to a different arithmetic
+    order) when it cannot serve the operands. ``auto`` picks the Hopper path when
+    it can serve the contraction and the portable tree otherwise.
+    """
+
+    raw = os.environ.get(_BACKEND_ENV, _AUTO_BACKEND).strip().lower()
+    if raw not in _VALID_BACKENDS:
+        logger.warning(
+            "Unknown %s=%r; falling back to '%s'.", _BACKEND_ENV, raw, _AUTO_BACKEND
+        )
+        return _AUTO_BACKEND
+    return raw
+
+
+def _flatten_leading(t: torch.Tensor) -> torch.Tensor:
+    """``(..., K) -> (rows, K)`` without the ambiguous ``reshape(-1, 0)``."""
+
+    k_dim = t.size(-1)
+    rows = t.numel() // k_dim if k_dim else prod(t.shape[:-1])
+    return t.reshape(rows, k_dim)
+
+
+def _report_route_once(x: torch.Tensor, weight: torch.Tensor) -> None:
+    """Emit this row's route report once per distinct route, in the shape det_gemm uses.
+
+    ``[RL-Kernel][route] mode=... module=mlp_down_gemm requested=... actual=...
+    fallback=... contract=...`` answers the roadmap's operator-trace question
+    (requested backend, actual backend, fallback state) for this row, and names
+    the arithmetic contract the call took -- the two CUDA contracts are
+    different reduction orders, so the contract id, not just the backend name,
+    is what a deployment wants to see.
+
+    The route is operand-dependent (K/N multiples of 8, base alignment), so a
+    single per-process latch could mislabel every later call from the first
+    warmup shape; the line is re-emitted whenever ``(requested, actual,
+    contract)`` changes and suppressed otherwise.
+    """
+
+    global _ROUTE_REPORTED_KEY
+    if torch._dynamo.is_compiling() or not route_report_enabled():
+        return
+    requested = mlp_down_gemm_backend()
+    actual = mlp_down_gemm_backend_used(x, weight)
+    contract = mlp_down_gemm_contract_used(x, weight)
+    key = (requested, actual, contract)
+    with _ROUTE_REPORT_LOCK:
+        if _ROUTE_REPORTED_KEY == key:
+            return
+        _ROUTE_REPORTED_KEY = key
+    fallback = actual == _GENERAL_BACKEND and requested != _GENERAL_BACKEND
+    if fallback:
+        reason = " reason=hopper_path_cannot_serve_these_operands"
+    elif requested == _GENERAL_BACKEND:
+        # A deliberate contract change, not a fallback: the portable tree is a
+        # different (also frozen) arithmetic order.
+        reason = f" reason=general_is_the_portable_tree_contract ({_HOPPER_PIN_HINT})"
+    else:
+        reason = ""
+    print(
+        f"[RL-Kernel][route] mode={rl_kernel_mode().value} module=mlp_down_gemm "
+        f"requested={requested} actual={actual} fallback={str(fallback).lower()}{reason} "
+        f"contract={contract}",
+        flush=True,
+    )
+
+
+def mlp_down_gemm_backend_used(x: torch.Tensor, weight: torch.Tensor) -> str:
+    """Which CUDA path a call with these operands takes: ``"hopper"`` or ``"general"``.
+
+    Together with :func:`mlp_down_gemm_backend` (what was requested) this is the
+    requested/actual backend and fallback state the roadmap's operator-trace work
+    item asks every row to be able to report;
+    :func:`mlp_down_gemm_contract_used` names the arithmetic the path implements.
+    Under a `hopper` pin, an operand set this helper classifies as ``general``
+    makes the call itself fail closed; the helper never raises, so a monitor can
+    still report the route.
+    """
+
+    # The dispatch call flattens x and copies both operands before the gate, so
+    # these helpers must classify the same operands the kernel will see.
+    x2d = _flatten_leading(x).contiguous()
+    w = weight.contiguous()
+    return "hopper" if _sm90_usable(x2d, w, strict=False) else "general"
+
+
+def mlp_down_gemm_contract_used(x: torch.Tensor, weight: torch.Tensor) -> str:
+    """Which arithmetic contract a call with these operands is under.
+
+    ``mlp-down-gemm-mma`` when the Hopper TMA + wgmma kernel serves the
+    contraction (byte-identical to the Triton backend, within the declared
+    tolerance of the fp32 CPU reference), ``mlp-down-gemm-tree`` when the
+    portable fp32 tree kernel does (byte-equal to that reference by
+    construction). The two are different association orders of the same sum, so
+    a consumer that needs a stable contract should pin
+    ``RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper``. Like
+    :func:`mlp_down_gemm_backend_used` this helper classifies without raising
+    under a strict pin.
+    """
+
+    x2d = _flatten_leading(x).contiguous()
+    w = weight.contiguous()
+    return MMA_CONTRACT if _sm90_usable(x2d, w, strict=False) else TREE_CONTRACT
+
+
+def _sm90_usable(x: torch.Tensor, weight: torch.Tensor, *, strict: bool = True) -> bool:
+    """Whether the Hopper path can serve this contraction.
+
+    Requires the 90a entry points, a compute capability 9.0 (Hopper) device, and the
+    operand views the TMA tensor maps and wgmma tiles are built on: bf16 2-D
+    operands with K and N both multiples of 8 elements (the C++ entry enforces the
+    same pair), and 16 B-aligned bases. Anything else runs on the
+    portable tree kernel instead -- which computes a different, also frozen,
+    contract, so request ``auto``/``general`` knowingly, or
+    ``hopper`` to make the change an error.
+
+    ``strict`` carries the ``hopper`` pin's fail-closed contract: the dispatch
+    gate passes ``True`` and raises when the pinned path cannot serve, while the
+    reporting helpers pass ``False`` and classify the operands without raising.
+    """
+
+    requested = mlp_down_gemm_backend()
+    if requested == _GENERAL_BACKEND:
+        return False
+    must_serve = strict and requested == _HOPPER_BACKEND
+    if not sm90_backend_compiled() or not x.is_cuda:
+        if must_serve:
+            raise RuntimeError(
+                "mlp_down_gemm: backend 'hopper' was requested but the extension has no "
+                "Hopper entry points; rebuild with KERNEL_ALIGN_FORCE_SM90=1, or request "
+                "'general' to run the portable fp32-tree path"
+            )
+        return False
+    if x.dtype is not torch.bfloat16 or weight.dtype is not torch.bfloat16:
+        if must_serve:
+            raise RuntimeError("mlp_down_gemm: backend 'hopper' requires bf16 operands")
+        return False
+    hopper_ok = (
+        torch.cuda.get_device_capability(x.device) == (9, 0)
+        # An empty reduction or empty output has no wgmma contraction to order:
+        # the C++ entry returns such an output before any TMA/wgmma launch, and
+        # for K == 0 the portable tree defines the result (zeros or the
+        # broadcast bias), so keep K == 0 and N == 0 off the Hopper path. An
+        # empty row count (M == 0) is returned early by the entry point too, so
+        # either path may serve it.
+        and x.size(-1) > 0
+        and weight.size(0) > 0
+        and x.size(-1) % 8 == 0
+        and weight.size(0) % 8 == 0
+        and x.data_ptr() % 16 == 0
+        and weight.data_ptr() % 16 == 0
+    )
+    if not hopper_ok and must_serve:
+        raise RuntimeError(
+            "mlp_down_gemm: backend 'hopper' needs a compute capability 9.0 (Hopper) device and "
+            "bf16 operands with K and N multiples of 8 elements; it serves the "
+            f"hardware order -- {_HOPPER_PIN_HINT}, or request 'general' "
+            "for the portable fp32-tree path"
+        )
+    return hopper_ok
+
+
+class _MlpDownGemmFunction(torch.autograd.Function):
+    """Forward/backward through the requested contract.
+
+    On a cc 9.0 device with the Hopper entry points built in, the forward, ``dx``
+    and ``dW`` run on the TMA + wgmma kernel; everywhere else they run on the
+    portable fp32 tree kernel. Each path is its own frozen arithmetic order --
+    the Hopper one is byte-identical to the Triton backend, the tree one is
+    byte-equal to the row's fp32 CPU reference -- and ``db``, the ascending-row
+    fp32 left fold, is shared and bit-identical under both. Which contract a call
+    took is reported by :func:`mlp_down_gemm_contract_used`.
+    """
+
+    @staticmethod
+    def forward(  # type: ignore[override]
+        ctx, x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor]
+    ) -> torch.Tensor:
+        x2d = _flatten_leading(x).contiguous()
+        w = weight.contiguous()
+        use_sm90 = _sm90_usable(x2d, w)
+        ctx.use_sm90 = use_sm90
+        # Report from the operands the dispatch actually uses: a raw view can
+        # have a different base alignment than its contiguous copy.
+        _report_route_once(x2d, w)
+        if use_sm90:
+            out = _C.mlp_down_gemm_cuda_forward_sm90(x2d, w, bias)
+        else:
+            out = _C.mlp_down_gemm_cuda_forward(x2d, w, bias)
+        # Save the *contiguous* weight: both backends assume contiguous operand
+        # strides, and the Hopper path's tensor maps are built from the extents.
+        ctx.save_for_backward(x2d, w, bias)
+        ctx.lead_shape = x.shape[:-1]
+        return out.reshape(*ctx.lead_shape, weight.size(0))
+
+    @staticmethod
+    def backward(  # type: ignore[override]
+        ctx, grad_output: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        from rl_engine.ops.autograd.backward_runtime import record_backward
+
+        x2d, weight, bias = ctx.saved_tensors
+        g = _flatten_leading(grad_output)
+        if g.dtype is not torch.bfloat16:
+            # Autograd hands back the forward dtype; anything else (a hand-built
+            # fp32 cotangent) is rounded once before it enters the kernels, which
+            # require bf16. Triton performs the same normalization.
+            g = g.to(torch.bfloat16)
+        g = g.contiguous()
+        if ctx.use_sm90 and g.data_ptr() % 16 != 0:
+            # The Hopper dx/dW entry points need a 16-byte-aligned base, and a
+            # contiguous-but-offset cotangent keeps its offset through
+            # .contiguous(). Give the mma path a fresh allocation instead of
+            # failing mid-backward; the contract stays mma, as in forward.
+            g = g.clone()
+        grad_x: Optional[torch.Tensor] = None
+        grad_w: Optional[torch.Tensor] = None
+        if ctx.needs_input_grad[0]:
+            if ctx.use_sm90:
+                grad_x = _C.mlp_down_gemm_cuda_dx_sm90(g, weight)
+            else:
+                grad_x = _C.mlp_down_gemm_cuda_dx(g, weight)
+            grad_x = grad_x.reshape(*ctx.lead_shape, weight.size(1))
+        if ctx.needs_input_grad[1]:
+            if ctx.use_sm90:
+                grad_w = _C.mlp_down_gemm_cuda_dw_sm90(g, x2d)
+            else:
+                grad_w = _C.mlp_down_gemm_cuda_dw(g, x2d)
+        grad_b: Optional[torch.Tensor] = None
+        if bias is not None and ctx.needs_input_grad[2]:
+            # Ascending-row fp32 fold, shared by both CUDA paths.
+            grad_b = _C.mlp_down_gemm_cuda_db(g).to(bias.dtype)
+        record_backward(
+            "mlp_down_gemm",
+            kernel_id=MMA_CONTRACT if ctx.use_sm90 else TREE_CONTRACT,
+            impl=_HOPPER_IMPL if ctx.use_sm90 else _TREE_IMPL,
+            family="cuda",
+        )
+        return grad_x, grad_w, grad_b
+
+
+class CudaMlpDownGemmOp:
+    """Evaluation backend: bf16 only, two frozen contracts, two paths.
+
+    Which contract a *call* takes is reported by
+    :func:`mlp_down_gemm_contract_used` -- it depends on the build (``_sm90``
+    symbols) and on the device, so the class does not advertise one statically.
+    """
+
+    op_class = "reduction"
+    is_batch_invariant = True  # both paths: verified by the CUDA tests
+
+    @property
+    def backward_impl(self) -> str:
+        """Build/device-capability hint for the arithmetic this backend defaults to.
+
+        The concrete kernel -- and therefore the contract -- is chosen per call
+        from the actual operands (:func:`_sm90_usable`: K/N multiples of 8 and
+        16-byte-aligned bases). This label cannot see those operands, so it must
+        not be read as the contract of a specific call; the per-call contract is
+        reported by ``record_backward`` and :func:`mlp_down_gemm_contract_used`.
+        """
+
+        if mlp_down_gemm_backend() == _GENERAL_BACKEND:
+            return _TREE_IMPL
+        if (
+            sm90_backend_compiled()
+            and torch.cuda.is_available()
+            and torch.cuda.get_device_capability() == (9, 0)
+        ):
+            return _HOPPER_IMPL
+        return _TREE_IMPL
+
+    def __init__(self) -> None:
+        if not cuda_backend_available():
+            raise RuntimeError(
+                "mlp_down_gemm CUDA symbols are not compiled into the extension; rebuild with "
+                "a CUDA toolchain that supports sm_80 or newer; refusing a non-strict fallback."
+            )
+        logger.info(
+            "CudaMlpDownGemmOp ready (portable fp32 tree %s; Hopper wgmma %s when built).",
+            TREE_CONTRACT,
+            MMA_CONTRACT,
+        )
+
+    def __call__(
+        self,
+        x: torch.Tensor,
+        weight: torch.Tensor,
+        *,
+        bias: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        return self.forward(x, weight, bias=bias)
+
+    def _grads_for_test(
+        self, x: torch.Tensor, weight: torch.Tensor, grad_output: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Backward entry used by the byte-equality tests against the spec."""
+
+        x = x.detach().requires_grad_(True)
+        weight = weight.detach().requires_grad_(True)
+        grad_x, grad_weight = torch.autograd.grad(self.forward(x, weight), (x, weight), grad_output)
+        return grad_x, grad_weight
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        weight: torch.Tensor,
+        *,
+        bias: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        if torch.version.hip is not None:
+            raise RuntimeError(
+                "mlp_down_gemm: this CUDA backend has no ROCm build (its kernels are NVIDIA "
+                "PTX); the registry dispatches ROCm to the Triton backend"
+            )
+        if not x.is_cuda or x.device != weight.device:
+            raise ValueError("CudaMlpDownGemmOp requires CUDA tensors on one device")
+        # Both paths are gated to sm_80 and up (the row's validated CUDA support
+        # matrix); below that dispatching would run an unvalidated configuration,
+        # so fail closed instead.
+        if torch.cuda.get_device_capability(x.device)[0] < 8:
+            raise ValueError(
+                "mlp_down_gemm's CUDA backend requires a compute capability >= 8.0 "
+                "(sm80+) device; below that use the PyTorch reference backend"
+            )
+        if x.dtype is not torch.bfloat16 or weight.dtype is not torch.bfloat16:
+            raise ValueError(
+                "mlp_down_gemm's CUDA backend is the model's runtime dtype: bf16 x/weight "
+                f"required, got x={x.dtype}, weight={weight.dtype}"
+            )
+        if x.dim() < 1 or weight.dim() != 2:
+            raise ValueError("mlp_down_gemm expects x [*, K] and weight [N, K]")
+        if bias is not None and (bias.device != x.device or bias.dtype is not torch.bfloat16):
+            raise ValueError("bias must be bf16 on the same device as x")
+        if bias is not None and (bias.dim() != 1 or bias.size(0) != weight.size(0)):
+            raise ValueError("bias must be 1-D with N elements")
+        if x.size(-1) != weight.size(-1):
+            raise ValueError("x K must match weight K")
+        return _MlpDownGemmFunction.apply(x, weight, bias)
