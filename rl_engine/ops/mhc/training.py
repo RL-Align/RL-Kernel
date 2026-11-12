@@ -1,0 +1,287 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Rank-local DSV4 mHC: single-row arithmetic and ordered parameter gradients.
+
+The reference is an explicit CPU diagnostic. ROCm uses the same owned arithmetic
+on-device. This correctness profile does not dispatch into aiter's recompute VJP.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+import torch
+from torch.autograd.function import once_differentiable
+
+from rl_engine.backends.rocm.norm.rmsnorm_residual import supported_device
+from rl_engine.ops.norm.rmsnorm_residual import rmsnorm_residual
+
+PROFILE = "dsv4-p1-row-tree-v1"
+EPS = 1e-6
+N = 4
+
+
+def _sum(x, dim=-1):
+    """Adjacent FP32 pairs, carrying an odd last value without arithmetic."""
+    v = x.movedim(dim, -1)
+    while v.shape[-1] > 1:
+        pairs = v.shape[-1] // 2 * 2
+        s = v[..., :pairs:2] + v[..., 1:pairs:2]
+        v = torch.cat((s, v[..., -1:]), -1) if pairs < v.shape[-1] else s
+    return v.squeeze(-1)
+
+
+def _row_state(residual, fn, scale, base, head, rounds):
+    x = residual.float().reshape(-1)
+    # #662's controller profile: BF16 projection operands and FP32 accumulation.
+    w = fn.bfloat16().float()
+    r = torch.rsqrt(_sum(x * x) / x.numel() + EPS)
+    proj = _sum(w * x) * r
+    return mix_state(r, proj, scale, base, head, rounds)
+
+
+def mix_state(r, proj, scale, base, head, rounds):
+    """Complete a single controller row from its normalized FP32 projection."""
+    if head:
+        s = torch.sigmoid(proj * scale[0] + base)
+        return (r, proj, s)
+    a, b, c = proj.split((4, 4, 16))
+    pre = torch.sigmoid(a * scale[0] + base[:4])
+    post = torch.sigmoid(b * scale[1] + base[4:8])
+    z = (c * scale[2] + base[8:]).reshape(4, 4)
+    tape = []
+    if rounds:
+        exp = torch.exp(z - z.amax(-1, keepdim=True))
+        soft = exp / _sum(exp).unsqueeze(-1)
+        tape.append(soft)
+        z = soft + EPS
+        for step in range(2 * rounds - 1):
+            axis = 0 if step % 2 == 0 else 1
+            denom = _sum(z, axis).unsqueeze(axis) + EPS
+            z = z / denom
+            tape.extend((z, denom))
+    return (r, proj, pre, post, z, *tape)
+
+
+def _outputs(row, state, head):
+    mix = state[2] + EPS
+    h = _sum(mix[:, None] * row.float(), 0).bfloat16()
+    return (h,) if head else (2.0 * state[3], state[4], h)
+
+
+def _row_vjp(row, fn, scale, state, grads, head, rounds, need_fn):
+    r, proj, sig = state[:3]
+    x = row.float()
+    gh = grads[-1].float()
+    dpre = (_sum(x * gh) * sig) * (1.0 - sig)
+    direct = (sig + EPS)[:, None] * gh
+    if head:
+        db = dpre
+        ds = _sum(db * proj).reshape(1)
+        dm = db * scale[0]
+    else:
+        post, z, *tape = state[3:]
+        dp = ((2.0 * grads[0]) * post) * (1.0 - post)
+        dz = grads[1]
+        if rounds:
+            soft = tape[0]
+            for step in reversed(range(2 * rounds - 1)):
+                normalized, denom = tape[1 + 2 * step : 3 + 2 * step]
+                axis = 0 if step % 2 == 0 else 1
+                dz = (dz - _sum(dz * normalized, axis).unsqueeze(axis)) / denom
+            dz = soft * (dz - _sum(dz * soft).unsqueeze(-1))
+        dz = dz.flatten()
+        db = torch.cat((dpre, dp, dz))
+        ds = torch.stack((_sum(dpre * proj[:4]), _sum(dp * proj[4:8]), _sum(dz * proj[8:])))
+        dm = torch.cat((dpre * scale[0], dp * scale[1], dz * scale[2]))
+    flat = x.flatten()
+    dl = dm * r
+    dx = _sum(dl[:, None] * fn.bfloat16().float(), 0)
+    # proj already includes r; d(r)/dx = -x*r^3/K.
+    dx = dx - flat * ((_sum(dm * proj) * (r * r)) / flat.numel())
+    # FP32 master parameter gradient: straight-through derivative of BF16 projection.
+    dw = dl[:, None] * flat if need_fn else None
+    return ((direct + dx.reshape_as(x)).bfloat16(), dw, ds, db)
+
+
+def _check(row, backend):
+    if row.ndim != 3 or row.shape[1] != N or row.shape[2] == 0 or row.dtype != torch.bfloat16:
+        raise ValueError("expected BF16 residual [tokens,4,hidden] with nonzero hidden size")
+    if backend == "reference" and row.device.type == "cpu":
+        return
+    if backend == "rocm" and supported_device(row.device):
+        return
+    if backend == "rocm_aiter" and supported_device(row.device) and row.shape[-1] == 4096:
+        if torch.cuda.get_device_properties(row.device).gcnArchName.split(":")[0] == "gfx942":
+            return
+    raise ValueError(f"unsupported mHC backend, shape or device for {PROFILE}")
+
+
+def _check_aiter_grad(backend, *tensors):
+    # Check at the public entry: autograd.Function.forward itself runs with grad disabled.
+    if (
+        backend == "rocm_aiter"
+        and torch.is_grad_enabled()
+        and any(t.requires_grad for t in tensors)
+    ):
+        raise RuntimeError(
+            "rocm_aiter mHC is forward-only; use backend='rocm' for training "
+            "or torch.no_grad() for a forward comparison"
+        )
+
+
+@lru_cache(maxsize=3)
+def _aiter_op(kind):
+    # Use the public RLK wrappers from #662, including their pinned configuration.
+    try:
+        from rl_engine.backends.rocm.mhc.aiter_mhc import (
+            AiterMHCHeadOp,
+            AiterMHCPostOp,
+            AiterMHCPreOp,
+        )
+    except ImportError as exc:
+        raise RuntimeError("rocm_aiter needs the mHC forward integration from #662") from exc
+    return {"head": AiterMHCHeadOp, "pre": AiterMHCPreOp, "post": AiterMHCPostOp}[kind]()
+
+
+class _Mix(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, rows, fn, scale, base, head, rounds, recompute, backend):
+        _check(rows, backend)
+        nrows = 4 if head else 24
+        for val, shape in (
+            (fn, (nrows, 4 * rows.size(-1))),
+            (scale, (1 if head else 3,)),
+            (base, (nrows,)),
+        ):
+            if val.shape != shape or val.dtype != torch.float32 or val.device != rows.device:
+                raise ValueError(f"expected FP32 parameter {shape} on residual device")
+        if type(rounds) is not int or not 0 <= rounds <= 20:
+            raise ValueError("sinkhorn_repeat must be an integer in [0,20]")
+        ctx.head, ctx.rounds, ctx.recompute = head, rounds, recompute
+        t, _, c = rows.shape
+        h = rows.new_empty((t, c))
+        outs = (h,) if head else (base.new_empty((t, 4)), base.new_empty((t, 4, 4)), h)
+        native = _aiter_op("head" if head else "pre") if backend == "rocm_aiter" else None
+        saved = []
+        for i in range(t):
+            if native is None:
+                state = _row_state(rows[i], fn, scale, base, head, rounds)
+                if not recompute and any(ctx.needs_input_grad[:4]):
+                    saved.extend(state)
+                values = _outputs(rows[i], state, head)
+            else:
+                args = (rows[i : i + 1], fn, scale, base)
+                values = (native(*args),) if head else native(*args, sinkhorn_repeat=rounds)
+                values = tuple(v.squeeze(0) for v in values)
+            for dst, val in zip(outs, values, strict=True):
+                dst[i].copy_(val)
+        if native is None:
+            ctx.save_for_backward(rows, fn, scale, base, *saved)
+        else:
+            ctx.mark_non_differentiable(*outs)
+        return outs[0] if head else outs
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, *grads):
+        rows, fn, scale, base, *saved = ctx.saved_tensors
+        t = rows.size(0)
+        dx = torch.empty_like(rows) if ctx.needs_input_grad[0] else None
+        params = [
+            torch.zeros_like(p) if need else None
+            for p, need in zip((fn, scale, base), ctx.needs_input_grad[1:4], strict=True)
+        ]
+        step = len(saved) // t if t else 0
+        for i in range(t):
+            state = (
+                _row_state(rows[i], fn, scale, base, ctx.head, ctx.rounds)
+                if ctx.recompute
+                else saved[i * step : (i + 1) * step]
+            )
+            dr, *partials = _row_vjp(
+                rows[i],
+                fn,
+                scale,
+                state,
+                [g[i] for g in grads],
+                ctx.head,
+                ctx.rounds,
+                params[0] is not None,
+            )
+            if dx is not None:
+                dx[i].copy_(dr)
+            for total, value in zip(params, partials, strict=True):
+                if total is not None:
+                    total.add_(value)
+        return (dx, *params, None, None, None, None)
+
+
+def mhc_pre(rows, fn, scale, base, *, backend, recompute=False, sinkhorn_repeat=20):
+    _check_aiter_grad(backend, rows, fn, scale, base)
+    return _Mix.apply(rows, fn, scale, base, False, sinkhorn_repeat, recompute, backend)
+
+
+def mhc_head(rows, fn, scale, base, *, backend, recompute=False):
+    _check_aiter_grad(backend, rows, fn, scale, base)
+    return _Mix.apply(rows, fn, scale, base, True, 0, recompute, backend)
+
+
+def _post_row(y, x, post, comb):
+    routed = _sum(comb[:, :, None] * x.float()[:, None, :], 0)
+    return (routed + post[:, None] * y.float()).bfloat16()
+
+
+class _Post(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, y, x, post, comb, backend):
+        out = torch.empty_like(x)
+        native = _aiter_op("post") if backend == "rocm_aiter" else None
+        if native is None:
+            ctx.save_for_backward(y, x, post, comb)
+        else:
+            ctx.mark_non_differentiable(out)
+        for i in range(x.size(0)):
+            if native is None:
+                out[i].copy_(_post_row(y[i], x[i], post[i], comb[i]))
+            else:
+                out[i : i + 1].copy_(
+                    native(y[i : i + 1], x[i : i + 1], post[i : i + 1], comb[i : i + 1])
+                )
+        return out
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad):
+        y, x, post, comb = ctx.saved_tensors
+        g = grad.float()
+        dy = _sum(post[..., None] * g, 1)
+        dx = torch.stack([_sum(comb[:, j, :, None] * g, 1) for j in range(4)], 1)
+        dp = _sum(g * y.float()[:, None, :])
+        dc = torch.stack([_sum(g * x[:, j, None, :].float()) for j in range(4)], 1)
+        return dy.bfloat16(), dx.bfloat16(), dp, dc, None
+
+
+def mhc_post(y, rows, post, comb, *, backend):
+    _check_aiter_grad(backend, y, rows, post, comb)
+    _check(rows, backend)
+    t, _, c = rows.shape
+    for val, shape, dtype in (
+        (y, (t, c), torch.bfloat16),
+        (post, (t, 4), torch.float32),
+        (comb, (t, 4, 4), torch.float32),
+    ):
+        if val.shape != shape or val.dtype != dtype or val.device != rows.device:
+            raise ValueError(f"invalid post input; expected {shape} and {dtype} on residual device")
+    return _Post.apply(y, rows, post, comb, backend)
+
+
+def mhc_pre_norm(rows, fn, scale, base, gamma, *, backend, recompute=False, sinkhorn_repeat=20):
+    """Return mixes, normalized sublayer input, and the separate raw task-5 branch."""
+    _check_aiter_grad(backend, gamma)  # mhc_pre checks the four controller inputs.
+    post, comb, raw = mhc_pre(
+        rows, fn, scale, base, backend=backend, recompute=recompute, sinkhorn_repeat=sinkhorn_repeat
+    )
+    y, residual = rmsnorm_residual(
+        raw, gamma, backend="reference" if backend == "reference" else "rocm", recompute=recompute
+    )
+    return post, comb, y, residual
