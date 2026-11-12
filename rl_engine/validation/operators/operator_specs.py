@@ -67,8 +67,9 @@ OP_SPECS = {
         op_class="reduction",
         gold_path="rl_engine.reference.gemm.mlp_down_gemm.NativeMlpDownGemmOp",
         gold_method="forward_fp32",
+        # The fp32 reference is `gold_path`; it is not a candidate (that would
+        # compare it with itself and count as a backend pass).
         candidate_paths={
-            "pytorch": "rl_engine.reference.gemm.mlp_down_gemm.NativeMlpDownGemmOp",
             "cuda": "rl_engine.backends.cuda.gemm.mlp_down_gemm.CudaMlpDownGemmOp",
             "triton": ("rl_engine.backends.shared.triton.gemm.mlp_down_gemm.TritonMlpDownGemmOp"),
         },

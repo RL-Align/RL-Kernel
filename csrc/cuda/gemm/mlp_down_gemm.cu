@@ -558,8 +558,11 @@ mlp_down_db_fold_wide_kernel(const nv_bf16* __restrict__ grad, float* __restrict
         return;
     }
     const int ntiles = (rows + DB_TR - 1) / DB_TR;
-    // A 16-byte vector read needs the row start to be 8 elements aligned.
-    const bool vec_ok = (cols % 8 == 0) && (n0 % 8 == 0);
+    // A 16-byte vector read needs the row start 8 elements aligned and the base
+    // pointer 16-byte aligned (a contiguous offset view keeps its storage
+    // offset through .contiguous(), so the base is not implied by the strides).
+    const bool vec_ok =
+        (cols % 8 == 0) && (n0 % 8 == 0) && (reinterpret_cast<uintptr_t>(grad) % 16 == 0);
 
     auto load = [&](int t, nv_bf16* buf) {
         const int r0 = t * DB_TR;

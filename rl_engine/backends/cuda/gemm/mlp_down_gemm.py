@@ -273,6 +273,12 @@ class _MlpDownGemmFunction(torch.autograd.Function):
             # require bf16. Triton performs the same normalization.
             g = g.to(torch.bfloat16)
         g = g.contiguous()
+        if ctx.use_sm90 and g.data_ptr() % 16 != 0:
+            # The Hopper dx/dW entry points need a 16-byte-aligned base, and a
+            # contiguous-but-offset cotangent keeps its offset through
+            # .contiguous(). Give the mma path a fresh allocation instead of
+            # failing mid-backward; the contract stays mma, as in forward.
+            g = g.clone()
         grad_x: Optional[torch.Tensor] = None
         grad_w: Optional[torch.Tensor] = None
         if ctx.needs_input_grad[0]:
@@ -312,11 +318,13 @@ class CudaMlpDownGemmOp:
 
     @property
     def backward_impl(self) -> str:
-        """Arithmetic the default route takes on this build and device.
+        """Build/device-capability hint for the arithmetic this backend defaults to.
 
-        The concrete kernel is selected per call (``ctx.use_sm90``); this
-        provenance label reports what that selection resolves to here instead of
-        pinning the tree, which would misreport a Hopper run.
+        The concrete kernel -- and therefore the contract -- is chosen per call
+        from the actual operands (:func:`_sm90_usable`: K/N multiples of 8 and
+        16-byte-aligned bases). This label cannot see those operands, so it must
+        not be read as the contract of a specific call; the per-call contract is
+        reported by ``record_backward`` and :func:`mlp_down_gemm_contract_used`.
         """
 
         if mlp_down_gemm_backend() == _GENERAL_BACKEND:
