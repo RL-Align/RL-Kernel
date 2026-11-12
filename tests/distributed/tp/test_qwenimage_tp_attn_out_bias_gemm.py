@@ -456,22 +456,25 @@ def test_cpu_fma_primitive_matches_scalar_oracle():
 @cuda
 @pytest.mark.parametrize("world", TP_SIZES)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_tiled_tree_against_scalar_fmaf(world, dtype):
-    x, w, _, _, _ = inputs(17, dtype)
+@pytest.mark.parametrize("rows", [17, 1023, 1024, 1025])
+def test_tiled_tree_against_scalar_fmaf(world, dtype, rows):
+    x, w, _, _, _ = inputs(rows, dtype)
     width = HIDDEN // world
     x, w = x[:, :width].float().contiguous(), w[:, :width].float().contiguous()
     actual = _C.qwenimage_attn_out_tree_gemm(x, w)
-    for row, col in ((0, 0), (1, 31), (15, 63), (16, 64), (16, 3071)):
+    for row, col in ((0, 0), (1, 31), (15, 63), (rows - 1, 64), (rows - 1, 3071)):
         expected = scalar_tree(x[row].cpu().tolist(), w[col].cpu().tolist())
         assert equal_bytes(actual[row, col].cpu(), torch.tensor(expected))
 
 
 @cuda
-@pytest.mark.parametrize("rows", [1, 31, 32, 33, 129])
+@pytest.mark.parametrize("rows", [1, 31, 32, 33, 129, 1023, 1024, 1025])
 def test_tiled_weight_fold_tail_against_scalar_fmaf(rows):
     x, _, _, grad, _ = inputs(rows, torch.float32)
-    if rows == 1:
-        x[0, 0], grad[0, 0] = 1e-30, -1e-30
+    if rows in (1, 1025):
+        # A padded FMA after the last row would turn this negative zero positive.
+        x[:, 0], grad[:, 0] = 0.0, 0.0
+        x[-1, 0], grad[-1, 0] = 1e-30, -1e-30
     actual = _C.qwenimage_attn_out_weight_grad(grad, x)
     oracle = scalar_fmaf()
     for n, k in ((0, 0), (15, 63), (16, 64), (3071, 3071)):

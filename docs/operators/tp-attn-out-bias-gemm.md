@@ -122,6 +122,13 @@ The arithmetic contract is `qwenimage-attn-out-tp-tree`:
    key. dW uses an ascending-row FMA left fold; dbias uses the existing
    FP32 addition left fold. Each parameter gradient is converted once.
 
+Calls with fewer than 1024 rows retain the original 16×64 tree-GEMM tile and
+32-row weight-gradient staging. Larger calls use a 32×64 tree-GEMM tile with
+adjacent 2×4 outputs per thread. Their weight-gradient kernel uses a 16×128
+output tile and stages 64 rows at a time. Both layouts preserve the same FMA
+and tree-addition order. Scalar-oracle tests cover 1023, 1024 and 1025 rows
+around the layout boundary.
+
 Accuracy and invariance are separate gates. Small cases compare complete
 outputs and gradients with the independent CPU tree reference. Real layouts
 compare complete outputs and gradients byte for byte against the single-GPU CUDA path, across
