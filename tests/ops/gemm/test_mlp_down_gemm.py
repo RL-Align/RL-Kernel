@@ -681,7 +681,7 @@ class TestCudaPathsAndContracts:
 
         from rl_engine.backends.cuda.gemm import mlp_down_gemm as mod
 
-        monkeypatch.setattr(mod, "_ROUTE_REPORTED", False)
+        monkeypatch.setattr(mod, "_ROUTE_REPORTED_KEY", None)
         monkeypatch.delenv(mod._BACKEND_ENV, raising=False)
         monkeypatch.delenv("RL_KERNEL_ROUTE_REPORT", raising=False)
         x, weight, bias = _inputs(SMALL)
@@ -698,12 +698,40 @@ class TestCudaPathsAndContracts:
         mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
         assert "module=mlp_down_gemm" not in capsys.readouterr().out
 
+    def test_route_report_reemits_when_the_route_changes(self, monkeypatch, capsys):
+        """The route is operand-dependent, so a changed route must be re-reported."""
+
+        from rl_engine.backends.cuda.gemm import mlp_down_gemm as mod
+
+        if not mod.sm90_backend_compiled() or torch.cuda.get_device_capability() != (9, 0):
+            pytest.skip("needs the Hopper path to produce two different routes")
+        monkeypatch.setattr(mod, "_ROUTE_REPORTED_KEY", None)
+        monkeypatch.delenv(mod._BACKEND_ENV, raising=False)
+        monkeypatch.delenv("RL_KERNEL_ROUTE_REPORT", raising=False)
+        x, weight, bias = _inputs(SMALL)
+        mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
+        assert "actual=hopper" in capsys.readouterr().out
+        # N = 3071 is not a multiple of 8, so this call takes the tree.
+        mod.CudaMlpDownGemmOp()(x, weight[:-1].contiguous())
+        second = capsys.readouterr().out
+        assert "actual=general" in second and "contract=mlp-down-gemm-tree" in second
+
+    def test_route_helpers_require_both_operands_bf16(self):
+        """A non-bf16 weight cannot be served by the Hopper entry; classify general."""
+
+        from rl_engine.backends.cuda.gemm import mlp_down_gemm as mod
+
+        x, weight, _ = _inputs(SMALL)
+        fp32_weight = weight.float()
+        assert mod.mlp_down_gemm_backend_used(x, fp32_weight) == "general"
+        assert mod.mlp_down_gemm_contract_used(x, fp32_weight) == mod.TREE_CONTRACT
+
     def test_route_report_names_the_contract_and_the_pin(self, monkeypatch, capsys):
         """A pinned `general` reports the tree contract and how to pin it back."""
 
         from rl_engine.backends.cuda.gemm import mlp_down_gemm as mod
 
-        monkeypatch.setattr(mod, "_ROUTE_REPORTED", False)
+        monkeypatch.setattr(mod, "_ROUTE_REPORTED_KEY", None)
         monkeypatch.setenv(mod._BACKEND_ENV, "general")
         monkeypatch.delenv("RL_KERNEL_ROUTE_REPORT", raising=False)
         x, weight, bias = _inputs(SMALL)

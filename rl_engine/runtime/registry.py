@@ -1060,13 +1060,14 @@ class KernelRegistry:
             )
 
     @staticmethod
-    def _mlp_down_gemm_pinned_backend() -> Optional[OpBackend]:
-        """The row's CUDA-only selector, parsed at the dispatch site.
+    def _mlp_down_gemm_pin() -> Optional[str]:
+        """The row's CUDA-only selector (``hopper``/``general``), parsed at dispatch.
 
         The pin is a property of the CUDA backend, not of the process's default
         device: a process that initializes on CPU can still dispatch this row to
         CUDA through ``get_op(device="cuda")``, and that call must honor the
-        pin too.
+        pin too. Callers use the returned value for both the branch and the
+        diagnostic, so the two cannot disagree.
 
         Unlike the logp rows adjusted by :meth:`_adjust_priority_for_hardware`,
         this row has no arch-gated registry priority: its hardware, dtype and
@@ -1077,9 +1078,7 @@ class KernelRegistry:
         """
 
         pin = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
-        if pin in {"hopper", "general"}:
-            return OpBackend.CUDA_MLP_DOWN_GEMM
-        return None
+        return pin if pin in {"hopper", "general"} else None
 
     def _adjust_priority_for_hardware(self):
         """Adjust CUDA priorities for hardware-gated kernels."""
@@ -1141,9 +1140,8 @@ class KernelRegistry:
 
         platform = self._platform_for_device(device)
         if op_type == "mlp_down_gemm":
-            pinned = self._mlp_down_gemm_pinned_backend()
-            if pinned is not None:
-                pin = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
+            pin = self._mlp_down_gemm_pin()
+            if pin is not None:
                 if platform != "cuda":
                     # `general` on CPU is served by the fp32 reference itself (the
                     # tree contract), so that pair stays valid; every other
@@ -1156,7 +1154,7 @@ class KernelRegistry:
                             "unset the selector for that platform's own backend."
                         )
                 else:
-                    op_instance = self._get_or_create_backend(pinned)
+                    op_instance = self._get_or_create_backend(OpBackend.CUDA_MLP_DOWN_GEMM)
                     if op_instance is None:
                         # The pin names the contract, so an unavailable native
                         # backend must fail closed here with the reason rather

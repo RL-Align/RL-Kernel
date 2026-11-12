@@ -91,7 +91,7 @@ def sm90_backend_compiled() -> bool:
     return _EXT_AVAILABLE and all(hasattr(_C, name) for name in _SM90_SYMBOLS)
 
 
-_ROUTE_REPORTED = False
+_ROUTE_REPORTED_KEY: Optional[tuple[str, str, str]] = None
 _ROUTE_REPORT_LOCK = Lock()
 
 _BACKEND_ENV = "RL_KERNEL_MLP_DOWN_GEMM_BACKEND"
@@ -130,7 +130,7 @@ def _flatten_leading(t: torch.Tensor) -> torch.Tensor:
 
 
 def _report_route_once(x: torch.Tensor, weight: torch.Tensor) -> None:
-    """Emit this row's route report once, in the shape det_gemm uses.
+    """Emit this row's route report once per distinct route, in the shape det_gemm uses.
 
     ``[RL-Kernel][route] mode=... module=mlp_down_gemm requested=... actual=...
     fallback=... contract=...`` answers the roadmap's operator-trace question
@@ -138,18 +138,24 @@ def _report_route_once(x: torch.Tensor, weight: torch.Tensor) -> None:
     the arithmetic contract the call took -- the two CUDA contracts are
     different reduction orders, so the contract id, not just the backend name,
     is what a deployment wants to see.
+
+    The route is operand-dependent (K/N multiples of 8, base alignment), so a
+    single per-process latch could mislabel every later call from the first
+    warmup shape; the line is re-emitted whenever ``(requested, actual,
+    contract)`` changes and suppressed otherwise.
     """
 
-    global _ROUTE_REPORTED
+    global _ROUTE_REPORTED_KEY
     if torch._dynamo.is_compiling() or not route_report_enabled():
         return
-    with _ROUTE_REPORT_LOCK:
-        if _ROUTE_REPORTED:
-            return
-        _ROUTE_REPORTED = True
     requested = mlp_down_gemm_backend()
     actual = mlp_down_gemm_backend_used(x, weight)
     contract = mlp_down_gemm_contract_used(x, weight)
+    key = (requested, actual, contract)
+    with _ROUTE_REPORT_LOCK:
+        if _ROUTE_REPORTED_KEY == key:
+            return
+        _ROUTE_REPORTED_KEY = key
     fallback = actual == _GENERAL_BACKEND and requested != _GENERAL_BACKEND
     if fallback:
         reason = " reason=hopper_path_cannot_serve_these_operands"
@@ -233,7 +239,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor, *, strict: bool = True) 
                 "'general' to run the portable fp32-tree path"
             )
         return False
-    if x.dtype != torch.bfloat16:
+    if x.dtype is not torch.bfloat16 or weight.dtype is not torch.bfloat16:
         if must_serve:
             raise RuntimeError("mlp_down_gemm: backend 'hopper' requires bf16 operands")
         return False
@@ -368,7 +374,7 @@ class CudaMlpDownGemmOp:
         if (
             sm90_backend_compiled()
             and torch.cuda.is_available()
-            and torch.cuda.get_device_capability()[0] == 9
+            and torch.cuda.get_device_capability() == (9, 0)
         ):
             return _HOPPER_IMPL
         return _TREE_IMPL
