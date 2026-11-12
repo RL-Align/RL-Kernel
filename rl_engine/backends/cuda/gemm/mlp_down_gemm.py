@@ -292,7 +292,25 @@ class CudaMlpDownGemmOp:
 
     op_class = "reduction"
     is_batch_invariant = True  # both paths: verified by the CUDA tests
-    backward_impl = _TREE_IMPL
+
+    @property
+    def backward_impl(self) -> str:
+        """Arithmetic the default route takes on this build and device.
+
+        The concrete kernel is selected per call (``ctx.use_sm90``); this
+        provenance label reports what that selection resolves to here instead of
+        pinning the tree, which would misreport a Hopper run.
+        """
+
+        if mlp_down_gemm_backend() == _GENERAL_BACKEND:
+            return _TREE_IMPL
+        if (
+            sm90_backend_compiled()
+            and torch.cuda.is_available()
+            and torch.cuda.get_device_capability()[0] == 9
+        ):
+            return _HOPPER_IMPL
+        return _TREE_IMPL
 
     def __init__(self) -> None:
         if not mma_backend_available():

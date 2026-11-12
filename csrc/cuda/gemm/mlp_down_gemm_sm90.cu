@@ -63,6 +63,7 @@
 #include <mma.h>
 
 #include <cstdint>
+#include <mutex>
 #include <optional>
 
 using nv_bf16 = __nv_bfloat16;
@@ -546,11 +547,15 @@ void launch_wgmma(const nv_bf16* a, const nv_bf16* b, const float* bias, nv_bf16
     const dim3 grid((N + G::TN - 1) / G::TN,
                     ((my_tiles + G::RASTER_GM - 1) / G::RASTER_GM) * G::RASTER_GM);
     auto* kernel = mlp_down_gemm_sm90_kernel<A_MN, B_MN, HAS_BIAS, G>;
-    static bool configured = false;
-    if (!configured) {
-        cudaFuncSetAttribute(kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, G::SMEM_BYTES);
-        configured = true;
-    }
+    static std::once_flag configured;
+    std::call_once(configured, [] {
+        const cudaError_t st = cudaFuncSetAttribute(
+            mlp_down_gemm_sm90_kernel<A_MN, B_MN, HAS_BIAS, G>,
+            cudaFuncAttributeMaxDynamicSharedMemorySize, G::SMEM_BYTES);
+        TORCH_CHECK(st == cudaSuccess,
+                    "mlp_down_gemm_sm90: setting max dynamic smem failed: ",
+                    cudaGetErrorString(st));
+    });
     kernel<<<grid, G::THREADS, G::SMEM_BYTES, stream>>>(tmap_a, tmap_b, bias, out, M, N, K);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }

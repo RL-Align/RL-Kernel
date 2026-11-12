@@ -86,7 +86,7 @@ SMALL = (64, MODEL_K, MODEL_N)  # short token count, the model's K and N
 SHORT_K = (64, 96, MODEL_N)  # below the mma chain length: bit-exactness must hold
 
 
-def _inputs(shape, dtype=torch.bfloat16, seed=0):
+def _inputs(shape, dtype=torch.bfloat16, seed=0, device="cuda"):
     rows, k_dim, n_dim = shape
     gen = torch.Generator().manual_seed(seed)
     # Model-like scales: standard-normal activations and fan-in-normalized
@@ -96,9 +96,9 @@ def _inputs(shape, dtype=torch.bfloat16, seed=0):
     weight = torch.randn(n_dim, k_dim, generator=gen) / (k_dim**0.5)
     bias = torch.randn(n_dim, generator=gen) / (k_dim**0.5)
     return (
-        x.to(dtype).cuda(),
-        weight.to(dtype).cuda(),
-        bias.to(dtype).cuda(),
+        x.to(dtype).to(device),
+        weight.to(dtype).to(device),
+        bias.to(dtype).to(device),
     )
 
 
@@ -225,14 +225,14 @@ class TestReferenceModel:
     # real reduction length (which is what the tree structure depends on).
     @pytest.mark.parametrize("shape", [SMALL, (ANCHOR_TOKENS, MODEL_K, MODEL_N)])
     def test_reference_rows_are_batch_invariant(self, shape):
-        x, weight, bias = _inputs(shape, dtype=torch.float32)
+        x, weight, bias = _inputs(shape, dtype=torch.float32, device="cpu")
         full = mlp_down_gemm_reference_forward(x, weight, bias)
         for rows in (1, 7, x.shape[0] // 2):
             part = mlp_down_gemm_reference_forward(x[:rows].contiguous(), weight, bias)
             assert torch.equal(part, full[:rows])
 
     def test_gold_op_dtype_paths_agree(self):
-        x, weight, bias = _inputs(SMALL, dtype=torch.float32)
+        x, weight, bias = _inputs(SMALL, dtype=torch.float32, device="cpu")
         op = NativeMlpDownGemmOp()
         assert torch.equal(
             op.forward_fp32(x, weight, bias=bias), mlp_down_gemm_reference_forward(x, weight, bias)
@@ -721,11 +721,12 @@ class TestCudaPathsAndContracts:
     def test_rocm_dispatch_uses_triton(self, monkeypatch):
         """On a ROCm torch the registry resolves this row to the Triton backend."""
 
+        pytest.importorskip("triton")
         from rl_engine.runtime.registry import kernel_registry
 
         monkeypatch.setattr(torch.version, "hip", "6.0.0")
         op = kernel_registry.get_op("mlp_down_gemm", device=torch.device("cuda"))
-        assert type(op).__name__ in ("TritonMlpDownGemmOp", "NativeMlpDownGemmOp")
+        assert type(op).__name__ == "TritonMlpDownGemmOp"
 
     def test_cuda_op_fails_closed_on_rocm(self, monkeypatch):
         """The CUDA op must refuse on ROCm rather than reach for absent symbols."""
@@ -1073,7 +1074,17 @@ class TestIntegration:
         assert type(cpu_op).__name__ == "NativeMlpDownGemmOp"
         if torch.cuda.is_available():
             cuda_op = kernel_registry.get_op("mlp_down_gemm", device=torch.device("cuda"))
-            assert type(cuda_op).__name__ in ("TritonMlpDownGemmOp", "CudaMlpDownGemmOp")
+            # Assert the routing guarantee, not "one of the two": when Triton is
+            # importable the registry must resolve CUDA to it, and only a build
+            # without Triton may fall back to the native kernel.
+            import importlib.util
+
+            expected = (
+                "TritonMlpDownGemmOp"
+                if importlib.util.find_spec("triton") is not None
+                else "CudaMlpDownGemmOp"
+            )
+            assert type(cuda_op).__name__ == expected
             # The native kernel must stay loadable as the fallback path.
             from rl_engine.backends.cuda.gemm.mlp_down_gemm import CudaMlpDownGemmOp
 
@@ -1171,6 +1182,7 @@ class TestIntegration:
         with pytest.raises((ValueError, RuntimeError)):
             CudaMlpDownGemmOp()(x, weight, bias=bias[:-1].contiguous())
 
+    @CUDA
     def test_fail_closed_on_non_cuda_device(self):
         from rl_engine.backends.cuda.gemm.mlp_down_gemm import CudaMlpDownGemmOp
 

@@ -62,6 +62,7 @@
 #include <cuda_runtime.h>
 
 #include <cstdint>
+#include <mutex>
 #include <optional>
 
 namespace {
@@ -722,6 +723,7 @@ torch::Tensor mlp_down_gemm_cuda_dw(torch::Tensor g, torch::Tensor x) {
 torch::Tensor mlp_down_gemm_cuda_db(torch::Tensor grad) {
     const c10::cuda::CUDAGuard guard(grad.device());
     TORCH_CHECK(grad.is_cuda(), "grad must be a CUDA tensor");
+    TORCH_CHECK(mlp_tree_device_ok(), kMlpTreeNeedsSm80);
     TORCH_CHECK(grad.scalar_type() == at::kBFloat16, "mlp_down_gemm_cuda_db requires bf16 operands");
     const int64_t cols = grad.size(-1);
     auto db = torch::empty({cols}, grad.options().dtype(at::kFloat));
@@ -738,12 +740,14 @@ torch::Tensor mlp_down_gemm_cuda_db(torch::Tensor grad) {
     auto gc = grad.contiguous();
     const int blocks = static_cast<int>((cols + DB_CT - 1) / DB_CT);
     const int smem = 2 * DB_TR * DB_CT * static_cast<int>(sizeof(nv_bf16));
-    static bool configured = false;
-    if (!configured) {
-        cudaFuncSetAttribute(mlp_down_db_fold_wide_kernel,
-                             cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
-        configured = true;
-    }
+    static std::once_flag configured;
+    std::call_once(configured, [smem] {
+        const cudaError_t st = cudaFuncSetAttribute(
+            mlp_down_db_fold_wide_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+        TORCH_CHECK(st == cudaSuccess,
+                    "mlp_down_gemm_cuda_db: setting max dynamic smem failed: ",
+                    cudaGetErrorString(st));
+    });
     mlp_down_db_fold_wide_kernel<<<blocks, DB_THREADS, smem, at::cuda::getCurrentCUDAStream()>>>(
         reinterpret_cast<const nv_bf16*>(gc.data_ptr<at::BFloat16>()), db.data_ptr<float>(),
         static_cast<int>(rows), static_cast<int>(cols));

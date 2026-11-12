@@ -1021,6 +1021,21 @@ class KernelRegistry:
                 rocm_attn_backend,
             )
 
+        # The MLP down row's contract selector (auto/hopper/general) lives in the
+        # CUDA backend, but CUDA dispatch tries Triton first. Without this
+        # override the pinned backend would never be entered on a Triton-capable
+        # box, so a deployment could not actually force the frozen tree contract
+        # (general) or refuse the tree fallback (hopper).
+        mlp_down_backend = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
+        if mlp_down_backend in {"hopper", "general"}:
+            self._priority_map["cuda"]["mlp_down_gemm"] = [OpBackend.CUDA_MLP_DOWN_GEMM]
+        elif mlp_down_backend not in {"", "auto"}:
+            logger.warning(
+                "Unknown RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s; using the default "
+                "Triton-first CUDA priority.",
+                mlp_down_backend,
+            )
+
     def _adjust_priority_for_hardware(self):
         """Adjust CUDA priorities for hardware-gated kernels."""
 

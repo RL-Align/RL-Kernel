@@ -61,8 +61,8 @@ except ImportError:  # pragma: no cover - environment without Triton
     _HAS_TRITON = False
 
 
-def _hopper_backend():
-    """The Hopper (``mlp-down-gemm-mma``) CUDA backend, or ``None`` if unusable.
+def _hopper_available() -> bool:
+    """Whether this build and device can run the ``mlp-down-gemm-mma`` path.
 
     The byte-equality claim is about the *hardware-order* contract: Triton and
     the Hopper TMA + wgmma kernel are two implementations of it. The portable
@@ -73,20 +73,30 @@ def _hopper_backend():
 
     try:
         from rl_engine.backends.cuda.gemm.mlp_down_gemm import (
-            CudaMlpDownGemmOp,
             mma_backend_available,
             sm90_backend_compiled,
         )
     except ImportError:  # pragma: no cover - no CUDA backend in this build
-        return None
+        return False
     if not (mma_backend_available() and sm90_backend_compiled()):
-        return None
-    if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 9:
-        return None
+        return False
+    return bool(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9)
+
+
+def _hopper_op():
+    """Construct the Hopper-path CUDA backend.
+
+    The contract is resolved per call from ``RL_KERNEL_MLP_DOWN_GEMM_BACKEND``,
+    so the instance is built *inside* ``_pinned("hopper")`` rather than at import
+    time; that keeps the pin between construction and the byte comparisons.
+    """
+
+    from rl_engine.backends.cuda.gemm.mlp_down_gemm import CudaMlpDownGemmOp
+
     return CudaMlpDownGemmOp()
 
 
-_HOPPER_BACKEND = _hopper_backend()
+_HOPPER_AVAILABLE = _hopper_available()
 _HOPPER_REASON = (
     "the Hopper mlp-down-gemm-mma path needs KERNEL_ALIGN_FORCE_SM90=1 and a cc 9.0 device"
 )
@@ -95,7 +105,7 @@ pytestmark = pytest.mark.skipif(
     not (_HAS_TRITON and torch.cuda.is_available()),
     reason="the Triton mlp_down_gemm backend needs Triton and a CUDA GPU",
 )
-BYTE_EXACT = pytest.mark.skipif(_HOPPER_BACKEND is None, reason=_HOPPER_REASON)
+BYTE_EXACT = pytest.mark.skipif(not _HOPPER_AVAILABLE, reason=_HOPPER_REASON)
 
 
 @contextmanager
@@ -685,17 +695,17 @@ class TestCudaByteEquality:
         x, weight, bias = _inputs((rows, MODEL_K, MODEL_N), seed=5)
         got = TritonMlpDownGemmOp()(x, weight, bias=bias)
         with _pinned("hopper"):
-            want = _HOPPER_BACKEND(x, weight, bias=bias)
+            want = _hopper_op()(x, weight, bias=bias)
         _assert_same_bytes(got, want, f"forward rows={rows}")
 
     def test_forward_bytes_equal_without_bias_and_at_small_k(self):
         x, weight, bias = _inputs((33, MODEL_K, MODEL_N), seed=6)
         got = TritonMlpDownGemmOp()(x, weight, bias=bias)
         with _pinned("hopper"):
-            want = _HOPPER_BACKEND(x, weight, bias=bias)
+            want = _hopper_op()(x, weight, bias=bias)
         _assert_same_bytes(got, want, "forward K=128")
         with _pinned("hopper"):
-            want_nobias = _HOPPER_BACKEND(x, weight)
+            want_nobias = _hopper_op()(x, weight)
         _assert_same_bytes(TritonMlpDownGemmOp()(x, weight), want_nobias, "forward no bias")
 
     @pytest.mark.parametrize("rows", [7, 129, *REF_TOKENS])
@@ -705,7 +715,7 @@ class TestCudaByteEquality:
         grad = (grad / (MODEL_N**0.5)).to(torch.bfloat16).cuda()
         got_dx, got_dw, got_db = _grads(TritonMlpDownGemmOp(), x, weight, bias, grad)
         with _pinned("hopper"):
-            want_dx, want_dw, want_db = _grads(_HOPPER_BACKEND, x, weight, bias, grad)
+            want_dx, want_dw, want_db = _grads(_hopper_op(), x, weight, bias, grad)
         _assert_same_bytes(got_dx, want_dx, f"dx rows={rows}")
         _assert_same_bytes(got_dw, want_dw, f"dW rows={rows}")
         _assert_same_bytes(got_db, want_db, f"db rows={rows}")
@@ -714,7 +724,7 @@ class TestCudaByteEquality:
         x, weight, bias = _inputs(IMG_MLP_DOWN_SHAPE, seed=8)
         got = TritonMlpDownGemmOp()(x, weight, bias=bias)
         with _pinned("hopper"):
-            want = _HOPPER_BACKEND(x, weight, bias=bias)
+            want = _hopper_op()(x, weight, bias=bias)
         _assert_same_bytes(got, want, "forward 4096x12288x3072")
 
     def test_the_hopper_path_is_the_mma_contract(self):
