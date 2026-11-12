@@ -88,6 +88,10 @@ def _deviation(got: torch.Tensor, ref: torch.Tensor) -> tuple[float, float, floa
     ref_b = ref_bf16.float().cpu()
     ref_32 = ref.float().cpu()
     identical = float((got_f == ref_b).float().mean())
+    # The declared bound is an absolute error in ulps of the largest reference
+    # magnitude ("worst <= 8 bf16-ulp of max|reference|", see the operator
+    # page), not a per-element relative error: keep the normalizer global so the
+    # reported metric is the published contract.
     ulp = BF16_ULP * ref_32.abs().max().clamp_min(1e-12)
     return (
         identical,
@@ -277,8 +281,8 @@ def main() -> None:
     if reduced:
         report.append(
             f"note: timing uses {timed_rows} of {rows} rows; the fp64-emulated reference "
-            "is not timed at the model shape (its cost is linear in rows), and its "
-            "TFLOP/s columns are suppressed because launch overhead dominates here."
+            "is not timed at the model shape (its cost is linear in rows), so its "
+            "TFLOP/s columns are suppressed as not comparable to a full-shape row."
         )
     report.append("")
     print("\n".join(report))
