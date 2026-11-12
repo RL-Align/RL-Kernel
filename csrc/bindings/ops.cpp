@@ -446,6 +446,38 @@ std::vector<torch::Tensor> deterministic_attention_backward(
     double scale,
     torch::optional<torch::Tensor> key_padding_mask);
 
+// Joint-attention online softmax (issue #386)
+#if defined(KERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX)
+std::vector<torch::Tensor> joint_attn_softmax_build_key_mapping(
+    torch::Tensor key_padding_mask);
+torch::Tensor joint_attn_softmax_forward(
+    torch::Tensor scores,
+    torch::optional<torch::Tensor> logical_to_physical,
+    torch::optional<torch::Tensor> valid_key_counts,
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout);
+torch::Tensor joint_attn_softmax_forward_fp32(
+    torch::Tensor scores,
+    torch::optional<torch::Tensor> logical_to_physical,
+    torch::optional<torch::Tensor> valid_key_counts,
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout);
+std::vector<torch::Tensor> joint_attn_softmax_forward_with_state(
+    torch::Tensor scores,
+    torch::optional<torch::Tensor> logical_to_physical,
+    torch::optional<torch::Tensor> valid_key_counts,
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout);
+torch::Tensor joint_attn_softmax_backward(
+    torch::Tensor probabilities,
+    torch::Tensor grad_probabilities,
+    bool output_bf16,
+    torch::optional<torch::Tensor> logical_to_physical,
+    torch::optional<torch::Tensor> valid_key_counts,
+    int64_t rows_per_batch,
+    bool assume_valid_key_layout);
+#endif
+
 #if defined(KERNEL_ALIGN_WITH_ROCM)
 torch::Tensor deterministic_rope_apply_rocm(
     torch::Tensor x,
@@ -764,6 +796,170 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "deterministic_attention_backward",
         &deterministic_attention_backward,
         "Deterministic standard softmax attention backward (dQ, dK, dV)");
+#if defined(KERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX)
+    const auto checked_joint_attn_softmax_forward = [](
+        torch::Tensor scores,
+        torch::optional<torch::Tensor> logical_to_physical,
+        torch::optional<torch::Tensor> valid_key_counts,
+        int64_t rows_per_batch) {
+      return joint_attn_softmax_forward(
+          scores,
+          logical_to_physical,
+          valid_key_counts,
+          rows_per_batch,
+          false);
+    };
+    const auto checked_joint_attn_softmax_forward_fp32 = [](
+        torch::Tensor scores,
+        torch::optional<torch::Tensor> logical_to_physical,
+        torch::optional<torch::Tensor> valid_key_counts,
+        int64_t rows_per_batch) {
+      return joint_attn_softmax_forward_fp32(
+          scores,
+          logical_to_physical,
+          valid_key_counts,
+          rows_per_batch,
+          false);
+    };
+    const auto checked_joint_attn_softmax_forward_with_state = [](
+        torch::Tensor scores,
+        torch::optional<torch::Tensor> logical_to_physical,
+        torch::optional<torch::Tensor> valid_key_counts,
+        int64_t rows_per_batch) {
+      return joint_attn_softmax_forward_with_state(
+          scores,
+          logical_to_physical,
+          valid_key_counts,
+          rows_per_batch,
+          false);
+    };
+    const auto checked_joint_attn_softmax_backward = [](
+        torch::Tensor probabilities,
+        torch::Tensor grad_probabilities,
+        bool output_bf16,
+        torch::optional<torch::Tensor> logical_to_physical,
+        torch::optional<torch::Tensor> valid_key_counts,
+        int64_t rows_per_batch) {
+      return joint_attn_softmax_backward(
+          probabilities,
+          grad_probabilities,
+          output_bf16,
+          logical_to_physical,
+          valid_key_counts,
+          rows_per_batch,
+          false);
+    };
+    const auto trusted_joint_attn_softmax_forward = [](
+        torch::Tensor scores,
+        torch::Tensor logical_to_physical,
+        torch::Tensor valid_key_counts,
+        int64_t rows_per_batch) {
+      return joint_attn_softmax_forward(
+          scores,
+          logical_to_physical,
+          valid_key_counts,
+          rows_per_batch,
+          true);
+    };
+    const auto trusted_joint_attn_softmax_forward_fp32 = [](
+        torch::Tensor scores,
+        torch::Tensor logical_to_physical,
+        torch::Tensor valid_key_counts,
+        int64_t rows_per_batch) {
+      return joint_attn_softmax_forward_fp32(
+          scores,
+          logical_to_physical,
+          valid_key_counts,
+          rows_per_batch,
+          true);
+    };
+    const auto trusted_joint_attn_softmax_forward_with_state = [](
+        torch::Tensor scores,
+        torch::Tensor logical_to_physical,
+        torch::Tensor valid_key_counts,
+        int64_t rows_per_batch) {
+      return joint_attn_softmax_forward_with_state(
+          scores,
+          logical_to_physical,
+          valid_key_counts,
+          rows_per_batch,
+          true);
+    };
+    const auto trusted_joint_attn_softmax_backward = [](
+        torch::Tensor probabilities,
+        torch::Tensor grad_probabilities,
+        bool output_bf16,
+        torch::Tensor logical_to_physical,
+        torch::Tensor valid_key_counts,
+        int64_t rows_per_batch) {
+      return joint_attn_softmax_backward(
+          probabilities,
+          grad_probabilities,
+          output_bf16,
+          logical_to_physical,
+          valid_key_counts,
+          rows_per_batch,
+          true);
+    };
+    m.def(
+        "joint_attn_softmax_build_key_mapping",
+        &joint_attn_softmax_build_key_mapping,
+        "Build the joint-attention logical-to-physical key mapping");
+    m.def(
+        "joint_attn_softmax_forward",
+        checked_joint_attn_softmax_forward,
+        "Checked joint-attention online softmax forward with one final dtype cast",
+        py::arg("scores"),
+        py::arg("logical_to_physical") = py::none(),
+        py::arg("valid_key_counts") = py::none(),
+        py::arg("rows_per_batch") = 1);
+    m.def(
+        "joint_attn_softmax_forward_fp32",
+        checked_joint_attn_softmax_forward_fp32,
+        "Checked joint-attention online softmax forward with FP32 output",
+        py::arg("scores"),
+        py::arg("logical_to_physical") = py::none(),
+        py::arg("valid_key_counts") = py::none(),
+        py::arg("rows_per_batch") = 1);
+    m.def(
+        "joint_attn_softmax_forward_with_state",
+        checked_joint_attn_softmax_forward_with_state,
+        "Checked joint-attention online softmax forward with saved FP32 "
+        "probabilities",
+        py::arg("scores"),
+        py::arg("logical_to_physical") = py::none(),
+        py::arg("valid_key_counts") = py::none(),
+        py::arg("rows_per_batch") = 1);
+    m.def(
+        "joint_attn_softmax_backward",
+        checked_joint_attn_softmax_backward,
+        "Checked joint-attention online softmax backward with a final dtype cast",
+        py::arg("probabilities"),
+        py::arg("grad_probabilities"),
+        py::arg("output_bf16"),
+        py::arg("logical_to_physical") = py::none(),
+        py::arg("valid_key_counts") = py::none(),
+        py::arg("rows_per_batch") = 1);
+    m.def(
+        "_joint_attn_softmax_forward_trusted",
+        trusted_joint_attn_softmax_forward,
+        "Internal forward for mappings returned by joint_attn_softmax_build_key_mapping");
+    m.def(
+        "_joint_attn_softmax_forward_fp32_trusted",
+        trusted_joint_attn_softmax_forward_fp32,
+        "Internal FP32 forward for mappings returned by "
+        "joint_attn_softmax_build_key_mapping");
+    m.def(
+        "_joint_attn_softmax_forward_with_state_trusted",
+        trusted_joint_attn_softmax_forward_with_state,
+        "Internal stateful forward for mappings returned by "
+        "joint_attn_softmax_build_key_mapping");
+    m.def(
+        "_joint_attn_softmax_backward_trusted",
+        trusted_joint_attn_softmax_backward,
+        "Internal backward for mappings returned by "
+        "joint_attn_softmax_build_key_mapping");
+#endif
 #if defined(KERNEL_ALIGN_WITH_ROCM)
     m.def(
         "deterministic_rope_apply_rocm",
