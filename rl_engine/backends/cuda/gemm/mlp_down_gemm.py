@@ -114,7 +114,10 @@ def mlp_down_gemm_backend() -> str:
 
     raw = os.environ.get(_BACKEND_ENV, _AUTO_BACKEND).strip().lower()
     if raw not in _VALID_BACKENDS:
-        raise ValueError(f"{_BACKEND_ENV} must be one of {_VALID_BACKENDS}; got {raw!r}")
+        logger.warning(
+            "Unknown %s=%r; falling back to '%s'.", _BACKEND_ENV, raw, _AUTO_BACKEND
+        )
+        return _AUTO_BACKEND
     return raw
 
 

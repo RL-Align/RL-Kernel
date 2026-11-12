@@ -79,8 +79,10 @@ instead of silently running an SGEMM-shaped path.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from math import prod
+from threading import Lock
 from typing import Optional
 
 import torch
@@ -96,6 +98,7 @@ except ImportError:  # pragma: no cover - environment without Triton
     _TRITON_AVAILABLE = False
 
 from rl_engine.ops.autograd.backward_runtime import record_backward
+from rl_engine.runtime.policy import rl_kernel_mode, route_report_enabled
 from rl_engine.utils.logger import logger
 
 # The row contract this backend implements (shared with the CUDA backend).
@@ -476,6 +479,37 @@ def _flatten_leading(t: torch.Tensor) -> torch.Tensor:
     return t.reshape(rows, k_dim)
 
 
+_BACKEND_ENV = "RL_KERNEL_MLP_DOWN_GEMM_BACKEND"
+_ROUTE_REPORTED = False
+_ROUTE_REPORT_LOCK = Lock()
+
+
+def _requested_backend() -> str:
+    raw = os.environ.get(_BACKEND_ENV, "auto").strip().lower()
+    if raw not in ("auto", "hopper", "general"):
+        logger.warning("Unknown %s=%r; using 'auto'.", _BACKEND_ENV, raw)
+        return "auto"
+    return raw
+
+
+def _report_route_once() -> None:
+    """Emit the row's route line for the default Triton path, once per process."""
+
+    global _ROUTE_REPORTED
+    if torch._dynamo.is_compiling() or not route_report_enabled():
+        return
+    with _ROUTE_REPORT_LOCK:
+        if _ROUTE_REPORTED:
+            return
+        _ROUTE_REPORTED = True
+    print(
+        f"[RL-Kernel][route] mode={rl_kernel_mode().value} module=mlp_down_gemm "
+        f"requested={_requested_backend()} actual=triton fallback=false "
+        f"contract={MLP_DOWN_GEMM_CONTRACT}",
+        flush=True,
+    )
+
+
 class _TritonMlpDownGemmFunction(torch.autograd.Function):
     """Forward/backward through the pinned Triton tiles."""
 
@@ -560,6 +594,7 @@ class TritonMlpDownGemmOp:
     ) -> torch.Tensor:
         _require_2d_bf16(x, weight)
         _check_bias(x, weight, bias)
+        _report_route_once()
         return _TritonMlpDownGemmFunction.apply(x, weight, bias)
 
     def _grads_for_test(

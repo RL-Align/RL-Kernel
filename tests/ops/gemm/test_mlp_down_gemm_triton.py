@@ -586,7 +586,7 @@ class TestBackward:
         _assert_identical_tolerance(dx, ref_dx, f"dx {shape}")
         _assert_identical_tolerance(dw, ref_dw, f"dW {shape}")
         assert db.dtype is torch.bfloat16
-        assert torch.allclose(db.float().cpu(), ref_db, atol=1e-2, rtol=1e-2)
+        assert torch.equal(db, ref_db.to(torch.bfloat16).cuda())
 
     @pytest.mark.parametrize("rows", [REF_TOKENS[1], REF_TOKENS[2]])
     def test_backward_at_the_reference_shapes(self, rows):
@@ -744,3 +744,21 @@ class TestCudaByteEquality:
         with _pinned("hopper"):
             assert mlp_down_gemm_backend_used(x, weight) == "hopper"
             assert mlp_down_gemm_contract_used(x, weight) == MMA_CONTRACT
+
+
+def test_route_report_is_emitted_once(monkeypatch, capsys):
+    """The default Triton path emits the same route line the CUDA path does."""
+
+    from rl_engine.backends.shared.triton.gemm import mlp_down_gemm as mod
+
+    monkeypatch.setattr(mod, "_ROUTE_REPORTED", False)
+    monkeypatch.delenv(mod._BACKEND_ENV, raising=False)
+    monkeypatch.delenv("RL_KERNEL_ROUTE_REPORT", raising=False)
+    x, weight, bias = _inputs(SMALL)
+    mod.TritonMlpDownGemmOp()(x, weight, bias=bias)
+    first = capsys.readouterr().out
+    assert "module=mlp_down_gemm" in first
+    assert "actual=triton" in first
+    assert f"contract={mod.MLP_DOWN_GEMM_CONTRACT}" in first
+    mod.TritonMlpDownGemmOp()(x, weight, bias=bias)
+    assert "module=mlp_down_gemm" not in capsys.readouterr().out
