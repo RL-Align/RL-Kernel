@@ -153,7 +153,7 @@ def megatron_model_args(model: dict[str, Any]) -> list[str]:
         ("rotary-base", "rope_theta"),
     ):
         args.extend((f"--{flag}", str(model[key])))
-    if not model["tie_word_embeddings"]:
+    if not model.get("tie_word_embeddings", False):
         args.append("--untie-embeddings-and-output-weights")
     return args
 

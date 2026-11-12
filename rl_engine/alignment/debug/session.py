@@ -130,11 +130,12 @@ def run_debug(paths: Any, profile: dict[str, Any], args: Any, *, adapter: Any) -
                 if (root / "matrix-report.json").is_file()
                 else {}
             )
+            previous_results = {item["group"]: item for item in existing.get("groups", [])}
             completed_groups = {
-                item["group"]
-                for item in existing.get("groups", [])
+                group
+                for group, item in previous_results.items()
                 if item.get("process_returncode", 0) == 0
-                and item.get("report", {}).get("status") != "not_comparable"
+                and item.get("report", {}).get("status") in {"equal", "diverged"}
             }
             run_id = root.name
             print(
@@ -150,7 +151,7 @@ def run_debug(paths: Any, profile: dict[str, Any], args: Any, *, adapter: Any) -
             root.mkdir(parents=True)
             replay = root / "frozen-replay.json"
             replay.write_text(json.dumps(batch, indent=2) + "\n", encoding="utf-8")
-            existing = {}
+            previous_results = {}
             completed_groups = set()
         debug_profile = copy.deepcopy(profile)
         repro._validate_topology_args(args)
@@ -170,10 +171,22 @@ def run_debug(paths: Any, profile: dict[str, Any], args: Any, *, adapter: Any) -
                 "preflight failed; fix the required checks above before launching GPU jobs"
             )
         replicas = 8 // (args.tp_size * args.cp_size)
-        results = list(existing.get("groups", []))
+        results = [
+            previous_results[group] for group in previous_results if group in completed_groups
+        ]
         if results:
             print(f"[resume] skipping {','.join(sorted(completed_groups))}", flush=True)
         groups = [group for group in groups if group not in completed_groups]
+        completed_reports = {item["group"]: item["report"]["status"] for item in results}
+        original_status = completed_reports.get(baseline)
+        if args.matrix in {"auto", "attribute"} and original_status == "equal":
+            groups = []
+        elif (
+            args.matrix == "auto"
+            and original_status == "diverged"
+            and completed_reports.get("M111") == "equal"
+        ):
+            groups = []
         for group in groups:
             run_args = copy.copy(args)
             run_args.command = "run"
@@ -182,6 +195,12 @@ def run_debug(paths: Any, profile: dict[str, Any], args: Any, *, adapter: Any) -
             run_args.kl_coef = 0.0  # no reference forward mixed into the policy trace
             run_args.wait = True
             run_args.run_id = f"{run_id}-{group}"
+            # Launchers require a fresh directory. Preserve every failed
+            # attempt and keep its snapshots out of the new comparison.
+            retry = 0
+            while resumed and (paths.output_root / run_args.run_id).exists():
+                retry += 1
+                run_args.run_id = f"{run_id}-{group}-retry{retry}"
             run_args.max_response_len = len(batch["tokens"]) - batch["prompt_length"]
             env = os.environ.copy()
             env.update(
@@ -229,7 +248,8 @@ def run_debug(paths: Any, profile: dict[str, Any], args: Any, *, adapter: Any) -
             if args.dry_run:
                 print(f"{group}: {run_dir}")
                 continue
-            log_path = root / f"{group}.log"
+            log_name = run_args.run_id.removeprefix(f"{run_id}-")
+            log_path = root / f"{log_name}.log"
             print(f"[run] {group} started; log={log_path}", flush=True)
             # Keep framework startup noise in a file, while the terminal shows
             # semantic progress and actionable results.
@@ -245,7 +265,10 @@ def run_debug(paths: Any, profile: dict[str, Any], args: Any, *, adapter: Any) -
                 "report": report,
                 **progress,
             }
-            apply_evidence_gates(result, results[0]["report"] if results else None)
+            reference = next(
+                (item["report"] for item in results if item["group"] == baseline), None
+            )
+            apply_evidence_gates(result, reference if group != baseline else None)
             results.append(result)
             save_report(root / f"{group}.report.json", report)
             print_report(report, label=group)
@@ -274,6 +297,11 @@ def run_debug(paths: Any, profile: dict[str, Any], args: Any, *, adapter: Any) -
                     if target in groups[index:]:
                         groups.remove(target)
                         groups.insert(index, target)
+        # Manual matrices may execute the original baseline after other arms.
+        # Recheck every arm once the actual baseline evidence is available.
+        apply_matrix_evidence_gates(results, baseline)
+        for result in results:
+            save_report(root / f"{result['group']}.report.json", result["report"])
         summary = {
             "schema_version": "rlkernel.debug_matrix_report.v2",
             "adapter": adapter.name,
@@ -328,27 +356,36 @@ def run_debug(paths: Any, profile: dict[str, Any], args: Any, *, adapter: Any) -
         raise repro.ReproError(str(exc)) from exc
 
 
+def apply_matrix_evidence_gates(results: list[dict[str, Any]], baseline: str | None) -> None:
+    """Gate arms against the declared baseline regardless of execution order."""
+    reference = next((item["report"] for item in results if item["group"] == baseline), None)
+    for item in results:
+        apply_evidence_gates(item, reference if item["group"] != baseline else None)
+
+
 def apply_evidence_gates(result: dict[str, Any], baseline: dict[str, Any] | None) -> None:
     """Identical live/offline gates, including process failures after capture."""
     report = result["report"]
+    errors = []
     if baseline:
         for key in ("runtime_identity", "model_weights"):
             if report.get(key) != baseline.get(key):
-                report["errors"].append(f"cross-arm {key} changed")
+                errors.append(f"cross-arm {key} changed")
         if report.get("output_head", {}).get("weight_fingerprints") != baseline.get(
             "output_head", {}
         ).get("weight_fingerprints"):
-            report["errors"].append("cross-arm output head weights changed")
+            errors.append("cross-arm output head weights changed")
     code = result.get("process_returncode")
     report["execution"] = {"process_returncode": code, "log": result.get("log")}
     summary_path = Path(result["run_dir"]) / "single-arm-summary.json"
     arm_summary = json.loads(summary_path.read_text()) if summary_path.is_file() else {}
     if arm_summary.get("frozen_sources_match") is False:
-        report["errors"].append("frozen source fingerprint changed during capture")
+        errors.append("frozen source fingerprint changed during capture")
     if code:
         completed = arm_summary.get("launcher_returncode") == 0
         if not completed:
-            report["errors"].insert(0, f"capture process exited with {code}")
+            errors.insert(0, f"capture process exited with {code}")
+    report["errors"] = list(dict.fromkeys([*errors, *report["errors"]]))
     if report["errors"]:
         report["status"] = "not_comparable"
     report["diagnosis"] = diagnosis(report)

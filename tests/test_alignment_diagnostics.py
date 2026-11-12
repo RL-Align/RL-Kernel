@@ -386,6 +386,22 @@ def test_report_first_layer_and_no_silent_missing_evidence(tmp_path, monkeypatch
     assert entry.analyze(tmp_path)["status"] == "not_comparable"
 
 
+def test_diagnostics_subdirectory_uses_the_same_run_evidence(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        qwen3_report, "_endpoint", lambda root: {"bitwise_mismatch_count": 0, "errors": []}
+    )
+    for side in ("training", "rollout"):
+        _replay_record(tmp_path, side, 0, torch.ones(1, 2), expected_layers=1)
+    report = entry.analyze(tmp_path)
+    assert report["status"] == "equal"
+    nested = entry.analyze(tmp_path / "diagnostics")
+    assert nested == report
+    assert (tmp_path / "diagnostics/diagnostic-report.json").is_file()
+    output = tmp_path / "custom-report.json"
+    assert entry.analyze(tmp_path / "diagnostics", output=output) == report
+    assert json.loads(output.read_text()) == report
+
+
 def test_final_logp_difference_does_not_blame_attention(tmp_path, monkeypatch):
     monkeypatch.setattr(
         qwen3_report, "_endpoint", lambda root: {"bitwise_mismatch_count": 1, "errors": []}

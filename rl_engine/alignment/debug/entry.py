@@ -22,7 +22,7 @@ def analyze(directory: Path, *, output: Path | None = None) -> dict[str, Any]:
         return report
     matrix = directory / "matrix-report.json"
     if matrix.is_file():
-        from .session import apply_evidence_gates, finish_summary
+        from .session import apply_matrix_evidence_gates, finish_summary
         from .ux import compact_summary
 
         report = json.loads(matrix.read_text(encoding="utf-8"))
@@ -30,8 +30,8 @@ def analyze(directory: Path, *, output: Path | None = None) -> dict[str, Any]:
             group["report"] = analyze(
                 Path(group["run_dir"]), output=directory / f"{group['group']}.report.json"
             )
-            baseline = report["groups"][0]["report"] if group is not report["groups"][0] else None
-            apply_evidence_gates(group, baseline)
+        apply_matrix_evidence_gates(report["groups"], report.get("baseline"))
+        for group in report["groups"]:
             save_report(directory / f"{group['group']}.report.json", group["report"])
         finish_summary(directory, report)
         compact_summary(directory, report)
@@ -53,7 +53,8 @@ def analyze(directory: Path, *, output: Path | None = None) -> dict[str, Any]:
     if paths:
         from .qwen3_report import analyze_replay
 
-        report = analyze_replay(directory, paths, output=output)
+        analysis_root = directory.parent if directory.name == "diagnostics" else directory
+        report = analyze_replay(analysis_root, paths, output=output)
         report["diagnosis"] = diagnosis(report)
         save_report(output or directory / "diagnostic-report.json", report)
         return report

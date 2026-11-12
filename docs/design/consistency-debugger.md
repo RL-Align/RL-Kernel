@@ -43,7 +43,7 @@ remain uncaptured. MoE and arbitrary production schedulers require adapters.
    topology fixed across arms. Mxxx is a Qwen3 adapter-specific encoding, not the
    generic debugger's data model.
 7. Report reproduction, localization, attribution evidence and replacement
-   verification separately. `verified` means the same captured replay passed;
+   verification separately. `verified_on_replay` means the same captured replay passed;
    it is not a production deployment, a universal bitwise guarantee, or a
    performance measurement.
 
@@ -54,8 +54,9 @@ module is necessary or sufficient in isolation. `--dry-run` materializes
 potential jobs without launching them. `--report-only` recomputes reports while
 preserving launch failures and cross-arm identity gates. `--resume DIR` checks
 that the frozen tokens, mask and sampling values still match, then skips only
-completed arms. `rlk doctor` performs host/runtime preflight before GPU
-submission.
+completed arms. Failed arms retry in fresh `-retryN` directories, preserving
+previous snapshots and logs without mixing them into the retry. `rlk doctor`
+performs host/runtime preflight before GPU submission.
 
 ## Architecture
 
@@ -90,12 +91,14 @@ The terminal and JSON report distinguish:
 * `planned`: preflight and launch plans were generated without executing a job;
 * `not_reproduced`: the original replay did not exhibit the mismatch;
 * `localized`: a first observed divergence, with coverage limits;
-* `contract_difference`: an observed contract differs; causality is unproven;
-* `verified`: original mismatch reproduced and a replacement passed with the
+* `verified_on_replay`: original mismatch reproduced and a replacement passed with the
   same inputs and weights;
 * `unresolved`: mismatch persists after available trials;
-* `unsupported`: no live adapter/replacement for this configuration;
+* `checked_without_baseline`: arms ran without an original baseline result;
 * `inconclusive`: insufficient evidence or execution failure.
+
+Per-report `diagnosis.level` can also be `contract_difference`, and
+`replacement.status` is `unsupported` when no live adapter applies.
 
 Detailed reports retain raw tensor evidence and requested/observed routes.
 Console output links to them and to per-job logs. Unknown evidence is never
@@ -593,3 +596,21 @@ of each individual replacement. This acceptance does not certify all models,
 CUDA configurations, rollout CP > 1, graph execution, optimizer updates or
 production performance. The 0.6B portable captures were also reanalyzed with
 the final implementation and retained their original equal/diverged conclusions.
+
+## Workflow regression recorded on 2026-11-12
+
+Fixed failed-arm resume, fresh retry directories, declared-baseline gating in
+live/offline matrices, direct `diagnostics/` analysis and the missing
+`tie_word_embeddings` default. Eight regression cases cover failed/incomplete
+baseline and replacement arms, preservation of previous attempts, completed-arm
+skipping, baseline ordering, analysis-root equivalence and the config default.
+
+The 13-file diagnostic regression (the command in `native-runtime-capture.md`
+plus `tests/test_debug_qwen3_parallel.py`) passed **283 tests with no skips** on an
+AMD Instinct MI300X VF using PyTorch `2.11.0+gitd0c8b1f`, HIP `7.2.53211` and
+Triton `3.6.0`. All seven `test_debug_device_runtime.py` cases and the existing
+graph/event device smoke tests ran. Ruff and `git diff --check` passed.
+The same suite on Windows/PyTorch `2.10.0+cpu` passed 273 tests and skipped ten
+device/compiler/symlink-permission cases. This validates the workflow fixes and
+bounded single-device protocols; it does not rerun the historical Qwen3-8B
+multi-GPU matrix or certify production performance.

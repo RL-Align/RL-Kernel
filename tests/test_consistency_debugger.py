@@ -11,7 +11,9 @@ import pytest
 import torch
 
 from rl_engine import repro
-from rl_engine.alignment.debug import AutoCapture, adapters, entry, prepare_auto, replay, session
+from rl_engine.alignment.debug import (
+    AutoCapture, adapters, entry, prepare_auto, replay, session, ux,
+)
 from rl_engine.alignment.debug.core import fingerprint
 from rl_engine.alignment.debug.evidence import Capture
 
@@ -27,6 +29,14 @@ MODEL = {
     "vocab_size": 151936,
     "torch_dtype": "bfloat16",
 }
+
+
+def test_missing_tied_embedding_flag_uses_the_accepted_default():
+    model = dict(MODEL, rms_norm_eps=1e-6, rope_theta=1000000)
+    assert adapters.Qwen3Adapter().matches(model, "rocm")
+    assert adapters.megatron_model_args(model) == adapters.megatron_model_args(
+        dict(model, tie_word_embeddings=False)
+    )
 
 
 def test_small_dense_model_uses_actual_shapes_and_tied_head():
@@ -437,6 +447,29 @@ def test_capture_source_change_cannot_be_ignored_as_a_native_validation_failure(
     assert "source fingerprint changed" in result["report"]["errors"][0]
 
 
+@pytest.mark.parametrize("order", [("M000", "M111", "M011"), ("M011", "M111", "M000")])
+def test_report_only_uses_the_declared_baseline_in_any_order(tmp_path, order):
+    groups = []
+    for name in order:
+        root = tmp_path / name
+        portable(root)
+        if name == "M000":
+            for path in (root / "captures").glob("*.pt"):
+                payload = torch.load(path, weights_only=True)
+                payload["identity"]["tokens"] = "changed on both sides of this arm"
+                torch.save(payload, path)
+        groups.append({"group": name, "run_dir": str(root), "process_returncode": 0})
+    (tmp_path / "matrix-report.json").write_text(json.dumps(
+        {"groups": groups, "baseline": "M011", "scope": "test", "planned": False}
+    ))
+    report = entry.analyze(tmp_path)
+    by_name = {item["group"]: item["report"] for item in report["groups"]}
+    assert by_name["M000"]["status"] == "not_comparable"
+    assert by_name["M000"]["errors"] == ["cross-arm runtime_identity changed"]
+    assert by_name["M011"]["status"] == by_name["M111"]["status"] == "equal"
+    assert entry.analyze(tmp_path) == report
+
+
 @pytest.mark.parametrize(
     "original,replacement,expected",
     [
@@ -517,3 +550,61 @@ def test_auto_cli_runs_original_before_repair_and_stops_when_resolved(
     assert summary["conclusion"] == ("verified_on_replay" if broken else "not_reproduced")
     offline = entry.analyze(tmp_path / "runs/automatic")
     assert offline["conclusion"] == summary["conclusion"]
+
+
+@pytest.mark.parametrize("failed_group", ["M000", "M111"])
+@pytest.mark.parametrize("failure_code", [0, 9])
+def test_resume_retries_failed_arms_without_stale_evidence(
+    tmp_path, monkeypatch, failed_group, failure_code
+):
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "config.json").write_text(json.dumps(MODEL))
+    profile = {
+        "schema_version": "rlkernel.repro.profile.v1",
+        "paths": {"workspace": str(tmp_path), "model_root": str(model)},
+        "modes": {"consistency": {}},
+        "requirements": {"backend": "cuda"},
+    }
+    monkeypatch.setattr(repro, "_load_profile", lambda _: (profile, tmp_path / "profile.json"))
+    monkeypatch.setattr(ux, "preflight", lambda *args, **kwargs: {"passed": True})
+    monkeypatch.setattr(ux, "print_preflight", lambda *args, **kwargs: None)
+    source = tmp_path / "frozen.json"
+    source.write_text(json.dumps({"tokens": [1, 2, 3], "prompt_length": 1, "mask": [1, 1]}))
+    calls = []
+    failed_directory = None
+
+    def execute(command, *, env, log_path, run_dir, group):
+        nonlocal failed_directory
+        # Native launchers require a fresh directory. Failed evidence must not
+        # be mixed with the retry, or deleted to make the launcher succeed.
+        run_dir.mkdir(parents=True, exist_ok=False)
+        calls.append(group)
+        if group == failed_group and failed_directory is None:
+            failed_directory = run_dir
+            (run_dir / "failed-evidence.txt").write_text("preserve this attempt")
+            return failure_code, {"elapsed_seconds": 0, "phase_seconds": {}}
+        portable(run_dir, different=group == "M000")
+        return 0, {"elapsed_seconds": 0, "phase_seconds": {}}
+
+    monkeypatch.setattr(ux, "run_progress", execute)
+    args = [
+        "debug", str(source), "--matrix", "auto", "--run-id", "automatic",
+        "--output-root", str(tmp_path / "runs"),
+    ]
+    root = tmp_path / "runs/automatic"
+    assert repro.main(args) == 2
+    assert repro.main(args + ["--resume", str(root)]) == 0
+    summary = json.loads((root / "matrix-report.json").read_text())
+    assert [item["group"] for item in summary["groups"]] == ["M000", "M111"]
+    assert summary["conclusion"] == "verified_on_replay"
+    assert all(not item["report"]["errors"] for item in summary["groups"])
+    retry = next(item for item in summary["groups"] if item["group"] == failed_group)
+    assert retry["run_dir"] != str(failed_directory)
+    assert (failed_directory / "failed-evidence.txt").read_text() == "preserve this attempt"
+    assert calls == (["M000", "M000", "M111"] if failed_group == "M000"
+                     else ["M000", "M111", "M111"])
+    assert entry.analyze(root)["conclusion"] == summary["conclusion"]
+    completed_calls = list(calls)
+    assert repro.main(args + ["--resume", str(root)]) == 0
+    assert calls == completed_calls
