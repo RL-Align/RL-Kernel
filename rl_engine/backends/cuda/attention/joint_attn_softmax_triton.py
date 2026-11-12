@@ -546,11 +546,11 @@ class _TritonJointAttnSoftmaxFunction(torch.autograd.Function):
         grad_probabilities: torch.Tensor,
     ) -> tuple[torch.Tensor, None, None, None, None]:
         saved_tensors = ctx.saved_tensors
-        probabilities_fp32 = saved_tensors[0]
+        probabilities_fp32 = saved_tensors[0].resolve_neg().contiguous()
         key_mapping = (
             LogicalKeyMapping(
-                logical_to_physical=saved_tensors[1],
-                valid_key_counts=saved_tensors[2],
+                logical_to_physical=saved_tensors[1].contiguous(),
+                valid_key_counts=saved_tensors[2].contiguous(),
                 rows_per_batch=ctx.rows_per_batch,
             )
             if ctx.has_key_layout

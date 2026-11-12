@@ -94,9 +94,9 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
         grad_probabilities: torch.Tensor,
     ) -> tuple[torch.Tensor, None, None, None, None]:
         saved_tensors = ctx.saved_tensors
-        probabilities_fp32 = saved_tensors[0]
-        logical_to_physical = saved_tensors[1] if ctx.has_key_layout else None
-        valid_key_counts = saved_tensors[2] if ctx.has_key_layout else None
+        probabilities_fp32 = saved_tensors[0].resolve_neg().contiguous()
+        logical_to_physical = saved_tensors[1].contiguous() if ctx.has_key_layout else None
+        valid_key_counts = saved_tensors[2].contiguous() if ctx.has_key_layout else None
         grad_probabilities_contiguous = grad_probabilities.resolve_neg().contiguous()
         if ctx.has_key_layout:
             grad_scores = _C._joint_attn_softmax_backward_trusted(

@@ -581,6 +581,59 @@ def test_negative_bit_views_match_reference_forward_and_backward(backend):
     assert tensor_bytes_equal(training_scores.grad.cpu(), expected_scores.grad)
 
 
+@pytest.mark.parametrize("backend", ["cuda", "triton"])
+def test_saved_tensor_hooks_may_restore_noncontiguous_layouts(backend):
+    from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
+        TritonJointAttnSoftmaxOp,
+    )
+
+    operation = {
+        "cuda": JointAttnSoftmaxCudaOp,
+        "triton": TritonJointAttnSoftmaxOp,
+    }[backend]()
+    generator = torch.Generator(device="cuda").manual_seed(386)
+    scores = torch.randn((2, 3, 257), device="cuda", generator=generator)
+    upstream = torch.randn(scores.shape, device="cuda", generator=generator)
+    key_padding_mask = torch.ones((2, 257), device="cuda", dtype=torch.bool)
+    key_padding_mask[0, 31:79] = False
+    key_padding_mask[1, 113:161] = False
+
+    expected_scores = scores.clone().requires_grad_(True)
+    expected_probabilities = operation.forward_fp32(
+        expected_scores, key_padding_mask=key_padding_mask
+    )
+    expected_probabilities.backward(upstream)
+
+    unpacked_tensors = []
+
+    def pack_hook(tensor):
+        return tensor.detach().clone()
+
+    def unpack_hook(tensor):
+        unpacked_tensors.append(tensor)
+        backing = torch.empty(
+            tensor.numel() * 2,
+            device=tensor.device,
+            dtype=tensor.dtype,
+        )
+        restored = backing[::2].view(tensor.shape)
+        restored.copy_(tensor)
+        assert not restored.is_contiguous()
+        return restored
+
+    actual_scores = scores.clone().requires_grad_(True)
+    with torch.autograd.graph.saved_tensors_hooks(pack_hook, unpack_hook):
+        actual_probabilities = operation.forward_fp32(
+            actual_scores, key_padding_mask=key_padding_mask
+        )
+    actual_probabilities.backward(upstream)
+
+    assert len(unpacked_tensors) == 3
+    assert tensor_bytes_equal(actual_probabilities, expected_probabilities)
+    assert tensor_bytes_equal(actual_scores.grad, expected_scores.grad)
+
+
 def test_materialized_negative_infinity_mask_matches_all_backends():
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
     from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
