@@ -7,7 +7,8 @@ Measures the model shapes of ``y = bf16(fp32_accum(x @ weight.T) + bias)`` --
 a selectable backend, and gates every run against the independent fp32 CPU
 reference before reporting timings (a fast-but-wrong kernel is not a result).
 ``--backend pytorch`` is that reference itself, so its gate is reported as not
-applicable rather than as a self-comparison.
+applicable rather than as a self-comparison; its timing runs the fp64-emulated
+tree on the benchmark device, and the report labels that device explicitly.
 
 The three backends are imported lazily, so ``--backend triton`` never needs the
 CUDA extension and ``--backend pytorch`` never needs Triton. The PyTorch
@@ -269,8 +270,11 @@ def main() -> None:
         f"{fwd_bwd_tflops} | {fwd_bwd_mb:.0f} |",
     ]
     # fwd+bwd = fwd + dx + dW, i.e. three equal-sized GEMMs (db is a fold).
+    device_label = torch.cuda.get_device_name()
+    if args.backend == "pytorch":
+        device_label += ", fp64 reference executed on that device"
     report = [
-        f"mlp_down_gemm ({resolved}, {torch.cuda.get_device_name()})",
+        f"mlp_down_gemm ({resolved}, {device_label})",
         "",
         *table,
         "",

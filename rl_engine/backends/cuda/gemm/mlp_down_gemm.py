@@ -176,7 +176,11 @@ def mlp_down_gemm_backend_used(x: torch.Tensor, weight: torch.Tensor) -> str:
     :func:`mlp_down_gemm_contract_used` names the arithmetic the path implements.
     """
 
-    return "hopper" if _sm90_usable(x, weight) else "general"
+    # The dispatch call flattens x and copies both operands before the gate, so
+    # these helpers must classify the same operands the kernel will see.
+    x2d = _flatten_leading(x).contiguous()
+    w = weight.contiguous()
+    return "hopper" if _sm90_usable(x2d, w) else "general"
 
 
 def mlp_down_gemm_contract_used(x: torch.Tensor, weight: torch.Tensor) -> str:
@@ -191,7 +195,9 @@ def mlp_down_gemm_contract_used(x: torch.Tensor, weight: torch.Tensor) -> str:
     ``RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper``.
     """
 
-    return MMA_CONTRACT if _sm90_usable(x, weight) else TREE_CONTRACT
+    x2d = _flatten_leading(x).contiguous()
+    w = weight.contiguous()
+    return MMA_CONTRACT if _sm90_usable(x2d, w) else TREE_CONTRACT
 
 
 def _sm90_usable(x: torch.Tensor, weight: torch.Tensor) -> bool:
@@ -413,6 +419,8 @@ class CudaMlpDownGemmOp:
             )
         if bias is not None and (bias.device != x.device or bias.dtype is not torch.bfloat16):
             raise ValueError("bias must be bf16 on the same device as x")
+        if bias is not None and bias.numel() != weight.size(0):
+            raise ValueError("bias must have N elements")
         if x.size(-1) != weight.size(-1):
             raise ValueError("x K must match weight K")
         return _MlpDownGemmFunction.apply(x, weight, bias)

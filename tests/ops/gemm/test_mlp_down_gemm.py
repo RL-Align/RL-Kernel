@@ -1192,6 +1192,29 @@ class TestIntegration:
             CudaMlpDownGemmOp()(x, weight, bias=bias[:-1].contiguous())
 
     @CUDA
+    @CUDA
+    def test_backend_helpers_match_the_call_for_offset_views(self):
+        """The route helpers normalize operands exactly like the forward call."""
+
+        from rl_engine.backends.cuda.gemm import mlp_down_gemm as mod
+
+        # Strided with a 2-byte storage offset: not contiguous and not 16 B
+        # aligned, so the call's copy is what the kernel sees -- and what the
+        # helpers must classify too.
+        big = torch.randn(SMALL[0], 2 * SMALL[1], dtype=torch.bfloat16, device="cuda")
+        x = big[:, 1::2]
+        assert not x.is_contiguous() and x.data_ptr() % 16 != 0
+        weight = torch.randn(SMALL[2], SMALL[1], dtype=torch.bfloat16, device="cuda")
+        x2d = x.reshape(-1, x.size(-1)).contiguous()
+        w = weight.contiguous()
+        assert mod.mlp_down_gemm_backend_used(x, weight) == mod.mlp_down_gemm_backend_used(
+            x2d, w
+        )
+        assert mod.mlp_down_gemm_contract_used(x, weight) == mod.mlp_down_gemm_contract_used(
+            x2d, w
+        )
+
+    @CUDA
     def test_fail_closed_on_non_cuda_device(self):
         from rl_engine.backends.cuda.gemm.mlp_down_gemm import CudaMlpDownGemmOp
 
