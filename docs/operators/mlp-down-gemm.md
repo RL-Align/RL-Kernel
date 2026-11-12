@@ -205,7 +205,10 @@ is looser than these bounds.
 bit-identical to each other (`torch.equal` on forward, `dx`, `dW`,
 `db`) at every token count from 1 to 6889 that has been measured, including the full
 `4096 x 12288 x 3072` model shape -- see `tests/ops/gemm/test_mlp_down_gemm_triton.py` and the
-row's own oracle check. The portable fp32-tree path is a *different* contract and is
+row's own oracle check. Both measurements are on Hopper: the pre-Hopper Triton
+lowering (`mma.sync` instead of `wgmma`) executes the same pinned k-chunk order and
+is covered by the tolerance gate, but its byte parity with the hand-written CUDA
+path is not measured and is not claimed. The portable fp32-tree path is a *different* contract and is
 byte-equal to the fp32 CPU reference instead, so it is not byte-identical to those
 two; its invariance evidence is the suite's bitwise row/tiling/padding checks and the
 same declared tolerance against the reference. That is the split rather than a

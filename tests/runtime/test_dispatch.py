@@ -209,6 +209,36 @@ def test_registry_explicit_cuda_device_honors_mlp_down_gemm_pin(monkeypatch, pin
     assert loaded == [OpBackend.CUDA_MLP_DOWN_GEMM]
 
 
+def test_registry_mlp_down_gemm_pin_follows_the_live_env(monkeypatch):
+    """The registry must not freeze a construction-time snapshot of the selector."""
+
+    if torch.version.hip is not None:
+        pytest.skip("the row's selector is CUDA-only")
+
+    monkeypatch.delenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", raising=False)
+    registry = KernelRegistry()
+    loaded = []
+
+    class DummyOp:
+        pass
+
+    def fake_load_backend(backend):
+        loaded.append(backend)
+        return DummyOp
+
+    monkeypatch.setattr(registry, "_load_backend", fake_load_backend)
+
+    # Pinned after construction: dispatch honors it.
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "general")
+    assert isinstance(registry.get_op("mlp_down_gemm", device="cuda:0"), DummyOp)
+
+    # Unset again: the default Triton-first order must return, not a sticky pin.
+    monkeypatch.delenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", raising=False)
+    assert isinstance(registry.get_op("mlp_down_gemm", device="cuda:0"), DummyOp)
+
+    assert loaded == [OpBackend.CUDA_MLP_DOWN_GEMM, OpBackend.TRITON_MLP_DOWN_GEMM]
+
+
 def test_registry_pinned_mlp_down_gemm_reports_a_missing_native_backend(monkeypatch):
     """A pin names the native contract: its absence must not become a generic error."""
 

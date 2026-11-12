@@ -600,11 +600,16 @@ class KernelRegistry:
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 # Triton first: on Hopper it lowers the same pinned schedule to
                 # wgmma, which is measured byte-identical to the hand-written
-                # mma.sync kernel and ~2.5x its forward throughput; the native
-                # kernel is the no-Triton fallback. The fp32 reference is the
-                # gold/benchmark target and deliberately not a dispatch
-                # candidate (WS1 standard: reference-as-candidate is a hard
-                # fail), so a build with neither backend fails closed.
+                # kernel and ~2.5x its forward throughput; the native kernel is
+                # the no-Triton fallback. On pre-Hopper parts Triton lowers the
+                # same pinned k-chunk order to mma.sync, but byte-parity with the
+                # hand-written path is not measured there, so that slot is
+                # covered by the tolerance gate rather than a byte-equality
+                # claim (pin `general` for the reference-equal tree contract).
+                # The fp32 reference is the gold/benchmark target and
+                # deliberately not a dispatch candidate (WS1 standard:
+                # reference-as-candidate is a hard fail), so a build with neither
+                # backend fails closed.
                 "mlp_down_gemm": [
                     OpBackend.TRITON_MLP_DOWN_GEMM,
                     OpBackend.CUDA_MLP_DOWN_GEMM,
@@ -1030,28 +1035,24 @@ class KernelRegistry:
             )
 
         # The MLP down row's contract selector (auto/hopper/general) lives in the
-        # CUDA backend, but CUDA dispatch tries Triton first. Without this
-        # override the pinned backend would never be entered on a Triton-capable
-        # box, so a deployment could not actually force the frozen tree contract
-        # (general) or refuse the tree fallback (hopper). This is only the
-        # process-default fast path: `get_op(device=...)` also applies the pin to
-        # the device it actually dispatches to.
+        # CUDA backend, but CUDA dispatch tries Triton first. `get_op` re-reads
+        # the selector at dispatch time (for the device it actually dispatches
+        # to), so the priority map keeps its default: parsing the env here as
+        # well would make a construction-time snapshot that can disagree with
+        # the live environment (a "sticky" pin).
         mlp_down_backend = os.getenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "").strip().lower()
-        if mlp_down_backend in {"hopper", "general"}:
-            if device_ctx.device_type == "cuda":
-                self._priority_map["cuda"]["mlp_down_gemm"] = [OpBackend.CUDA_MLP_DOWN_GEMM]
-            else:
-                # Valid pin, but this process's default platform is not CUDA: the
-                # pin is still honored by `get_op(device="cuda")`, so this is a
-                # diagnostic rather than a misconfiguration error.
-                logger.info(
-                    "RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s selects the CUDA backend; this "
-                    "process defaults to %s, so the pin applies to explicit CUDA dispatch "
-                    "only.",
-                    mlp_down_backend,
-                    device_ctx.device_type,
-                )
-        elif mlp_down_backend not in {"", "auto"}:
+        if mlp_down_backend in {"hopper", "general"} and device_ctx.device_type != "cuda":
+            # Valid pin, but this process's default platform is not CUDA: the
+            # pin is still honored by `get_op(device="cuda")`, so this is a
+            # diagnostic rather than a misconfiguration error.
+            logger.info(
+                "RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s selects the CUDA backend; this "
+                "process defaults to %s, so the pin applies to explicit CUDA dispatch "
+                "only.",
+                mlp_down_backend,
+                device_ctx.device_type,
+            )
+        elif mlp_down_backend not in {"", "auto", "hopper", "general"}:
             logger.warning(
                 "Unknown RL_KERNEL_MLP_DOWN_GEMM_BACKEND=%s; using the default "
                 "Triton-first CUDA priority.",
