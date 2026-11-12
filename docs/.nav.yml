@@ -17,6 +17,10 @@ nav:
     - Operators:
       - operators/README.md
       - operators/qwenimage-adaln-mod-projection.md
+      - operators/tp-qkv-bias-gemm.md
+      - operators/tp-attn-out-bias-gemm.md
+      - operators/tp-mlp-gemm-gelu.md
+      - operators/tp-replicated-modules.md
       - operators/activation.md
       - operators/attention.md
       - operators/fused-logp.md

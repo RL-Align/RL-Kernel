@@ -122,6 +122,33 @@ def test_cuda_collective_has_stable_backend_identity() -> None:
     assert collectives.DeterministicCollective.backend_id == "cuda_ipc_fixed_tree"
 
 
+@pytest.mark.parametrize(
+    ("name", "mutates", "returns_tensor"),
+    [
+        ("deterministic_all_reduce_", True, False),
+        ("deterministic_staging_reserve_", True, False),
+        ("deterministic_staged_all_reduce", False, True),
+    ],
+)
+def test_explicit_schemas_preserve_mutation_and_fake_outputs(name, mutates, returns_tensor):
+    from torch._subclasses.fake_tensor import FakeTensorMode
+
+    op = getattr(torch.ops.rl_kernel, name).default
+    schema = op._schema
+    assert [str(arg.type) for arg in schema.arguments] == ["Tensor", "int"]
+    alias = schema.arguments[0].alias_info
+    assert (alias is not None and alias.is_write) == mutates
+    assert len(schema.returns) == int(returns_tensor)
+    with FakeTensorMode():
+        value = torch.empty(2, 3)
+        result = op(value, 0)
+        if returns_tensor:
+            assert result.shape == value.shape and result.dtype == value.dtype
+            assert result.device == value.device
+        else:
+            assert result is None
+
+
 def _make_collective(
     monkeypatch: pytest.MonkeyPatch,
     peer_inputs: list[torch.Tensor],
