@@ -137,7 +137,8 @@ class _MlpDownGemmTreeFunction(torch.autograd.Function):
         x2d = x.reshape(-1, x.size(-1))
         out = mlp_down_gemm_reference_forward(x2d, weight, bias)
         ctx.save_for_backward(x2d, weight, bias)
-        return out.to(x.dtype).reshape(*x.shape[:-1], weight.size(0))
+        ctx.lead_shape = x.shape[:-1]
+        return out.to(x.dtype).reshape(*ctx.lead_shape, weight.size(0))
 
     @staticmethod
     def backward(  # type: ignore[override]
@@ -146,7 +147,7 @@ class _MlpDownGemmTreeFunction(torch.autograd.Function):
         x2d, weight, bias = ctx.saved_tensors
         grad_2d = grad_output.reshape(-1, grad_output.size(-1))
         grad_x, grad_w, grad_b = mlp_down_gemm_reference_backward(x2d, weight, grad_2d)
-        grad_x = grad_x.to(x2d.dtype)
+        grad_x = grad_x.to(x2d.dtype).reshape(*ctx.lead_shape, weight.size(1))
         grad_w = grad_w.to(weight.dtype)
         return grad_x, grad_w, None if bias is None else grad_b.to(bias.dtype)
 

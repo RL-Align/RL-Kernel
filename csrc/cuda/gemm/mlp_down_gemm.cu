@@ -724,12 +724,15 @@ torch::Tensor mlp_down_gemm_cuda_db(torch::Tensor grad) {
     TORCH_CHECK(grad.is_cuda(), "grad must be a CUDA tensor");
     TORCH_CHECK(grad.scalar_type() == at::kBFloat16, "mlp_down_gemm_cuda_db requires bf16 operands");
     const int64_t cols = grad.size(-1);
-    const int64_t rows = grad.numel() / cols;
     auto db = torch::empty({cols}, grad.options().dtype(at::kFloat));
-    if (db.numel() == 0 || rows == 0) {
-        if (db.numel() != 0) {
-            db.zero_();
-        }
+    // A zero-width gradient has no rows to fold: return the empty bias before
+    // dividing by `cols` (an empty [S, 0] input would otherwise divide by zero).
+    if (cols == 0) {
+        return db;
+    }
+    const int64_t rows = grad.numel() / cols;
+    if (rows == 0) {
+        db.zero_();
         return db;
     }
     auto gc = grad.contiguous();

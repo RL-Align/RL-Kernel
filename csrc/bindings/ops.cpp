@@ -743,7 +743,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 #endif
 
     // registry Qwen-Image MLP down projection (two frozen contracts)
-#if !defined(USE_ROCM)
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
     // The declarations above carry the same guard: on ROCm this source is not built,
     // so repeating it here is what keeps the ROCm extension linkable.
     m.def("mlp_down_gemm_cuda_forward", &mlp_down_gemm_cuda_forward,

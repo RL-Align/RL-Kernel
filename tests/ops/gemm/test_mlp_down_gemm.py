@@ -238,6 +238,23 @@ class TestReferenceModel:
             op.forward_fp32(x, weight, bias=bias), mlp_down_gemm_reference_forward(x, weight, bias)
         )
 
+    def test_backward_restores_leading_dims(self):
+        """A batched cotangent must come back shaped like ``x``, not flattened."""
+
+        gen = torch.Generator().manual_seed(11)
+        lead, k_dim, n_dim = (2, 3), 96, 8
+        x = torch.randn(*lead, k_dim, generator=gen, requires_grad=True)
+        weight = torch.randn(n_dim, k_dim, generator=gen, requires_grad=True)
+        bias = torch.randn(n_dim, generator=gen, requires_grad=True)
+        y = NativeMlpDownGemmOp()(x, weight, bias=bias)
+        assert y.shape == (*lead, n_dim)
+        grad_x, grad_w, grad_b = torch.autograd.grad(
+            y, (x, weight, bias), torch.randn(y.shape, generator=gen)
+        )
+        assert grad_x.shape == x.shape
+        assert grad_w.shape == weight.shape
+        assert grad_b.shape == bias.shape
+
 
 # ---------------------------------------------------------------------------
 # the pinned schedule's structural promise

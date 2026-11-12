@@ -255,7 +255,13 @@ class _MlpDownGemmFunction(torch.autograd.Function):
         from rl_engine.ops.autograd.backward_runtime import record_backward
 
         x2d, weight, bias = ctx.saved_tensors
-        g = grad_output.reshape(-1, grad_output.size(-1)).contiguous()
+        g = grad_output.reshape(-1, grad_output.size(-1))
+        if g.dtype is not torch.bfloat16:
+            # Autograd hands back the forward dtype; anything else (a hand-built
+            # fp32 cotangent) is rounded once before it enters the kernels, which
+            # require bf16. Triton performs the same normalization.
+            g = g.to(torch.bfloat16)
+        g = g.contiguous()
         if ctx.use_sm90:
             grad_x = _C.mlp_down_gemm_cuda_dx_sm90(g, weight)
             grad_w = _C.mlp_down_gemm_cuda_dw_sm90(g, x2d)
@@ -266,7 +272,7 @@ class _MlpDownGemmFunction(torch.autograd.Function):
         grad_b: Optional[torch.Tensor] = None
         if bias is not None:
             # Ascending-row fp32 fold, shared by both CUDA paths.
-            grad_b = _C.mlp_down_gemm_cuda_db(grad_output).to(bias.dtype)
+            grad_b = _C.mlp_down_gemm_cuda_db(g).to(bias.dtype)
         record_backward(
             "mlp_down_gemm",
             kernel_id=MMA_CONTRACT if ctx.use_sm90 else TREE_CONTRACT,
