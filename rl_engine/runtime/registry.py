@@ -755,7 +755,10 @@ class KernelRegistry:
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 # CPU has no device kernel for this row: the fp32 reference
-                # *is* the CPU implementation, not an accelerator fallback.
+                # *is* the CPU implementation, not an accelerator fallback. This
+                # is runtime dispatch only; `operator_specs` deliberately keeps
+                # it out of `candidate_paths`, so validation never compares the
+                # gold with itself.
                 "mlp_down_gemm": [OpBackend.PYTORCH_MLP_DOWN_GEMM],
             },
             # Ascend NPU: op types without an entry fall back to their CPU

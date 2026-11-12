@@ -427,10 +427,12 @@ class CudaMlpDownGemmOp:
                 "mlp_down_gemm's CUDA backend is the model's runtime dtype: bf16 x/weight "
                 f"required, got x={x.dtype}, weight={weight.dtype}"
             )
+        if x.dim() < 1 or weight.dim() != 2:
+            raise ValueError("mlp_down_gemm expects x [*, K] and weight [N, K]")
         if bias is not None and (bias.device != x.device or bias.dtype is not torch.bfloat16):
             raise ValueError("bias must be bf16 on the same device as x")
-        if bias is not None and bias.numel() != weight.size(0):
-            raise ValueError("bias must have N elements")
+        if bias is not None and (bias.dim() != 1 or bias.size(0) != weight.size(0)):
+            raise ValueError("bias must be 1-D with N elements")
         if x.size(-1) != weight.size(-1):
             raise ValueError("x K must match weight K")
         return _MlpDownGemmFunction.apply(x, weight, bias)

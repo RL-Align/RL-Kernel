@@ -1209,6 +1209,12 @@ class TestIntegration:
             CudaMlpDownGemmOp()(x, weight[:, :-16].contiguous(), bias=bias)
         with pytest.raises((ValueError, RuntimeError)):
             CudaMlpDownGemmOp()(x, weight, bias=bias[:-1].contiguous())
+        # Rank guards mirror the Triton sibling: a 3-D weight whose last dim
+        # still matches K, and a broadcastable 2-D bias, must not reach C++.
+        with pytest.raises((ValueError, RuntimeError)):
+            CudaMlpDownGemmOp()(x, weight.unsqueeze(0))
+        with pytest.raises((ValueError, RuntimeError)):
+            CudaMlpDownGemmOp()(x, weight, bias=bias.unsqueeze(0))
 
     @CUDA
     def test_backend_helpers_match_the_call_for_offset_views(self):
