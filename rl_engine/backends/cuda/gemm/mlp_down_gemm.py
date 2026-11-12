@@ -238,7 +238,7 @@ def _sm90_usable(x: torch.Tensor, weight: torch.Tensor, *, strict: bool = True) 
             raise RuntimeError("mlp_down_gemm: backend 'hopper' requires bf16 operands")
         return False
     hopper_ok = (
-        torch.cuda.get_device_capability(x.device)[0] == 9
+        torch.cuda.get_device_capability(x.device) == (9, 0)
         # An empty reduction or empty output has no wgmma contraction to order:
         # the C++ entry returns such an output before any TMA/wgmma launch, and
         # for K == 0 the portable tree defines the result (zeros or the

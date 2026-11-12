@@ -256,6 +256,26 @@ def test_registry_pinned_mlp_down_gemm_reports_a_missing_native_backend(monkeypa
         registry.get_op("mlp_down_gemm", device="cuda:0")
 
 
+def test_registry_pin_on_a_non_cuda_platform_fails_closed(monkeypatch):
+    """A pin that names CUDA must not be silently served by another backend."""
+
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "hopper")
+    registry = KernelRegistry()
+
+    with pytest.raises(RuntimeError, match="platform 'cpu' cannot serve"):
+        registry.get_op("mlp_down_gemm", device="cpu")
+
+
+def test_registry_cpu_general_pin_uses_the_reference_tree(monkeypatch):
+    """`general` on CPU is the reference itself, so it is not a silent swap."""
+
+    monkeypatch.setenv("RL_KERNEL_MLP_DOWN_GEMM_BACKEND", "general")
+    registry = KernelRegistry()
+
+    op = registry.get_op("mlp_down_gemm", device="cpu")
+    assert type(op).__name__ == "NativeMlpDownGemmOp"
+
+
 def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
     registry = KernelRegistry()
     loaded = []

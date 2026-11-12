@@ -568,15 +568,17 @@ bool sm90_device_ok() {
         return false;
     }
     int major = 0;
-    if (cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev) != cudaSuccess) {
+    int minor = 0;
+    if (cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev) != cudaSuccess ||
+        cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, dev) != cudaSuccess) {
         return false;
     }
     // The wgmma body only exists under __CUDA_ARCH_FEAT_SM90_ALL (sm_90a), so the
-    // gate is exactly major 9: on a cc >= 10 device a KERNEL_ALIGN_FORCE_SM90 build
-    // emits a non-90a cubin, where the body compiles to an inert stub -- that must
-    // fail closed here and fall back to the portable path, not launch a kernel that
-    // writes nothing.
-    return major == 9;
+    // gate is exactly cc 9.0: on a cc >= 10 (or a future 9.x) device a
+    // KERNEL_ALIGN_FORCE_SM90 build emits a cubin without that feature set, where
+    // the body compiles to an inert stub -- that must fail closed here and fall
+    // back to the portable path, not launch a kernel that writes nothing.
+    return major == 9 && minor == 0;
 }
 
 void check_sm90_operands(const void* a, const void* b, int64_t K, int64_t N) {

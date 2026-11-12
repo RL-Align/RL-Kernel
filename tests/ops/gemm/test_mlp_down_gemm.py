@@ -210,7 +210,7 @@ def _hopper_serves(device=None) -> bool:
         return False
     if device is None:
         return False
-    return torch.cuda.get_device_capability(device)[0] == 9
+    return torch.cuda.get_device_capability(device) == (9, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -750,6 +750,19 @@ class TestCudaPathsAndContracts:
         assert mod.mlp_down_gemm_backend_used(x, weight) == "general"
         assert mod.mlp_down_gemm_contract_used(x, weight) == mod.TREE_CONTRACT
         with pytest.raises(RuntimeError):
+            mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
+
+    def test_cc_9_1_is_not_routed_to_the_hopper_kernel(self, monkeypatch):
+        """The Hopper entry is sm_90a only: a future 9.x part must take the tree."""
+
+        from rl_engine.backends.cuda.gemm import mlp_down_gemm as mod
+
+        if not mod.sm90_backend_compiled():
+            pytest.skip("needs the SM90 build to exercise the capability gate")
+        monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (9, 1))
+        x, weight, bias = _inputs(SMALL)
+        assert mod.mlp_down_gemm_backend_used(x, weight) == "general"
+        with _backend("hopper"), pytest.raises(RuntimeError, match="9.0"):
             mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
 
     def test_rocm_dispatch_uses_triton(self, monkeypatch):

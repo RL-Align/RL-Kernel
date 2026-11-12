@@ -74,6 +74,9 @@ OP_SPECS = {
             "cuda": "rl_engine.backends.cuda.gemm.mlp_down_gemm.CudaMlpDownGemmOp",
             "triton": ("rl_engine.backends.shared.triton.gemm.mlp_down_gemm.TritonMlpDownGemmOp"),
         },
+        # `bias` is a real parameter on every path (the ascending-row fp32 `db`
+        # fold); the suite's backward compares it against the reference fold, so
+        # a missing gradient fails rather than being skipped.
         grad_input_names=("x", "weight", "bias"),
     ),
     "qk_norm": OperatorSpec(
