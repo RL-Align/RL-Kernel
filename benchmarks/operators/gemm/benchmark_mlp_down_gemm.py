@@ -6,6 +6,8 @@ Measures the model shapes of ``y = bf16(fp32_accum(x @ weight.T) + bias)`` --
 ``img_mlp.net.2`` and ``txt_mlp.net.2`` are both ``4096 x 12288 -> 3072`` -- for
 a selectable backend, and gates every run against the independent fp32 CPU
 reference before reporting timings (a fast-but-wrong kernel is not a result).
+``--backend pytorch`` is that reference itself, so its gate is reported as not
+applicable rather than as a self-comparison.
 
 The three backends are imported lazily, so ``--backend triton`` never needs the
 CUDA extension and ``--backend pytorch`` never needs Triton. The PyTorch
@@ -213,7 +215,21 @@ def main() -> None:
             f"{mlp_down_gemm_contract_used(x, weight)})"
         )
 
-    gate_passed, gate_lines = _accuracy_gate(op, x, weight, bias, args.gate_rows, backward=True)
+    if args.backend == "pytorch":
+        # The candidate is the reference the gate compares against: a
+        # self-comparison is not evidence, so report it as not applicable.
+        gate_passed = True
+        gate_lines = ["  not applicable: --backend pytorch is the accuracy gold itself"]
+        gate_verdict = "  gate verdict: N/A (the candidate is the reference)"
+    else:
+        gate_passed, gate_lines = _accuracy_gate(
+            op, x, weight, bias, args.gate_rows, backward=True
+        )
+        gate_verdict = (
+            f"  gate verdict: {'PASS' if gate_passed else 'FAIL'} "
+            f"(declared: identical >= {DECLARED_MIN_IDENTICAL_FRACTION * 100:.0f}%, "
+            f"worst <= {DECLARED_MAX_ULPS} bf16-ulp)"
+        )
 
     xr = x.detach().clone().requires_grad_(True)
     wr = weight.detach().clone().requires_grad_(True)
@@ -234,14 +250,19 @@ def main() -> None:
     gemm_flops = 2.0 * timed_rows * args.k_dim * args.n_dim
     fwd_mb = _peak_extra_mb(forward_only)
     fwd_bwd_mb = _peak_extra_mb(forward_backward)
+    reduced = timed_rows != rows
+    # At a reduced row count the fixed launch cost dominates, so the TFLOP/s
+    # columns would not be comparable with a full-shape row: suppress them.
+    fwd_tflops = "n/a" if reduced else f"{gemm_flops / fwd_ms / 1e9:.2f}"
+    fwd_bwd_tflops = "n/a" if reduced else f"{3 * gemm_flops / fwd_bwd_ms / 1e9:.2f}"
     table = [
         "| case | backend | dtype | M | K | N | fwd ms | fwd TFLOP/s | fwd MB | "
         "fwd+bwd ms | fwd+bwd TFLOP/s | fwd+bwd MB |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|",
         f"| mlp_down_gemm | {resolved} | {args.dtype} | {timed_rows} | {args.k_dim} | "
         f"{args.n_dim} | "
-        f"{fwd_ms:.3f} | {gemm_flops / fwd_ms / 1e9:.2f} | {fwd_mb:.0f} | {fwd_bwd_ms:.3f} | "
-        f"{3 * gemm_flops / fwd_bwd_ms / 1e9:.2f} | {fwd_bwd_mb:.0f} |",
+        f"{fwd_ms:.3f} | {fwd_tflops} | {fwd_mb:.0f} | {fwd_bwd_ms:.3f} | "
+        f"{fwd_bwd_tflops} | {fwd_bwd_mb:.0f} |",
     ]
     # fwd+bwd = fwd + dx + dW, i.e. three equal-sized GEMMs (db is a fold).
     report = [
@@ -251,14 +272,13 @@ def main() -> None:
         "",
         "accuracy gate vs the fp32 CPU reference:",
         *gate_lines,
-        f"  gate verdict: {'PASS' if gate_passed else 'FAIL'} "
-        f"(declared: identical >= {DECLARED_MIN_IDENTICAL_FRACTION * 100:.0f}%, "
-        f"worst <= {DECLARED_MAX_ULPS} bf16-ulp)",
+        gate_verdict,
     ]
-    if timed_rows != rows:
+    if reduced:
         report.append(
             f"note: timing uses {timed_rows} of {rows} rows; the fp64-emulated reference "
-            "is not timed at the model shape (its cost is linear in rows)."
+            "is not timed at the model shape (its cost is linear in rows), and its "
+            "TFLOP/s columns are suppressed because launch overhead dominates here."
         )
     report.append("")
     print("\n".join(report))
