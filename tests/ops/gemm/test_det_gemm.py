@@ -529,19 +529,24 @@ def test_cuda_scalar_tree_handles_vocab_sized_k():
 @pytest.mark.cuda_only
 def test_cuda_scalar_tree_uses_64bit_operand_index():
     """M*K above INT_MAX used to wrap the linear operand index."""
-    free, _ = torch.cuda.mem_get_info()
-    if free < 8 * 2**30:
-        pytest.skip("needs ~4.3 GiB for an operand with M*K > 2**31")
-    torch.manual_seed(13)
     M, K, N = 65537, 32800, 1  # 65537 * 32800 = 2_149_613_600 > 2**31 - 1
+    required = M * K * torch.bfloat16.itemsize + 512 * 2**20
+    free, _ = torch.cuda.mem_get_info()
+    if free < required:
+        pytest.skip(f"needs {required / 2**30:.1f} GiB free for an operand with M*K > 2**31")
+    torch.manual_seed(13)
     a = _rand(M, K)
     b = _rand(K, N)
     out = deterministic_gemm(a, b)
     torch.cuda.synchronize()
     assert torch.isfinite(out).all()
-    expected = a[-1].double() @ b[:, 0].double()
+    # Compare against the canonical midpoint tree, not an exact FP64 dot
+    # product: at K=32800 the kernel's BF16 rounding at every internal node is
+    # part of the contract, and an FP64 reference would fail it spuriously. A
+    # wrapped linear index reads the wrong operand rows and still fails here.
+    expected = _k_tree_gemm(a[-1:], b)
     thresholds = load_contract()["accuracy"]["default"]["reduction"]["bfloat16"]
-    torch.testing.assert_close(out[-1, 0].double(), expected, **thresholds)
+    torch.testing.assert_close(out[-1:], expected, **thresholds)
 
 
 @pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
