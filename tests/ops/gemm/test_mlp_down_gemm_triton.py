@@ -73,12 +73,12 @@ def _hopper_available() -> bool:
 
     try:
         from rl_engine.backends.cuda.gemm.mlp_down_gemm import (
-            mma_backend_available,
+            cuda_backend_available,
             sm90_backend_compiled,
         )
     except ImportError:  # pragma: no cover - no CUDA backend in this build
         return False
-    if not (mma_backend_available() and sm90_backend_compiled()):
+    if not (cuda_backend_available() and sm90_backend_compiled()):
         return False
     return bool(torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 9)
 
@@ -604,10 +604,10 @@ class TestBackward:
 
         from rl_engine.backends.cuda.gemm.mlp_down_gemm import (
             CudaMlpDownGemmOp,
-            mma_backend_available,
+            cuda_backend_available,
         )
 
-        if not mma_backend_available():
+        if not cuda_backend_available():
             pytest.skip("the portable CUDA path needs the CUDA extension built")
 
         x, weight, bias = _inputs((rows, MODEL_K, MODEL_N), seed=31)
@@ -699,14 +699,18 @@ class TestCudaByteEquality:
         _assert_same_bytes(got, want, f"forward rows={rows}")
 
     def test_forward_bytes_equal_without_bias_and_at_small_k(self):
-        x, weight, bias = _inputs((33, MODEL_K, MODEL_N), seed=6)
-        got = TritonMlpDownGemmOp()(x, weight, bias=bias)
-        with _pinned("hopper"):
-            want = _hopper_op()(x, weight, bias=bias)
-        _assert_same_bytes(got, want, "forward K=128")
+        # no bias, at the model's reduction length
+        x, weight, _ = _inputs((33, MODEL_K, MODEL_N), seed=6)
         with _pinned("hopper"):
             want_nobias = _hopper_op()(x, weight)
         _assert_same_bytes(TritonMlpDownGemmOp()(x, weight), want_nobias, "forward no bias")
+
+        # below the mma chain: K = 128 is the row's exactness boundary
+        x, weight, bias = _inputs((33, BIT_EXACT_MAX_K, MODEL_N), seed=6)
+        got = TritonMlpDownGemmOp()(x, weight, bias=bias)
+        with _pinned("hopper"):
+            want = _hopper_op()(x, weight, bias=bias)
+        _assert_same_bytes(got, want, f"forward K={BIT_EXACT_MAX_K}")
 
     @pytest.mark.parametrize("rows", [7, 129, *REF_TOKENS])
     def test_backward_bytes_equal(self, rows):

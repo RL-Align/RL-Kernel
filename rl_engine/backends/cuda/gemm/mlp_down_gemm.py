@@ -72,7 +72,15 @@ _TREE_IMPL = "cuda_fp32_tree_schedule"
 _HOPPER_PIN_HINT = "pin RL_KERNEL_MLP_DOWN_GEMM_BACKEND=hopper for the hardware-order path"
 
 
-def mma_backend_available() -> bool:
+def cuda_backend_available() -> bool:
+    """True when the extension contains the portable CUDA entry points.
+
+    Both contracts share these four symbols (the tree serves every operand set
+    and is the fallback of the mma order as well), so this is the CUDA backend's
+    availability, not the Hopper wgmma build's -- that one is
+    :func:`sm90_backend_compiled`.
+    """
+
     return _EXT_AVAILABLE and all(hasattr(_C, name) for name in _REQUIRED_SYMBOLS)
 
 
@@ -130,15 +138,15 @@ def _report_route_once(x: torch.Tensor, weight: torch.Tensor) -> None:
     requested = mlp_down_gemm_backend()
     actual = mlp_down_gemm_backend_used(x, weight)
     contract = mlp_down_gemm_contract_used(x, weight)
-    fallback = actual != _HOPPER_BACKEND
-    if not fallback:
-        reason = ""
+    fallback = actual == _GENERAL_BACKEND and requested != _GENERAL_BACKEND
+    if fallback:
+        reason = " reason=hopper_path_cannot_serve_these_operands"
     elif requested == _GENERAL_BACKEND:
-        # A deliberate contract change, not a degraded Hopper run: the portable
-        # tree is a different (also frozen) arithmetic order.
+        # A deliberate contract change, not a fallback: the portable tree is a
+        # different (also frozen) arithmetic order.
         reason = f" reason=general_is_the_portable_tree_contract ({_HOPPER_PIN_HINT})"
     else:
-        reason = " reason=hopper_path_cannot_serve_these_operands"
+        reason = ""
     print(
         f"[RL-Kernel][route] mode={rl_kernel_mode().value} module=mlp_down_gemm "
         f"requested={requested} actual={actual} fallback={str(fallback).lower()}{reason} "
@@ -238,6 +246,9 @@ class _MlpDownGemmFunction(torch.autograd.Function):
         w = weight.contiguous()
         use_sm90 = _sm90_usable(x2d, w)
         ctx.use_sm90 = use_sm90
+        # Report from the operands the dispatch actually uses: a raw view can
+        # have a different base alignment than its contiguous copy.
+        _report_route_once(x2d, w)
         if use_sm90:
             out = _C.mlp_down_gemm_cuda_forward_sm90(x2d, w, bias)
         else:
@@ -262,15 +273,21 @@ class _MlpDownGemmFunction(torch.autograd.Function):
             # require bf16. Triton performs the same normalization.
             g = g.to(torch.bfloat16)
         g = g.contiguous()
-        if ctx.use_sm90:
-            grad_x = _C.mlp_down_gemm_cuda_dx_sm90(g, weight)
-            grad_w = _C.mlp_down_gemm_cuda_dw_sm90(g, x2d)
-        else:
-            grad_x = _C.mlp_down_gemm_cuda_dx(g, weight)
-            grad_w = _C.mlp_down_gemm_cuda_dw(g, x2d)
-        grad_x = grad_x.reshape(*ctx.lead_shape, weight.size(1))
+        grad_x: Optional[torch.Tensor] = None
+        grad_w: Optional[torch.Tensor] = None
+        if ctx.needs_input_grad[0]:
+            if ctx.use_sm90:
+                grad_x = _C.mlp_down_gemm_cuda_dx_sm90(g, weight)
+            else:
+                grad_x = _C.mlp_down_gemm_cuda_dx(g, weight)
+            grad_x = grad_x.reshape(*ctx.lead_shape, weight.size(1))
+        if ctx.needs_input_grad[1]:
+            if ctx.use_sm90:
+                grad_w = _C.mlp_down_gemm_cuda_dw_sm90(g, x2d)
+            else:
+                grad_w = _C.mlp_down_gemm_cuda_dw(g, x2d)
         grad_b: Optional[torch.Tensor] = None
-        if bias is not None:
+        if bias is not None and ctx.needs_input_grad[2]:
             # Ascending-row fp32 fold, shared by both CUDA paths.
             grad_b = _C.mlp_down_gemm_cuda_db(g).to(bias.dtype)
         record_backward(
@@ -313,7 +330,7 @@ class CudaMlpDownGemmOp:
         return _TREE_IMPL
 
     def __init__(self) -> None:
-        if not mma_backend_available():
+        if not cuda_backend_available():
             raise RuntimeError(
                 "mlp_down_gemm CUDA symbols are not compiled into the extension; rebuild with "
                 "a CUDA toolchain that supports sm_80 or newer; refusing a non-strict fallback."
@@ -374,5 +391,4 @@ class CudaMlpDownGemmOp:
             raise ValueError("bias must be bf16 on the same device as x")
         if x.size(-1) != weight.size(-1):
             raise ValueError("x K must match weight K")
-        _report_route_once(x, weight)
         return _MlpDownGemmFunction.apply(x, weight, bias)

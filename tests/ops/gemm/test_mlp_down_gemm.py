@@ -676,6 +676,7 @@ class TestCudaPathsAndContracts:
         expected = "hopper" if _hopper_serves(x.device) else "general"
         order_contract = mod.MMA_CONTRACT if expected == "hopper" else mod.TREE_CONTRACT
         assert "requested=auto" in first and f"actual={expected}" in first
+        assert f"fallback={'false' if expected == 'hopper' else 'true'}" in first
         assert f"contract={order_contract}" in first
         mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
         assert "module=mlp_down_gemm" not in capsys.readouterr().out
@@ -692,6 +693,7 @@ class TestCudaPathsAndContracts:
         mod.CudaMlpDownGemmOp()(x, weight, bias=bias)
         out = capsys.readouterr().out
         assert "requested=general" in out and "actual=general" in out
+        assert "fallback=false" in out
         assert f"contract={mod.TREE_CONTRACT}" in out
         # the text says the change is a contract change and how to pin it back
         assert "portable_tree_contract" in out
@@ -1074,16 +1076,18 @@ class TestIntegration:
         assert type(cpu_op).__name__ == "NativeMlpDownGemmOp"
         if torch.cuda.is_available():
             cuda_op = kernel_registry.get_op("mlp_down_gemm", device=torch.device("cuda"))
-            # Assert the routing guarantee, not "one of the two": when Triton is
-            # importable the registry must resolve CUDA to it, and only a build
-            # without Triton may fall back to the native kernel.
-            import importlib.util
+            # Match the registry's rule: Triton wins whenever its backend module
+            # imports and instantiates; only then may the native kernel be used.
+            try:
+                from rl_engine.backends.shared.triton.gemm.mlp_down_gemm import (
+                    TritonMlpDownGemmOp,
+                )
 
-            expected = (
-                "TritonMlpDownGemmOp"
-                if importlib.util.find_spec("triton") is not None
-                else "CudaMlpDownGemmOp"
-            )
+                TritonMlpDownGemmOp()
+            except (ImportError, RuntimeError):
+                expected = "CudaMlpDownGemmOp"
+            else:
+                expected = "TritonMlpDownGemmOp"
             assert type(cuda_op).__name__ == expected
             # The native kernel must stay loadable as the fallback path.
             from rl_engine.backends.cuda.gemm.mlp_down_gemm import CudaMlpDownGemmOp
