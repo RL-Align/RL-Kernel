@@ -62,7 +62,11 @@ def test_all_ws1_single_ops_are_registered():
         ("swiglu", "triton"),
         ("rope", "triton"),
         ("pack", "pytorch"),
-        ("joint_attn_softmax", "cuda"),
+        pytest.param(
+            "joint_attn_softmax",
+            "cuda",
+            marks=pytest.mark.cuda_only,
+        ),
     ],
 )
 def test_check_operator_runs_ported_ops(op, candidate):

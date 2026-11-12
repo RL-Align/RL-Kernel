@@ -461,7 +461,7 @@ def _launch_forward(
     key_mapping: LogicalKeyMapping | None,
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
     key_length = scores.size(-1)
-    contiguous_scores = scores.contiguous()
+    contiguous_scores = scores.resolve_neg().contiguous()
     probabilities = torch.empty(scores.shape, device=scores.device, dtype=output_dtype)
     saved_probabilities = (
         torch.empty(scores.shape, device=scores.device, dtype=torch.float32)
@@ -545,11 +545,12 @@ class _TritonJointAttnSoftmaxFunction(torch.autograd.Function):
         ctx,
         grad_probabilities: torch.Tensor,
     ) -> tuple[torch.Tensor, None, None, None, None]:
-        probabilities_fp32 = ctx.saved_tensors[0]
+        saved_tensors = ctx.saved_tensors
+        probabilities_fp32 = saved_tensors[0]
         key_mapping = (
             LogicalKeyMapping(
-                logical_to_physical=ctx.saved_tensors[1],
-                valid_key_counts=ctx.saved_tensors[2],
+                logical_to_physical=saved_tensors[1],
+                valid_key_counts=saved_tensors[2],
                 rows_per_batch=ctx.rows_per_batch,
             )
             if ctx.has_key_layout
@@ -560,6 +561,7 @@ class _TritonJointAttnSoftmaxFunction(torch.autograd.Function):
             device=probabilities_fp32.device,
             dtype=ctx.input_dtype,
         )
+        grad_probabilities_contiguous = grad_probabilities.resolve_neg().contiguous()
         row_count = probabilities_fp32.numel() // ctx.key_length
         if row_count > 0:
             logical_to_physical = (
@@ -572,7 +574,7 @@ class _TritonJointAttnSoftmaxFunction(torch.autograd.Function):
             with torch.cuda.device(probabilities_fp32.device):
                 _joint_attn_softmax_backward_kernel[(row_count,)](
                     probabilities_fp32,
-                    grad_probabilities.contiguous(),
+                    grad_probabilities_contiguous,
                     grad_scores,
                     logical_to_physical,
                     valid_key_counts,

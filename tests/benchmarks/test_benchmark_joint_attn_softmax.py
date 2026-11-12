@@ -24,8 +24,17 @@ def test_benchmark_reports_unavailable_when_git_cannot_start(monkeypatch):
     not torch.cuda.is_available() or torch.version.hip is not None,
     reason="NVIDIA CUDA is required",
 )
-def test_masked_benchmark_reports_prompt_layout(monkeypatch):
+def test_masked_forward_benchmark_reports_layout_without_grad_allocation(monkeypatch):
     monkeypatch.setattr(benchmark, "_git_commit", lambda: "test-commit")
+    original_randn = torch.randn
+    randn_calls = 0
+
+    def counted_randn(*args, **kwargs):
+        nonlocal randn_calls
+        randn_calls += 1
+        return original_randn(*args, **kwargs)
+
+    monkeypatch.setattr(benchmark.torch, "randn", counted_randn)
 
     report = benchmark.run_benchmark(
         Namespace(
@@ -45,6 +54,7 @@ def test_masked_benchmark_reports_prompt_layout(monkeypatch):
     assert report["configuration"]["warmup"] == 0
     assert report["configuration"]["iterations"] == 1
     assert report["environment"]["git_commit"] == "test-commit"
+    assert randn_calls == 1
     assert {record["backend"] for record in report["results"]} == {
         "cuda",
         "triton",

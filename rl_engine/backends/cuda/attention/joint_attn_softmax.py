@@ -51,7 +51,7 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
         valid_key_counts: torch.Tensor | None,
         rows_per_batch: int,
     ) -> torch.Tensor:
-        scores_contiguous = scores.contiguous()
+        scores_contiguous = scores.resolve_neg().contiguous()
         if output_fp32:
             probabilities = (
                 _C.joint_attn_softmax_forward_fp32(scores_contiguous)
@@ -93,13 +93,15 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
         ctx,
         grad_probabilities: torch.Tensor,
     ) -> tuple[torch.Tensor, None, None, None, None]:
-        probabilities_fp32 = ctx.saved_tensors[0]
-        logical_to_physical = ctx.saved_tensors[1] if ctx.has_key_layout else None
-        valid_key_counts = ctx.saved_tensors[2] if ctx.has_key_layout else None
+        saved_tensors = ctx.saved_tensors
+        probabilities_fp32 = saved_tensors[0]
+        logical_to_physical = saved_tensors[1] if ctx.has_key_layout else None
+        valid_key_counts = saved_tensors[2] if ctx.has_key_layout else None
+        grad_probabilities_contiguous = grad_probabilities.resolve_neg().contiguous()
         if ctx.has_key_layout:
             grad_scores = _C._joint_attn_softmax_backward_trusted(
                 probabilities_fp32,
-                grad_probabilities.contiguous(),
+                grad_probabilities_contiguous,
                 ctx.input_bf16,
                 logical_to_physical,
                 valid_key_counts,
@@ -108,7 +110,7 @@ class _JointAttnSoftmaxCudaFunction(torch.autograd.Function):
         else:
             grad_scores = _C.joint_attn_softmax_backward(
                 probabilities_fp32,
-                grad_probabilities.contiguous(),
+                grad_probabilities_contiguous,
                 ctx.input_bf16,
             )
         return grad_scores, None, None, None, None
@@ -200,20 +202,21 @@ class JointAttnSoftmaxCudaOp:
         valid_key_counts = None if key_mapping is None else key_mapping.valid_key_counts
         rows_per_batch = 1 if key_mapping is None else key_mapping.rows_per_batch
         if not torch.is_grad_enabled() or not scores.requires_grad:
+            scores_contiguous = scores.resolve_neg().contiguous()
             if key_mapping is None:
                 forward = (
                     _C.joint_attn_softmax_forward_fp32
                     if output_fp32
                     else _C.joint_attn_softmax_forward
                 )
-                return forward(scores.contiguous())
+                return forward(scores_contiguous)
             trusted_forward = (
                 _C._joint_attn_softmax_forward_fp32_trusted
                 if output_fp32
                 else _C._joint_attn_softmax_forward_trusted
             )
             return trusted_forward(
-                scores.contiguous(),
+                scores_contiguous,
                 logical_to_physical,
                 valid_key_counts,
                 rows_per_batch,

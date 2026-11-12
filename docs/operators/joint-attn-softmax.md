@@ -93,9 +93,16 @@ operations. There is no Split-K, Stream-K, atomic partial accumulation, TF32,
 fast math, or batch-dependent launch choice. BF16 conversion happens once, at
 the final output or gradient write.
 
-The PyTorch CPU reference also requires gradual underflow. If the process enables
-`torch.set_flush_denormal(True)`, its forward and backward fail closed instead of
-silently flushing subnormal probabilities or gradients to zero.
+The PyTorch CPU reference also requires gradual underflow. Its runtime guard checks
+the calling thread and fails closed when that thread enables
+`torch.set_flush_denormal(True)`. CPU validation processes must call
+`torch.set_flush_denormal(False)` before initializing PyTorch CPU worker threads, or
+run the reference single-threaded. Existing worker threads keep their own floating-point
+control state and cannot be validated by the calling-thread guard.
+
+CUDA and Triton use fixed-shape mask mappings and may be captured by CUDA Graph after
+their normal warmup. The PyTorch fallback with `key_padding_mask` uses data-dependent
+`masked_select` intermediates, so that path must run eagerly outside CUDA Graph capture.
 
 The CUDA bit reference is included only when the build preserves exact FP32 math.
 `KERNEL_ALIGN_USE_FAST_MATH=1`, or external NVCC flags such as `--use_fast_math`,

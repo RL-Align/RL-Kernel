@@ -113,17 +113,22 @@ def _validate_scores(scores: torch.Tensor) -> None:
 
 
 def _require_gradual_underflow(values: torch.Tensor) -> None:
-    """Reject CPU execution when the process flushes FP32 subnormals to zero."""
-    if values.device.type == "cpu" and _cpu_flushes_denormals():
+    """Reject CPU execution when the calling thread flushes FP32 subnormals."""
+    if values.device.type == "cpu" and _current_thread_flushes_denormals():
         raise RuntimeError(
-            "joint-attention softmax CPU reference requires gradual underflow; "
-            "call torch.set_flush_denormal(False) before execution"
+            "joint-attention softmax CPU reference requires gradual underflow in "
+            "the calling thread; call torch.set_flush_denormal(False) before "
+            "execution and before initializing CPU worker threads"
         )
 
 
-def _cpu_flushes_denormals() -> bool:
-    """Return whether FP32 subnormal arithmetic is currently flushed to zero."""
-    minimum_normal = torch.tensor([torch.finfo(torch.float32).tiny], dtype=torch.float32)
+def _current_thread_flushes_denormals() -> bool:
+    """Return whether this thread flushes FP32 subnormal arithmetic to zero."""
+    minimum_normal = torch.tensor(
+        [torch.finfo(torch.float32).tiny],
+        dtype=torch.float32,
+        device="cpu",
+    )
     return (minimum_normal * 0.5).item() == 0.0
 
 

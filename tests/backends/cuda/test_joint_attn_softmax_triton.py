@@ -539,6 +539,48 @@ def test_noncontiguous_input_matches_all_backends_forward_and_backward():
     assert tensor_bytes_equal(triton_scores.grad, cuda_scores.grad)
 
 
+@pytest.mark.parametrize("backend", ["cuda", "triton"])
+def test_negative_bit_views_match_reference_forward_and_backward(backend):
+    from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
+        TritonJointAttnSoftmaxOp,
+    )
+    from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
+
+    operation = {
+        "cuda": JointAttnSoftmaxCudaOp,
+        "triton": TritonJointAttnSoftmaxOp,
+    }[backend]()
+    logical_scores = torch.tensor([[-0.5, -1.5, -2.5]], dtype=torch.float32)
+    logical_upstream = torch.tensor([[-1.0, -2.0, -3.0]], dtype=torch.float32)
+
+    expected_scores = logical_scores.clone().requires_grad_(True)
+    expected_probabilities = NativeJointAttnSoftmaxOp().forward_fp32(expected_scores)
+    expected_probabilities.backward(logical_upstream)
+
+    # Keep negation in Tensor metadata while sharing the positive backing storage.
+    inference_scores = torch.tensor(
+        [[0.5, 1.5, 2.5]], device="cuda", dtype=torch.float32
+    )._neg_view()
+    assert inference_scores.is_neg() and inference_scores.is_contiguous()
+    inference_probabilities = operation.forward_fp32(inference_scores)
+    assert tensor_bytes_equal(inference_probabilities.cpu(), expected_probabilities)
+
+    training_scores = torch.tensor(
+        [[0.5, 1.5, 2.5]], device="cuda", dtype=torch.float32
+    )._neg_view()
+    training_scores = training_scores.detach().requires_grad_(True)
+    upstream = torch.tensor([[1.0, 2.0, 3.0]], device="cuda", dtype=torch.float32)._neg_view()
+    assert training_scores.is_neg() and training_scores.is_contiguous()
+    assert upstream.is_neg() and upstream.is_contiguous()
+
+    actual_probabilities = operation.forward_fp32(training_scores)
+    actual_probabilities.backward(upstream)
+
+    assert tensor_bytes_equal(actual_probabilities.cpu(), expected_probabilities)
+    assert tensor_bytes_equal(training_scores.grad.cpu(), expected_scores.grad)
+
+
 def test_materialized_negative_infinity_mask_matches_all_backends():
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
     from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp

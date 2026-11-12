@@ -96,6 +96,33 @@ def test_cpu_reference_rejects_flush_denormal_mode():
         torch.set_flush_denormal(flush_denormal_was_enabled)
 
 
+def test_cpu_reference_ftz_probe_ignores_default_device():
+    scores = torch.tensor([[0.0, -90.0, -100.0]], dtype=torch.float32)
+    minimum_normal = torch.tensor(
+        [torch.finfo(torch.float32).tiny],
+        dtype=torch.float32,
+        device="cpu",
+    )
+    flush_denormal_was_enabled = (minimum_normal * 0.5).item() == 0.0
+
+    try:
+        if not torch.set_flush_denormal(False):
+            pytest.skip("torch.set_flush_denormal is unsupported on this CPU")
+        expected = NativeJointAttnSoftmaxOp().forward_fp32(scores)
+        with torch.device("meta"):
+            actual = NativeJointAttnSoftmaxOp().forward_fp32(scores)
+        assert tensor_bytes_equal(actual, expected)
+
+        torch.set_flush_denormal(True)
+        with (
+            torch.device("meta"),
+            pytest.raises(RuntimeError, match=r"torch\.set_flush_denormal\(False\)"),
+        ):
+            NativeJointAttnSoftmaxOp().forward_fp32(scores)
+    finally:
+        torch.set_flush_denormal(flush_denormal_was_enabled)
+
+
 def test_cpu_reference_backward_rejects_flush_denormal_mode():
     minimum_normal = torch.tensor([torch.finfo(torch.float32).tiny], dtype=torch.float32)
     flush_denormal_was_enabled = (minimum_normal * 0.5).item() == 0.0

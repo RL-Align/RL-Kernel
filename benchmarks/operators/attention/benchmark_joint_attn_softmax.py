@@ -184,27 +184,28 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             device="cuda",
             dtype=dtype,
         )
-        grad_output = torch.randn(
-            score_shape,
-            generator=generator,
-            device="cuda",
-            dtype=dtype,
-        )
         key_padding_mask = None
         masked_prompt_keys = 0
         if args.valid_text_keys is not None:
             key_padding_mask = torch.ones((1, key_length), device="cuda", dtype=torch.bool)
             key_padding_mask[:, args.valid_text_keys : _TEXT_KEY_SLOTS] = False
             masked_prompt_keys = _TEXT_KEY_SLOTS - args.valid_text_keys
-        reference = (
-            _backward_call(backends["cuda"], scores, grad_output, key_padding_mask)
-            if args.backward
-            else _forward_call(backends["cuda"], scores, key_padding_mask)
-        )
+        if args.backward:
+            grad_output = torch.randn(
+                score_shape,
+                generator=generator,
+                device="cuda",
+                dtype=dtype,
+            )
+            reference = _backward_call(backends["cuda"], scores, grad_output, key_padding_mask)
+        else:
+            grad_output = None
+            reference = _forward_call(backends["cuda"], scores, key_padding_mask)
 
         for backend_name, op in backends.items():
             call: Callable[[], torch.Tensor]
             if args.backward:
+                assert grad_output is not None
                 call = partial(
                     _backward_call,
                     op,
