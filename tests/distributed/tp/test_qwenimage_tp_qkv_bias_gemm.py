@@ -150,7 +150,7 @@ def assert_accuracy(actual, expected, dtype, judgment):
 @cuda
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("seed", [386, 387])
-@pytest.mark.parametrize("rows", [1, 17, 129, 4096, 6032, 6889])
+@pytest.mark.parametrize("rows", [1, 17, 127, 128, 129, 4096, 6032, 6889])
 def test_cpu_reference_and_original_native_bytes(dtype, seed, rows):
     x, w, b, grad = make_inputs(rows, dtype, seed)
     y, (dx, dw, db) = evaluate(x, w, b, grad)
@@ -254,7 +254,7 @@ def test_simulated_tp_matches_original_native_all_gradients(dtype, world, rows):
 
 @cuda
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("rows", [255, 256, 257, 2048])
+@pytest.mark.parametrize("rows", [127, 128, 129, 255, 256, 257, 2048])
 def test_cancellation_parameter_gradients(dtype, rows):
     x = torch.ones((rows, HIDDEN), device="cuda", dtype=dtype)
     x[:, 1::2] = 1.5
