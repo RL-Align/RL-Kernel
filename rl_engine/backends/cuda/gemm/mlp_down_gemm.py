@@ -44,6 +44,7 @@ rather than silently running an SGEMM.
 from __future__ import annotations
 
 import os
+from math import prod
 from threading import Lock
 from typing import Optional
 
@@ -115,6 +116,14 @@ def mlp_down_gemm_backend() -> str:
     if raw not in _VALID_BACKENDS:
         raise ValueError(f"{_BACKEND_ENV} must be one of {_VALID_BACKENDS}; got {raw!r}")
     return raw
+
+
+def _flatten_leading(t: torch.Tensor) -> torch.Tensor:
+    """``(..., K) -> (rows, K)`` without the ambiguous ``reshape(-1, 0)``."""
+
+    k_dim = t.size(-1)
+    rows = t.numel() // k_dim if k_dim else prod(t.shape[:-1])
+    return t.reshape(rows, k_dim)
 
 
 def _report_route_once(x: torch.Tensor, weight: torch.Tensor) -> None:
@@ -246,7 +255,7 @@ class _MlpDownGemmFunction(torch.autograd.Function):
     def forward(  # type: ignore[override]
         ctx, x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor]
     ) -> torch.Tensor:
-        x2d = x.reshape(-1, x.size(-1)).contiguous()
+        x2d = _flatten_leading(x).contiguous()
         w = weight.contiguous()
         use_sm90 = _sm90_usable(x2d, w)
         ctx.use_sm90 = use_sm90
@@ -270,7 +279,7 @@ class _MlpDownGemmFunction(torch.autograd.Function):
         from rl_engine.ops.autograd.backward_runtime import record_backward
 
         x2d, weight, bias = ctx.saved_tensors
-        g = grad_output.reshape(-1, grad_output.size(-1))
+        g = _flatten_leading(grad_output)
         if g.dtype is not torch.bfloat16:
             # Autograd hands back the forward dtype; anything else (a hand-built
             # fp32 cotangent) is rounded once before it enters the kernels, which

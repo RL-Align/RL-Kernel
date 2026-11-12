@@ -80,6 +80,7 @@ instead of silently running an SGEMM-shaped path.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import prod
 from typing import Optional
 
 import torch
@@ -454,6 +455,14 @@ def _launch_db(grad2d: torch.Tensor) -> torch.Tensor:
     return db
 
 
+def _flatten_leading(t: torch.Tensor) -> torch.Tensor:
+    """``(..., K) -> (rows, K)`` without the ambiguous ``reshape(-1, 0)``."""
+
+    k_dim = t.size(-1)
+    rows = t.numel() // k_dim if k_dim else prod(t.shape[:-1])
+    return t.reshape(rows, k_dim)
+
+
 class _TritonMlpDownGemmFunction(torch.autograd.Function):
     """Forward/backward through the pinned Triton tiles."""
 
@@ -461,7 +470,7 @@ class _TritonMlpDownGemmFunction(torch.autograd.Function):
     def forward(  # type: ignore[override]
         ctx, x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor]
     ) -> torch.Tensor:
-        x2d = x.reshape(-1, x.size(-1)).contiguous()
+        x2d = _flatten_leading(x).contiguous()
         weight = weight.contiguous()
         out = _launch_forward(x2d, weight, bias)
         ctx.save_for_backward(x2d, weight, bias)
@@ -473,7 +482,7 @@ class _TritonMlpDownGemmFunction(torch.autograd.Function):
         ctx, grad_output: torch.Tensor
     ) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         x2d, weight, bias = ctx.saved_tensors
-        grad_2d = grad_output.reshape(-1, weight.size(0))
+        grad_2d = _flatten_leading(grad_output)
         if grad_2d.dtype is not torch.bfloat16:
             # Autograd hands back the forward dtype; anything else (a hand-built
             # fp32 cotangent) is rounded once before it enters the kernels.

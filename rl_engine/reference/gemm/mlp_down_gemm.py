@@ -128,6 +128,13 @@ def mlp_down_gemm_reference_backward(
     return grad_x, grad_w, grad_b
 
 
+def _flatten_leading(t: torch.Tensor) -> torch.Tensor:
+    """``(..., K) -> (rows, K)`` without the ambiguous ``reshape(-1, 0)``."""
+
+    k_dim = t.size(-1)
+    rows = t.numel() // k_dim if k_dim else math.prod(t.shape[:-1])
+    return t.reshape(rows, k_dim)
+
 class _MlpDownGemmTreeFunction(torch.autograd.Function):
     """Dtype path: fp32 tree internally, the single RNE cast at the store."""
 
@@ -138,7 +145,7 @@ class _MlpDownGemmTreeFunction(torch.autograd.Function):
         weight: torch.Tensor,
         bias: Optional[torch.Tensor],
     ) -> torch.Tensor:
-        x2d = x.reshape(-1, x.size(-1))
+        x2d = _flatten_leading(x)
         out = mlp_down_gemm_reference_forward(x2d, weight, bias)
         ctx.save_for_backward(x2d, weight, bias)
         ctx.lead_shape = x.shape[:-1]
@@ -149,7 +156,7 @@ class _MlpDownGemmTreeFunction(torch.autograd.Function):
         ctx, grad_output: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         x2d, weight, bias = ctx.saved_tensors
-        grad_2d = grad_output.reshape(-1, grad_output.size(-1))
+        grad_2d = _flatten_leading(grad_output)
         grad_x, grad_w, grad_b = mlp_down_gemm_reference_backward(x2d, weight, grad_2d)
         grad_x = grad_x.to(x2d.dtype).reshape(*ctx.lead_shape, weight.size(1))
         grad_w = grad_w.to(weight.dtype)
@@ -200,7 +207,7 @@ class NativeMlpDownGemmOp:
     ) -> torch.Tensor:
         """Accuracy gold: the FP32 tree result, before the output cast."""
 
-        x2d = x.reshape(-1, x.size(-1))
+        x2d = _flatten_leading(x)
         out = mlp_down_gemm_reference_forward(x2d, weight, bias)
         return out.reshape(*x.shape[:-1], weight.size(0))
 
