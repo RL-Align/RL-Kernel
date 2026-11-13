@@ -51,7 +51,7 @@ inverse RMS in backward with the same kernel; the bytes equal the saved path.
 
 | Backend | Wrapper | Implementation | Status |
 | --- | --- | --- | --- |
-| ROCm (gfx942, gfx950) | `RocmRMSNormResidual` | `rl_engine/backends/rocm/norm/rmsnorm_residual_kernels.py` (Triton) | Written against the contract; MI300X/MI355X byte acceptance pending |
+| ROCm (gfx942, gfx950) | `RocmRMSNormResidual` | `rl_engine/backends/rocm/norm/rmsnorm_residual_kernels.py` (Triton) | MI300X byte acceptance measured below; MI355X pending |
 | Reference | `RMSNormResidualReference` | `rl_engine/reference/norm/rmsnorm_residual.py` | CPU tests pass |
 | AITER | — | — | Not used; see **AITER integration boundary** |
 
