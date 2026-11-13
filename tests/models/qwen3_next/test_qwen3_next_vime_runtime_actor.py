@@ -34,7 +34,10 @@ def native(monkeypatch):
         calls.append(("get_model", wrap_with_ddp))
         return [model]
 
-    def load_checkpoint(model, optimizer, scheduler, checkpointing_context):
+    def load_checkpoint(
+        model, optimizer, scheduler, checkpointing_context, skip_load_to_model_and_opt
+    ):
+        assert skip_load_to_model_and_opt is False
         calls.append(("load_checkpoint", optimizer, scheduler))
 
     stubs = {
