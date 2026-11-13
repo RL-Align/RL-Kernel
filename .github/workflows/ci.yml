@@ -95,8 +95,10 @@ jobs:
             tests/models/qwen3_next/test_qwen3_next_rotary_dtype.py \
             tests/models/qwen3_next/test_qwen3_next_storage.py \
             tests/models/qwen3_next/test_qwen3_next_training_audit.py \
+            tests/models/qwen3_next/test_qwen3_next_training_checkpoint.py \
             tests/models/qwen3_next/test_qwen3_next_training_closeout.py \
             tests/models/qwen3_next/test_qwen3_next_training_export.py \
+            tests/models/qwen3_next/test_qwen3_next_vime_runtime_actor.py \
             tests/models/qwen3_next/test_qwen3_next_subnode.py \
             tests/models/qwen3_next/test_qwen3_next_chain_report.py \
             tests/models/qwen3_next/test_qwen3_next_run.py \

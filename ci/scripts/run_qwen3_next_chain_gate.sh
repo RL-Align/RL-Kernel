@@ -15,11 +15,21 @@ import dataclasses, json, sys
 from rl_engine.validation.models.chain_gate import ChainGateReport
 from rl_engine.validation.models.qwen3_next.qwen3_next_chain_report import COMPATIBLE_SCHEMA, SCHEMA_VERSION
 
+
+
+def invalid(message):
+    """Reject a malformed report with exit 2, apart from exit 1 for a failed gate."""
+    print(f"invalid chain report: {message}", file=sys.stderr)
+    sys.exit(2)
+
+
 report = json.load(open(sys.argv[1]))
 missing = {f.name for f in dataclasses.fields(ChainGateReport)} - set(report)
-assert not missing, f"chain report lacks ChainGateReport fields: {sorted(missing)}"
-assert report["schema_version"] == SCHEMA_VERSION, report["schema_version"]
-assert report["compatible_schema"] == COMPATIBLE_SCHEMA, report["compatible_schema"]
+if missing:
+    invalid(f"lacks ChainGateReport fields: {sorted(missing)}")
+for key, expected in (("schema_version", SCHEMA_VERSION), ("compatible_schema", COMPATIBLE_SCHEMA)):
+    if report.get(key) != expected:
+        invalid(f"{key} is {report.get(key)!r}, expected {expected!r}")
 print(f"passed={report['passed']} first_drift={report['first_drift']} "
       f"family={report['first_drift_family']} cells={len(report['cells'])}")
 sys.exit(0 if report["passed"] else 1)
