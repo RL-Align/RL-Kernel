@@ -42,6 +42,7 @@ on:
       - "rl_engine/integrations/common/qwen3_next*"
       - "rl_engine/integrations/orchestrators/vime/experiments/qwen3_next/**"
       - "rl_engine/distributed/algorithms/collectives.py"
+      - "pyproject.toml"
       - ".github/workflows/qwen3-next-provider-gpu.yml"
   workflow_dispatch:
     inputs:
@@ -104,6 +105,16 @@ jobs:
           assert torch.__version__ == "2.13.0+cu130"
           assert vllm.__version__ == "0.30.0"
           assert torch.cuda.is_available()
+
+          # The rest of the pinned set in pyproject.toml's qwen3-next extra.
+          from importlib.metadata import version
+
+          for name, pinned in (
+              ("transformers", "5.17.0"),
+              ("triton", "3.7.1"),
+              ("flashinfer-python", "0.6.18.post1"),
+          ):
+              assert version(name) == pinned, f"{name} {version(name)} != {pinned}"
           PY
       - name: Build the extension against that runtime
         # The runner is long-lived: remove any extension or build tree left by an earlier
@@ -141,7 +152,8 @@ jobs:
             tests/models/qwen3_next/check_qwen3_next_gdn_bridge.py tests/models/qwen3_next/check_qwen3_next_gdn_sequence.py \
             tests/models/qwen3_next/check_qwen3_next_conv_bridge.py tests/models/qwen3_next/check_qwen3_next_core_matrix.py \
             tests/models/qwen3_next/check_qwen3_next_shared_core.py tests/models/qwen3_next/check_qwen3_next_paged_attention.py \
-            tests/models/qwen3_next/check_qwen3_next_batch_invariance.py tests/models/qwen3_next/check_qwen3_next_bi_requests.py | tee "$log"
+            tests/models/qwen3_next/check_qwen3_next_batch_invariance.py tests/models/qwen3_next/check_qwen3_next_bi_requests.py \
+            tests/models/qwen3_next/test_qwen3_next_vllm_attention_metadata.py | tee "$log"
           # Fail closed: these modules skip as a whole when CUDA or vLLM is missing, and pytest
           # exits 0 for an all-skipped run. A skipped provider check is not provider evidence.
           if grep -Eq '^SKIPPED|[0-9]+ skipped' "$log"; then
