@@ -66,7 +66,15 @@ class AiterJointBackwardBackend:
             "aiter.ops.triton._triton_kernels.attention.mha_fused_bwd"
         )
         delta_source_sha256 = hashlib.sha256(Path(preprocessing.__file__).read_bytes()).hexdigest()
-        require(delta_source_sha256 == DELTA_SHA256, "aiter delta source hash mismatch")
+        # The locked AITER 0.1.29 file also contains unrelated MHA kernels.
+        # Both audited files expose the same explicit-stride FP32 delta ABI.
+        require(
+            delta_source_sha256 in (
+                DELTA_SHA256,
+                "3f1899f70464817c37e65562eecd0698406886e78ece9d44e4ac5655376c5490",
+            ),
+            "aiter delta source hash mismatch",
+        )
         self._delta = preprocessing._bwd_preprocess
         self.provenance = {
             "profile": self.profile,
