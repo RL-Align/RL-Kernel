@@ -60,6 +60,52 @@ python -m pytest tests/ops/test_op_accuracy.py -q
 backward-compatible aliases, batch invariance, and registry dispatch. The existing
 operator accuracy tests continue to validate native/CUDA fused API compatibility.
 
+## Shared Python ownership (RFC #642 Task 19)
+
+`rl_engine/ops/logprob/fused_logp.py` owns common preparation, native variant
+delegation, autograd forward/save mechanics, and the existing FP32 PyTorch VJP.
+CUDA and MUSA each own their concrete wrapper, extension binding, and backward
+selection. MUSA no longer imports CUDA. CUDA's canonical and legacy leaf imports
+still share one module object; `_FusedLogpAutograd` remains in the CUDA module.
+Native symbols, arithmetic, and registry priorities are unchanged.
+
+The CPU ownership tests use recording backends and a frozen source oracle from
+`main@49941801f942428fd52ac5b66a1b0c070418724e`. The snapshot is test-only and lets
+the before/after checks run in shallow checkouts. Native MUSA execution requires
+separate hardware validation.
+
+```bash
+PYTHONPATH=. OMP_NUM_THREADS=1 python -m pytest -q \
+  tests/ops/logprob/test_fused_logp_ownership.py \
+  tests/ops/logprob/test_logp.py tests/runtime/test_layout_compatibility.py \
+  tests/runtime/test_kernel_registry.py
+```
+
+On a provisioned single H100 with this checkout's CUDA extension built, run:
+
+```bash
+unset RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP
+PYTHONPATH=. python -m pytest -q tests/ops/test_op_accuracy.py -k 'logp or logprob'
+PYTHONPATH=. python -m pytest -q tests/ops/logprob/test_deterministic_logp.py
+PYTHONPATH=. python -m pytest -q \
+  tests/e2e/test_rl_kernel_loss_step.py::test_minimal_rl_loss_step_fused_logp_candidate_cuda
+PYTHONPATH=. python -m tools.validation.operators.compare_fused_logp_ownership \
+  --baseline 49941801f942428fd52ac5b66a1b0c070418724e \
+  --output /tmp/task19-h100.json
+```
+
+The comparison command requires the baseline Git object, asserts real CUDA
+extension use, and compares 18 dtype/shape/layout cases byte-for-byte for forward,
+backward, and eight variants. It independently checks reference accuracy and
+records GPU, software, extension and tensor hashes. The generic CUDA backward
+remains PyTorch; there is no new CUDA native backward in Task 19. Missing native
+execution or skipped accelerator tests do not establish hardware acceptance.
+
+Shared source is included in the gradient audit inventory. Runtime fingerprints
+also include the defining module of cross-module runtime entrypoints, so moving
+the VJP cannot hide later shared-helper source changes. Same-module fingerprint
+payloads and stable public operator identifiers are preserved.
+
 ## Implementation Files
 
 - `rl_engine/runtime/registry.py`

@@ -189,6 +189,7 @@ GRADIENT_ADAPTERS: dict[str, GradientAdapterSpec] = {
         requirement="required",
         source_files=(
             "rl_engine/backends/cuda/logprob/logp.py",
+            "rl_engine/ops/logprob/fused_logp.py",
             "rl_engine/backends/shared/triton/logprob/logp.py",
             "csrc/cuda/logprob/fused_logp_kernel.cu",
             "csrc/cuda/logprob/deterministic_logp_kernel.cu",

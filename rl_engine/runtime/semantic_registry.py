@@ -492,20 +492,31 @@ def implementation_fingerprint(
     factory = _load_factory(implementation)
     concrete_type = type(instance) if instance is not None else None
     runtime_entrypoints = {}
+    entrypoint_modules: set[str] = set()
     if instance is not None:
         for name in sorted(set(entrypoints)):
             value = getattr(instance, name, None)
             if callable(value):
                 runtime_entrypoints[name] = _callable_identity(value)
-    return _fingerprint(
-        {
-            "factory": _implementation_identity(factory),
-            "concrete_type": (
-                _implementation_identity(concrete_type) if concrete_type is not None else None
-            ),
-            "runtime_entrypoints": runtime_entrypoints,
-        }
+                module_name = getattr(value, "__module__", None)
+                if isinstance(module_name, str):
+                    entrypoint_modules.add(module_name)
+    identity: dict[str, Any] = {
+        "factory": _implementation_identity(factory),
+        "concrete_type": (
+            _implementation_identity(concrete_type) if concrete_type is not None else None
+        ),
+        "runtime_entrypoints": runtime_entrypoints,
+    }
+    # A backend wrapper can inherit entrypoints whose helpers live in a shared file.
+    entrypoint_modules.difference_update(
+        {None, getattr(factory, "__module__", None), getattr(concrete_type, "__module__", None)}
     )
+    if entrypoint_modules:
+        identity["entrypoint_modules"] = {
+            name: _module_identity(name) for name in sorted(entrypoint_modules)
+        }
+    return _fingerprint(identity)
 
 
 def operator_instance_fingerprint(**identity: str) -> str:
