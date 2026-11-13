@@ -179,9 +179,30 @@ def create_actor(checkpoint, *, training, ep=1):
     if (args.vocab_size, args.padded_vocab_size) != (151936, 151936):
         raise ValueError("Tokenizer initialization changed the official LM-head vocabulary")
     from vime.backends.megatron_utils.checkpoint import load_checkpoint
-    from vime.backends.megatron_utils.model import setup_model_and_optimizer
 
     from rl_engine.models.qwen3_next.qwen3_next_logprob import install_vime_logprob_provider
+
+    if not training:
+        from megatron.core.enums import ModelType
+        from megatron.training.training import get_model
+        from vime.backends.megatron_utils.linear_logp_provider import linear_logp_provider_path
+        from vime.backends.megatron_utils.model import (
+            _install_linear_logp_capture,
+            get_model_provider_func,
+        )
+
+        model = get_model(
+            get_model_provider_func(args, "actor"),
+            ModelType.encoder_or_decoder,
+            wrap_with_ddp=False,
+        )
+        if linear_logp_provider_path(args) is not None:
+            _install_linear_logp_capture(model, args)
+        load_checkpoint(model, None, None, checkpointing_context={})
+        install_vime_logprob_provider()
+        return args, model, None, None
+
+    from vime.backends.megatron_utils.model import setup_model_and_optimizer
 
     model, optimizer, scheduler = setup_model_and_optimizer(args, role="actor")
     load_checkpoint(model, optimizer, scheduler, checkpointing_context={})
