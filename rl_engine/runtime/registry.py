@@ -161,6 +161,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
     # DeepSeek-V4 mHC on ROCm: Triton kernels copied from aiter, batch invariant by construction
     ROCM_TRITON_MHC_PRE = "rl_engine.backends.rocm.mhc.triton_mhc.TritonMHCPreOp"
+    ROCM_TRITON_MHC_POST = "rl_engine.backends.rocm.mhc.triton_mhc.TritonMHCPostOp"
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
@@ -565,6 +566,29 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="TritonMHCPreOp-four-k-splits-triton-backward-v2",
         ),
+        OperatorBackendDescriptor(
+            semantic_op="mhc_post",
+            backend_id="rlkernel.rocm.triton_mhc_post_dsv4.batch_invariant.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies=_SINGLE_GPU_TP1,
+            determinism_or_alignment_properties={
+                "algorithm": "rowwise_stream_order",
+                "batch_invariant": True,
+                "deterministic": True,
+                # Input gradients: Triton kernels with a written reduction order;
+                # fn, scale, base gradients through the canonical backward session.
+                "backward_batch_invariant": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.backends.rocm.mhc.triton_mhc.TritonMHCPostOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="TritonMHCPostOp-triton-backward-v2",
+        ),
     )
 
 
@@ -808,6 +832,7 @@ class KernelRegistry:
                 # No mHC backend: an empty list makes get_op raise instead of
                 # falling back to the default PYTORCH_NATIVE (logp) op.
                 "mhc_pre": [],
+                "mhc_post": [],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [
@@ -867,6 +892,7 @@ class KernelRegistry:
                 # whose bits change with the batch. The ops raise on any GPU
                 # architecture other than gfx942 (their constructors).
                 "mhc_pre": [OpBackend.ROCM_TRITON_MHC_PRE],
+                "mhc_post": [OpBackend.ROCM_TRITON_MHC_POST],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
@@ -914,6 +940,7 @@ class KernelRegistry:
                 ],
                 # No mHC backend; see the CUDA entries.
                 "mhc_pre": [],
+                "mhc_post": [],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [
                     OpBackend.TRITON_EMBEDDING,
@@ -944,6 +971,7 @@ class KernelRegistry:
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 # No mHC backend; see the CUDA entries.
                 "mhc_pre": [],
+                "mhc_post": [],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
@@ -1012,7 +1040,7 @@ class KernelRegistry:
             OpBackend.ASCEND_DET_GEMM,
         ]
         # No mHC backend on NPU.
-        for op_type in ("mhc_pre",):
+        for op_type in ("mhc_pre", "mhc_post"):
             self._priority_map["npu"][op_type] = []
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()

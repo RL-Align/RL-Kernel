@@ -32,3 +32,13 @@ def weights(c):
     }
 
 
+def forward_backward(fn, inputs, grad_out=None):
+    """Forward with grad on float inputs, then backward; returns (outputs, input grads).
+
+    Without ``grad_out`` the loss is the sum of the last output.
+    """
+    leaves = [t.detach().clone().requires_grad_(t.is_floating_point()) for t in inputs]
+    outputs = fn(*leaves)
+    loss_target = outputs[0] if grad_out is not None else outputs[-1].sum()
+    loss_target.backward(grad_out)
+    return [o.detach() for o in outputs], [t.grad.detach() for t in leaves if t.grad is not None]

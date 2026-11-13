@@ -244,7 +244,7 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
     [
         (platform, op_type)
         for platform in ("cuda", "musa", "cpu", "npu")
-        for op_type in ("mhc_pre",)
+        for op_type in ("mhc_pre", "mhc_post")
     ],
 )
 def test_ops_without_a_backend_raise(monkeypatch, platform, op_type):
@@ -261,6 +261,7 @@ def test_ops_without_a_backend_raise(monkeypatch, platform, op_type):
 
 _ROCM_TRITON_OPS = [
     ("mhc_pre", OpBackend.ROCM_TRITON_MHC_PRE),
+    ("mhc_post", OpBackend.ROCM_TRITON_MHC_POST),
 ]
 
 

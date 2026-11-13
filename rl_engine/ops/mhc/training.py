@@ -114,9 +114,12 @@ def _check(row, backend):
 
 @lru_cache(maxsize=3)
 def _triton_op(kind):
-    from rl_engine.backends.rocm.mhc.triton_mhc import TritonMHCPreOp
+    from rl_engine.backends.rocm.mhc.triton_mhc import (
+        TritonMHCPostOp,
+        TritonMHCPreOp,
+    )
 
-    return {"pre": TritonMHCPreOp}[kind]()
+    return {"pre": TritonMHCPreOp, "post": TritonMHCPostOp}[kind]()
 
 
 def _triton_mix(kind, rows, fn, scale, base, recompute, **kwargs):
@@ -259,6 +262,8 @@ def mhc_post(y, rows, post, comb, *, backend):
     ):
         if val.shape != shape or val.dtype != dtype or val.device != rows.device:
             raise ValueError(f"invalid post input; expected {shape} and {dtype} on residual device")
+    if backend == "rocm_triton":
+        return _triton_op("post")(y, rows, post, comb)
     return _Post.apply(y, rows, post, comb, backend)
 
 

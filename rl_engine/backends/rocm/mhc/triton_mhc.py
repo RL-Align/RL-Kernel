@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2024-2026, Advanced Micro Devices, Inc. All rights reserved.
 # Modifications copyright (c) 2026 RL-Kernel Contributors
-"""Batch-invariant DeepSeek-V4 mHC pre on ROCm (Triton).
+"""Batch-invariant DeepSeek-V4 mHC pre and post on ROCm (Triton).
 
 Copied from aiter 326cffa: the kernels from
 aiter/ops/triton/_triton_kernels/fusions/mhc.py (``_mhc_fused_split_kernel``,
-``_mhc_reduce_apply_kernel``, ``_mhc_asymmetric_sinkhorn_kernel``) and the
-launchers from aiter/ops/triton/fusions/mhc.py (``mhc``, ``mhc_pre_dsv4``). aiter's
+``_mhc_reduce_apply_kernel``, ``_mhc_asymmetric_sinkhorn_kernel``,
+``_mhc_post_kernel``) and the launchers from aiter/ops/triton/fusions/mhc.py
+(``mhc``, ``mhc_pre_dsv4``, ``mhc_post_dsv4``). aiter's
 arithmetic is kept except for three changes, so the results differ from aiter's
 only by the order of the sums and by the fp32 projection
 (docs/operators/dsv4-mhc.md, section "Accuracy"):
@@ -29,6 +30,10 @@ only by the order of the sums and by the fp32 projection
    ``fn`` to bf16). Its MFMA shape is fixed (``matrix_instr_nonkdim=16``,
    ``kpack=1``).
 
+mHC post is aiter's kernel, which already adds the streams in an explicit loop;
+each step of that loop is written as one ``tl.fma`` (as in mHC pre) and
+the launch config is fixed.
+
 Backward is RL-Kernel's own (aiter recomputes the formula in PyTorch): Triton
 kernels that compute the exact derivative of the forward above, row by row.
 
@@ -41,8 +46,8 @@ kernels that compute the exact derivative of the forward above, row by row.
   own helpers, once per step it walks back through (2 * rounds steps, so about
   (2 * rounds)^2 / 2 replayed steps per token, all in registers).
 - Every reduction has its order written in the source, as in the forward, and
-  none depends on M or on a launch parameter: sums over C (one per stream) are
-  accumulated element-wise with ``tl.fma`` over C
+  none depends on M or on a launch parameter: sums over C (one per stream, or per
+  stream pair in mHC post) are accumulated element-wise with ``tl.fma`` over C
   tiles of DOT_BLOCK = 128, then the 128 columns are added pairwise; sums over the
   rows of one group of logits are pairwise; the transposed projection
   ``fn^T @ d acc`` is one ``tl.fma`` per ``fn`` row in row order; sums over the n
@@ -92,8 +97,11 @@ PRE_CONFIG = {
     "apply_num_warps": 4,
     "SINKHORN_BLOCK_M": 16,
 }
+# aiter 326cffa's mhc_post config on gfx942 (mhc_post/DEFAULT.json) with BLOCK_M = 16 instead of
+# 64, which is faster at every M.
+POST_CONFIG = {"BLOCK_M": 16, "BLOCK_C": 256, "num_warps": 4, "num_stages": 1, "waves_per_eu": 2}
 
-# Backward launch configs. MIX_* is the kernel that
+# Backward launch configs, the same for the two ops. MIX_* is the kernel that
 # reduces over C per token (one workgroup per MIX_BLOCK_M tokens, the whole of C);
 # DX_* the element-wise input-gradient kernels. They do not change the bits either.
 BACKWARD_CONFIG = {
@@ -421,6 +429,119 @@ def _mhc_sinkhorn_kernel(
     tl.store(out_ptr + rm[:, None, None] * stride_out_m + entry * stride_out_n, values, mask=mask)
 
 
+@triton.jit(do_not_specialize=["M"])
+def _mhc_post_kernel(
+    out_ptr,  # (M, n, C)  bf16 / fp16
+    x_ptr,  # (M, C)     bf16 / fp16  (layer_input from mhc())
+    residual_ptr,  # (M, n, C)  bf16 / fp16
+    post_mix_ptr,  # (M, n)     fp32  (mhc()'s h_post)
+    comb_mix_ptr,  # (M, n, n)  fp32  [src, dst]  (mhc()'s h_res)
+    M,
+    C,
+    stride_x_m,
+    stride_x_c,
+    stride_res_m,
+    stride_res_n,
+    stride_res_c,
+    stride_out_m,
+    stride_out_n,
+    stride_out_c,
+    stride_post_m,
+    stride_post_n,
+    stride_comb_m,
+    stride_comb_src,
+    stride_comb_dst,
+    n: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_C: tl.constexpr,
+):
+    """Fused mhc_post kernel: compute one M-tile across all `n` output
+    streams and the full hidden dim.
+
+        out[m, j, c] = post_mix[m, j] * x[m, c]
+                     + sum_h comb_mix[m, h, j] * residual[m, h, c]
+
+    in fp32, written as ``out = post * x``, then
+    ``out = fma(comb[h, j], residual[h], out)`` for h = 0 .. n-1 (source-stream
+    order), so every step is one rounding whatever Triton's floating-point
+    fusion does. One cast to the output dtype.
+
+    Grid: ``(cdiv(M, BLOCK_M),)``. Each program loads ``post_mix``
+    (BLOCK_M, n) and ``comb_mix`` (BLOCK_M, n, n) once and reuses them
+    across the persistent loop over ``BLOCK_C``-sized C-tiles. The
+    ``n``-source-head contraction inside each C-tile is unrolled via
+    ``tl.static_range``: each iteration loads a 2-D ``residual`` slice and
+    a 1-D ``comb_mix`` row and adds ``comb_h * res_h`` to ``out_tile`` with
+    one ``tl.fma``. Requires ``n`` to be a power of 2 so ``tl.arange(0, n)``
+    compiles.
+    """
+    pid_m = tl.program_id(0)
+
+    rm = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+    i_n = tl.arange(0, n)
+
+    m_mask = rm < M
+
+    post_mix_tile = tl.load(
+        post_mix_ptr + rm[:, None] * stride_post_m + i_n[None, :] * stride_post_n,
+        mask=m_mask[:, None],
+        other=0.0,
+    )
+
+    # Pre-load each row of the per-token (n_src, n_dst) comb_mix matrix into
+    # a tuple of 2-D tiles. Each ``comb_rows[h]`` has shape (BLOCK_M, n_dst)
+    # and lives in registers across the C-loop, eliminating per-C-tile
+    # reloads of the small per-token coefficients.
+    comb_rows = ()
+    for h in tl.static_range(n):
+        comb_rows = comb_rows + (  # type: ignore[assignment]
+            tl.load(
+                comb_mix_ptr
+                + rm[:, None] * stride_comb_m
+                + h * stride_comb_src
+                + i_n[None, :] * stride_comb_dst,
+                mask=m_mask[:, None],
+                other=0.0,
+            ),
+        )
+
+    for c_start in range(0, C, BLOCK_C):
+        rc = c_start + tl.arange(0, BLOCK_C)
+        c_mask = rc < C
+
+        x_tile = tl.load(
+            x_ptr + rm[:, None] * stride_x_m + rc[None, :] * stride_x_c,
+            mask=m_mask[:, None] & c_mask[None, :],
+            other=0.0,
+            cache_modifier=".cg",
+        )
+
+        out_tile = post_mix_tile[:, :, None] * x_tile[:, None, :].to(tl.float32)
+
+        for h in tl.static_range(n):
+            res_h = tl.load(
+                residual_ptr
+                + rm[:, None] * stride_res_m
+                + h * stride_res_n
+                + rc[None, :] * stride_res_c,
+                mask=m_mask[:, None] & c_mask[None, :],
+                other=0.0,
+                cache_modifier=".cg",
+            )
+            comb_h = comb_rows[h]  # type: ignore[var-annotated]  # (BLOCK_M, n_dst) tile
+            out_tile = tl.fma(comb_h[:, :, None], res_h[:, None, :].to(tl.float32), out_tile)
+
+        tl.store(
+            out_ptr
+            + rm[:, None, None] * stride_out_m
+            + i_n[None, :, None] * stride_out_n
+            + rc[None, None, :] * stride_out_c,
+            out_tile.to(out_ptr.dtype.element_ty),
+            mask=m_mask[:, None, None] & c_mask[None, None, :],
+            cache_modifier=".cs",
+        )
+
+
 # --- backward kernels ------------------------------------------------------------------------
 # Row-major buffers allocated by the launchers (and the contiguous gradients) are
 # passed with their row stride only; their column stride is 1.
@@ -664,6 +785,139 @@ def _mhc_backward_dx_kernel(
         )
 
 
+@triton.jit(do_not_specialize=["M"])
+def _mhc_post_backward_dx_kernel(
+    grad_ptr,  # (M, n, C) gradient of the output
+    post_mix_ptr,  # (M, n) fp32
+    comb_mix_ptr,  # (M, n, n) fp32 [src, dst]
+    dy_ptr,  # out (M, C)
+    dres_ptr,  # out (M, n, C)
+    M,
+    n: tl.constexpr,
+    C: tl.constexpr,
+    stride_gm,
+    stride_gn,
+    stride_post_m,
+    stride_comb_m,
+    stride_dym,
+    stride_dres_m,
+    stride_dres_n,
+    BLOCK_M: tl.constexpr,
+    BLOCK_C: tl.constexpr,
+):
+    """dy and dResidual of mHC post, element-wise; one (M tile, C tile) per program.
+
+      dy[c]  = post_0 * g_0[c], then fma(post_j, g_j[c], dy[c]) for j = 1 .. n-1
+      dr_h[c] = comb[h, 0] * g_0[c], then fma(comb[h, j], g_j[c], dr_h[c]) for j = 1 .. n-1
+    each rounded to the output dtype once.
+    """
+    pid_m = tl.program_id(0)
+    pid_c = tl.program_id(1)
+    rm = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+    rc = pid_c * BLOCK_C + tl.arange(0, BLOCK_C)
+    row_ok = rm < M
+    tile_ok = row_ok[:, None] & (rc[None, :] < C)
+    dy = tl.zeros([BLOCK_M, BLOCK_C], dtype=tl.float32)
+    for j in tl.static_range(n):
+        g_j = tl.load(
+            grad_ptr + rm[:, None] * stride_gm + j * stride_gn + rc[None, :],
+            mask=tile_ok,
+            other=0.0,
+        ).to(tl.float32)
+        post_j = tl.load(post_mix_ptr + rm * stride_post_m + j, mask=row_ok, other=0.0)
+        if j == 0:
+            dy = post_j[:, None] * g_j
+        else:
+            dy = tl.fma(post_j[:, None], g_j, dy)
+    tl.store(dy_ptr + rm[:, None] * stride_dym + rc[None, :], dy.to(dy_ptr.dtype.element_ty), mask=tile_ok)
+    for h in tl.static_range(n):
+        dr = tl.zeros([BLOCK_M, BLOCK_C], dtype=tl.float32)
+        for j in tl.static_range(n):
+            g_j = tl.load(
+                grad_ptr + rm[:, None] * stride_gm + j * stride_gn + rc[None, :],
+                mask=tile_ok,
+                other=0.0,
+            ).to(tl.float32)
+            comb_hj = tl.load(comb_mix_ptr + rm * stride_comb_m + h * n + j, mask=row_ok, other=0.0)
+            if j == 0:
+                dr = comb_hj[:, None] * g_j
+            else:
+                dr = tl.fma(comb_hj[:, None], g_j, dr)
+        tl.store(
+            dres_ptr + rm[:, None] * stride_dres_m + h * stride_dres_n + rc[None, :],
+            dr.to(dres_ptr.dtype.element_ty),
+            mask=tile_ok,
+        )
+
+
+@triton.jit(do_not_specialize=["M"])
+def _mhc_post_backward_mix_kernel(
+    grad_ptr,  # (M, n, C) gradient of the output
+    y_ptr,  # (M, C)
+    residual_ptr,  # (M, n, C)
+    dpost_ptr,  # out (M, n) fp32
+    dcomb_ptr,  # out (M, n, n) fp32 [src, dst]
+    M,
+    n: tl.constexpr,
+    C: tl.constexpr,
+    stride_gm,
+    stride_gn,
+    stride_ym,
+    stride_res_m,
+    stride_res_n,
+    BLOCK_M: tl.constexpr,
+    DOT_BLOCK: tl.constexpr,
+    LOG2_DOT_BLOCK: tl.constexpr,
+):
+    """d post_mix and d comb_mix of mHC post, BLOCK_M tokens per program over all of C.
+
+      d post[j]    = sum_c g_j[c] * y[c]
+      d comb[h, j] = sum_c g_j[c] * residual_h[c]
+    each accumulated element-wise with tl.fma over the C tiles of DOT_BLOCK, then
+    the DOT_BLOCK columns added pairwise.
+    """
+    pid = tl.program_id(0)
+    rm = (pid * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+    rn = tl.arange(0, n)
+    row_ok = rm < M
+    for j in tl.static_range(n):
+        acc_post = tl.zeros([BLOCK_M, DOT_BLOCK], dtype=tl.float32)
+        acc_comb = tl.zeros([BLOCK_M, n, DOT_BLOCK], dtype=tl.float32)
+        for c_start in range(0, C, DOT_BLOCK):
+            rc = c_start + tl.arange(0, DOT_BLOCK)
+            c_ok = row_ok[:, None] & (rc[None, :] < C)
+            g_j = tl.load(
+                grad_ptr + rm[:, None] * stride_gm + j * stride_gn + rc[None, :],
+                mask=c_ok,
+                other=0.0,
+            ).to(tl.float32)
+            y = tl.load(y_ptr + rm[:, None] * stride_ym + rc[None, :], mask=c_ok, other=0.0)
+            res = tl.load(
+                residual_ptr
+                + rm[:, None, None] * stride_res_m
+                + rn[None, :, None] * stride_res_n
+                + rc[None, None, :],
+                mask=c_ok[:, None, :],
+                other=0.0,
+            )
+            acc_post = tl.fma(g_j, y.to(tl.float32), acc_post)
+            acc_comb = tl.fma(g_j[:, None, :], res.to(tl.float32), acc_comb)
+        tl.store(
+            dpost_ptr + rm * n + j,
+            _pairwise_sum_last(acc_post, BLOCK_M, DOT_BLOCK, LOG2_DOT_BLOCK),
+            mask=row_ok,
+        )
+        flat = tl.reshape(acc_comb, (BLOCK_M * n, DOT_BLOCK))
+        dcomb_j = tl.reshape(
+            _pairwise_sum_last(flat, BLOCK_M * n, DOT_BLOCK, LOG2_DOT_BLOCK), (BLOCK_M, n)
+        )
+        tl.store(
+            dcomb_ptr + rm[:, None] * (n * n) + rn[None, :] * n + j,
+            dcomb_j,
+            mask=row_ok[:, None] & (rn[None, :] < n),
+        )
+
+
 @triton.jit(do_not_specialize=["T"])
 def _mhc_fold_rows_kernel(rows_ptr, out_ptr, T, W: tl.constexpr, stride_t, BLOCK_W: tl.constexpr):
     """out[w] = sum over t of rows[t, w], one row at a time in ascending t (canonical order)."""
@@ -835,6 +1089,45 @@ def _mhc_pre_dsv4_forward(
     return out[:, :n].unsqueeze(-1), comb, layer_input, saved
 
 
+def _mhc_post_forward(layer_input, residual, post_mix, comb_mix, config):
+    M, n, C = residual.shape
+    out = torch.empty((M, n, C), dtype=layer_input.dtype, device=layer_input.device)
+    if M == 0:
+        return out
+    cfg = dict(POST_CONFIG, **(config or {}))
+    BLOCK_M = cfg.pop("BLOCK_M")
+    BLOCK_C = min(cfg.pop("BLOCK_C"), triton.next_power_of_2(C))
+    if post_mix.ndim == 3:
+        post_mix = post_mix.squeeze(-1)
+    _mhc_post_kernel[(triton.cdiv(M, BLOCK_M),)](
+        out,
+        layer_input,
+        residual,
+        post_mix,
+        comb_mix,
+        M,
+        C=C,
+        stride_x_m=layer_input.stride(0),
+        stride_x_c=layer_input.stride(1),
+        stride_res_m=residual.stride(0),
+        stride_res_n=residual.stride(1),
+        stride_res_c=residual.stride(2),
+        stride_out_m=out.stride(0),
+        stride_out_n=out.stride(1),
+        stride_out_c=out.stride(2),
+        stride_post_m=post_mix.stride(0),
+        stride_post_n=post_mix.stride(1),
+        stride_comb_m=comb_mix.stride(0),
+        stride_comb_src=comb_mix.stride(1),
+        stride_comb_dst=comb_mix.stride(2),
+        n=n,
+        BLOCK_M=BLOCK_M,
+        BLOCK_C=BLOCK_C,
+        **cfg,
+    )
+    return out
+
+
 # --- backward launchers ----------------------------------------------------------------------
 
 
@@ -939,6 +1232,68 @@ def _mhc_pre_dsv4_backward(
         dx = _mhc_backward_dx(x, grad_layer, act, dproj, rms_coef, fn, n, C, pre_eps, cfg)
         dx = dx.view(M, n, C)
     return dx, dlogit, dproj, dscale
+
+
+def _mhc_post_backward(grad_out, layer_input, residual, post_mix, comb_mix, cfg, need_dx, need_mix):
+    """(dy, dResidual, d post_mix [M, n], d comb_mix [M, n, n]); None where not needed.
+
+    Contiguous inputs; post_mix [M, n]."""
+    M, n, C = residual.shape
+    dy = dres = dpost = dcomb = None
+    if need_dx:
+        dy = torch.empty_like(layer_input)
+        dres = torch.empty_like(residual)
+    if need_mix:
+        dpost = torch.empty((M, n), dtype=torch.float32, device=residual.device)
+        dcomb = torch.empty((M, n, n), dtype=torch.float32, device=residual.device)
+    if M == 0:
+        return dy, dres, dpost, dcomb
+    if need_dx:
+        BLOCK_M, BLOCK_C = cfg["DX_BLOCK_M"], cfg["DX_BLOCK_C"]
+        _mhc_post_backward_dx_kernel[(triton.cdiv(M, BLOCK_M), triton.cdiv(C, BLOCK_C))](
+            grad_out,
+            post_mix,
+            comb_mix,
+            dy,
+            dres,
+            M,
+            n=n,
+            C=C,
+            stride_gm=grad_out.stride(0),
+            stride_gn=grad_out.stride(1),
+            stride_post_m=post_mix.stride(0),
+            stride_comb_m=comb_mix.stride(0),
+            stride_dym=dy.stride(0),
+            stride_dres_m=dres.stride(0),
+            stride_dres_n=dres.stride(1),
+            BLOCK_M=BLOCK_M,
+            BLOCK_C=BLOCK_C,
+            num_warps=cfg["dx_num_warps"],
+            **_BACKWARD_LAUNCH,
+        )
+    if need_mix:
+        BLOCK_M = cfg["MIX_BLOCK_M"]
+        _mhc_post_backward_mix_kernel[(triton.cdiv(M, BLOCK_M),)](
+            grad_out,
+            layer_input,
+            residual,
+            dpost,
+            dcomb,
+            M,
+            n=n,
+            C=C,
+            stride_gm=grad_out.stride(0),
+            stride_gn=grad_out.stride(1),
+            stride_ym=layer_input.stride(0),
+            stride_res_m=residual.stride(0),
+            stride_res_n=residual.stride(1),
+            BLOCK_M=BLOCK_M,
+            DOT_BLOCK=DOT_BLOCK,
+            LOG2_DOT_BLOCK=_log2(DOT_BLOCK),
+            num_warps=cfg["mix_num_warps"],
+            **_BACKWARD_LAUNCH,
+        )
+    return dy, dres, dpost, dcomb
 
 
 # --- parameter gradients through the canonical backward session ---------------------------------
@@ -1115,6 +1470,45 @@ class _MHCPreDSV4(torch.autograd.Function):
         return (dx, dfn, dscale_total, dbase) + (None,) * 10
 
 
+class _MHCPostDSV4(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, layer_input, residual, post_mix, comb_mix, config, backward_config):
+        ctx.save_for_backward(layer_input, residual, post_mix, comb_mix)
+        ctx.backward_config = backward_config
+        return _mhc_post_forward(layer_input, residual, post_mix, comb_mix, config)
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_out):
+        layer_input, residual, post_mix, comb_mix = ctx.saved_tensors
+        M, n, _ = residual.shape
+        need = ctx.needs_input_grad
+        dy, dres, dpost, dcomb = _mhc_post_backward(
+            grad_out.contiguous(),
+            layer_input.contiguous(),
+            residual.contiguous(),
+            post_mix.reshape(M, n).contiguous(),
+            comb_mix.contiguous(),
+            _backward_config(ctx.backward_config),
+            need_dx=need[0] or need[1],
+            need_mix=need[2] or need[3],
+        )
+        record_backward(
+            "mhc_post",
+            kernel_id=_kernel_ids(_mhc_post_backward_dx_kernel, _mhc_post_backward_mix_kernel),
+            impl=f"{PROFILE}:rocm-triton",
+            family="rocm-triton",
+        )
+        return (
+            dy if need[0] else None,
+            dres if need[1] else None,
+            dpost.view(post_mix.shape) if need[2] else None,
+            dcomb if need[3] else None,
+            None,
+            None,
+        )
+
+
 def _needs_backward(*tensors):
     """True when autograd will record this call, so the forward must store what backward needs."""
     return torch.is_grad_enabled() and any(t.requires_grad for t in tensors)
@@ -1165,6 +1559,13 @@ def mhc_pre_dsv4(
     )
 
 
+def mhc_post_dsv4(layer_input, residual, post_mix, comb_mix, *, config=None, backward_config=None):
+    """layer_input [M, C], residual [M, n, C], post_mix [M, n, 1] or [M, n], comb_mix
+    [M, n, n] -> [M, n, C]. ``config`` overrides keys of POST_CONFIG,
+    ``backward_config`` keys of BACKWARD_CONFIG."""
+    return _MHCPostDSV4.apply(layer_input, residual, post_mix, comb_mix, config, backward_config)
+
+
 # --- ops ---------------------------------------------------------------------------------------
 
 
@@ -1193,6 +1594,18 @@ def check_pre_inputs(residual, fn, scale, base):
     _check("fn", fn, torch.float32, (rows, n * c))
     _check("scale", scale, torch.float32, (3,))
     _check("base", base, torch.float32, (rows,))
+
+
+def check_post_inputs(y, residual, post_mix, comb_mix):
+    """Inputs of mHC post: bf16 y [..., C] and residual [..., n, C]; fp32 post_mix
+    [..., n] or [..., n, 1] and comb_mix [..., n, n]."""
+    n, c = _check_streams(residual)
+    lead = tuple(residual.shape[:-2])
+    _check("y", y, torch.bfloat16, (*lead, c))
+    _check("post_mix", post_mix, torch.float32)
+    if tuple(post_mix.shape) not in ((*lead, n), (*lead, n, 1)):
+        raise ValueError(f"post_mix must have shape {(*lead, n)}, got {tuple(post_mix.shape)}")
+    _check("comb_mix", comb_mix, torch.float32, (*lead, n, n))
 
 
 def _require_rocm():
@@ -1249,11 +1662,34 @@ class TritonMHCPreOp:
         return post.reshape(*lead, n), comb.reshape(*lead, n, n), layer_input.reshape(*lead, c)
 
 
+class TritonMHCPostOp:
+    """Batch-invariant mHC post (stream mix-back); reference in rl_engine/ops/mhc/training.py."""
+
+    def __init__(self):
+        _require_rocm()
+        logger.info("Linked RL-Kernel's batch-invariant Triton mHC post.")
+
+    def __call__(self, y, residual, post_mix, comb_mix):
+        check_post_inputs(y, residual, post_mix, comb_mix)
+        n, c = residual.shape[-2:]
+        lead = residual.shape[:-2]
+        out = mhc_post_dsv4(
+            y.reshape(-1, c).contiguous(),
+            residual.reshape(-1, n, c).contiguous(),
+            post_mix.reshape(-1, n).contiguous(),
+            comb_mix.reshape(-1, n, n).contiguous(),
+        )
+        return out.reshape(*lead, n, c)
+
+
 # Kernels whose compiled variants a dynamic-shape check counts.
 KERNELS = (
     _mhc_fused_split_kernel,
     _mhc_reduce_apply_kernel,
     _mhc_sinkhorn_kernel,
+    _mhc_post_kernel,
     _mhc_pre_backward_mix_kernel,
     _mhc_backward_dx_kernel,
+    _mhc_post_backward_dx_kernel,
+    _mhc_post_backward_mix_kernel,
 )

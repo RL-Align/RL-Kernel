@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""DeepSeek-V4 mHC contract: mHC pre (DSV4 RFC tasks 1-3).
+"""DeepSeek-V4 mHC contract: mHC pre and mHC post (DSV4 RFC tasks 1-4).
 
 Records the arithmetic of the ROCm backend, RL-Kernel's Triton kernels in
 rl_engine/backends/rocm/mhc/triton_mhc.py (copied from aiter ``326cffa``,
-``mhc_pre_dsv4``, and made batch invariant by construction), as measured in tests/backends/rocm/test_rocm_mhc_*.py, and
+``mhc_pre_dsv4``, ``mhc_post_dsv4``, and made batch invariant by
+construction), as measured in tests/backends/rocm/test_rocm_mhc_*.py, and
 where the PyTorch reference (rl_engine/ops/mhc/training.py, following
 DeepSeek-V4-Flash-0731 ``inference/model.py``) differs. ``n`` residual streams
 of hidden size ``C`` per token; leading dimensions are flattened into the token
@@ -28,6 +29,15 @@ adds hc_sinkhorn_eps, then divides each column by (column sum + eps); each
 further round divides rows, then columns, by (sum + eps). Row and column sums
 are pairwise: (p0 + p1) + (p2 + p3).
 
+mHC post, per token and destination stream j::
+
+    out[j] = BF16(fma(comb[3, j], residual[3], fma(comb[2, j], residual[2],
+                  fma(comb[1, j], residual[1], fma(comb[0, j], residual[0], post[j] * y))))))
+
+in FP32: the product post[j] * y, then one fma per source stream in source-stream
+order. ``comb`` is indexed [source stream, destination stream]; the old residual
+enters once, through ``comb``.
+
 Backward (Triton, rl_engine/backends/rocm/mhc/triton_mhc.py): the exact
 derivative of the arithmetic above, per token, with the bf16 casts taken as the
 identity. The forward stores, with grad enabled, s = sigmoid of the pre and
@@ -46,6 +56,13 @@ fma. For mHC pre, with g the gradient of layer_input::
     dr        = fma(scale[2], t_res, fma(scale[1], t_post, scale[0] * t_pre))
     dx_i[c]   = BF16(fma(-(dr * r^3) / K, x_i[c],
                      fma(fn[23, iC+c], dacc[23], ... fma(fn[0, iC+c], dacc[0], pre_i * g[c]))))
+
+mHC post::
+
+    dy[c]       = BF16(fma(post3, g3[c], fma(post2, g2[c], fma(post1, g1[c], post0 * g0[c]))))
+    dres_h[c]   = BF16(the same with comb[h, j] in place of post[j])
+    dpost[j]    = pairwise over 128 columns of fma(g_j, y, .) over C tiles of 128
+    dcomb[h, j] = pairwise over 128 columns of fma(g_j, residual_h, .) over C tiles of 128
 
 Parameter gradients (fn, scale, base) are computed only when asked for, through
 the canonical backward session: per-row pieces dacc, r * t and dh, reduced in
@@ -91,9 +108,9 @@ ARITHMETIC_CONSTANTS = {"NUM_KSPLIT": 4, "BLOCK_K": 128, "matrix_instr_nonkdim":
 # The backward's: the width of the element-wise accumulators of every sum over C.
 BACKWARD_ARITHMETIC_CONSTANTS = {"DOT_BLOCK": 128}
 
-# "backward" covers the input gradient (dResidual): batch invariant by construction,
-# like the forward. Parameter gradients are reduced over tokens in logical-key order
-# by the canonical backward session.
+# "backward" covers the input gradients (dResidual; for mHC post also dy, dpost_mix,
+# dcomb_mix): batch invariant by construction, like the forward. Parameter gradients
+# are reduced over tokens in logical-key order by the canonical backward session.
 BATCH_INVARIANCE = {
     "forward": True,
     "backward": True,
@@ -124,6 +141,13 @@ _SHAPES = {
         "comb_mix": "[..., n, n] fp32, [source, destination]",
         "layer_input": "[..., C] bf16",
     },
+    "mhc_post": {
+        "y": "[..., C] bf16",
+        "residual": "[..., n, C] bf16",
+        "post_mix": "[..., n] or [..., n, 1] fp32",
+        "comb_mix": "[..., n, n] fp32, [source, destination]",
+        "out": "[..., n, C] bf16",
+    },
 }
 
 _ARITHMETIC = {
@@ -147,6 +171,18 @@ _ARITHMETIC = {
             "parameter_reduction": BACKWARD_PARAMETER_REDUCTION,
         },
     },
+    "mhc_post": {
+        "formula": "out[j] = post[j] * y + sum_h comb[h, j] * residual[h]",
+        "accumulation": (
+            "fp32: post[j] * y, then fma(comb[h, j], residual[h], .) for h = 0 .. n-1 in order"
+        ),
+        "residual_terms": "once, through comb",
+        "downcast_points": ["out"],
+        "backward": {
+            "dy_and_dresidual": "one fma per destination stream in order; one bf16 cast",
+            "dpost_and_dcomb": BACKWARD_SUM_OVER_C,
+        },
+    },
 }
 
 OPS = tuple(_SHAPES)
@@ -162,7 +198,7 @@ def pre_fn_rows(n: int = HC_MULT) -> int:
 
 
 def describe(op: str) -> dict[str, object]:
-    """Provenance fields of one mHC operator: ``"mhc_pre"``."""
+    """Provenance fields of one mHC operator: ``"mhc_pre"`` or ``"mhc_post"``."""
     if op not in _SHAPES:
         raise MHCContractError(f"unknown mHC operator {op!r}; want one of {OPS}")
     return {

@@ -29,17 +29,20 @@ def test_mhc_ops_compile_once_for_every_m():
     from rl_engine.backends.rocm.mhc import triton_mhc
 
     w = weights(_C)
-    pre = triton_mhc.TritonMHCPreOp()
+    pre, post = triton_mhc.TritonMHCPreOp(), triton_mhc.TritonMHCPostOp()
 
     def run_all(m):
         gen = torch.Generator(device="cuda").manual_seed(m)
         residual = torch.randn(m, N, _C, generator=gen, device="cuda").to(torch.bfloat16)
         # Inference, then training (the forward stores the saved values) and backward.
         with torch.no_grad():
-            pre(residual, w["pre_fn"], w["pre_scale"], w["pre_base"])
+            post_mix, comb_mix, layer_input = pre(
+                residual, w["pre_fn"], w["pre_scale"], w["pre_base"]
+            )
+            post(layer_input, residual, post_mix, comb_mix)
         leaf = residual.clone().requires_grad_(True)
-        _, _, layer_input = pre(leaf, w["pre_fn"], w["pre_scale"], w["pre_base"])
-        layer_input.float().sum().backward()
+        post_mix, comb_mix, layer_input = pre(leaf, w["pre_fn"], w["pre_scale"], w["pre_base"])
+        post(layer_input, leaf, post_mix, comb_mix).float().sum().backward()
 
     run_all(5)
     warm = _variants(triton_mhc.KERNELS)

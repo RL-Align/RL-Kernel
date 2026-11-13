@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Batch invariance of the ROCm mHC pre op (#508, #510).
+"""Batch invariance of the ROCm mHC pre and mHC post ops (#508, #510).
 
 This is the main acceptance check for every integrated mHC op: a token's
-result must have the same bits whatever other tokens share the batch. The op
+result must have the same bits whatever other tokens share the batch. Each op
 is wrapped as a row-wise case and run through the shared checks in
 rl_engine.validation.common.batch_invariance:
 
@@ -14,13 +14,14 @@ rl_engine.validation.common.batch_invariance:
 - run-to-run determinism of forward and backward;
 - forward with grad (training, the kernels also store the values the backward
   needs) equals forward without grad (inference);
-- backward batch invariance of the input gradient (dResidual) at the same M
-  values, and under chunking, reordering and padding;
+- backward batch invariance of the input gradients (dResidual; for mHC post also
+  dy, dpost_mix, dcomb_mix) at the same M values, and under chunking, reordering
+  and padding;
 - rows holding NaN, +Inf, -Inf or -0.0, in the forward inputs and, for the
   backward, also in the output gradients, change no other row and have the bits
   they have alone.
 
-The op runs at DeepSeek-V4-Flash's C = 4096 and at C = 7168, which is not a
+Every op runs at DeepSeek-V4-Flash's C = 4096 and at C = 7168, which is not a
 power of two. The parameter gradients through the canonical session are checked
 in test_rocm_mhc_backward.py.
 """
@@ -40,20 +41,21 @@ from rl_engine.validation.common.batch_invariance import (
 from tests.helpers.deepseek_v4_mhc import (
     M_VALUES,
     N,
+    forward_backward,
     randn,
     rocm_gpu_available,
     weights,
 )
 
-# (op, C): the op at DeepSeek-V4-Flash's C = 4096 and at a C that is not a power of two.
-_OP_C = [(op, c) for c in (4096, 7168) for op in ("mhc_pre",)]
+# (op, C): every op at DeepSeek-V4-Flash's C = 4096 and at a C that is not a power of two.
+_OP_C = [(op, c) for c in (4096, 7168) for op in ("mhc_pre", "mhc_post")]
 _OP_C_IDS = [f"{op}-C{c}" for op, c in _OP_C]
 
 # The row inputs (indices in the cases' rows) that get the special values: every
 # forward input, and for the backward also the output gradients.
 _SPECIAL_INPUTS = {
-    "forward": {"mhc_pre": (0,)},
-    "backward": {"mhc_pre": (0, 1, 2, 3)},
+    "forward": {"mhc_pre": (0,), "mhc_post": (0, 1, 2, 3)},
+    "backward": {"mhc_pre": (0, 1, 2, 3), "mhc_post": (0, 1, 2, 3, 4)},
 }
 
 pytestmark = pytest.mark.skipif(not rocm_gpu_available(), reason="ROCm GPU required.")
@@ -65,6 +67,7 @@ def _cases(c):
 
     w = weights(c)
     pre = kernel_registry.get_op("mhc_pre", device="cuda")
+    post = kernel_registry.get_op("mhc_post", device="cuda")
 
     # mhc_pre rows: residual and one output gradient per output.
     def pre_rows(m, seed):
@@ -89,11 +92,36 @@ def _cases(c):
         torch.autograd.backward(outputs, rows[1:])
         return [o.detach() for o in outputs] + [leaf.grad.detach()]
 
+    # mhc_post rows: y, residual, post_mix, comb_mix, and the output gradient.
+    def post_rows(m, seed):
+        gen = torch.Generator(device="cuda").manual_seed(seed)
+        return [
+            randn(gen, m, c).to(torch.bfloat16),
+            randn(gen, m, N, c).to(torch.bfloat16),
+            2.0 * torch.sigmoid(randn(gen, m, N)),
+            torch.softmax(randn(gen, m, N, N), dim=-1),
+            randn(gen, m, N, c).to(torch.bfloat16),
+        ]
+
+    def post_forward(rows):
+        with torch.no_grad():
+            return [post(*rows[:4])]
+
+    def post_backward(rows):
+        outputs, grads = forward_backward(lambda *x: [post(*x)], rows[:4], rows[4])
+        return outputs + grads
+
     pre_outputs = ("post_mix", "comb_mix", "layer_input")
     return {
         "mhc_pre": (
             RowwiseCase("mhc_pre", pre_outputs, pre_forward, pre_rows),
             RowwiseCase("mhc_pre", (*pre_outputs, "dResidual"), pre_backward, pre_rows),
+        ),
+        "mhc_post": (
+            RowwiseCase("mhc_post", ("R_new",), post_forward, post_rows),
+            RowwiseCase(
+                "mhc_post", ("R_new", "dy", "dR_old", "dPOST", "dC"), post_backward, post_rows
+            ),
         ),
     }
 

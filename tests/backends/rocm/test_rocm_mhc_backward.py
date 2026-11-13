@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""The Triton backward of the ROCm mHC pre op (#508, #510).
+"""The Triton backward of the ROCm mHC pre and mHC post ops (#508, #510).
 
 Batch invariance of the input gradients is checked with the forward in
 tests/backends/rocm/test_rocm_mhc_batch_invariance.py. This file holds the rest:
@@ -129,6 +129,35 @@ def test_pre_gradients_match_reference(sinkhorn_repeat):
     _assert_gradients_close(ours, ref)
 
 
+def test_post_gradients_match_reference():
+    T = _triton_mhc()
+    m = 64
+    gen = _gen(4)
+    inputs = [
+        randn(gen, m, _C).to(torch.bfloat16),
+        randn(gen, m, N, _C).to(torch.bfloat16),
+        2.0 * torch.sigmoid(randn(gen, m, N)),
+        torch.softmax(randn(gen, m, N, N), dim=-1),
+    ]
+    grad = randn(gen, m, N, _C).to(torch.bfloat16)
+
+    def run(op):
+        leaves = [t.clone().requires_grad_(True) for t in inputs]
+        op(*leaves).backward(grad)
+        return [t.grad for t in leaves]
+
+    ours = run(T.mhc_post_dsv4)
+    ref = run(lambda *x: training.mhc_post(*x, backend="rocm"))
+    for name, a, b in zip(("dy", "dResidual", "dpost_mix", "dcomb_mix"), ours, ref):
+        assert a.shape == b.shape, name
+    for name, a, b in zip(("dy", "dResidual"), ours, ref):
+        assert_matches_fp32_reference(
+            a, b, judgment="gradient_accuracy", op_class="reduction", name=name
+        )
+    for name, a, b in zip(("dpost_mix", "dcomb_mix"), ours[2:], ref[2:]):
+        _close(a, b, name)
+
+
 # ---------------------------------------------------------------------------
 # Parameter gradients through the canonical session (test_o_projection_rocm.py:58)
 # ---------------------------------------------------------------------------
@@ -198,7 +227,7 @@ def test_frozen_parameters_compute_no_parameter_gradient():
     leaf = randn(_gen(7), 5, N, _C).to(torch.bfloat16).requires_grad_(True)
     pre = _params()
     post_mix, comb_mix, layer_input = T.TritonMHCPreOp()(leaf, *pre)
-    layer_input.float().sum().backward()
+    T.TritonMHCPostOp()(layer_input, leaf, post_mix, comb_mix).float().sum().backward()
     assert leaf.grad is not None and leaf.grad.dtype == torch.bfloat16
     assert all(p.grad is None for p in pre)
 
@@ -225,14 +254,24 @@ def test_backward_launch_config_does_not_change_bits(config):
         gen = _gen(8)
         residual = randn(gen, m, N, _C).to(torch.bfloat16)
         g_pre = [randn(gen, m, N, 1), randn(gen, m, N, N), randn(gen, m, _C).to(torch.bfloat16)]
+        post_inputs = [
+            randn(gen, m, _C).to(torch.bfloat16),
+            residual,
+            2.0 * torch.sigmoid(randn(gen, m, N)),
+            torch.softmax(randn(gen, m, N, N), dim=-1),
+        ]
+        g_post = randn(gen, m, N, _C).to(torch.bfloat16)
 
         def run(backward_config):
             leaf = residual.clone().requires_grad_(True)
             outputs = T.mhc_pre_dsv4(leaf, *pre, backward_config=backward_config)
             torch.autograd.backward(list(outputs), g_pre)
-            return [leaf.grad]
+            d_pre = leaf.grad.clone()
+            leaves = [t.clone().requires_grad_(True) for t in post_inputs]
+            T.mhc_post_dsv4(*leaves, backward_config=backward_config).backward(g_post)
+            return [d_pre] + [t.grad for t in leaves]
 
-        names = ("dResidual",)
+        names = ("pre dResidual", "dy", "dR_old", "dPOST", "dC")
         differing = [n for n, a, b in zip(names, run(None), run(config)) if not bits_equal(a, b)]
         assert not differing, f"M={m}: {differing}"
 
@@ -240,8 +279,8 @@ def test_backward_launch_config_does_not_change_bits(config):
 def test_empty_batch_backward():
     T = _triton_mhc()
     leaf = torch.zeros(0, N, _C, device="cuda", dtype=torch.bfloat16, requires_grad=True)
-    _, _, layer_input = T.TritonMHCPreOp()(leaf, *_params())
-    layer_input.float().sum().backward()
+    post_mix, comb_mix, layer_input = T.TritonMHCPreOp()(leaf, *_params())
+    T.TritonMHCPostOp()(layer_input, leaf, post_mix, comb_mix).float().sum().backward()
     assert leaf.grad.shape == (0, N, _C)
 
 
@@ -249,11 +288,12 @@ def test_backward_kernels_are_recorded():
     T = _triton_mhc()
     reset_backward_runtime()
     leaf = randn(_gen(9), 3, N, _C).to(torch.bfloat16).requires_grad_(True)
-    _, _, layer_input = T.TritonMHCPreOp()(leaf, *_params())
-    layer_input.float().sum().backward()
+    post_mix, comb_mix, layer_input = T.TritonMHCPreOp()(leaf, *_params())
+    T.TritonMHCPostOp()(layer_input, leaf, post_mix, comb_mix).float().sum().backward()
     events = snapshot_backward_runtime()
     for kind, kernel in (
         ("mhc_pre", "_mhc_pre_backward_mix_kernel"),
+        ("mhc_post", "_mhc_post_backward_mix_kernel"),
     ):
         assert events[kind]["execution_count"] == 1
         assert any(k.endswith(kernel) for k in events[kind]["kernel_ids"])
