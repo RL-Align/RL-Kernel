@@ -198,13 +198,17 @@ def create_actor(checkpoint, *, training, ep=1):
         )
         if linear_logp_provider_path(args) is not None:
             _install_linear_logp_capture(model, args)
-        load_checkpoint(model, None, None, checkpointing_context={})
+        load_checkpoint(
+            model, None, None, checkpointing_context={}, skip_load_to_model_and_opt=False
+        )
         install_vime_logprob_provider()
         return args, model, None, None
 
     from vime.backends.megatron_utils.model import setup_model_and_optimizer
 
     model, optimizer, scheduler = setup_model_and_optimizer(args, role="actor")
-    load_checkpoint(model, optimizer, scheduler, checkpointing_context={})
+    load_checkpoint(
+        model, optimizer, scheduler, checkpointing_context={}, skip_load_to_model_and_opt=False
+    )
     install_vime_logprob_provider()
     return args, model, optimizer, scheduler
