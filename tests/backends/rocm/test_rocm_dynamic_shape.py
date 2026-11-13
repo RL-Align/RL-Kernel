@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Dynamic shape of the ROCm mHC ops.
+"""Dynamic shape of the ROCm mHC ops and the batch-invariant linear.
 
-After one warm-up call per op, a token count M that has not been seen must not
-compile any kernel again: M is a runtime argument that Triton does not
-specialize, and no stride depends on M. The mHC ops are run for inference, then
-for training with their backward.
+After one warm-up call per op (and, for the linear, one per launch config), a
+token count M that has not been seen must not compile any kernel again: M is a
+runtime argument that Triton does not specialize, and no stride depends on M.
+The mHC ops are run for inference, then for training with their backward.
 Counted as the number of compiled variants in each kernel's Triton cache.
 """
 
@@ -60,3 +60,16 @@ def test_mhc_ops_compile_once_for_every_m():
     assert _variants(triton_mhc.KERNELS) == warm
 
 
+def test_linear_compiles_once_per_config_for_every_m():
+    from rl_engine.backends.rocm.gemm import triton_gemm
+
+    op = triton_gemm.TritonBatchInvariantLinearOp()
+    weight = (torch.randn(4096, 4096, device="cuda") / 64).to(torch.bfloat16)
+    op.warmup(weight, out_dtype=torch.float32)
+    # Other tests in the session may have compiled other shapes and dtypes already.
+    warm = _variants(triton_gemm.KERNELS)
+    assert warm["_gemm_a16_w16_kernel"] >= len(triton_gemm.distinct_configs()), warm
+    for m in _UNSEEN_M:
+        op(torch.randn(m, 4096, device="cuda").to(torch.bfloat16), weight, out_dtype=torch.float32)
+    torch.cuda.synchronize()
+    assert _variants(triton_gemm.KERNELS) == warm
