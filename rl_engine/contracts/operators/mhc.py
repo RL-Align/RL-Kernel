@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""DeepSeek-V4 mHC contract: mHC pre and mHC post (DSV4 RFC tasks 1-4).
+"""DeepSeek-V4 mHC contract: mHC pre, mHC post and mHC head (DSV4 RFC tasks 1-4, 8).
 
 Records the arithmetic of the ROCm backend, RL-Kernel's Triton kernels in
 rl_engine/backends/rocm/mhc/triton_mhc.py (copied from aiter ``326cffa``,
-``mhc_pre_dsv4``, ``mhc_post_dsv4``, and made batch invariant by
-construction), as measured in tests/backends/rocm/test_rocm_mhc_*.py, and
+``mhc_pre_dsv4``, ``mhc_post_dsv4``, ``mhc_head_dsv4``, and made batch invariant
+by construction), as measured in tests/backends/rocm/test_rocm_mhc_*.py, and
 where the PyTorch reference (rl_engine/ops/mhc/training.py, following
 DeepSeek-V4-Flash-0731 ``inference/model.py``) differs. ``n`` residual streams
 of hidden size ``C`` per token; leading dimensions are flattened into the token
@@ -38,10 +38,17 @@ in FP32: the product post[j] * y, then one fma per source stream in source-strea
 order. ``comb`` is indexed [source stream, destination stream]; the old residual
 enters once, through ``comb``.
 
+mHC head, per token, with ``fn`` [n, K] and ``scale`` [1]: the K segments, the
+sum of squares and the projection as in mHC pre, then::
+
+    r   = rsqrt(sum of squares / K + rms_eps)
+    w   = sigmoid(acc * r * scale + base) + hc_pre_eps
+    out = BF16(fma(w3, x3, fma(w2, x2, fma(w1, x1, w0 * x0))))
+
 Backward (Triton, rl_engine/backends/rocm/mhc/triton_mhc.py): the exact
 derivative of the arithmetic above, per token, with the bf16 casts taken as the
 identity. The forward stores, with grad enabled, s = sigmoid of the pre and
-post logits, the raw comb logits, acc and r; the backward
+post logits (head: of its logits), the raw comb logits, acc and r; the backward
 uses those values. Each multiply and add rounds on its own except the written
 fma. For mHC pre, with g the gradient of layer_input::
 
@@ -57,7 +64,8 @@ fma. For mHC pre, with g the gradient of layer_input::
     dx_i[c]   = BF16(fma(-(dr * r^3) / K, x_i[c],
                      fma(fn[23, iC+c], dacc[23], ... fma(fn[0, iC+c], dacc[0], pre_i * g[c]))))
 
-mHC post::
+mHC head is the same with its 4 rows and one scale (dacc = dh * (r * scale),
+dr = scale * t). mHC post::
 
     dy[c]       = BF16(fma(post3, g3[c], fma(post2, g2[c], fma(post1, g1[c], post0 * g0[c]))))
     dres_h[c]   = BF16(the same with comb[h, j] in place of post[j])
@@ -148,6 +156,13 @@ _SHAPES = {
         "comb_mix": "[..., n, n] fp32, [source, destination]",
         "out": "[..., n, C] bf16",
     },
+    "mhc_head": {
+        "residual": "[..., n, C] bf16",
+        "fn": "[n, n*C] fp32",
+        "scale": "[1] fp32",
+        "base": "[n] fp32",
+        "out": "[..., C] bf16",
+    },
 }
 
 _ARITHMETIC = {
@@ -183,6 +198,23 @@ _ARITHMETIC = {
             "dpost_and_dcomb": BACKWARD_SUM_OVER_C,
         },
     },
+    "mhc_head": {
+        "rms_form": RMS_FORM,
+        "sum_of_squares": SUM_OF_SQUARES,
+        "projection": PROJECTION,
+        "reference_projection": REFERENCE_PROJECTION,
+        "weights": "sigmoid(.) + hc_pre_eps",
+        "stream_sum": STREAM_SUM,
+        "downcast_points": ["out"],
+        "arithmetic_constants": dict(ARITHMETIC_CONSTANTS),
+        "backward": {
+            "saved": "sigmoid of the logits, acc, r per token",
+            "sum_over_c": BACKWARD_SUM_OVER_C,
+            "projection_transpose": "one fma per fn row, rows 0..3 in order",
+            "residual_gradient": "w_i * g, then the 4 fn rows, then the RMS term; one bf16 cast",
+            "parameter_reduction": BACKWARD_PARAMETER_REDUCTION,
+        },
+    },
 }
 
 OPS = tuple(_SHAPES)
@@ -198,7 +230,7 @@ def pre_fn_rows(n: int = HC_MULT) -> int:
 
 
 def describe(op: str) -> dict[str, object]:
-    """Provenance fields of one mHC operator: ``"mhc_pre"`` or ``"mhc_post"``."""
+    """Provenance fields of one mHC operator: ``"mhc_pre"``, ``"mhc_post"`` or ``"mhc_head"``."""
     if op not in _SHAPES:
         raise MHCContractError(f"unknown mHC operator {op!r}; want one of {OPS}")
     return {

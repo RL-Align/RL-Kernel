@@ -21,7 +21,7 @@ def randn(gen, *shape):
 
 
 def weights(c):
-    """mHC pre weights at hidden size c."""
+    """mHC pre and mHC head weights at hidden size c."""
     gen = torch.Generator(device="cuda").manual_seed(0)
     k = N * c
     mix = 2 * N + N * N
@@ -29,6 +29,9 @@ def weights(c):
         "pre_fn": randn(gen, mix, k) / k**0.5,
         "pre_scale": 0.5 + torch.rand(3, generator=gen, device="cuda"),
         "pre_base": 0.1 * randn(gen, mix),
+        "head_fn": randn(gen, N, k) / k**0.5,
+        "head_scale": 0.5 + torch.rand(1, generator=gen, device="cuda"),
+        "head_base": 0.1 * randn(gen, N),
     }
 
 

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Batch invariance of the ROCm mHC pre and mHC post ops (#508, #510).
+"""Batch invariance of the ROCm mHC pre, mHC post and mHC head ops (#508, #510).
 
 This is the main acceptance check for every integrated mHC op: a token's
 result must have the same bits whatever other tokens share the batch. Each op
@@ -48,14 +48,14 @@ from tests.helpers.deepseek_v4_mhc import (
 )
 
 # (op, C): every op at DeepSeek-V4-Flash's C = 4096 and at a C that is not a power of two.
-_OP_C = [(op, c) for c in (4096, 7168) for op in ("mhc_pre", "mhc_post")]
+_OP_C = [(op, c) for c in (4096, 7168) for op in ("mhc_pre", "mhc_post", "mhc_head")]
 _OP_C_IDS = [f"{op}-C{c}" for op, c in _OP_C]
 
 # The row inputs (indices in the cases' rows) that get the special values: every
 # forward input, and for the backward also the output gradients.
 _SPECIAL_INPUTS = {
-    "forward": {"mhc_pre": (0,), "mhc_post": (0, 1, 2, 3)},
-    "backward": {"mhc_pre": (0, 1, 2, 3), "mhc_post": (0, 1, 2, 3, 4)},
+    "forward": {"mhc_pre": (0,), "mhc_post": (0, 1, 2, 3), "mhc_head": (0,)},
+    "backward": {"mhc_pre": (0, 1, 2, 3), "mhc_post": (0, 1, 2, 3, 4), "mhc_head": (0, 1)},
 }
 
 pytestmark = pytest.mark.skipif(not rocm_gpu_available(), reason="ROCm GPU required.")
@@ -68,6 +68,7 @@ def _cases(c):
     w = weights(c)
     pre = kernel_registry.get_op("mhc_pre", device="cuda")
     post = kernel_registry.get_op("mhc_post", device="cuda")
+    head = kernel_registry.get_op("mhc_head", device="cuda")
 
     # mhc_pre rows: residual and one output gradient per output.
     def pre_rows(m, seed):
@@ -111,6 +112,22 @@ def _cases(c):
         outputs, grads = forward_backward(lambda *x: [post(*x)], rows[:4], rows[4])
         return outputs + grads
 
+    # mhc_head rows: residual and the output gradient.
+    def head_rows(m, seed):
+        gen = torch.Generator(device="cuda").manual_seed(seed)
+        return [randn(gen, m, N, c).to(torch.bfloat16), randn(gen, m, c).to(torch.bfloat16)]
+
+    def run_head(residual):
+        return [head(residual, w["head_fn"], w["head_scale"], w["head_base"])]
+
+    def head_forward(rows):
+        with torch.no_grad():
+            return run_head(rows[0])
+
+    def head_backward(rows):
+        outputs, grads = forward_backward(run_head, rows[:1], rows[1])
+        return outputs + grads
+
     pre_outputs = ("post_mix", "comb_mix", "layer_input")
     return {
         "mhc_pre": (
@@ -122,6 +139,10 @@ def _cases(c):
             RowwiseCase(
                 "mhc_post", ("R_new", "dy", "dR_old", "dPOST", "dC"), post_backward, post_rows
             ),
+        ),
+        "mhc_head": (
+            RowwiseCase("mhc_head", ("head",), head_forward, head_rows),
+            RowwiseCase("mhc_head", ("head", "dResidual"), head_backward, head_rows),
         ),
     }
 

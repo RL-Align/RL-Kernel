@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: MIT
 # Copyright (C) 2024-2026, Advanced Micro Devices, Inc. All rights reserved.
 # Modifications copyright (c) 2026 RL-Kernel Contributors
-"""Batch-invariant DeepSeek-V4 mHC pre and post on ROCm (Triton).
+"""Batch-invariant DeepSeek-V4 mHC pre, post and head on ROCm (Triton).
 
 Copied from aiter 326cffa: the kernels from
 aiter/ops/triton/_triton_kernels/fusions/mhc.py (``_mhc_fused_split_kernel``,
 ``_mhc_reduce_apply_kernel``, ``_mhc_asymmetric_sinkhorn_kernel``,
 ``_mhc_post_kernel``) and the launchers from aiter/ops/triton/fusions/mhc.py
-(``mhc``, ``mhc_pre_dsv4``, ``mhc_post_dsv4``). aiter's
+(``mhc``, ``mhc_pre_dsv4``, ``mhc_post_dsv4``, ``mhc_head_dsv4``). aiter's
 arithmetic is kept except for three changes, so the results differ from aiter's
 only by the order of the sums and by the fp32 projection
 (docs/operators/dsv4-mhc.md, section "Accuracy"):
@@ -31,16 +31,17 @@ only by the order of the sums and by the fp32 projection
    ``kpack=1``).
 
 mHC post is aiter's kernel, which already adds the streams in an explicit loop;
-each step of that loop is written as one ``tl.fma`` (as in mHC pre) and
-the launch config is fixed.
+each step of that loop is written as one ``tl.fma`` (as in mHC pre and head) and
+the launch config is fixed. mHC head uses the split and apply structure of
+mHC pre (aiter runs one workgroup per 16 tokens over all of K and C).
 
 Backward is RL-Kernel's own (aiter recomputes the formula in PyTorch): Triton
 kernels that compute the exact derivative of the forward above, row by row.
 
 - Saved, not recomputed: with grad enabled the forward kernels also store, per
-  token, the sigmoids of the pre and post logits, the raw
+  token, the sigmoids of the pre and post logits (head: of its logits), the raw
   comb logits, the projection ``acc`` and the RMS factor ``r`` (49 floats for
-  mHC pre). The values are those the forward used; without grad
+  mHC pre, 9 for mHC head). The values are those the forward used; without grad
   nothing is stored (``SAVE`` is a constexpr, the stores are the only difference).
 - Sinkhorn backward replays the rounds from the saved logits with the forward's
   own helpers, once per step it walks back through (2 * rounds steps, so about
@@ -97,11 +98,12 @@ PRE_CONFIG = {
     "apply_num_warps": 4,
     "SINKHORN_BLOCK_M": 16,
 }
+HEAD_CONFIG = {k: v for k, v in PRE_CONFIG.items() if k != "SINKHORN_BLOCK_M"}
 # aiter 326cffa's mhc_post config on gfx942 (mhc_post/DEFAULT.json) with BLOCK_M = 16 instead of
 # 64, which is faster at every M.
 POST_CONFIG = {"BLOCK_M": 16, "BLOCK_C": 256, "num_warps": 4, "num_stages": 1, "waves_per_eu": 2}
 
-# Backward launch configs, the same for the two ops. MIX_* is the kernel that
+# Backward launch configs, the same for the three ops. MIX_* is the kernel that
 # reduces over C per token (one workgroup per MIX_BLOCK_M tokens, the whole of C);
 # DX_* the element-wise input-gradient kernels. They do not change the bits either.
 BACKWARD_CONFIG = {
@@ -430,6 +432,81 @@ def _mhc_sinkhorn_kernel(
 
 
 @triton.jit(do_not_specialize=["M"])
+def _mhc_head_apply_kernel(
+    acc_ptr,  # (M, NUM_KSPLIT, n)
+    acc_sq_ptr,  # (M, NUM_KSPLIT)
+    scale_ptr,
+    base_ptr,
+    x_ptr,
+    out_ptr,
+    act_ptr,  # SAVE: (M, n) fp32, sigmoid of the logits
+    proj_ptr,  # SAVE: (M, n) fp32, the projection acc
+    rsigma_ptr,  # SAVE: (M,) fp32
+    M,
+    K: tl.constexpr,
+    n: tl.constexpr,
+    C: tl.constexpr,
+    eps: tl.constexpr,
+    pre_eps: tl.constexpr,
+    stride_acc_m,
+    stride_acc_k,
+    stride_acc_n,
+    stride_acc_sq_m,
+    stride_acc_sq_k,
+    stride_xm,
+    stride_xk,
+    stride_om,
+    stride_oc,
+    stride_save_m,
+    BLOCK_M: tl.constexpr,
+    BLOCK_C: tl.constexpr,
+    NUM_SPLITS: tl.constexpr,
+    SAVE: tl.constexpr,
+):
+    """aiter ``_mhc_head_kernel``'s epilogue: RMS factor, sigmoid weights and the
+    stream contraction, for one (M tile, C tile); the streams are added one
+    ``tl.fma`` at a time in stream order. With SAVE, ``pid_c == 0`` also stores
+    the values the backward needs."""
+    pid_m = tl.program_id(0)
+    pid_c = tl.program_id(1)
+    rm = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+    rc = pid_c * BLOCK_C + tl.arange(0, BLOCK_C)
+    row_ok = rm < M
+    acc_sq = _sum_splits(acc_sq_ptr, rm * stride_acc_sq_m, row_ok, stride_acc_sq_k, NUM_SPLITS)
+    rsigma = tl.math.rsqrt(acc_sq / K + eps)
+    scale = tl.load(scale_ptr).to(tl.float32)
+    if SAVE:
+        if pid_c == 0:
+            tl.store(rsigma_ptr + rm, rsigma, mask=row_ok)
+    tile_ok = row_ok[:, None] & (rc[None, :] < C)
+    out = tl.zeros([BLOCK_M, BLOCK_C], dtype=tl.float32)
+    for i in tl.static_range(n):
+        acc = _sum_splits(
+            acc_ptr, rm * stride_acc_m + i * stride_acc_n, row_ok, stride_acc_k, NUM_SPLITS
+        )
+        sig = tl.sigmoid(acc * rsigma * scale + tl.load(base_ptr + i).to(tl.float32))
+        mix = sig + pre_eps
+        if SAVE:
+            if pid_c == 0:
+                tl.store(act_ptr + rm * stride_save_m + i, sig, mask=row_ok)
+                tl.store(proj_ptr + rm * stride_save_m + i, acc, mask=row_ok)
+        x_i = tl.load(
+            x_ptr + rm[:, None] * stride_xm + (i * C + rc[None, :]) * stride_xk,
+            mask=tile_ok,
+            other=0.0,
+        ).to(tl.float32)
+        if i == 0:
+            out = mix[:, None] * x_i
+        else:
+            out = tl.fma(mix[:, None], x_i, out)
+    tl.store(
+        out_ptr + rm[:, None] * stride_om + rc[None, :] * stride_oc,
+        out.to(out_ptr.dtype.element_ty),
+        mask=tile_ok,
+    )
+
+
+@triton.jit(do_not_specialize=["M"])
 def _mhc_post_kernel(
     out_ptr,  # (M, n, C)  bf16 / fp16
     x_ptr,  # (M, C)     bf16 / fp16  (layer_input from mhc())
@@ -731,9 +808,64 @@ def _mhc_pre_backward_mix_kernel(
 
 
 @triton.jit(do_not_specialize=["M"])
+def _mhc_head_backward_mix_kernel(
+    x_ptr,  # (M, n*C) residual
+    grad_ptr,  # (M, C) gradient of the output
+    act_ptr,  # (M, n) saved sigmoid of the logits
+    proj_ptr,  # (M, n) saved projection acc
+    rsigma_ptr,  # (M,) saved
+    scale_ptr,  # (1,)
+    dlogit_ptr,  # out (M, n)
+    dproj_ptr,  # out (M, n)
+    dscale_ptr,  # out (M,)
+    rms_coef_ptr,  # out (M,)
+    M,
+    K: tl.constexpr,
+    n: tl.constexpr,
+    C: tl.constexpr,
+    LOG2_N: tl.constexpr,
+    stride_xm,
+    stride_gm,
+    stride_save_m,
+    BLOCK_M: tl.constexpr,
+    DOT_BLOCK: tl.constexpr,
+    LOG2_DOT_BLOCK: tl.constexpr,
+):
+    """mHC head backward up to d acc; the head logits are acc * r * scale + base.
+
+      d w_i    = sum_c g[c] * x_i[c]                          (_stream_dots)
+      d h      = d w * (s * (1 - s));  d acc = d h * (r * scale)
+      t        = pairwise sum of d h * acc;  d scale = r * t;  d r = scale * t
+      rms_coef = -(d r * ((r * r) * r)) / K
+    """
+    pid = tl.program_id(0)
+    rm = (pid * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+    rn = tl.arange(0, n)
+    row_ok = rm < M
+    vec_ok = row_ok[:, None] & (rn[None, :] < n)
+    scale = tl.load(scale_ptr)
+    rsigma = tl.load(rsigma_ptr + rm, mask=row_ok, other=0.0)
+    save = rm[:, None] * stride_save_m + rn[None, :]
+
+    dw = _stream_dots(
+        grad_ptr, x_ptr, rm, row_ok, stride_gm, stride_xm, C, n, BLOCK_M, DOT_BLOCK,
+        LOG2_DOT_BLOCK,
+    )
+    s = tl.load(act_ptr + save, mask=vec_ok, other=0.0)
+    dh = dw * (s * (1.0 - s))
+    acc = tl.load(proj_ptr + save, mask=vec_ok, other=0.0)
+    t = _pairwise_sum_last(dh * acc, BLOCK_M, n, LOG2_N)
+    tl.store(dlogit_ptr + save, dh, mask=vec_ok)
+    tl.store(dproj_ptr + save, dh * (rsigma * scale)[:, None], mask=vec_ok)
+    tl.store(dscale_ptr + rm, rsigma * t, mask=row_ok)
+    d_rsigma = scale * t
+    tl.store(rms_coef_ptr + rm, -(d_rsigma * ((rsigma * rsigma) * rsigma)) / K, mask=row_ok)
+
+
+@triton.jit(do_not_specialize=["M"])
 def _mhc_backward_dx_kernel(
     x_ptr,  # (M, n*C) residual
-    grad_ptr,  # (M, C) gradient of layer_input
+    grad_ptr,  # (M, C) gradient of layer_input (pre) or of the output (head)
     act_ptr,  # (M, >= n) saved; columns 0 .. n-1 are the sigmoids of the stream weights
     dproj_ptr,  # (M, N_ROWS) gradient of acc
     rms_coef_ptr,  # (M,)
@@ -753,7 +885,7 @@ def _mhc_backward_dx_kernel(
     BLOCK_M: tl.constexpr,
     BLOCK_C: tl.constexpr,
 ):
-    """dResidual of mHC pre, element-wise; one (M tile, C tile) per program.
+    """dResidual of mHC pre and mHC head, element-wise; one (M tile, C tile) per program.
 
       dx_i[c] = w_i * g[c]                                    w_i = s_i + pre_eps
       then fma(fn[j, i*C + c], d acc_j, dx_i[c]) for j = 0 .. N_ROWS - 1 in order
@@ -1089,6 +1221,53 @@ def _mhc_pre_dsv4_forward(
     return out[:, :n].unsqueeze(-1), comb, layer_input, saved
 
 
+def _mhc_head_dsv4_forward(residual, fn, scale, base, eps, pre_eps, config, save=False):
+    """(out, saved); ``saved`` is (act, proj, rsigma) with ``save``, else None."""
+    M, n, C = residual.shape
+    out = torch.empty((M, C), dtype=residual.dtype, device=residual.device)
+    saved = _saved_buffers(M, n, residual.device, save)
+    if M == 0:
+        return out, saved
+    cfg = dict(HEAD_CONFIG, **(config or {}))
+    x = residual.view(M, n * C)
+    acc, acc_sq = _split(x, fn, cfg)
+    act, proj, rsigma = saved if save else (acc_sq, acc_sq, acc_sq)
+    BLOCK_M, BLOCK_C = cfg["APPLY_BLOCK_M"], cfg["APPLY_BLOCK_C"]
+    _mhc_head_apply_kernel[(triton.cdiv(M, BLOCK_M), triton.cdiv(C, BLOCK_C))](
+        acc,
+        acc_sq,
+        scale,
+        base,
+        x,
+        out,
+        act,
+        proj,
+        rsigma,
+        M,
+        K=n * C,
+        n=n,
+        C=C,
+        eps=eps,
+        pre_eps=pre_eps,
+        stride_acc_m=acc.stride(0),
+        stride_acc_k=acc.stride(1),
+        stride_acc_n=acc.stride(2),
+        stride_acc_sq_m=acc_sq.stride(0),
+        stride_acc_sq_k=acc_sq.stride(1),
+        stride_xm=x.stride(0),
+        stride_xk=x.stride(1),
+        stride_om=out.stride(0),
+        stride_oc=out.stride(1),
+        stride_save_m=act.stride(0),
+        BLOCK_M=BLOCK_M,
+        BLOCK_C=BLOCK_C,
+        NUM_SPLITS=NUM_KSPLIT,
+        SAVE=save,
+        num_warps=cfg["apply_num_warps"],
+    )
+    return out, saved
+
+
 def _mhc_post_forward(layer_input, residual, post_mix, comb_mix, config):
     M, n, C = residual.shape
     out = torch.empty((M, n, C), dtype=layer_input.dtype, device=layer_input.device)
@@ -1136,7 +1315,7 @@ def _backward_config(backward_config):
 
 
 def _mhc_backward_dx(x, grad, act, dproj, rms_coef, fn, n, C, pre_eps, cfg):
-    """dResidual [M, n*C] of mHC pre from the per-token results of a mix kernel."""
+    """dResidual [M, n*C] of mHC pre or mHC head from the per-token results of a mix kernel."""
     M = x.shape[0]
     dx = torch.empty_like(x)
     BLOCK_M, BLOCK_C = cfg["DX_BLOCK_M"], cfg["DX_BLOCK_C"]
@@ -1230,6 +1409,50 @@ def _mhc_pre_dsv4_backward(
     dx = None
     if need_dx:
         dx = _mhc_backward_dx(x, grad_layer, act, dproj, rms_coef, fn, n, C, pre_eps, cfg)
+        dx = dx.view(M, n, C)
+    return dx, dlogit, dproj, dscale
+
+
+def _mhc_head_dsv4_backward(residual, fn, scale, saved, grad_out, pre_eps, cfg, need_dx):
+    """(dResidual or None, d logits [M, n], d acc [M, n], d scale per row [M, 1])."""
+    M, n, C = residual.shape
+    act, proj, rsigma = saved
+    x = residual.view(M, n * C)
+    dlogit = torch.empty_like(act)
+    dproj = torch.empty_like(act)
+    dscale = torch.empty((M, 1), dtype=torch.float32, device=x.device)
+    rms_coef = torch.empty((M,), dtype=torch.float32, device=x.device)
+    if M == 0:
+        return (torch.zeros_like(residual) if need_dx else None), dlogit, dproj, dscale
+    BLOCK_M = cfg["MIX_BLOCK_M"]
+    _mhc_head_backward_mix_kernel[(triton.cdiv(M, BLOCK_M),)](
+        x,
+        grad_out,
+        act,
+        proj,
+        rsigma,
+        scale,
+        dlogit,
+        dproj,
+        dscale,
+        rms_coef,
+        M,
+        K=n * C,
+        n=n,
+        C=C,
+        LOG2_N=_log2(n),
+        stride_xm=x.stride(0),
+        stride_gm=grad_out.stride(0),
+        stride_save_m=act.stride(0),
+        BLOCK_M=BLOCK_M,
+        DOT_BLOCK=DOT_BLOCK,
+        LOG2_DOT_BLOCK=_log2(DOT_BLOCK),
+        num_warps=cfg["mix_num_warps"],
+        **_BACKWARD_LAUNCH,
+    )
+    dx = None
+    if need_dx:
+        dx = _mhc_backward_dx(x, grad_out, act, dproj, rms_coef, fn, n, C, pre_eps, cfg)
         dx = dx.view(M, n, C)
     return dx, dlogit, dproj, dscale
 
@@ -1509,6 +1732,60 @@ class _MHCPostDSV4(torch.autograd.Function):
         )
 
 
+class _MHCHeadDSV4(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        residual,
+        fn,
+        scale,
+        base,
+        eps,
+        pre_eps,
+        config,
+        backward_config,
+        save,
+        logical_keys,
+        parameter_id,
+    ):
+        out, saved = _mhc_head_dsv4_forward(residual, fn, scale, base, eps, pre_eps, config, save)
+        if save:
+            ctx.save_for_backward(residual, fn, scale, *saved)
+            ctx.pre_eps = pre_eps
+            ctx.backward_config = backward_config
+            ctx.keys, ctx.canonical = _bind_rows(
+                ctx.needs_input_grad[1:4], logical_keys, parameter_id, residual
+            )
+        return out
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_out):
+        residual, fn, scale, *saved = ctx.saved_tensors
+        M, n, C = residual.shape
+        (grad_out,) = _mask_padding(ctx.keys, (grad_out,))
+        dx, dlogit, dproj, dscale = _mhc_head_dsv4_backward(
+            residual,
+            fn.contiguous(),
+            scale,
+            saved,
+            grad_out.contiguous(),
+            ctx.pre_eps,
+            _backward_config(ctx.backward_config),
+            ctx.needs_input_grad[0],
+        )
+        record_backward(
+            "mhc_head",
+            kernel_id=_kernel_ids(_mhc_head_backward_mix_kernel, _mhc_backward_dx_kernel),
+            impl=f"{PROFILE}:rocm-triton:saved",
+            family="rocm-triton",
+        )
+        dfn, dscale_total, dbase = _parameter_gradients(
+            ctx.canonical, residual.view(M, n * C), dproj, dscale, dlogit
+        )
+        return (dx, dfn, dscale_total, dbase) + (None,) * 7
+
+
 def _needs_backward(*tensors):
     """True when autograd will record this call, so the forward must store what backward needs."""
     return torch.is_grad_enabled() and any(t.requires_grad for t in tensors)
@@ -1566,6 +1843,37 @@ def mhc_post_dsv4(layer_input, residual, post_mix, comb_mix, *, config=None, bac
     return _MHCPostDSV4.apply(layer_input, residual, post_mix, comb_mix, config, backward_config)
 
 
+def mhc_head_dsv4(
+    residual,
+    fn,
+    scale,
+    base,
+    *,
+    rms_eps=1e-6,
+    hc_pre_eps=1e-6,
+    config=None,
+    backward_config=None,
+    logical_keys=None,
+    parameter_id=None,
+):
+    """residual [M, n, C] bf16 contiguous, fn [n, n*C], scale [1], base [n] fp32 -> [M, C].
+    ``config`` overrides keys of HEAD_CONFIG; ``backward_config``, ``logical_keys`` and
+    ``parameter_id`` as in ``mhc_pre_dsv4``."""
+    return _MHCHeadDSV4.apply(
+        residual,
+        fn,
+        scale,
+        base,
+        rms_eps,
+        hc_pre_eps,
+        config,
+        backward_config,
+        _needs_backward(residual, fn, scale, base),
+        logical_keys,
+        parameter_id,
+    )
+
+
 # --- ops ---------------------------------------------------------------------------------------
 
 
@@ -1606,6 +1914,14 @@ def check_post_inputs(y, residual, post_mix, comb_mix):
     if tuple(post_mix.shape) not in ((*lead, n), (*lead, n, 1)):
         raise ValueError(f"post_mix must have shape {(*lead, n)}, got {tuple(post_mix.shape)}")
     _check("comb_mix", comb_mix, torch.float32, (*lead, n, n))
+
+
+def check_head_inputs(residual, fn, scale, base):
+    """Inputs of mHC head: bf16 residual [..., n, C]; fp32 fn, scale, base."""
+    n, c = _check_streams(residual)
+    _check("fn", fn, torch.float32, (n, n * c))
+    _check("scale", scale, torch.float32, (1,))
+    _check("base", base, torch.float32, (n,))
 
 
 def _require_rocm():
@@ -1682,13 +1998,51 @@ class TritonMHCPostOp:
         return out.reshape(*lead, n, c)
 
 
+class TritonMHCHeadOp:
+    """Batch-invariant mHC head (stream contraction); reference in rl_engine/ops/mhc/training.py."""
+
+    def __init__(self):
+        _require_rocm()
+        logger.info("Linked RL-Kernel's batch-invariant Triton mHC head.")
+
+    def __call__(
+        self,
+        residual,
+        fn,
+        scale,
+        base,
+        *,
+        rms_eps=1e-6,
+        hc_pre_eps=1e-6,
+        logical_keys=None,
+        parameter_id=None,
+    ):
+        """``logical_keys`` and ``parameter_id`` as in TritonMHCPreOp."""
+        check_head_inputs(residual, fn, scale, base)
+        n, c = residual.shape[-2:]
+        lead = residual.shape[:-2]
+        out = mhc_head_dsv4(
+            residual.reshape(-1, n, c).contiguous(),
+            fn.contiguous(),
+            scale.contiguous(),
+            base.contiguous(),
+            rms_eps=rms_eps,
+            hc_pre_eps=hc_pre_eps,
+            logical_keys=logical_keys,
+            parameter_id=parameter_id,
+        )
+        return out.reshape(*lead, c)
+
+
 # Kernels whose compiled variants a dynamic-shape check counts.
 KERNELS = (
     _mhc_fused_split_kernel,
     _mhc_reduce_apply_kernel,
     _mhc_sinkhorn_kernel,
+    _mhc_head_apply_kernel,
     _mhc_post_kernel,
     _mhc_pre_backward_mix_kernel,
+    _mhc_head_backward_mix_kernel,
     _mhc_backward_dx_kernel,
     _mhc_post_backward_dx_kernel,
     _mhc_post_backward_mix_kernel,

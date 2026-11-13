@@ -14,7 +14,7 @@ come from the task under test:
   projection exact (isolating RMS); residual entries in {+-1, +-2} make the sum
   of squares exact in any order (isolating the projection). The intermediates
   themselves, the partial projections ``acc`` and sums of squares ``acc_sq`` of
-  ``triton_mhc._split``, are also compared bit for bit.
+  ``triton_mhc._split``, are also compared bit for bit, for mHC pre and mHC head.
 - task 2 (split/activation and Sinkhorn): one-hot fn rows and {+-1, +-2}
   residuals make the logits exact, so post_mix and comb_mix only depend on the
   activation and Sinkhorn. sinkhorn_repeat=t exposes each Sinkhorn round; the
@@ -217,11 +217,16 @@ def test_task1_restride_invariance(inputs):
 # The intermediates of task 1, before the RMS factor: _split's partial projections
 # acc [M, NUM_KSPLIT, rows of fn] and partial sums of squares acc_sq [M, NUM_KSPLIT].
 # A one-ulp change in acc_sq can disappear after the square root, so comb_mix alone
-# could hide it.
+# could hide it. mHC head runs the same kernel with its 4-row fn and HEAD_CONFIG.
 @requires_rocm
 @pytest.mark.parametrize("m", _M_VALUES)
-def test_task1_split_intermediates_batch_invariance(m):
-    fn, config = _random_fn(), triton_mhc.PRE_CONFIG
+@pytest.mark.parametrize("op", ["mhc_pre", "mhc_head"])
+def test_task1_split_intermediates_batch_invariance(op, m):
+    if op == "mhc_pre":
+        fn, config = _random_fn(), triton_mhc.PRE_CONFIG
+    else:
+        fn = torch.randn(_N, _K, generator=_gen(4), device="cuda") / _K**0.5
+        config = triton_mhc.HEAD_CONFIG
 
     def run(rows):
         x = rows[0].view(rows[0].shape[0], _K)  # as the op passes residual [M, n, C]

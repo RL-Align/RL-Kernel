@@ -81,8 +81,10 @@ def test_defaults_match_the_reference_and_the_rocm_backend():
         "hc_post_mult_value": contract.HC_POST_MULT_VALUE,
         "sinkhorn_repeat": contract.SINKHORN_REPEAT,
     }
+    head = {"rms_eps": contract.RMS_EPS, "hc_pre_eps": contract.HC_PRE_EPS}
 
     assert arithmetic_defaults(triton_mhc.TritonMHCPreOp.__call__) == pre
+    assert arithmetic_defaults(triton_mhc.TritonMHCHeadOp.__call__) == head
     # The reference fixes eps, the post multiplier and n; its default round count is 20.
     assert (training.EPS, training.N) == (contract.RMS_EPS, contract.HC_MULT)
     assert contract.RMS_EPS == contract.HC_PRE_EPS == contract.HC_SINKHORN_EPS

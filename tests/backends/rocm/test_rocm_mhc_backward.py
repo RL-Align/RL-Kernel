@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""The Triton backward of the ROCm mHC pre and mHC post ops (#508, #510).
+"""The Triton backward of the ROCm mHC pre, mHC post and mHC head ops (#508, #510).
 
 Batch invariance of the input gradients is checked with the forward in
 tests/backends/rocm/test_rocm_mhc_batch_invariance.py. This file holds the rest:
@@ -47,9 +47,10 @@ def _gen(seed):
     return torch.Generator(device="cuda").manual_seed(seed)
 
 
-def _params(c=_C, requires_grad=False):
+def _params(op_name, c=_C, requires_grad=False):
     w = weights(c)
-    params = [w[f"pre_{name}"].clone() for name in ("fn", "scale", "base")]
+    prefix = "pre" if op_name == "mhc_pre" else "head"
+    params = [w[f"{prefix}_{name}"].clone() for name in ("fn", "scale", "base")]
     return [p.requires_grad_(requires_grad) for p in params]
 
 
@@ -83,10 +84,10 @@ def _assert_gradients_close(ours, ref):
 def test_forward_with_grad_has_the_bits_of_inference(m):
     T = _triton_mhc()
     residual = randn(_gen(1), m, N, _C).to(torch.bfloat16)
-    pre = _params()
+    pre, head = _params("mhc_pre"), _params("mhc_head")
 
     def run(residual):
-        return list(T.mhc_pre_dsv4(residual, *pre))
+        return list(T.mhc_pre_dsv4(residual, *pre)) + [T.mhc_head_dsv4(residual, *head)]
 
     with torch.no_grad():
         plain = run(residual)
@@ -94,7 +95,7 @@ def test_forward_with_grad_has_the_bits_of_inference(m):
         inference = run(residual)
     saving = run(residual.clone().requires_grad_(True))
     assert all(o.grad_fn is not None for o in saving)
-    names = ("post_mix", "comb_mix", "layer_input")
+    names = ("post_mix", "comb_mix", "layer_input", "head")
     for other in (inference, saving):
         differing = [n for n, a, b in zip(names, plain, other) if not bits_equal(a, b.detach())]
         assert not differing, f"M={m}: {differing}"
@@ -112,7 +113,7 @@ def test_pre_gradients_match_reference(sinkhorn_repeat):
     gen = _gen(2)
     residual = randn(gen, m, N, _C).to(torch.bfloat16)
     grads = [randn(gen, m, N, 1), randn(gen, m, N, N), randn(gen, m, _C).to(torch.bfloat16)]
-    params = _params(requires_grad=True)
+    params = _params("mhc_pre", requires_grad=True)
 
     def run(op, **kwargs):
         leaf = residual.clone().requires_grad_(True)
@@ -126,6 +127,28 @@ def test_pre_gradients_match_reference(sinkhorn_repeat):
         ours = run(T.mhc_pre_dsv4, logical_keys=_keys(m), parameter_id="pre")
         session.validate_complete()
     ref = run(lambda *x, **k: training.mhc_pre(*x, backend="rocm", **k))
+    _assert_gradients_close(ours, ref)
+
+
+def test_head_gradients_match_reference():
+    T = _triton_mhc()
+    m = 64
+    gen = _gen(3)
+    residual = randn(gen, m, N, _C).to(torch.bfloat16)
+    grad = randn(gen, m, _C).to(torch.bfloat16)
+    params = _params("mhc_head", requires_grad=True)
+
+    def run(op, **kwargs):
+        leaf = residual.clone().requires_grad_(True)
+        for p in params:
+            p.grad = None
+        op(leaf, *params, **kwargs).backward(grad)
+        return [leaf.grad] + [p.grad.clone() for p in params]
+
+    with canonical_backward_session() as session:
+        ours = run(T.mhc_head_dsv4, logical_keys=_keys(m), parameter_id="head")
+        session.validate_complete()
+    ref = run(lambda *x, **k: training.mhc_head(*x, backend="rocm", **k))
     _assert_gradients_close(ours, ref)
 
 
@@ -163,10 +186,10 @@ def test_post_gradients_match_reference():
 # ---------------------------------------------------------------------------
 
 
-def _session_run(residual, grads, params, keys, chunks, perm, reverse_backward):
+def _session_run(op_name, residual, grads, params, keys, chunks, perm, reverse_backward):
     """(outputs per row in perm order, dResidual, d fn, d scale, d base)."""
     T = _triton_mhc()
-    op = T.TritonMHCPreOp()
+    op = T.TritonMHCPreOp() if op_name == "mhc_pre" else T.TritonMHCHeadOp()
     leaf = residual.clone().requires_grad_(True)
     for p in params:
         p.grad = None
@@ -174,8 +197,8 @@ def _session_run(residual, grads, params, keys, chunks, perm, reverse_backward):
         pieces, start = [], 0
         for count in chunks:
             index = perm[start : start + count]
-            outputs = op(leaf[index], *params, logical_keys=keys[index], parameter_id="mhc_pre")
-            outputs = list(outputs)
+            outputs = op(leaf[index], *params, logical_keys=keys[index], parameter_id=op_name)
+            outputs = list(outputs) if op_name == "mhc_pre" else [outputs]
             pieces.append((index, outputs))
             start += count
         for index, outputs in reversed(pieces) if reverse_backward else pieces:
@@ -185,22 +208,26 @@ def _session_run(residual, grads, params, keys, chunks, perm, reverse_backward):
     return forward, [leaf.grad] + [p.grad.clone() for p in params]
 
 
+@pytest.mark.parametrize("op_name", ["mhc_pre", "mhc_head"])
 @pytest.mark.parametrize("chunks", [[1, 1, 1, 1, 1, 1, 1], [3, 4], [7]])
 @pytest.mark.parametrize("reverse_backward", [False, True])
-def test_bi_chunks_permutation_and_backward_order(chunks, reverse_backward):
+def test_bi_chunks_permutation_and_backward_order(op_name, chunks, reverse_backward):
     m = 7
     gen = _gen(5)
     residual = randn(gen, m, N, _C).to(torch.bfloat16)
-    grads = [randn(gen, m, N), randn(gen, m, N, N), randn(gen, m, _C).to(torch.bfloat16)]
-    params = _params(requires_grad=True)
+    if op_name == "mhc_pre":
+        grads = [randn(gen, m, N), randn(gen, m, N, N), randn(gen, m, _C).to(torch.bfloat16)]
+    else:
+        grads = [randn(gen, m, _C).to(torch.bfloat16)]
+    params = _params(op_name, requires_grad=True)
     keys = _keys(m, start=100)
     keys[5] = -1  # a padding row: zero gradient, no share of the parameter gradients
     identity = torch.arange(m, device="cuda")
-    full_out, full = _session_run(residual, grads, params, keys, [m], identity, False)
+    full_out, full = _session_run(op_name, residual, grads, params, keys, [m], identity, False)
     assert full[0][5].eq(0).all() and full[0][4].ne(0).any()
 
     perm = torch.tensor([6, 4, 0, 5, 1, 3, 2], device="cuda")
-    out, got = _session_run(residual, grads, params, keys, chunks, perm, reverse_backward)
+    out, got = _session_run(op_name, residual, grads, params, keys, chunks, perm, reverse_backward)
     for a, b in zip(out, full_out):
         assert bits_equal(a, b[perm])
     names = ("dResidual", "dfn", "dscale", "dbase")
@@ -208,12 +235,13 @@ def test_bi_chunks_permutation_and_backward_order(chunks, reverse_backward):
     assert not differing, differing
 
 
-def test_trainable_parameters_require_a_session():
+@pytest.mark.parametrize("op_name", ["mhc_pre", "mhc_head"])
+def test_trainable_parameters_require_a_session(op_name):
     T = _triton_mhc()
     residual = randn(_gen(6), 3, N, _C).to(torch.bfloat16)
-    params = _params()
+    params = _params(op_name)
     params[1].requires_grad_(True)
-    op = T.mhc_pre_dsv4
+    op = T.mhc_pre_dsv4 if op_name == "mhc_pre" else T.mhc_head_dsv4
     with pytest.raises(RuntimeError, match="canonical_backward_session"):
         op(residual, *params)
     with canonical_backward_session(), pytest.raises(ValueError, match="logical_keys"):
@@ -225,11 +253,12 @@ def test_trainable_parameters_require_a_session():
 def test_frozen_parameters_compute_no_parameter_gradient():
     T = _triton_mhc()
     leaf = randn(_gen(7), 5, N, _C).to(torch.bfloat16).requires_grad_(True)
-    pre = _params()
+    pre, head = _params("mhc_pre"), _params("mhc_head")
     post_mix, comb_mix, layer_input = T.TritonMHCPreOp()(leaf, *pre)
-    T.TritonMHCPostOp()(layer_input, leaf, post_mix, comb_mix).float().sum().backward()
+    hidden = T.TritonMHCHeadOp()(T.TritonMHCPostOp()(layer_input, leaf, post_mix, comb_mix), *head)
+    hidden.float().sum().backward()
     assert leaf.grad is not None and leaf.grad.dtype == torch.bfloat16
-    assert all(p.grad is None for p in pre)
+    assert all(p.grad is None for p in pre + head)
 
 
 # ---------------------------------------------------------------------------
@@ -249,11 +278,12 @@ def test_frozen_parameters_compute_no_parameter_gradient():
 )
 def test_backward_launch_config_does_not_change_bits(config):
     T = _triton_mhc()
-    pre = _params()
+    pre, head = _params("mhc_pre"), _params("mhc_head")
     for m in (17, 1024):
         gen = _gen(8)
         residual = randn(gen, m, N, _C).to(torch.bfloat16)
         g_pre = [randn(gen, m, N, 1), randn(gen, m, N, N), randn(gen, m, _C).to(torch.bfloat16)]
+        g_head = randn(gen, m, _C).to(torch.bfloat16)
         post_inputs = [
             randn(gen, m, _C).to(torch.bfloat16),
             residual,
@@ -267,11 +297,13 @@ def test_backward_launch_config_does_not_change_bits(config):
             outputs = T.mhc_pre_dsv4(leaf, *pre, backward_config=backward_config)
             torch.autograd.backward(list(outputs), g_pre)
             d_pre = leaf.grad.clone()
+            leaf.grad = None
+            T.mhc_head_dsv4(leaf, *head, backward_config=backward_config).backward(g_head)
             leaves = [t.clone().requires_grad_(True) for t in post_inputs]
             T.mhc_post_dsv4(*leaves, backward_config=backward_config).backward(g_post)
-            return [d_pre] + [t.grad for t in leaves]
+            return [d_pre, leaf.grad] + [t.grad for t in leaves]
 
-        names = ("pre dResidual", "dy", "dR_old", "dPOST", "dC")
+        names = ("pre dResidual", "head dResidual", "dy", "dR_old", "dPOST", "dC")
         differing = [n for n, a, b in zip(names, run(None), run(config)) if not bits_equal(a, b)]
         assert not differing, f"M={m}: {differing}"
 
@@ -279,8 +311,9 @@ def test_backward_launch_config_does_not_change_bits(config):
 def test_empty_batch_backward():
     T = _triton_mhc()
     leaf = torch.zeros(0, N, _C, device="cuda", dtype=torch.bfloat16, requires_grad=True)
-    post_mix, comb_mix, layer_input = T.TritonMHCPreOp()(leaf, *_params())
-    T.TritonMHCPostOp()(layer_input, leaf, post_mix, comb_mix).float().sum().backward()
+    post_mix, comb_mix, layer_input = T.TritonMHCPreOp()(leaf, *_params("mhc_pre"))
+    new_residual = T.TritonMHCPostOp()(layer_input, leaf, post_mix, comb_mix)
+    T.TritonMHCHeadOp()(new_residual, *_params("mhc_head")).float().sum().backward()
     assert leaf.grad.shape == (0, N, _C)
 
 
@@ -288,12 +321,14 @@ def test_backward_kernels_are_recorded():
     T = _triton_mhc()
     reset_backward_runtime()
     leaf = randn(_gen(9), 3, N, _C).to(torch.bfloat16).requires_grad_(True)
-    post_mix, comb_mix, layer_input = T.TritonMHCPreOp()(leaf, *_params())
-    T.TritonMHCPostOp()(layer_input, leaf, post_mix, comb_mix).float().sum().backward()
+    post_mix, comb_mix, layer_input = T.TritonMHCPreOp()(leaf, *_params("mhc_pre"))
+    new_residual = T.TritonMHCPostOp()(layer_input, leaf, post_mix, comb_mix)
+    T.TritonMHCHeadOp()(new_residual, *_params("mhc_head")).float().sum().backward()
     events = snapshot_backward_runtime()
     for kind, kernel in (
         ("mhc_pre", "_mhc_pre_backward_mix_kernel"),
         ("mhc_post", "_mhc_post_backward_mix_kernel"),
+        ("mhc_head", "_mhc_head_backward_mix_kernel"),
     ):
         assert events[kind]["execution_count"] == 1
         assert any(k.endswith(kernel) for k in events[kind]["kernel_ids"])

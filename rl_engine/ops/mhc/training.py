@@ -115,11 +115,12 @@ def _check(row, backend):
 @lru_cache(maxsize=3)
 def _triton_op(kind):
     from rl_engine.backends.rocm.mhc.triton_mhc import (
+        TritonMHCHeadOp,
         TritonMHCPostOp,
         TritonMHCPreOp,
     )
 
-    return {"pre": TritonMHCPreOp, "post": TritonMHCPostOp}[kind]()
+    return {"head": TritonMHCHeadOp, "pre": TritonMHCPreOp, "post": TritonMHCPostOp}[kind]()
 
 
 def _triton_mix(kind, rows, fn, scale, base, recompute, **kwargs):
@@ -222,7 +223,20 @@ def mhc_pre(
     return _Mix.apply(rows, fn, scale, base, False, sinkhorn_repeat, recompute, backend)
 
 
-def mhc_head(rows, fn, scale, base, *, backend, recompute=False):
+def mhc_head(
+    rows, fn, scale, base, *, backend, recompute=False, logical_keys=None, parameter_id=None
+):
+    if backend == "rocm_triton":
+        return _triton_mix(
+            "head",
+            rows,
+            fn,
+            scale,
+            base,
+            recompute,
+            logical_keys=logical_keys,
+            parameter_id=parameter_id,
+        )
     return _Mix.apply(rows, fn, scale, base, True, 0, recompute, backend)
 
 
