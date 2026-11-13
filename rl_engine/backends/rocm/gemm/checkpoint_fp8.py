@@ -41,7 +41,7 @@ def _vjp(DY, W, WS, DX, M, N: tl.constexpr, K: tl.constexpr):
 
 class _Projection(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, codes, scales):
+    def forward(ctx, x, codes, scales, activation_codes=None, activation_scales=None):
         from aiter import QuantType, get_hip_quant
         from aiter.ops.gemm_op_a8w8 import gemm_a8w8_blockscale_ck
 
@@ -54,9 +54,16 @@ class _Projection(torch.autograd.Function):
         # Reuse the production ROCm activation quantizer selected by vLLM.
         # FNUZ changes the interpretation of the original OCP weight bytes by
         # exactly 1/2; double their original E8M0 scale to preserve the values.
-        q, activation_scale = get_hip_quant(QuantType.per_1x128)(
-            x, quant_dtype=torch.float8_e4m3fnuz, transpose_scale=False
-        )
+        if activation_codes is None:
+            q, activation_scale = get_hip_quant(QuantType.per_1x128)(
+                x, quant_dtype=torch.float8_e4m3fnuz, transpose_scale=False
+            )
+        else:
+            q, activation_scale = activation_codes, activation_scales
+            if q.shape != x.shape or q.dtype != torch.float8_e4m3fnuz:
+                raise ValueError("invalid prequantized QNorm codes")
+            if activation_scale.shape != (m, k // 128) or activation_scale.dtype != torch.float32:
+                raise ValueError("invalid prequantized QNorm scales")
         fnuz_codes = torch.where(codes == 128, 0, codes).to(torch.uint8)
         fnuz_weight = fnuz_codes.view(torch.float8_e4m3fnuz)
         weight_scale = scales.view(torch.float8_e8m0fnu).float() * 2.0
@@ -79,7 +86,7 @@ class _Projection(torch.autograd.Function):
             _vjp[(triton.cdiv(dy.shape[0], 16), triton.cdiv(k, 32))](
                 dy, w, s, dx, dy.shape[0], n, k, enable_fp_fusion=False
             )
-        return dx.reshape(ctx.input_shape), None, None
+        return (dx.reshape(ctx.input_shape), None, None) + (None,) * (len(ctx.needs_input_grad) - 3)
 
 
 class CheckpointFP8Linear(torch.nn.Module):
@@ -102,8 +109,15 @@ class CheckpointFP8Linear(torch.nn.Module):
         self.register_buffer("codes", weight.view(torch.uint8).contiguous())
         self.register_buffer("scales", scales.view(torch.uint8).contiguous())
 
+    def bind_qnorm(self, norm):
+        object.__setattr__(self, "_qnorm_provider", norm)
+
     def forward(self, x, **kwargs):
-        return _Projection.apply(x, self.codes, self.scales), None
+        provider = getattr(self, "_qnorm_provider", None)
+        if provider is None:
+            return _Projection.apply(x, self.codes, self.scales), None
+        codes, scales = provider.quantized_input(x)
+        return _Projection.apply(x, self.codes, self.scales, codes, scales), None
 
     def backward_dw(self):
         pass  # Frozen checkpoint weights; the autograd input VJP still executes.

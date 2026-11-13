@@ -12,11 +12,16 @@ import torch
 from safetensors import safe_open
 
 from rl_engine.backends.rocm.gemm.checkpoint_fp8 import CheckpointFP8Group, CheckpointFP8Linear
+from rl_engine.backends.rocm.norm.qnorm_fp8 import FusedQNorm
 from rl_engine.backends.rocm.moe.expert_training import RocmExpertTrainingBackend
 from rl_engine.backends.rocm.moe.packed_mx import RocmPackedMXBackend
 from rl_engine.backends.rocm.moe.route_weight_grad import RocmRouteWeightGradient
 from rl_engine.contracts.operators.expert_training import ExpertTrainingConfig, PackedExpertWeight
 from rl_engine.ops.moe.expert_training import routed_expert_training
+from rl_engine.integrations.engines.train.megatron.native_rotation import bind_indexer_rotation
+from rl_engine.integrations.engines.train.megatron.native_group_projection import (
+    bind_grouped_projection,
+)
 
 
 class _GateUp(torch.nn.Module):
@@ -93,6 +98,11 @@ def load_native_checkpoint(model, directory):
         )
     ):
         raise ValueError("initial packed checkpoint importer requires TP=PP=EP=CP=1")
+    hf_config = None
+    if getattr(model, "_rlk_original_qkv_codec", False):
+        from transformers import AutoConfig
+
+        hf_config = AutoConfig.from_pretrained(directory)
     files = list(Path(directory).glob("*.safetensors"))
     if len(files) != 1:
         raise ValueError("initial packed importer requires a single four-layer safetensors file")
@@ -163,11 +173,12 @@ def load_native_checkpoint(model, directory):
             setattr(attn, name, fp8(prefix + ".attn." + key))
         copy(attn.q_layernorm.weight, prefix + ".attn.q_norm.weight")
         copy(attn.kv_layernorm.weight, prefix + ".attn.kv_norm.weight")
-        attn.group_output_projection = CheckpointFP8Group(
+        group_projection = CheckpointFP8Group(
             get(prefix + ".attn.wo_a.weight"),
             get(prefix + ".attn.wo_a.scale"),
             cfg.output_projection_groups,
         )
+        bind_grouped_projection(attn, group_projection)
         attn.linear_o_group_proj = torch.nn.Parameter(
             torch.empty(0, device=device, dtype=torch.bfloat16), requires_grad=False
         )
@@ -180,6 +191,17 @@ def load_native_checkpoint(model, directory):
             indexer.linear_wq_b = fp8(prefix + ".attn.indexer.wq_b")
             copy(indexer.linear_weights_proj.weight, prefix + ".attn.indexer.weights_proj.weight")
             compressor(indexer.compressor, prefix + ".attn.indexer.compressor")
+            bind_indexer_rotation(indexer)
+        if getattr(model, "_rlk_fused_qnorm", False):
+            norm = FusedQNorm(attn.q_layernorm, cfg.layernorm_epsilon)
+            attn.q_layernorm = norm
+            attn.linear_q_up_proj.bind_qnorm(norm)
+            if getattr(core, "indexer", None) is not None:
+                core.indexer.linear_wq_b.bind_qnorm(norm)
+        if hf_config is not None:
+            from rl_engine.integrations.engines.train.megatron.native_qkv import bind_native_qkv
+
+            bind_native_qkv(attn, hf_config, attn._dsv4_compress_ratio)
         inner = moe_layer.inner_layer
         moe = inner.mlp
         copy(inner.pre_mlp_layernorm.weight, prefix + ".ffn_norm.weight")
