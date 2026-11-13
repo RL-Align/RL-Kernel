@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Inputs shared by the batch-invariance tests of the DeepSeek-V4 mHC ops."""
+"""Inputs shared by the batch-invariance tests of the DeepSeek-V4 mHC ops and layer end."""
 
 import torch
 
-N = 4  # DeepSeek-V4-Flash-0731 hc_mult
+N, V = 4, 4096  # DeepSeek-V4-Flash-0731 hc_mult; test vocabulary
 
 # M = 1, 16, 17 (RFC switch points), the WS1 manifest's token counts 8 and 59,
 # and powers of two up to 16384.
@@ -21,7 +21,7 @@ def randn(gen, *shape):
 
 
 def weights(c):
-    """mHC pre and mHC head weights at hidden size c."""
+    """mHC pre, mHC head, final RMSNorm and lm_head weights at hidden size c."""
     gen = torch.Generator(device="cuda").manual_seed(0)
     k = N * c
     mix = 2 * N + N * N
@@ -32,6 +32,8 @@ def weights(c):
         "head_fn": randn(gen, N, k) / k**0.5,
         "head_scale": 0.5 + torch.rand(1, generator=gen, device="cuda"),
         "head_base": 0.1 * randn(gen, N),
+        "norm_weight": 1.0 + 0.1 * randn(gen, c),
+        "lm_head_weight": (0.02 * randn(gen, V, c)).to(torch.bfloat16),  # as in the checkpoint
     }
 
 

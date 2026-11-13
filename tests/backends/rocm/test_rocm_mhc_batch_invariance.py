@@ -22,8 +22,9 @@ rl_engine.validation.common.batch_invariance:
   they have alone.
 
 Every op runs at DeepSeek-V4-Flash's C = 4096 and at C = 7168, which is not a
-power of two. The parameter gradients through the canonical session are checked
-in test_rocm_mhc_backward.py.
+power of two. The DeepSeek-V4 layer end is checked in
+tests/models/deepseek_v4/test_layer_end_batch_invariance.py; the parameter
+gradients through the canonical session in test_rocm_mhc_backward.py.
 """
 
 import pytest

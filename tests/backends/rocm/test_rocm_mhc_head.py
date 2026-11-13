@@ -3,7 +3,9 @@
 """Checks specific to the ROCm mHC head op (DSV4 RFC task 8, #508).
 
 Batch invariance and determinism of mHC head are checked in
-tests/backends/rocm/test_rocm_mhc_batch_invariance.py; the PyTorch reference (rl_engine/ops/mhc/training.py) in
+tests/backends/rocm/test_rocm_mhc_batch_invariance.py, those of the DeepSeek-V4
+layer end in tests/models/deepseek_v4/test_layer_end_batch_invariance.py; the
+PyTorch reference (rl_engine/ops/mhc/training.py) in
 tests/ops/mhc/test_p1_training.py. This file holds what only applies to the
 ROCm op (``TritonMHCHeadOp``): it matches the PyTorch reference in its output
 and residual gradient; the entry's ``rocm_triton`` backend runs it; launch
