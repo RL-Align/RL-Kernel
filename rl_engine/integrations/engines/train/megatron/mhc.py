@@ -25,6 +25,10 @@ def _layer_forward(
 def bind_training_stage(model, worker: P1Worker):
     if worker.role != "training" or hasattr(model, "_rlk_p1"):
         raise ValueError("expected an unbound training stage")
+    if hasattr(model, "decoder") and hasattr(model.decoder, "layers"):
+        from .native_mhc import bind_native_training_stage
+
+        return bind_native_training_stage(model, worker)
     if not getattr(model, "rlk_p1_head_hook", False):
         raise ValueError("apply the pinned mLite P1 instance-head patch before binding")
     layers = list(model.layers.values())
