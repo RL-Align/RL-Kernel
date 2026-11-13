@@ -75,6 +75,18 @@ def _output(layer, hidden, weight=None, runtime_gather_output=None, output_dtype
     worker = layer._rlk_p1
     worker._active()
     logits = TritonLMHeadOp().forward_fp32(hidden, layer.weight if weight is None else weight)
+    if not getattr(worker, "_native_head_executed", False):
+        import inspect
+
+        print(
+            "RLK_NATIVE_LM_HEAD_EXECUTED",
+            inspect.getfile(TritonLMHeadOp),
+            "TritonLMHeadOp.forward_fp32",
+            worker.version,
+            str(logits.dtype),
+            flush=True,
+        )
+        worker._native_head_executed = True
     return worker._record("lm_head", logits), None
 
 
@@ -88,6 +100,18 @@ def selected_raw_logprobs(model, logits, target_ids, *, weight_version):
     if target_ids.shape != logits.shape[:-1] or target_ids.dtype != torch.int64:
         raise ValueError("raw logprob requires aligned int64 target IDs")
     values = TritonLogpOp()(logits.reshape(-1, logits.shape[-1]), target_ids.reshape(-1))
+    if not getattr(worker, "_native_logprob_executed", False):
+        import inspect
+
+        print(
+            "RLK_NATIVE_RAW_LOGPROB_EXECUTED",
+            inspect.getfile(TritonLogpOp),
+            "TritonLogpOp",
+            worker.version,
+            str(values.dtype),
+            flush=True,
+        )
+        worker._native_logprob_executed = True
     return worker._record("raw_logprob", values.reshape_as(target_ids))
 
 
