@@ -8,6 +8,8 @@ from typing import Any
 
 import torch
 
+from rl_engine.contracts.operators.activation import SwiGLUPackedOrder
+
 DEFAULT_HIDDEN = 4096
 DEFAULT_N_HEADS = 32
 DEFAULT_N_KV_HEADS = 8
@@ -51,7 +53,12 @@ def make_operator_inputs(
 
 
 def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
+    """Describe a validation shape, including packed SwiGLU width and channel order."""
     batch, seq = _batch_seq(args)
+    packed_order = getattr(args, "packed_order", None)
+    if op_name == "swiglu" and packed_order is not None:
+        order = SwiGLUPackedOrder(packed_order)
+        return f"{batch}x{seq}x{2 * DEFAULT_INTERMEDIATE}-packed-{order.value}"
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
@@ -277,10 +284,27 @@ def _make_silu_inputs(
 def _make_swiglu_inputs(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
 ) -> dict[str, Any]:
+    """Build separate operands or pack the same seeded values in the requested order.
+
+    Omitting ``packed_order`` preserves the two-input form. Packed cases carry
+    one ``packed_input`` tensor plus the channel-order enum expected by the operator.
+    """
     batch, seq = _batch_seq(args)
+    shape = (batch, seq, DEFAULT_INTERMEDIATE)
+    gate = _floating_tensor(shape, args, dtype, device, 0)
+    up = _floating_tensor(shape, args, dtype, device, 1)
+    packed_order = getattr(args, "packed_order", None)
+    if packed_order is None:
+        return {"gate": gate, "up": up}
+
+    order = SwiGLUPackedOrder(packed_order)
+    if order is SwiGLUPackedOrder.GATE_UP:
+        operands = (gate, up)
+    else:
+        operands = (up, gate)
     return {
-        "gate": _floating_tensor((batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 0),
-        "up": _floating_tensor((batch, seq, DEFAULT_INTERMEDIATE), args, dtype, device, 1),
+        "packed_input": torch.cat(operands, dim=-1),
+        "packed_order": order,
     }
 
 

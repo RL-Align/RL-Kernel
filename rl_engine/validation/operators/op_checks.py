@@ -200,8 +200,9 @@ def _run_case(
     case: OperatorCase,
     contract: Mapping[str, Any],
 ) -> CaseCheck:
-    candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, case.inputs))
-    gold_outputs = _flatten_tensors(case.gold_fn(**case.inputs))
+    """Compare candidate and reference forward outputs under the case's contract."""
+    candidate_outputs = _flatten_tensors(_call_operator(candidate.fn, case.inputs))
+    gold_outputs = _flatten_tensors(_call_operator(case.gold_fn, case.inputs))
     return _compare_case_outputs(candidate, case, contract, candidate_outputs, gold_outputs)
 
 
@@ -213,13 +214,19 @@ def _run_case_backward(
     grad_mode: str,
     grad_seed: int,
 ) -> CaseCheck:
+    """Compare outputs and named input gradients using independent autograd graphs.
+
+    Both paths receive the same upstream values. Forward and gradient
+    tolerances are resolved separately, and gradient results retain their
+    input names so packed and separate-input cases remain distinguishable.
+    """
     if not case.grad_input_names:
         raise ValueError(f"case {case.name!r} does not declare gradient inputs")
 
     candidate_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
     gold_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
-    candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, candidate_inputs))
-    gold_outputs = _flatten_tensors(case.gold_fn(**gold_inputs))
+    candidate_outputs = _flatten_tensors(_call_operator(candidate.fn, candidate_inputs))
+    gold_outputs = _flatten_tensors(_call_operator(case.gold_fn, gold_inputs))
     # Candidate and gold must use the same upstream gradients; otherwise we
     # would compare different vector-Jacobian products.
     # grad_mode="ones" is the old output.sum().backward() smoke path.
@@ -384,11 +391,12 @@ def _compare_case_outputs(
     )
 
 
-# compatibility function or forward
-def _call_candidate(candidate: Callable[..., Any] | Any, inputs: Mapping[str, Any]) -> Any:
-    if hasattr(candidate, "forward") and callable(candidate.forward):
-        return candidate.forward(**inputs)
-    return candidate(**inputs)
+def _call_operator(operator: Callable[..., Any] | Any, inputs: Mapping[str, Any]) -> Any:
+    """Call a validation operator with named inputs, including non-tensor options."""
+    forward = getattr(operator, "forward", None)
+    if not callable(forward):
+        forward = operator
+    return forward(**inputs)
 
 
 def _clone_inputs_for_backward(
