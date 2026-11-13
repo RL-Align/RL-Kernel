@@ -68,8 +68,7 @@ def _norm(module, x):
 
 
 def _output(layer, hidden, weight=None, runtime_gather_output=None, output_dtype=None):
-    from rl_engine.backends.shared.triton.embedding.lm_head import \
-        TritonLMHeadOp
+    from rl_engine.backends.shared.triton.embedding.lm_head import TritonLMHeadOp
 
     if output_dtype not in (None, torch.float32):
         raise ValueError("native P1 head emits FP32 logits")
@@ -94,8 +93,9 @@ def selected_raw_logprobs(model, logits, target_ids, *, weight_version):
 
 def bind_native_training_stage(model, worker):
     from megatron.core.models.hybrid.hybrid_model import HybridModel
-    from megatron.core.models.hybrid.layers.hybrid_hyper_connection import \
-        HyperConnectionHybridLayer
+    from megatron.core.models.hybrid.layers.hybrid_hyper_connection import (
+        HyperConnectionHybridLayer,
+    )
     from megatron.core.transformer.identity_op import IdentityOp
 
     if not isinstance(model, HybridModel) or hasattr(model, "_rlk_p1") or worker.role != "training":
@@ -175,3 +175,29 @@ def bind_native_training_stage(model, worker):
         model.output_layer._rlk_p1 = worker
         model.output_layer.forward = MethodType(_output, model.output_layer)
     return worker
+
+
+def normalize_native_causal_mask(attention_mask, input_shape=None):
+    """Translate verl's explicit full causal mask to MCore CSA's implicit mask.
+
+    Reject padding/document masks rather than silently dropping their semantics.
+    This eager adapter deliberately validates tensor contents before execution.
+    """
+    if attention_mask is None or attention_mask.numel() == 1:
+        return attention_mask
+    if input_shape is not None and tuple(attention_mask.shape) == tuple(input_shape):
+        if not bool((attention_mask == 1).all()):
+            raise ValueError("native DSV4 adapter cannot discard padding tokens")
+        return None
+    if (
+        attention_mask.ndim < 2
+        or attention_mask.dtype != torch.bool
+        or attention_mask.shape[-1] != attention_mask.shape[-2]
+    ):
+        raise ValueError("native DSV4 requires a square boolean full causal mask")
+    length = attention_mask.shape[-1]
+    rows = torch.arange(length, device=attention_mask.device)
+    causal = rows[:, None] < rows[None, :]
+    if not bool((attention_mask == causal).all()):
+        raise ValueError("native DSV4 adapter cannot discard padding/document-boundary masks")
+    return None

@@ -32,7 +32,7 @@ python -m pytest -q tests/integrations/common/test_native_megatron_mhc.py \
   tests/integrations/common/test_mhc_worker.py
 ```
 
-Result: 5 passed, 0 failed, 0 skipped. The new integration unit constructs a
+Result: 6 passed, 0 failed, 0 skipped. The new integration unit constructs a
 real native HybridModel with reduced random weights, runs forward, selected
 raw logprob backward, changes a parameter and advances its version. This is
 unit coverage, not four-layer checkpoint or verl actor/rollout parity evidence.

@@ -94,3 +94,20 @@ def test_real_hybrid_model_forward_backward_and_version_update(tmp_path):
     )
     parallel_state.destroy_model_parallel()
     dist.destroy_process_group()
+
+
+def test_native_mask_translation_rejects_padding():
+    from rl_engine.integrations.engines.train.megatron.native_mhc import (
+        normalize_native_causal_mask,
+    )
+
+    valid = torch.ones(2, 7, dtype=torch.bool)
+    assert normalize_native_causal_mask(valid, valid.shape) is None
+    valid[1, -1] = False
+    with pytest.raises(ValueError, match="padding"):
+        normalize_native_causal_mask(valid, valid.shape)
+    causal = torch.ones(7, 7, dtype=torch.bool).triu(1)
+    assert normalize_native_causal_mask(causal) is None
+    causal[2, 0] = True
+    with pytest.raises(ValueError, match="document"):
+        normalize_native_causal_mask(causal)
