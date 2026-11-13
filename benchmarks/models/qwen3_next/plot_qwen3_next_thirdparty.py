@@ -158,7 +158,8 @@ def plot(root: Path, out: Path) -> None:
     ):
         names.append((label, backward[name]["batch_grid"]))
     cells = sorted(names[0][1], key=lambda c: (int(c.split("@")[0]), int(c.split("@")[1])))
-    matrix = np.array([[float(bool(g[c])) for c in cells] for _, g in names])
+    # A cell a grid did not run is grey (2), not a KeyError.
+    matrix = np.array([[float(bool(g[c])) if c in g else 2.0 for c in cells] for _, g in names])
     inv.imshow(matrix, cmap=STATUS, vmin=0, vmax=2, aspect="auto")
     inv.set_yticks(range(len(names)), [n for n, _ in names], fontsize=8, color=INK)
     inv.set_xticks(range(len(cells)), cells, fontsize=6, rotation=60, color=INK)

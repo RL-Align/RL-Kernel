@@ -97,6 +97,8 @@ def plot(evidence: Path, out: Path) -> None:
     prior = report["candidates"]
     keys = [k for k in LABELS if k in prior and "unavailable" not in prior[k]]
     labels = [LABELS[k] for k in keys]
+    if "ep4-default" not in outputs:
+        raise SystemExit(f"{evidence}/runs has no 'ep4-default' launch to compare against")
     reference = outputs["ep4-default"]
     grid = np.array(
         [

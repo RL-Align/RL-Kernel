@@ -53,8 +53,11 @@ def _setting_label(name):
 
 def plot(evidence: Path, out: Path) -> None:
     runs = sorted(
-        (evidence / "parity" / "runs").iterdir(), key=lambda p: (p.name != "default", p.name)
+        (run for run in (evidence / "parity" / "runs").iterdir() if run.is_dir()),
+        key=lambda p: (p.name != "default", p.name),
     )
+    if not any(run.name == "default" for run in runs):
+        raise SystemExit(f"{evidence}/parity/runs has no 'default' run to compare against")
     digests = {run.name: json.loads((run / "rank-0.json").read_text())["points"] for run in runs}
     points = [p for p, v in digests["default"].items() if isinstance(v, str) and p != CONTROL]
     points = sorted(points) + [CONTROL]

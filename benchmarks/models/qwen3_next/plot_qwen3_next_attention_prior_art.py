@@ -103,13 +103,15 @@ def plot(report: dict, out: Path) -> None:
 
     ax = axes[1]
     _style(ax)
-    rel = [c["accuracy"]["rel_l2_vs_fp64"] for c in cands]
+    rel = [c["accuracy"]["rel_l2_vs_fp64"] if "accuracy" in c else float("nan") for c in cands]
     ax.barh(range(len(cands)), rel, color=[colors[k] for k in keys])
     for i, value in enumerate(rel):
-        ax.text(value, i, f"  {value:.2e}", va="center", fontsize=7, color=MUTED)
+        if value == value:
+            ax.text(value, i, f"  {value:.2e}", va="center", fontsize=7, color=MUTED)
     ax.set_yticks(range(len(cands)), labels, fontsize=8)
     ax.invert_yaxis()
-    ax.set_xlim(0, 1.35 * max(rel))
+    # Every candidate bitwise equal to FP64 would give an empty (0, 0) range.
+    ax.set_xlim(0, 1.35 * max((v for v in rel if v == v), default=0.0) or 1.0)
     ax.set_xlabel("relative L2 error vs. FP64", fontsize=8)
     ax.set_title("Accuracy", fontsize=9, color=INK)
 
