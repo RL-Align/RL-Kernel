@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+import importlib
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
+import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -235,6 +237,80 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
         OpBackend.ASCEND_FUSED_LINEAR_LOGP,
         OpBackend.PYTORCH_LINEAR_LOGP,
     ]
+
+
+@pytest.mark.parametrize(
+    "platform,op_type",
+    [
+        (platform, op_type)
+        for platform in ("cuda", "musa", "cpu", "npu")
+        for op_type in ("mhc_pre",)
+    ],
+)
+def test_ops_without_a_backend_raise(monkeypatch, platform, op_type):
+    registry = KernelRegistry()
+    loaded = []
+    monkeypatch.setattr(registry, "_load_backend", loaded.append)
+    monkeypatch.setattr(registry, "_platform_for_device", lambda device: platform)
+
+    assert registry._priority_map[platform][op_type] == []
+    with pytest.raises(RuntimeError, match=f"No functional backend found for {op_type}"):
+        registry.get_op(op_type, device=platform)
+    assert loaded == []
+
+
+_ROCM_TRITON_OPS = [
+    ("mhc_pre", OpBackend.ROCM_TRITON_MHC_PRE),
+]
+
+
+def _fake_rocm_gpu(monkeypatch, arch):
+    """Make the current GPU, on CPU, a ROCm GPU of architecture ``arch``."""
+    properties = SimpleNamespace(gcnArchName=f"{arch}:sramecc+:xnack-")
+    monkeypatch.setattr(torch.version, "hip", "7.0")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+    monkeypatch.setattr(torch.cuda, "get_device_properties", lambda device: properties)
+
+
+def _op_class(backend):
+    pytest.importorskip("triton")
+    module_path, class_name = backend.value.rsplit(".", 1)
+    return getattr(importlib.import_module(module_path), class_name)
+
+
+@pytest.mark.parametrize("op_type,backend", _ROCM_TRITON_OPS)
+def test_rocm_triton_ops_are_the_only_rocm_backend(op_type, backend):
+    assert KernelRegistry()._priority_map["rocm"][op_type] == [backend]
+
+
+@pytest.mark.parametrize("op_type,backend", _ROCM_TRITON_OPS)
+def test_rocm_triton_ops_run_on_gfx942_only(monkeypatch, op_type, backend):
+    op_class = _op_class(backend)
+    _fake_rocm_gpu(monkeypatch, "gfx942")
+    op_class()
+
+    _fake_rocm_gpu(monkeypatch, "gfx950")
+    with pytest.raises(RuntimeError, match="validated on gfx942 only; this GPU is gfx950"):
+        op_class()
+
+
+@pytest.mark.parametrize("op_type,backend", _ROCM_TRITON_OPS)
+def test_rocm_triton_ops_need_a_rocm_gpu(monkeypatch, op_type, backend):
+    op_class = _op_class(backend)
+    monkeypatch.setattr(torch.version, "hip", None)
+    with pytest.raises(RuntimeError, match="require"):
+        op_class()
+
+
+@pytest.mark.parametrize("op_type,backend", _ROCM_TRITON_OPS)
+def test_get_op_raises_on_an_unvalidated_architecture(monkeypatch, op_type, backend):
+    _op_class(backend)  # imported before the GPU is faked
+    registry = KernelRegistry()
+    monkeypatch.setattr(registry, "_platform_for_device", lambda device: "rocm")
+    _fake_rocm_gpu(monkeypatch, "gfx950")
+    with pytest.raises(RuntimeError, match=f"No functional backend found for {op_type} on rocm"):
+        registry.get_op(op_type, device="cuda")
 
 
 def test_npu_available_handles_runtime_failure(monkeypatch):

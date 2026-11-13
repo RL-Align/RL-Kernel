@@ -2,10 +2,13 @@
 """Rank-local DSV4 mHC: single-row arithmetic and ordered parameter gradients.
 
 The reference is an explicit CPU diagnostic. ROCm uses the same owned arithmetic
-on-device. This correctness profile does not dispatch into aiter's recompute VJP.
+on-device. ``rocm_triton`` runs RL-Kernel's batch-invariant Triton mHC ops
+(rl_engine/backends/rocm/mhc/triton_mhc.py) instead.
 """
 
 from __future__ import annotations
+
+from functools import lru_cache
 
 import torch
 from torch.autograd.function import once_differentiable
@@ -104,9 +107,25 @@ def _check(row, backend):
         raise ValueError("expected BF16 residual [tokens,4,hidden] with nonzero hidden size")
     if backend == "reference" and row.device.type == "cpu":
         return
-    if backend == "rocm" and supported_device(row.device):
+    if backend in ("rocm", "rocm_triton") and supported_device(row.device):
         return
     raise ValueError(f"unsupported mHC backend, shape or device for {PROFILE}")
+
+
+@lru_cache(maxsize=3)
+def _triton_op(kind):
+    from rl_engine.backends.rocm.mhc.triton_mhc import TritonMHCPreOp
+
+    return {"pre": TritonMHCPreOp}[kind]()
+
+
+def _triton_mix(kind, rows, fn, scale, base, recompute, **kwargs):
+    # The Triton ops save their forward values; fn, scale and base gradients go through
+    # the canonical backward session (logical_keys, parameter_id).
+    _check(rows, "rocm_triton")
+    if recompute:
+        raise ValueError("rocm_triton saves the forward values; recompute is not supported")
+    return _triton_op(kind)(rows, fn, scale, base, **kwargs)
 
 
 class _Mix(torch.autograd.Function):
@@ -173,7 +192,30 @@ class _Mix(torch.autograd.Function):
         return (dx, *params, None, None, None, None)
 
 
-def mhc_pre(rows, fn, scale, base, *, backend, recompute=False, sinkhorn_repeat=20):
+def mhc_pre(
+    rows,
+    fn,
+    scale,
+    base,
+    *,
+    backend,
+    recompute=False,
+    sinkhorn_repeat=20,
+    logical_keys=None,
+    parameter_id=None,
+):
+    if backend == "rocm_triton":
+        return _triton_mix(
+            "pre",
+            rows,
+            fn,
+            scale,
+            base,
+            recompute,
+            sinkhorn_repeat=sinkhorn_repeat,
+            logical_keys=logical_keys,
+            parameter_id=parameter_id,
+        )
     return _Mix.apply(rows, fn, scale, base, False, sinkhorn_repeat, recompute, backend)
 
 
@@ -220,10 +262,30 @@ def mhc_post(y, rows, post, comb, *, backend):
     return _Post.apply(y, rows, post, comb, backend)
 
 
-def mhc_pre_norm(rows, fn, scale, base, gamma, *, backend, recompute=False, sinkhorn_repeat=20):
+def mhc_pre_norm(
+    rows,
+    fn,
+    scale,
+    base,
+    gamma,
+    *,
+    backend,
+    recompute=False,
+    sinkhorn_repeat=20,
+    logical_keys=None,
+    parameter_id=None,
+):
     """Return mixes, normalized sublayer input, and the separate raw task-5 branch."""
     post, comb, raw = mhc_pre(
-        rows, fn, scale, base, backend=backend, recompute=recompute, sinkhorn_repeat=sinkhorn_repeat
+        rows,
+        fn,
+        scale,
+        base,
+        backend=backend,
+        recompute=recompute,
+        sinkhorn_repeat=sinkhorn_repeat,
+        logical_keys=logical_keys,
+        parameter_id=parameter_id,
     )
     y, residual = rmsnorm_residual(
         raw, gamma, backend="reference" if backend == "reference" else "rocm", recompute=recompute

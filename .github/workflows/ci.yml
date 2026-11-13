@@ -95,6 +95,12 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
             tests/ops/norm/test_rmsnorm_residual.py
 
+      - name: Run DSV4 mHC Contract and Batch-Invariance Check Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/validation/common/test_batch_invariance.py \
+            tests/contracts/operators/test_mhc_contract.py
+
       - name: Run Attention Ground-Truth Tests (CPU-safe)
         run: |
           python -m pytest tests/ops/attention/test_attention.py -v -k "not large and not gpu"

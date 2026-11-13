@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+"""Inputs shared by the batch-invariance tests of the DeepSeek-V4 mHC ops."""
+
+import torch
+
+N = 4  # DeepSeek-V4-Flash-0731 hc_mult
+
+# M = 1, 16, 17 (RFC switch points), the WS1 manifest's token counts 8 and 59,
+# and powers of two up to 16384.
+M_VALUES = [1, 8, 16, 17, 59, 64, 128, 256, 1024, 2048, 4096, 8192, 16384]
+
+
+def rocm_gpu_available() -> bool:
+    """True on a ROCm GPU, where the Triton mHC ops run."""
+    return torch.cuda.is_available() and torch.version.hip is not None
+
+
+def randn(gen, *shape):
+    return torch.randn(*shape, generator=gen, device="cuda")
+
+
+def weights(c):
+    """mHC pre weights at hidden size c."""
+    gen = torch.Generator(device="cuda").manual_seed(0)
+    k = N * c
+    mix = 2 * N + N * N
+    return {
+        "pre_fn": randn(gen, mix, k) / k**0.5,
+        "pre_scale": 0.5 + torch.rand(3, generator=gen, device="cuda"),
+        "pre_base": 0.1 * randn(gen, mix),
+    }
+
+
