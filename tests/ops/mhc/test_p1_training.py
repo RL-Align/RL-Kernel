@@ -66,7 +66,6 @@ def test_independent_math(op, rounds):
         want = ((y.unsqueeze(1) * p.unsqueeze(-1)) + torch.einsum("thc,thj->tjc", r, c),)
         out = (mhc_post(*args, backend="reference"),)
     else:
-        ref[1] = args[1].detach().bfloat16().double().requires_grad_()
         if op == "head":
             want = (oracle(*ref, rounds, True),)
             out = (mhc_head(*args, backend="reference"),)

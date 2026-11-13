@@ -32,10 +32,9 @@ def _sum(x, dim=-1):
 
 def _row_state(residual, fn, scale, base, head, rounds):
     x = residual.float().reshape(-1)
-    # #662's controller profile: BF16 projection operands and FP32 accumulation.
-    w = fn.bfloat16().float()
+    # FP32 fn, as DeepSeek-V4 inference/model.py hc_pre and hc_head.
     r = torch.rsqrt(_sum(x * x) / x.numel() + EPS)
-    proj = _sum(w * x) * r
+    proj = _sum(fn * x) * r
     return mix_state(r, proj, scale, base, head, rounds)
 
 
@@ -95,10 +94,9 @@ def _row_vjp(row, fn, scale, state, grads, head, rounds, need_fn):
         dm = torch.cat((dpre * scale[0], dp * scale[1], dz * scale[2]))
     flat = x.flatten()
     dl = dm * r
-    dx = _sum(dl[:, None] * fn.bfloat16().float(), 0)
+    dx = _sum(dl[:, None] * fn, 0)
     # proj already includes r; d(r)/dx = -x*r^3/K.
     dx = dx - flat * ((_sum(dm * proj) * (r * r)) / flat.numel())
-    # FP32 master parameter gradient: straight-through derivative of BF16 projection.
     dw = dl[:, None] * flat if need_fn else None
     return ((direct + dx.reshape_as(x)).bfloat16(), dw, ds, db)
 

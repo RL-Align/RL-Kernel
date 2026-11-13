@@ -17,13 +17,11 @@ rejected before dispatch. The comparison requires #662 and its pinned aiter
 build; it never falls back to RLK. All modes use task 5 for sublayer
 RMSNorm. Use `backend="rocm"` for both training and rollout in a bitwise run.
 
-The first-order VJP uses rsqrt(mean(square) + 1e-6), BF16 effective
-projection weights with FP32 accumulation, and asymmetric Sinkhorn. Gradients
-to the FP32 master weights use the straight-through derivative of the BF16
-weight cast. The controller matches the arithmetic choices recorded in #662;
-the owned forward uses explicit adjacent-pair sums, which can round differently
-from AITER's fused instructions. Its saved state and VJP are used only for
-the owned and reference paths, never for AITER outputs.
+The first-order VJP uses rsqrt(mean(square) + 1e-6), the FP32 projection of
+DeepSeek-V4's `inference/model.py`, and asymmetric Sinkhorn. The owned forward
+uses explicit adjacent-pair sums, which can round differently from AITER's
+fused instructions. Its saved state and VJP are used only for the owned and
+reference paths, never for AITER outputs.
 
 Save mode records the per-token gates and Sinkhorn normalization results;
 recompute mode rebuilds them from version-checked inputs. Frozen parameters
