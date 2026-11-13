@@ -87,6 +87,11 @@ class CheckpointFP8Linear(torch.nn.Module):
 
     def __init__(self, weight, scales):
         super().__init__()
+        if not torch.version.hip or weight.device.type != "cuda":
+            raise RuntimeError("checkpoint FP8 projection requires a ROCm GPU")
+        arch = torch.cuda.get_device_properties(weight.device).gcnArchName.split(":")[0]
+        if arch != "gfx942":
+            raise ValueError(f"checkpoint FP8 profile requires gfx942, got {arch}")
         if weight.dtype != torch.float8_e4m3fn or scales.dtype != torch.float8_e8m0fnu:
             raise TypeError("expected original E4M3/E8M0 checkpoint tensors")
         if tuple(scales.shape) != (
