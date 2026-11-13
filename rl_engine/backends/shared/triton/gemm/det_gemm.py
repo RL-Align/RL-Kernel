@@ -278,7 +278,11 @@ def _device_tree_plan(k_size: int, device: torch.device) -> _DeviceTreePlan:
         fused_pairs = []
         leaf_reduction = None
         fused_pairs_after_leaf = []
-        if _device_arch(device_index) == "gfx942":
+        # Two-level fusion requires every parent to have children in the
+        # preceding level. Ragged midpoint trees (e.g. K=131) mix leaf and
+        # internal children; keep the existing level-by-level GPU reduction.
+        balanced_tree = len(host.leaf_nodes) == 1 << len(host.reduction_levels)
+        if _device_arch(device_index) == "gfx942" and balanced_tree:
 
             def build_fused_pairs(start_level: int):
                 result = []
@@ -944,7 +948,11 @@ def _triton_tree_gemm(
                 N=n_size,
                 BLOCK=reduction_block,
             )
-    elif direct_root_output and use_inference_schedule:
+    elif (
+        direct_root_output
+        and use_inference_schedule
+        and len(plan.host.leaf_nodes) == 1 << len(plan.host.reduction_levels)
+    ):
         blocks = triton.cdiv(m_size * n_size, reduction_block)
         for pair_index, nodes in enumerate(plan.rocm_fused_reduction_pairs):
             second_level = pair_index * 2 + 1
