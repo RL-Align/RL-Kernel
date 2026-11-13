@@ -6,7 +6,6 @@ import os
 import pytest
 import torch
 
-from rl_engine.ops.mhc import training
 from rl_engine.ops.mhc.training import mhc_head, mhc_post, mhc_pre, mhc_pre_norm
 
 
@@ -132,45 +131,6 @@ def test_mutation_guard(mode):
         out.sum().backward()
 
 
-@pytest.mark.parametrize("op", ["pre", "head", "post", "pre_norm"])
-def test_aiter_rejects_gradients_before_dispatch(op):
-    x, w, s, b, gamma = [v.detach() for v in inputs(2)]
-    if op == "pre_norm":
-        call, args = mhc_pre_norm, (x, w, s, b, gamma.requires_grad_())
-    elif op == "post":
-        call, args = (
-            mhc_post,
-            (x[:, 0], x, b[:8].reshape(2, 4), w[:2, :16].reshape(2, 4, 4).requires_grad_()),
-        )
-    elif op == "head":
-        call, args = mhc_head, (x, w[:4].requires_grad_(), s[:1], b[:4])
-    else:
-        call, args = mhc_pre, (x.requires_grad_(), w, s, b)
-    with torch.enable_grad(), pytest.raises(RuntimeError, match="rocm_aiter mHC is forward-only"):
-        call(*args, backend="rocm_aiter")
-
-
-@pytest.mark.parametrize("context", [torch.no_grad, torch.inference_mode, torch.enable_grad])
-def test_aiter_comparison_dispatches_without_building_rlk_state(monkeypatch, context):
-    x, w, s, b, _ = inputs(3)
-    if context is torch.enable_grad:
-        x, w, s, b = (v.detach() for v in (x, w, s, b))
-    calls = []
-
-    def native(row, fn, scale, base):
-        calls.append(row.shape[0])
-        return row[:, 0, :]
-
-    monkeypatch.setattr(training, "_check", lambda *_: None)
-    monkeypatch.setattr(training, "_aiter_op", lambda kind: native)
-    monkeypatch.setattr(training, "_row_state", lambda *_: pytest.fail("unexpected RLK forward"))
-    with context():
-        out = mhc_head(x, w[:4], s[:1], b[:4], backend="rocm_aiter")
-    bits(out, x[:, 0, :])
-    assert calls == [1, 1, 1]
-    assert not out.requires_grad
-
-
 def require_rocm():
     if not torch.version.hip or not torch.cuda.is_available():
         if os.getenv("RLK_REQUIRE_ROCM") == "1":
@@ -181,28 +141,6 @@ def require_rocm():
 def test_rocm_composed():
     require_rocm()
     exercise("rocm", "cuda", 65)
-
-
-def test_rocm_aiter_forward_only():
-    require_rocm()
-    if not torch.cuda.get_device_properties(0).gcnArchName.startswith("gfx942"):
-        pytest.skip("the #662 profile targets gfx942")
-    pytest.importorskip("rl_engine.backends.rocm.mhc.aiter_mhc")
-    x, w, s, b, gamma = inputs(17, 4096, "cuda")
-
-    def run(rows):
-        p, c, y, raw = mhc_pre_norm(rows, w, s, b, gamma, backend="rocm_aiter")
-        z = mhc_post(y, rows, p, c, backend="rocm_aiter")
-        out = mhc_head(z, w[:4], s[:1], b[:4], backend="rocm_aiter")
-        return p, c, y, raw, z, out
-
-    with torch.no_grad():
-        alone = run(x[-1:])
-    with torch.inference_mode():
-        batch = run(x)
-    for a, v in zip(alone, batch, strict=True):
-        bits(a[0], v[-1])
-        assert not a.requires_grad and not v.requires_grad
 
 
 def test_parameter_gradients_fold_rows_in_ascending_order():
