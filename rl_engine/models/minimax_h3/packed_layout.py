@@ -34,6 +34,7 @@ _DTYPES = {
     "position_ids": torch.float64,
 }
 _Stream = Literal["text", "video", "audio"]
+
 # The text feature stream can contain visual conditioning rows from the encoder.
 _SOURCE_TAGS: dict[_Stream, tuple[int, ...]] = {
     "text": (0, 1),
@@ -61,145 +62,6 @@ class H3RowIdentity(TypedDict):
 
 class H3PackedLayoutError(ValueError):
     """A field does not satisfy the declared CPU layout or snapshot contract."""
-
-
-# --- Helpers: metadata validation, provenance, and byte order ---------------------------------
-
-# Metadata validation.
-
-
-def _validate_int(name: str, value: int, low: int, high: int | None = None) -> int:
-    if type(value) is not int or value < low or (high is not None and value > high):
-        domain = f">= {low}" if high is None else f"in [{low}, {high}]"
-        raise H3PackedLayoutError(f"{name}: expected an integer {domain}, got {value!r}")
-    return value
-
-
-def _copy_metadata_tensor(name: str, value: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
-    if not isinstance(value, torch.Tensor):
-        raise H3PackedLayoutError(f"{name}: expected a torch.Tensor, got {type(value).__name__}")
-    if value.device.type != "cpu":
-        raise H3PackedLayoutError(f"{name}: expected CPU metadata, got device {value.device}")
-    if value.dtype != dtype:
-        raise H3PackedLayoutError(f"{name}: expected {dtype}, got {value.dtype}")
-    if value.layout != torch.strided or value.is_nested or value.requires_grad:
-        raise H3PackedLayoutError(f"{name}: expected dense metadata without gradients")
-    names = getattr(value, "names", None)
-    if names is not None and any(dim_name is not None for dim_name in names):
-        raise H3PackedLayoutError(f"{name}: expected unnamed metadata, got names {names}")
-    return value.detach().clone(memory_format=torch.contiguous_format)
-
-
-def _validate_index_range(name: str, values: torch.Tensor, upper: int) -> None:
-    bad = ((values < 0) | (values >= upper)).nonzero()
-    if bad.numel():
-        index = int(bad[0, 0])
-        raise H3PackedLayoutError(
-            f"{name}[{index}]: packed/table index {int(values[index])} outside [0, {upper})"
-        )
-
-
-def _timestep_values(times: torch.Tensor) -> tuple[float, ...]:
-    """
-    Validate/decode IEEE-754 binary32 without ambient floating-point comparisons.
-    FP32 subnormals become normal FP64 values. Integer bit checks and FP64
-    ldexp preserve them even when the caller enables flush-to-zero. Signed
-    zeros compare equal for table uniqueness but retain their stored sign.
-
-    """
-    values = []
-    first_rows: dict[int, int] = {}
-    for row, signed_bits in enumerate(times.view(torch.int32).tolist()):
-        # Binary32 stores a sign, an 8-bit exponent (bias 127), and 23 fraction bits.
-        bits = signed_bits & 0xFFFFFFFF
-        magnitude = bits & 0x7FFFFFFF
-        exponent = (magnitude >> 23) & 0xFF
-        fraction = magnitude & 0x7FFFFF
-        if exponent == 0xFF:
-            raise H3PackedLayoutError(f"timestep[{row}]: expected a finite value")
-        if magnitude > 0x3F800000 or (bits >> 31 and magnitude != 0):
-            raise H3PackedLayoutError(f"timestep[{row}]: expected a value in [0, 1]")
-        if magnitude == 0:
-            value = -0.0 if bits >> 31 else 0.0
-        elif exponent == 0:
-            value = math.ldexp(fraction, -149)
-        else:
-            value = math.ldexp((1 << 23) | fraction, exponent - 150)
-        if magnitude in first_rows:
-            raise H3PackedLayoutError(
-                f"timestep: expected distinct values; timestep[{row}] duplicates "
-                f"timestep[{first_rows[magnitude]}] (value {value!r})"
-            )
-        first_rows[magnitude] = row
-        values.append(value)
-    return tuple(values)
-
-
-# Provenance validation and copying.
-
-
-def _copy_json_value(value: Any, active_containers: set[int]) -> Any:
-    """Copy JSON-compatible values without converting floats to decimal text."""
-    if value is None or type(value) is bool:
-        return value
-    if isinstance(value, str):
-        return str.__str__(value)
-    if isinstance(value, int):
-        int.__repr__(value)  # Apply the same integer digit limit as the JSON encoder.
-        return int.__int__(value)
-    if isinstance(value, float):
-        number = float.__float__(value)
-        if not math.isfinite(number):
-            raise ValueError("expected finite JSON data")
-        return number
-    if not isinstance(value, (dict, list, tuple)):
-        raise TypeError(f"expected JSON data, got {type(value).__name__}")
-
-    container_id = id(value)
-    if container_id in active_containers:
-        raise ValueError("circular reference in JSON data")
-    active_containers.add(container_id)
-    try:
-        if isinstance(value, dict):
-            copied = {}
-            for key, item in value.items():
-                if not isinstance(key, str):
-                    raise ValueError("JSON object keys must be strings")
-                copied[str.__str__(key)] = _copy_json_value(item, active_containers)
-            return dict(sorted(copied.items()))
-        copied_items = []
-        for item in value:
-            copied_items.append(_copy_json_value(item, active_containers))
-        return copied_items
-    finally:
-        active_containers.remove(container_id)
-
-
-def _copy_provenance(value: Mapping[str, Any]) -> dict[str, Any]:
-    if not isinstance(value, Mapping):
-        raise H3PackedLayoutError("provenance: expected a JSON-compatible mapping")
-    try:
-        context = _copy_json_value(dict(value), set())
-    except (TypeError, ValueError) as exc:
-        raise H3PackedLayoutError(f"provenance: {exc}") from exc
-    for name in ("checkpoint_revision", "runtime_revision"):
-        revision = context.get(name)
-        if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
-            raise H3PackedLayoutError(
-                f"provenance.{name}: expected a full lowercase 40-hex revision"
-            )
-    if context.get("task_family") not in ("FL2VA", "Ref2VA"):
-        raise H3PackedLayoutError("provenance.task_family: expected 'FL2VA' or 'Ref2VA'")
-    return context
-
-
-# Byte order for exact tensor snapshots.
-
-
-def _swap_if_big_endian(data: bytes, width: int) -> bytes:
-    if sys.byteorder == "little":
-        return data
-    return b"".join(data[index : index + width][::-1] for index in range(0, len(data), width))
 
 
 # --- Core layout lifecycle --------------------------------------------------------------------
@@ -239,11 +101,12 @@ class H3PackedLayout:
         num_condition_audio_rows: int,
         batch_size: int = 1,
     ) -> None:
-        """Validate and copy layout metadata.
-
+        """
+        Validate and copy layout metadata.
         Pass the producer's condition row counts, using ``0`` for streams without condition rows.
         Required provenance: checkpoint_revision and runtime_revision (40 lowercase hex),
         and task_family ("FL2VA" or "Ref2VA"). Optional: JSON-compatible preparation.
+
         """
         fields: dict[str, torch.Tensor] = {
             "text_indices": text_indices,
@@ -436,10 +299,11 @@ class H3PackedLayout:
     # Safe packed-row permutation.
 
     def permute_rows(self, perm: torch.Tensor) -> H3PackedLayout:
-        """Return a new layout for ``perm[new_row] = old_row``.
-
+        """
+        Return a new layout for ``perm[new_row] = old_row``.
         Move already-packed feature tensors separately with ``index_select``
         on their row axis. Source feature streams retain their original order.
+
         """
         perm = _copy_metadata_tensor("perm", perm, torch.int64)
         num_rows = self.sequence_length
@@ -549,6 +413,140 @@ class H3PackedLayout:
             num_condition_video_rows=snapshot["num_condition_video_rows"],
             num_condition_audio_rows=snapshot["num_condition_audio_rows"],
         )
+
+
+# --- helpers: Metadata validation --------------------------------------------------------------
+
+
+def _validate_int(name: str, value: int, low: int, high: int | None = None) -> int:
+    if type(value) is not int or value < low or (high is not None and value > high):
+        domain = f">= {low}" if high is None else f"in [{low}, {high}]"
+        raise H3PackedLayoutError(f"{name}: expected an integer {domain}, got {value!r}")
+    return value
+
+
+def _copy_metadata_tensor(name: str, value: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+    if not isinstance(value, torch.Tensor):
+        raise H3PackedLayoutError(f"{name}: expected a torch.Tensor, got {type(value).__name__}")
+    if value.device.type != "cpu":
+        raise H3PackedLayoutError(f"{name}: expected CPU metadata, got device {value.device}")
+    if value.dtype != dtype:
+        raise H3PackedLayoutError(f"{name}: expected {dtype}, got {value.dtype}")
+    if value.layout != torch.strided or value.is_nested or value.requires_grad:
+        raise H3PackedLayoutError(f"{name}: expected dense metadata without gradients")
+    names = getattr(value, "names", None)
+    if names is not None and any(dim_name is not None for dim_name in names):
+        raise H3PackedLayoutError(f"{name}: expected unnamed metadata, got names {names}")
+    return value.detach().clone(memory_format=torch.contiguous_format)
+
+
+def _validate_index_range(name: str, values: torch.Tensor, upper: int) -> None:
+    bad = ((values < 0) | (values >= upper)).nonzero()
+    if bad.numel():
+        index = int(bad[0, 0])
+        raise H3PackedLayoutError(
+            f"{name}[{index}]: packed/table index {int(values[index])} outside [0, {upper})"
+        )
+
+
+def _timestep_values(times: torch.Tensor) -> tuple[float, ...]:
+    """
+    Validate/decode IEEE-754 binary32 without ambient floating-point comparisons.
+    FP32 subnormals become normal FP64 values. Integer bit checks and FP64
+    ldexp preserve them even when the caller enables flush-to-zero. Signed
+    zeros compare equal for table uniqueness but retain their stored sign.
+
+    """
+    values = []
+    first_rows: dict[int, int] = {}
+    for row, signed_bits in enumerate(times.view(torch.int32).tolist()):
+        # Binary32 stores a sign, an 8-bit exponent (bias 127), and 23 fraction bits.
+        bits = signed_bits & 0xFFFFFFFF
+        magnitude = bits & 0x7FFFFFFF
+        exponent = (magnitude >> 23) & 0xFF
+        fraction = magnitude & 0x7FFFFF
+        if exponent == 0xFF:
+            raise H3PackedLayoutError(f"timestep[{row}]: expected a finite value")
+        if magnitude > 0x3F800000 or (bits >> 31 and magnitude != 0):
+            raise H3PackedLayoutError(f"timestep[{row}]: expected a value in [0, 1]")
+        if magnitude == 0:
+            value = -0.0 if bits >> 31 else 0.0
+        elif exponent == 0:
+            value = math.ldexp(fraction, -149)
+        else:
+            value = math.ldexp((1 << 23) | fraction, exponent - 150)
+        if magnitude in first_rows:
+            raise H3PackedLayoutError(
+                f"timestep: expected distinct values; timestep[{row}] duplicates "
+                f"timestep[{first_rows[magnitude]}] (value {value!r})"
+            )
+        first_rows[magnitude] = row
+        values.append(value)
+    return tuple(values)
+
+
+# --- helpers: Provenance and byte order  --------------------------------------------------------
+
+
+def _copy_json_value(value: Any, active_containers: set[int]) -> Any:
+    """Copy JSON-compatible values without converting floats to decimal text."""
+    if value is None or type(value) is bool:
+        return value
+    if isinstance(value, str):
+        return str.__str__(value)
+    if isinstance(value, int):
+        int.__repr__(value)  # Apply the same integer digit limit as the JSON encoder.
+        return int.__int__(value)
+    if isinstance(value, float):
+        number = float.__float__(value)
+        if not math.isfinite(number):
+            raise ValueError("expected finite JSON data")
+        return number
+    if not isinstance(value, (dict, list, tuple)):
+        raise TypeError(f"expected JSON data, got {type(value).__name__}")
+
+    container_id = id(value)
+    if container_id in active_containers:
+        raise ValueError("circular reference in JSON data")
+    active_containers.add(container_id)
+    try:
+        if isinstance(value, dict):
+            copied = {}
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise ValueError("JSON object keys must be strings")
+                copied[str.__str__(key)] = _copy_json_value(item, active_containers)
+            return dict(sorted(copied.items()))
+        copied_items = []
+        for item in value:
+            copied_items.append(_copy_json_value(item, active_containers))
+        return copied_items
+    finally:
+        active_containers.remove(container_id)
+
+
+def _copy_provenance(value: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise H3PackedLayoutError("provenance: expected a JSON-compatible mapping")
+    try:
+        context = _copy_json_value(dict(value), set())
+    except (TypeError, ValueError) as exc:
+        raise H3PackedLayoutError(f"provenance: {exc}") from exc
+    for name in ("checkpoint_revision", "runtime_revision"):
+        revision = context.get(name)
+        if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+            raise H3PackedLayoutError(
+                f"provenance.{name}: expected a full lowercase 40-hex revision"
+            )
+    if context.get("task_family") not in ("FL2VA", "Ref2VA"):
+        raise H3PackedLayoutError("provenance.task_family: expected 'FL2VA' or 'Ref2VA'")
+    return context
+
+
+def _swap_if_big_endian(data: bytes, width: int) -> bytes:
+    if sys.byteorder == "little":
+        return data
+    return b"".join(data[index : index + width][::-1] for index in range(0, len(data), width))
 
 
 # --- Public interface -------------------------------------------------------------------------
