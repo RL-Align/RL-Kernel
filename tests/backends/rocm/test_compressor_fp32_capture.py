@@ -54,7 +54,7 @@ def test_original_c4_projection_fp32_and_backward(name, offset):
         ordinary.weight.copy_(weight)
     op = CompressorProjectionFP32(ordinary)
     assert op.weight is ordinary.weight
-    actual = op(x)[0][:, 0]
+    actual = op(x)[0]
     assert actual.dtype == torch.float32
     assert torch.equal(
         actual.detach().cpu().view(torch.uint8), expected.contiguous().view(torch.uint8)

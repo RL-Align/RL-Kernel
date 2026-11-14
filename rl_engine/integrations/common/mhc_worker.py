@@ -14,7 +14,7 @@ class P1Worker:
     def __init__(self, framework, role, *, backend, mode="split", version=0, observer=None):
         if framework not in ("verl", "vime") or role not in ("training", "rollout"):
             raise ValueError("unknown framework or role")
-        if backend not in ("reference", "rocm", "rocm_aiter") or mode not in ("split", "fused"):
+        if backend not in ("reference", "rocm") or mode not in ("split", "fused"):
             raise ValueError("unsupported P1 profile")
         if mode == "fused" and backend != "rocm":
             raise ValueError("fused post/pre requires the owned ROCm profile")
