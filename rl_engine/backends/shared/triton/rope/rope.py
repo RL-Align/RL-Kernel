@@ -29,6 +29,8 @@ import triton
 import triton.language as tl
 from torch import Tensor
 
+from rl_engine.backends.shared.triton.autotuning import TunableKernel, pin_autotune
+
 
 @triton.jit
 def _rope_kernel(
@@ -147,6 +149,7 @@ def _restore_rope(out_2d: Tensor, x: Tensor, positions: Tensor) -> Tensor:
     return out_2d.reshape(heads, batch, seq, dim).permute(1, 0, 2, 3).contiguous()
 
 
+@pin_autotune
 class _RoPEFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x: Tensor, positions: Tensor, theta: float) -> Tensor:
@@ -195,3 +198,6 @@ class TritonRoPEOp:
         if x.device.type not in ("cuda", "hip", "xpu", "musa"):
             raise RuntimeError(f"TritonRoPEOp requires a GPU tensor, got device '{x.device}'.")
         return _RoPEFunction.apply(x, positions, theta)
+
+
+_rope_kernel = TunableKernel(_rope_kernel, tune_warps=True, outputs=(3,))

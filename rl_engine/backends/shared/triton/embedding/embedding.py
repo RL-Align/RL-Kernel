@@ -9,6 +9,7 @@ import torch
 import triton
 import triton.language as tl
 
+from rl_engine.backends.shared.triton.autotuning import TunableKernel, pin_autotune
 from rl_engine.ops.autograd.backward_runtime import record_backward
 
 _SUPPORTED_WEIGHT_DTYPES = {torch.float32, torch.float16, torch.bfloat16}
@@ -182,6 +183,7 @@ def _embedding_bwd(
     )
 
 
+@pin_autotune
 class _TritonEmbeddingFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
@@ -253,3 +255,6 @@ class TritonEmbeddingOp:
         """Synchronously validate ids at an explicit input-validation boundary."""
 
         _validate_token_ids_sync(token_ids, vocab_size)
+
+
+_embedding_fwd = TunableKernel(_embedding_fwd, tune_warps=True, outputs=(2,))
