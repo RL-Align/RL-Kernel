@@ -206,8 +206,10 @@ def main() -> None:
     mismatched = [
         key for key, digest in observed["leaf_digests"].items() if digest != expected.get(key)
     ]
-    checks["weight_shard_gradients_bitwise"] = not mismatched and len(expected) == len(
-        observed["leaf_digests"]
+    # every block's every sharded projection, in both runs: an empty comparison is not a pass
+    shard_count = len(model.transformer_blocks) * len(pm.SHARDED_WEIGHTS)
+    checks["weight_shard_gradients_bitwise"] = (
+        not mismatched and len(expected) == len(observed["leaf_digests"]) == shard_count
     )
     result = {
         "rank": rank,
