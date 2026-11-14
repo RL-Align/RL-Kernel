@@ -1,24 +1,30 @@
 # SPDX-License-Identifier: Apache-2.0
 """CPU checks on the real pristine pinned dependencies, never model parity."""
 
+import pytest
 import torch
+
+pytest.importorskip("megatron.core")
+pytest.importorskip("verl")
 
 
 def test_pristine_native_engine_and_instance_forward_abi():
+    from megatron.core.transformer.experimental_attention_variant import (
+        deepseek_v4_hybrid_attention as dsv4,
+    )
+    from megatron.core.transformer.moe import moe_layer
+
     from rl_engine.integrations.orchestrators.verl.native_engine import (
         RLKNativeMcoreEngineConfig,
         RLKNativeMegatronEngine,
     )
-    from megatron.core.transformer.moe import moe_layer
-    from megatron.core.transformer.experimental_attention_variant import (
-        deepseek_v4_hybrid_attention as dsv4,
-    )
 
     DSv4HybridAttention = dsv4.DSv4HybridAttention
+    from megatron.core.distributed import DistributedDataParallelConfig
+
     from rl_engine.integrations.engines.train.megatron.native_group_projection import (
         grouped_forward,
     )
-    from megatron.core.distributed import DistributedDataParallelConfig
 
     assert RLKNativeMcoreEngineConfig().strategy == "rlk_megatron"
     assert RLKNativeMegatronEngine.__module__.startswith("rl_engine.")
@@ -34,10 +40,11 @@ def test_pristine_native_engine_and_instance_forward_abi():
 
 
 def test_pristine_verl_unwrap_real_module_and_float16_wrapper():
-    from rl_engine.integrations.orchestrators.verl import native_engine  # noqa: F401
     from megatron.core.transformer.module import Float16Module
     from megatron.core.transformer.transformer_config import TransformerConfig
     from verl.utils.megatron_utils import unwrap_model
+
+    from rl_engine.integrations.orchestrators.verl import native_engine  # noqa: F401
 
     leaf = torch.nn.Linear(4, 4, bias=False)
     parameter = leaf.weight

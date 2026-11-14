@@ -7,20 +7,20 @@ import pytest
 import torch
 import torch.distributed as dist
 
-pytest.importorskip("megatron.core")
-from megatron.core import parallel_state
-from megatron.core.models.hybrid.hybrid_model import HybridModel
-from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
-from megatron.core.transformer.transformer_config import TransformerConfig
-
-from rl_engine.integrations.engines.train.megatron.native_mhc import selected_raw_logprobs
-from rl_engine.integrations.orchestrators.verl.mhc import bind_mhc_worker
-
 
 @pytest.mark.skipif(
     not torch.version.hip or not torch.cuda.is_available(), reason="requires ROCm GPU"
 )
 def test_real_hybrid_model_forward_backward_and_version_update(tmp_path):
+    pytest.importorskip("megatron.core")
+    from megatron.core import parallel_state
+    from megatron.core.models.hybrid.hybrid_model import HybridModel
+    from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
+    from megatron.core.transformer.transformer_config import TransformerConfig
+
+    from rl_engine.integrations.engines.train.megatron.native_mhc import selected_raw_logprobs
+    from rl_engine.integrations.orchestrators.verl.mhc import bind_mhc_worker
+
     dist.init_process_group(
         "nccl", init_method=f"file://{tmp_path / 'rendezvous'}", rank=0, world_size=1
     )

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # ruff: noqa: E402 -- install the explicit import ABI adapters before upstream imports.
+# flake8: noqa: E402
 """Opt-in real verl TrainingWorker engine with pristine upstream dependencies.
 
 Register backend ``rlk_megatron`` before constructing TrainingWorker. Native

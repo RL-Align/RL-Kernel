@@ -3,6 +3,7 @@
 
 import pytest
 import torch
+
 from rl_engine.integrations.common.mhc_worker import P1Worker
 from rl_engine.integrations.engines.train.megatron.logical_keys import logical_keys_for_input
 from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
@@ -36,7 +37,8 @@ def test_triton_binding_rejects_fused_and_scopes_real_row_metadata():
         assert worker._canonical(rows, "model.layers.0.hc_attn")["logical_keys"] is keys
         with pytest.raises(ValueError, match="actual mHC rows"):
             worker._canonical(rows[:1], "model.layers.0.hc_attn")
-    assert worker._canonical(rows, "id")["logical_keys"] is None
+    with pytest.raises(ValueError, match="scoped logical row keys"):
+        worker._canonical(rows, "id")
 
 
 def test_canonical_session_requires_every_registered_parameter_contribution():

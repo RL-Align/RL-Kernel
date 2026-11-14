@@ -41,4 +41,6 @@ Every operator page should include:
 - [Learned Router Weights and Capacity](learned-route.md)
 - [Router Backward and Result Records](router-training.md)
 - [Router Auxiliary Loss](router-aux-loss.md)
+- [DSV4 Batch-Invariant Linear (ROCm, task 9)](dsv4-batch-invariant-linear.md)
+- [DSV4 mHC Pre, Post, Head and Layer End (ROCm, tasks 1–4 and 8)](dsv4-mhc.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

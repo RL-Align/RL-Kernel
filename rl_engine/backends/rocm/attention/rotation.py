@@ -37,8 +37,10 @@ class _Hadamard(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad):
+        if torch.is_grad_enabled():
+            raise RuntimeError("higher-order Hadamard128 gradients are not supported")
         # Normalized Walsh-Hadamard128 is symmetric and orthogonal.
-        return rotate128(grad)
+        return rotate128(grad.to(torch.bfloat16).contiguous())
 
 
 def native_hadamard128(values):

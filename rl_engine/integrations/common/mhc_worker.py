@@ -47,6 +47,8 @@ class P1Worker:
         if self.backend != "rocm_triton":
             return {}
         keys = getattr(self._scope, "logical_keys", None)
+        if keys is None and self.role == "training":
+            raise ValueError("training rocm_triton mHC requires scoped logical row keys")
         if keys is not None and (keys.shape[0] != rows.shape[0] or keys.device != rows.device):
             raise ValueError("canonical keys do not match actual mHC rows")
         return dict(logical_keys=keys, parameter_id=parameter_id)
@@ -55,6 +57,7 @@ class P1Worker:
         if self.backend != "rocm_triton" or kind in self._executed_ops:
             return
         import inspect
+
         from rl_engine.backends.rocm.mhc import triton_mhc
 
         cls = {
