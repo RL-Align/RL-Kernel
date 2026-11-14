@@ -433,7 +433,8 @@ def performance() -> dict[str, Any]:
     """Time every candidate and measure its memory at each ``TIMED_ROWS`` row count.
 
     Per row count: median forward + backward ``step_ms``, ``peak_gib`` allocated above the
-    pre-step allocation during one step, and median backward-only ``backward_ms``.
+    allocation before the candidate's input is prepared (an ``IN_PLACE`` candidate's private logits
+    copy therefore counts) during one step, and median backward-only ``backward_ms``.
     """
     result: dict[str, Any] = {name: {} for name in CANDIDATES}
     for rows in TIMED_ROWS:
@@ -453,10 +454,13 @@ def performance() -> dict[str, Any]:
             row = {"step_ms": _time_ms(step, setup=setup)}
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
-            x = setup()
+            # Sample the baseline before the input is prepared: an IN_PLACE candidate writes its
+            # gradient into a private copy of the logits, and that copy is its gradient buffer,
+            # the counterpart of the output every other candidate allocates inside ``step``.
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()
             base = torch.cuda.memory_allocated()
+            x = setup()
             g = step(x)
             torch.cuda.synchronize()
             row["peak_gib"] = (torch.cuda.max_memory_allocated() - base) / 2**30

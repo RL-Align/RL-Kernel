@@ -62,8 +62,7 @@ def _loop_arithmetic_harness(source: str) -> str:
             body = f"for (int u = 0; u < kUnroll; ++u) {{ {offsets} }}"
         else:
             body = ""
-        functions.append(
-            f"""
+        functions.append(f"""
 int check_{number}(int vocab_size, int thread) {{
     constexpr int kUnroll = {unroll};
     struct {{ int x; }} blockDim{{256}};
@@ -77,8 +76,7 @@ int check_{number}(int vocab_size, int thread) {{
     }}
     return iterations == 2 ? 0 : 3;
 }}
-"""
-        )
+""")
         checks.append(f"if (check_{number}(vocab_size, thread)) return {number + 1};")
     return "\n".join(
         [
@@ -109,6 +107,16 @@ def test_backward_vocab_loop_arithmetic_does_not_overflow_int_max(tmp_path):
     harness = tmp_path / "backward_indexing.cpp"
     executable = tmp_path / "backward_indexing"
     harness.write_text(_loop_arithmetic_harness(source_path.read_text()), encoding="utf-8")
+    probe = tmp_path / "ubsan_probe.cpp"
+    probe.write_text("int main() { return 0; }\n", encoding="utf-8")
+    ubsan = subprocess.run(
+        [compiler, "-fsanitize=undefined", str(probe), "-o", str(tmp_path / "ubsan_probe")],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if ubsan.returncode != 0:
+        pytest.skip(f"{compiler} cannot build with -fsanitize=undefined: {ubsan.stderr[:200]}")
     build = subprocess.run(
         [
             compiler,

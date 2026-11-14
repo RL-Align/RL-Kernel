@@ -10,6 +10,7 @@ import torch
 
 import rl_engine.backends.cuda.logprob.logp as logp_module
 from rl_engine.backends.cuda.logprob.logp import (
+    FUSED_LOGP_BWD_CHUNK_ELEMS,
     FusedLogpGenericOp,
     _FusedLogpAutograd,
     fused_logp_backward_chunked,
@@ -247,6 +248,20 @@ def test_fused_backward_out_of_range_targets_and_masked_logits():
     torch.testing.assert_close(actual[keep], expected, atol=1e-5, rtol=1e-4)
 
 
+def test_chunked_fallback_rejects_mismatched_lengths():
+    """The fallback checks lengths like the binding, so a short grad cannot broadcast silently."""
+    logits, labels, grad = _make_inputs(4, 17, torch.float32, "cpu")
+    with pytest.raises(ValueError, match="grad_output length"):
+        fused_logp_backward_chunked(logits, labels, grad[:1], torch.float32)
+    with pytest.raises(ValueError, match="labels length"):
+        fused_logp_backward_chunked(logits, labels[:3], grad, torch.float32)
+    # Unlike the binding, the fallback accepts a BF16 upstream gradient and int32 labels: it upcasts.
+    grad_bf16 = grad.bfloat16()
+    actual = fused_logp_backward_chunked(logits, labels.int(), grad_bf16, torch.float32)
+    expected = fused_logp_backward_chunked(logits, labels, grad_bf16.float(), torch.float32)
+    assert torch.equal(actual, expected)
+
+
 @requires_fused_backward
 def test_fused_backward_rejects_bad_inputs():
     """The binding rejects non-FP32 grads, non-int64 labels and short grads; zero rows work."""
@@ -329,7 +344,9 @@ def test_long_sequence_backward_workspace_is_bounded(n_rows, impl):
     if impl == "fused":
         out = _C.fused_logp_backward(logits, labels, grad)
     else:
-        out = fused_logp_backward_chunked(logits, labels, grad, dtype)
+        out = fused_logp_backward_chunked(
+            logits, labels, grad, dtype, chunk_elems=FUSED_LOGP_BWD_CHUNK_ELEMS
+        )
     torch.cuda.synchronize()
     transient = torch.cuda.max_memory_allocated() - base - out.numel() * elem
 
@@ -339,7 +356,7 @@ def test_long_sequence_backward_workspace_is_bounded(n_rows, impl):
     if impl == "fused":
         assert transient == 0
     else:
-        rows = fused_logp_backward_rows_per_chunk(vocab)
+        rows = fused_logp_backward_rows_per_chunk(vocab, FUSED_LOGP_BWD_CHUNK_ELEMS)
         assert transient <= 2 * rows * vocab * 4 + 64 * n_rows + (8 << 20)
     assert torch.isfinite(out[:: max(1, n_rows // 64)].float()).all()
     # The last rows sit at element offsets above INT_MAX for the larger cases, so compare

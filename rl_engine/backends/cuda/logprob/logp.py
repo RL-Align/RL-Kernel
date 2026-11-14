@@ -36,6 +36,11 @@ def fused_logp_backward_chunked(
     ``[0, V)`` have a constant forward output of zero and get a zero gradient.
     """
     n_rows, vocab = logits.shape
+    # The fused binding rejects these; without the checks a length-1 grad would broadcast.
+    if grad_output.numel() != n_rows:
+        raise ValueError(f"grad_output length {grad_output.numel()} != {n_rows} logits rows")
+    if labels.numel() != n_rows:
+        raise ValueError(f"labels length {labels.numel()} != {n_rows} logits rows")
     grad_logits = torch.empty((n_rows, vocab), device=logits.device, dtype=out_dtype)
     neg_grad = -grad_output.reshape(-1).float()
     valid = (labels >= 0) & (labels < vocab)
