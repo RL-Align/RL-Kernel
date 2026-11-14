@@ -105,25 +105,77 @@ def validate_h3_projection(
     return n
 
 
+def canonical_row_order(logical_keys: torch.Tensor | None, x: torch.Tensor) -> torch.Tensor | None:
+    """Row indices of the active rows in ascending logical-key order.
+
+    ``None`` without keys, and also when the rows already are the active rows in canonical order
+    (the reduction then runs in place and gives the same bytes).
+
+    Active keys must be unique, otherwise the order of two equal keys would depend on the call.
+    """
+
+    if logical_keys is None:
+        return None
+    if not isinstance(logical_keys, torch.Tensor):
+        raise TypeError("logical_keys must be a torch.Tensor")
+    rows = x.shape[0]
+    if logical_keys.dtype != torch.int64 or logical_keys.device != x.device:
+        raise ValueError("logical_keys must be int64 on the projection device")
+    if (
+        logical_keys.ndim != 2
+        or logical_keys.shape[0] != rows
+        or logical_keys.shape[1] not in (2, 3)
+    ):
+        raise ValueError(f"logical_keys must have shape [{rows}, 2] or [{rows}, 3]")
+    active = (logical_keys[:, 0] >= 0).nonzero().flatten()
+    keys = logical_keys[active]
+    if torch.unique(keys, dim=0).shape[0] != keys.shape[0]:
+        raise ValueError("active logical keys must be unique")
+    order = torch.arange(keys.shape[0], device=x.device)
+    for column in reversed(range(keys.shape[1])):  # stable passes, least significant key first
+        order = order[torch.argsort(keys[order, column], stable=True)]
+    order = active[order]
+    if order.numel() == rows and torch.equal(order, torch.arange(rows, device=x.device)):
+        return None  # already in canonical order: reduce in place, no gather of x and g
+    return order
+
+
+def _linear(x, weight, bias, logical_keys):
+    """``F.linear`` with the rows' ``logical_keys`` contract: padding rows give no parameter
+    gradient. The keys are validated exactly as the CUDA rows validate them; the token-axis
+    reduction itself stays the provider's (this is the reference, not a fixed-order kernel)."""
+
+    canonical_row_order(logical_keys, x)  # validation only
+    out = F.linear(x, weight, bias)
+    if logical_keys is None or not bool((logical_keys[:, 0] < 0).any()):
+        return out
+    frozen = F.linear(x, weight.detach(), None if bias is None else bias.detach())
+    return torch.where((logical_keys[:, 0] < 0)[:, None], frozen, out)
+
+
 class _NativeProjection:
-    """PyTorch reference: ``forward`` is the provider (``F.linear``); ``forward_fp32`` is golden."""
+    """PyTorch reference: ``forward`` is the provider (``F.linear``); ``forward_fp32`` is golden.
+
+    Same signature as the CUDA rows, including the optional ``logical_keys``.
+    """
 
     spec: ProjectionSpec
     op_class = "reduction"
 
-    def __call__(self, x, weight, bias=None):
-        return self.forward(x, weight, bias)
+    def __call__(self, x, weight, bias=None, *, logical_keys=None):
+        return self.forward(x, weight, bias, logical_keys=logical_keys)
 
-    def forward(self, x, weight, bias=None) -> torch.Tensor:
+    def forward(self, x, weight, bias=None, *, logical_keys=None) -> torch.Tensor:
         """Provider path (``nn.Linear``); run with TF32 disabled on CUDA."""
 
         validate_h3_projection(self.spec, x, weight, bias)
-        return F.linear(x, weight, bias)
+        return _linear(x, weight, bias, logical_keys)
 
-    def forward_fp32(self, x, weight, bias=None) -> torch.Tensor:
+    def forward_fp32(self, x, weight, bias=None, *, logical_keys=None) -> torch.Tensor:
         """Independent golden: the product in FP64, rounded once to the module dtype."""
 
         validate_h3_projection(self.spec, x, weight, bias)
+        canonical_row_order(logical_keys, x)  # validation only
         out = F.linear(x.double(), weight.double(), None if bias is None else bias.double())
         return out.to(self.spec.dtype)
 
@@ -146,27 +198,34 @@ class NativeH3QKVGemmOp:
     spec = QKV
     op_class = "reduction"
 
-    def __call__(self, x, weight_q, weight_k, weight_v):
-        return self.forward(x, weight_q, weight_k, weight_v)
+    def __call__(self, x, weight_q, weight_k, weight_v, *, logical_keys=None):
+        return self.forward(x, weight_q, weight_k, weight_v, logical_keys=logical_keys)
 
-    def forward(self, x, weight_q, weight_k, weight_v):
+    def forward(self, x, weight_q, weight_k, weight_v, *, logical_keys=None):
         """``(q, k, v)`` from three separate ``F.linear`` calls (the Diffusers layout)."""
 
         widths = {validate_h3_projection(QKV, x, w, None) for w in (weight_q, weight_k, weight_v)}
         if len(widths) != 1:
             raise ValueError(f"h3_qkv_gemm: Q/K/V widths differ: {sorted(widths)}")
-        return F.linear(x, weight_q), F.linear(x, weight_k), F.linear(x, weight_v)
+        return tuple(_linear(x, w, None, logical_keys) for w in (weight_q, weight_k, weight_v))
 
-    def forward_fused(self, x, weight_qkv):
+    def project(self, x, weight, *, logical_keys=None) -> torch.Tensor:
+        """One of the three projections alone (same as the CUDA row's ``project``)."""
+
+        validate_h3_projection(QKV, x, weight, None)
+        return _linear(x, weight, None, logical_keys)
+
+    def forward_fused(self, x, weight_qkv, *, logical_keys=None):
         """One ``(T, 3 * N)`` product of the concatenated ``[Q; K; V]`` weight (serving layout)."""
 
         n = _fused_width(weight_qkv)
         validate_h3_projection(QKV, x, weight_qkv[:n], None)
-        return F.linear(x, weight_qkv)
+        return _linear(x, weight_qkv, None, logical_keys)
 
-    def forward_fp32(self, x, weight_q, weight_k, weight_v):
+    def forward_fp32(self, x, weight_q, weight_k, weight_v, *, logical_keys=None):
         """FP64 golden of each projection, rounded once to BF16."""
 
+        canonical_row_order(logical_keys, x)  # validation only
         outputs = []
         for w in (weight_q, weight_k, weight_v):
             validate_h3_projection(QKV, x, w, None)

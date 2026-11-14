@@ -6,7 +6,7 @@ RFC #420 integration rows, validated on H100 against the real verl-omni schedule
 
 | Row | Where | What it fixes |
 | --- | --- | --- |
-| `h3_runtime_modes` | `models/minimax_h3/runtime.py` | `RL_KERNEL_MODE` strict / audit / auto / off -> bind the RL-Kernel graph or not; strict raises instead of falling back, audit reports, case id `R/R` or `P/P` |
+| `h3_runtime_modes` | `models/minimax_h3/runtime.py` | `RL_KERNEL_MODE` strict / audit / auto / off -> bind the RL-Kernel graph or not; strict raises instead of falling back; audit reports a failure to bind the graph and runs the provider (an error raised by the step itself is never counted as a fallback); case id `R/R` or `P/P` |
 | `h3_ablation_overlay` | same | `AblationOverlay.parse("node:attention,boundary:token_refiner")` keeps parts on provider arithmetic; the run is labelled `ablation(...)`, never `R/R`; unknown names are rejected |
 | `diffusers_runtime_adapter_h3` | same (`H3DiffusersAdapter`) | binds `MiniMaxH3Transformer3DModel` inside `with adapter.active():` (forward **and** backward, so checkpoint recomputation sees the same operators) and reports bindings |
 | `h3_training_provider` | same (`H3TrainingProvider`) | actor-side `step()` scope + per-sample CPS transition |
@@ -27,7 +27,8 @@ x_prev = mean + std * eps        log_prob = mean over non-batch dims of -(x_prev
 - `eps = step_noise(seed, step, sample_id, modality, shape)`: one generator per sample (SHA-256 of
   the key), so noise never depends on batch order or composition;
 - the log-prob mean is a fixed-order GEMM reduction per sample (the scheduler's `torch.mean` order is
-  shape dependent; ours agrees to FP32 rounding and is batch invariant);
+  shape dependent; ours agrees to FP32 rounding and is batch invariant); it is differentiable, so
+  the policy loss gets its gradient through the log-prob (`grad / K` per element, as `torch.mean`);
 - `noise_level = 0` (non-selected steps) yields `x_prev == mean`, `log_prob == 0`; scoring a stored
   rollout (`prev_sample=`) reproduces the sampling log-prob bitwise.
 
@@ -36,4 +37,4 @@ recipe changes the noise law, only `transition.py` and its test change.
 
 ## Evidence
 
-`tests/models/minimax_h3/test_h3_runtime_integration.py` (runtime modes, overlay, adapter, transition, LoRA gate). The transition tests compare with the verl-omni scheduler when it is importable and are skipped otherwise.
+`tests/models/minimax_h3/test_h3_runtime_integration.py` (runtime modes, overlay, adapter, transition, LoRA gate). The scheduler comparison runs when `VERL_OMNI_PATH` points at a verl-omni checkout: the test loads its `verl_omni/pipelines/schedulers/flow_match_sde.py` by path (the scheduler is not imported as a package) and is skipped when the variable is unset or the file is missing.

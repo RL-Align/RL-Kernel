@@ -318,10 +318,12 @@ def test_strict_boundaries_apply_to_candidate_execution_only():
 
 
 def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
+    """Strict mode routes each boundary module through its row; video rows get keys, a session."""
     from rl_engine.runtime.registry import KernelRegistry
     from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
 
     called = []
+    keyed_calls = []
 
     class Row:
         def __init__(self, row, method):
@@ -329,8 +331,11 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
             if method:
                 self.forward = self._run
 
-        def _run(self, x, weight, bias):
+        def _run(self, x, weight, bias, **keyed):
+            from rl_engine.ops.autograd.canonical_backward import active_session
+
             called.append((self.row, tuple(x.shape)))
+            keyed_calls.append((self.row, keyed, active_session() is not None))
             return torch.nn.functional.linear(x, weight, bias)
 
         __call__ = _run
@@ -359,5 +364,58 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
         assert trace.boundary_bindings["proj_out"]["status"] == "row"
         assert trace.boundary_bindings["time_embedder"]["status"] == "provider"
         assert trace.boundary_bindings["norm_out"]["status"] == "provider"
-    # leaving the context restores the provider forward
+        # the video rows get the logical rows' identities, a parameter id and an open canonical
+        # backward session (a trainable weight is refused without one); the others get no keys
+        by_row = {row: (keyed, session) for row, keyed, session in keyed_calls}
+        for name in ("proj_in", "proj_out"):
+            keyed, session = by_row[STRICT_BOUNDARY_ROWS[name]]
+            assert session and keyed["parameter_id"] == name
+            assert keyed["logical_keys"].tolist() == [[b, s] for b in range(2) for s in range(5)]
+        for name in ("audio_proj_in", "audio_proj_out", "context_embedder"):
+            assert by_row[STRICT_BOUNDARY_ROWS[name]][0] == {}
+    # leaving the context restores the provider forward and closes the session
     assert "forward" not in model.proj_in.__dict__
+    from rl_engine.ops.autograd.canonical_backward import active_session
+
+    assert active_session() is None
+
+
+def test_an_error_inside_the_strict_context_is_not_replaced_by_the_session_check(monkeypatch):
+    """A body error after backward started propagates as it is, not as an incomplete session."""
+    from rl_engine.ops.autograd.canonical_backward import active_session
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+
+    class Row:
+        def forward(self, x, weight, bias, **_):
+            """A stand-in row: the provider's linear."""
+            return torch.nn.functional.linear(x, weight, bias)
+
+        __call__ = forward
+
+    monkeypatch.setattr(KernelRegistry, "get_op", lambda self, row, device=None: Row())
+    model = Model()
+    for name in STRICT_BOUNDARY_ROWS:
+        if name != "token_refiner":
+            setattr(model, name, torch.nn.Linear(4, 3))
+
+    def open_step():
+        return full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        )
+
+    with pytest.raises(ValueError, match="non-finite gradient"):
+        with open_step():
+            session = active_session()
+            # one keyed use is registered and backward has started, but its gradient never
+            # arrives: the step fails part-way through backward
+            session.register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            session.backward_started = True
+            raise ValueError("non-finite gradient in block 7")
+    assert active_session() is None
+    # a body that completes with a missing submission is still refused
+    with pytest.raises(RuntimeError, match="incomplete canonical submissions"):
+        with open_step():
+            active_session().register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            active_session().backward_started = True
+    assert active_session() is None

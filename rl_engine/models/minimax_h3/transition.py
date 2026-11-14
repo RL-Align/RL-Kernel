@@ -60,14 +60,35 @@ class Transition:
     log_prob: torch.Tensor | None
 
 
+class _FixedOrderMean(torch.autograd.Function):
+    """Row means of a ``(B, K)`` FP32 matrix by the fixed-order GEMM, differentiable.
+
+    The Triton GEMM writes into a fresh tensor and has no autograd of its own. The gradient
+    of a mean is ``grad / K`` for every element of the row: element-wise, no reduction, so
+    it needs no fixed order and is the same bits ``torch.mean`` gives.
+    """
+
+    @staticmethod
+    def forward(ctx, flat: torch.Tensor) -> torch.Tensor:
+        from rl_engine.backends.shared.triton.gemm import h3_projection as g
+
+        ctx.shape = flat.shape
+        ones = torch.ones(flat.shape[1], 1, device=flat.device, dtype=torch.float32)
+        return g.gemm(flat, ones)[:, 0] / flat.shape[1]
+
+    @staticmethod
+    def backward(ctx, grad: torch.Tensor) -> torch.Tensor:
+        rows, cols = ctx.shape
+        return (grad / cols)[:, None].expand(rows, cols)
+
+
 def fixed_order_mean(x: torch.Tensor) -> torch.Tensor:
-    """Per-sample mean over all non-batch elements with a fixed reduction order (``(B,)`` FP32)."""
+    """Per-sample mean over all non-batch elements with a fixed reduction order (``(B,)`` FP32).
 
-    flat = x.reshape(x.shape[0], -1).contiguous().float()
-    ones = torch.ones(flat.shape[1], 1, device=flat.device, dtype=torch.float32)
-    from rl_engine.backends.shared.triton.gemm import h3_projection as g
+    Differentiable: the log-prob built from it carries the policy gradient to the velocity.
+    """
 
-    return g.gemm(flat, ones)[:, 0] / flat.shape[1]
+    return _FixedOrderMean.apply(x.reshape(x.shape[0], -1).contiguous().float())
 
 
 def cps_transition(

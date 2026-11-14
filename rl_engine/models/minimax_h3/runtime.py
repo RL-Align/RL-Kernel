@@ -23,7 +23,7 @@ Rows: ``h3_runtime_modes``, ``h3_ablation_overlay``, ``diffusers_runtime_adapter
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 
 import torch
@@ -128,29 +128,42 @@ class H3DiffusersAdapter:
             return False
         return True
 
-    @contextmanager
-    def active(self):
-        """Operators bound until the block exits; keep ``backward()`` inside it."""
-
+    def _execution(self, bind: bool):
         from rl_engine.validation.models.h3_full_model import full_model_execution
 
+        return full_model_execution(
+            self.model,
+            candidate=bind,
+            trace=self.trace,
+            ops=self.ops,
+            provider_nodes=tuple(self.overlay.native_nodes),
+            strict_boundaries=bind,
+            native_boundaries=tuple(self.overlay.native_boundaries),
+        )
+
+    @contextmanager
+    def active(self):
+        """Operators bound until the block exits; keep ``backward()`` inside it.
+
+        A fallback is a failure to bind the RL-Kernel graph (e.g. a candidate op without its
+        CUDA implementation): strict raises it; audit reports it in ``fell_back`` and runs the
+        provider instead, like a model without CUDA parameters. An error raised by the caller's
+        own forward or backward inside the block is never a fallback and propagates unchanged.
+        """
+
+        from rl_engine.validation.models.h3_full_model import FullModelTrace
+
         bind = self._bind()
-        try:
-            with full_model_execution(
-                self.model,
-                candidate=bind,
-                trace=self.trace,
-                ops=self.ops,
-                provider_nodes=tuple(self.overlay.native_nodes),
-                strict_boundaries=bind,
-                native_boundaries=tuple(self.overlay.native_boundaries),
-            ):
-                yield self
-        except RuntimeError as exc:
-            if self.policy.fail_on_fallback or not bind:
-                raise
-            self.fell_back = f"{type(exc).__name__}: {exc}"
-            raise
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(self._execution(bind))
+            except (RuntimeError, ValueError) as exc:
+                if self.policy.fail_on_fallback or not bind:
+                    raise
+                self.fell_back = f"{type(exc).__name__}: {exc}"
+                self.trace = FullModelTrace()  # drop what the failed binding recorded
+                stack.enter_context(self._execution(False))
+            yield self
 
     def report(self) -> dict:
         bound = self.policy.bind and self.fell_back is None
@@ -168,7 +181,11 @@ class H3DiffusersAdapter:
 
 
 class H3TrainingProvider:
-    """Actor-side strict training scope: ``with provider.step(): forward(...); loss.backward()``."""
+    """Actor-side strict training scope: ``with provider.step(): forward(...); loss.backward()``.
+
+    One forward and one backward per ``step()``: with trainable video projections, their rows
+    collect parameter gradients in one canonical backward session per step.
+    """
 
     def __init__(
         self, model, mode: str | RLKernelMode | None = None, overlay: AblationOverlay | None = None
@@ -198,9 +215,18 @@ class H3TrainingProvider:
         noise_level=None,
         prev_sample=None,
     ):
-        """CPS transition for a batch whose per-sample noise depends on ``sample_ids`` only."""
+        """CPS transition for a batch whose per-sample noise depends on ``sample_ids`` only.
+
+        ``sample_ids`` names every row of the batch, in order: a length that differs from the batch
+        size is refused (one id would otherwise broadcast one noise draw over every sample).
+        """
 
         from rl_engine.models.minimax_h3 import transition as tr
+
+        if len(sample_ids) != sample.shape[0]:
+            raise ValueError(
+                f"sample_ids has {len(sample_ids)} entries for a batch of {sample.shape[0]}"
+            )
 
         level = tr.NOISE_LEVEL if noise_level is None else noise_level
         noise = None
@@ -288,11 +314,12 @@ def lora_gradient_gate(
 
     def run(rows):
         a, b = a0.clone().requires_grad_(True), b0.clone().requires_grad_(True)
-        w = weight.detach().clone()
+        # the base asks for a gradient, so the check fails if the LoRA backward ever returns one
+        w = weight.detach().clone().requires_grad_(True)
         xi = x[rows].detach().clone().requires_grad_(True)
         y = strict_lora_linear(xi, w, a, b, scale)
         y.backward(grad[rows])
-        frozen.append(w.grad is None and not w.requires_grad)
+        frozen.append(w.grad is None)
         return y.detach(), xi.grad, a.grad, b.grad
 
     full = run(slice(None))
