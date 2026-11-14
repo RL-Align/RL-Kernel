@@ -10,6 +10,12 @@ from rl_engine.backends.rocm.gemm.checkpoint_fp8 import CheckpointFP8Group
 
 
 def bind_original_group_projection(attention, checkpoint, layer, observer=None):
+    from vllm.distributed import get_tensor_model_parallel_world_size
+
+    if get_tensor_model_parallel_world_size() != 1:
+        raise ValueError("original gfx942 wo_a binding requires TP=1")
+    if getattr(attention.wo_b, "bias", None) is not None:
+        raise ValueError("original gfx942 wo_b binding requires a bias-free projection")
     if attention._wo_a_fp8_weight is not None:
         raise ValueError("gfx942 wo_a binding expects inverse RoPE already settled in forward_mqa")
     paths = list(Path(checkpoint).glob("*.safetensors"))
