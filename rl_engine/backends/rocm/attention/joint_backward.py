@@ -2,12 +2,12 @@
 """Reuse aiter backward/CSR and MHA delta kernels, with no floating sink atomic."""
 
 import ast
-from dataclasses import dataclass
 import hashlib
 import importlib
 import os
-from pathlib import Path
 import weakref
+from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 
@@ -69,7 +69,8 @@ class AiterJointBackwardBackend:
         # The locked AITER 0.1.29 file also contains unrelated MHA kernels.
         # Both audited files expose the same explicit-stride FP32 delta ABI.
         require(
-            delta_source_sha256 in (
+            delta_source_sha256
+            in (
                 DELTA_SHA256,
                 "3f1899f70464817c37e65562eecd0698406886e78ece9d44e4ac5655376c5490",
             ),

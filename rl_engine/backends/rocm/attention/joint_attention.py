@@ -8,9 +8,9 @@ import inspect
 import io
 import linecache
 import os
-from pathlib import Path
 import sys
 import tokenize
+from pathlib import Path
 
 import torch
 
