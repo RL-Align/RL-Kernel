@@ -592,6 +592,7 @@ def test_reference_rows_take_the_cuda_signature_and_key_contract():
 
 @requires_cuda
 def test_an_all_padding_call_gives_zero_parameter_gradients():
+    """A call whose rows are all padding gives zero weight and bias gradients."""
     cu = _cuda_ops()
     op = cu.H3AudioInputProjectionCudaOp()
     x = torch.randn(4, 32, device="cuda")

@@ -243,6 +243,7 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         keyed = name in KEYED_BOUNDARIES
 
         def forward(x):
+            """Run the bound row on ``x`` as rows; keyed rows also get row keys and a name."""
             flat = x.reshape(-1, x.shape[-1])
             if keyed:
                 # the video rows reduce a trainable weight's gradient over logical rows, in a

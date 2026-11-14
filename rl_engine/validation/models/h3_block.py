@@ -237,6 +237,7 @@ def _qkv_node(name: str, weight: str) -> Node:
     index = QKV_WEIGHTS.index(weight)
 
     def candidate(ops, ctx, x):
+        """This node's slice of the one fused ``[Q; K; V]`` call, shaped like ``x``."""
         weights = tuple(_w(ctx, w) for w in QKV_WEIGHTS)
         return fused_qkv(ctx, x, weights, ops)[index].view(*x.shape[:-1], -1)
 
