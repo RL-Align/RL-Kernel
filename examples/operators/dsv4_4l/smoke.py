@@ -22,7 +22,7 @@ def main():
             for name in ("rl_engine", "verl", "megatron.core", "vllm")
         },
         versions={
-            name: metadata.version(name) for name in ("torch", "triton", "aiter", "megatron-bridge")
+            name: metadata.version(name) for name in ("torch", "triton", "amd-aiter", "megatron-bridge")
         },
         hip=torch.version.hip,
         architecture=device.gcnArchName,
