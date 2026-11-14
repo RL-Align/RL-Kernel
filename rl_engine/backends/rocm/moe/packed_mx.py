@@ -13,16 +13,17 @@ import torch
 import triton
 import triton.language as tl
 
-from rl_engine.contracts.operators.expert_training import \
-    QuantizedExpertActivation
-from rl_engine.kernels.ops.triton.moe.fused_mlp import (_block_prefix,
-                                                        _decode_e2m1,
-                                                        _decode_e4m3,
-                                                        _e8m0_code_and_inv,
-                                                        _e8m0_scale,
-                                                        _grid_blocks,
-                                                        _locate_token_block,
-                                                        _search_steps)
+from rl_engine.contracts.operators.expert_training import QuantizedExpertActivation
+from rl_engine.kernels.ops.triton.moe.fused_mlp import (
+    _block_prefix,
+    _decode_e2m1,
+    _decode_e4m3,
+    _e8m0_code_and_inv,
+    _e8m0_scale,
+    _grid_blocks,
+    _locate_token_block,
+    _search_steps,
+)
 
 
 @triton.jit

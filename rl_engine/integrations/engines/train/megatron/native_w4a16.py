@@ -48,6 +48,8 @@ class NativeW4A16Experts(torch.nn.Module):
         )
         gate_up = self.gate_up(x.contiguous(), offsets)
         activated = self.activation(gate_up)
+        if permuted_probs is None or permuted_probs.numel() != x.shape[0]:
+            raise ValueError("permuted_probs must contain one weight per routed row")
         y = self.down(activated, offsets, permuted_probs.reshape(-1).float().contiguous())
         if not hasattr(self, "_executed"):
             print(
@@ -61,7 +63,8 @@ class NativeW4A16Experts(torch.nn.Module):
         return y, None
 
     def backward_dw(self):
-        pass
+        # Packed bases are frozen; only the explicit input VJP is required.
+        return None
 
 
 def bind_native_w4a16(moe):

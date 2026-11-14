@@ -8,10 +8,8 @@ import pytest
 import torch
 
 from rl_engine.backends.rocm.moe.packed_mx import RocmPackedMXBackend
-from rl_engine.contracts.operators.expert_training import (
-    ExpertTrainingConfig, PackedExpertWeight)
-from rl_engine.reference.moe.expert_training import (
-    ReferenceExpertTrainingBackend, decode_weights)
+from rl_engine.contracts.operators.expert_training import ExpertTrainingConfig, PackedExpertWeight
+from rl_engine.reference.moe.expert_training import ReferenceExpertTrainingBackend, decode_weights
 
 pytestmark = pytest.mark.skipif(
     not torch.version.hip or not torch.cuda.is_available(), reason="requires ROCm GPU"
@@ -62,8 +60,7 @@ def test_original_checkpoint_expert_forward_backward():
         pytest.skip("set RLK_DSV4_CHECKPOINT to the original four-layer checkpoint")
     from safetensors import safe_open
 
-    from rl_engine.backends.rocm.moe.expert_training import \
-        RocmExpertTrainingBackend
+    from rl_engine.backends.rocm.moe.expert_training import RocmExpertTrainingBackend
     from rl_engine.ops.moe.expert_training import routed_expert_training
 
     source = safe_open(str(next(Path(checkpoint).glob("*.safetensors"))), framework="pt")

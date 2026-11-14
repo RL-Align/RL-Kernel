@@ -81,7 +81,12 @@ class _Projection(torch.autograd.Function):
             )
         e, n, half_k = codes.shape
         k = half_k * 2
-        if x.shape[1] != k or tuple(scales.shape) != (e, n, k // 32) or offsets.shape != (e + 1,):
+        if (
+            k % 32
+            or x.shape[1] != k
+            or tuple(scales.shape) != (e, n, k // 32)
+            or offsets.shape != (e + 1,)
+        ):
             raise ValueError("original block32 expert geometry mismatch")
         y = torch.empty((x.shape[0], n), device=x.device, dtype=torch.bfloat16)
         save_raw = gammas is not None and ctx.needs_input_grad[4]
@@ -140,12 +145,27 @@ def packed_w4a16(x, codes, scales, offsets, gammas=None):
     arch = torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0]
     if arch != "gfx942":
         raise ValueError("the original W4A16 profile is validated on gfx942 only")
+    if x.ndim != 2 or codes.ndim != 3 or codes.shape[0] < 1:
+        raise ValueError("W4A16 requires [M,K] inputs and nonempty [E,N,K/2] codes")
+    if codes.device != x.device or scales.device != x.device:
+        raise ValueError("packed expert tensors must share the input device")
     if not codes.is_contiguous() or not scales.is_contiguous():
         raise ValueError("original packed expert codes/scales must be contiguous")
     if offsets.dtype != torch.int64 or offsets.device != x.device:
         raise ValueError("expert offsets must be colocated int64")
+    if (
+        offsets.shape != (codes.shape[0] + 1,)
+        or not offsets.is_contiguous()
+        or int(offsets[0]) != 0
+        or int(offsets[-1]) != x.shape[0]
+        or bool((offsets[1:] < offsets[:-1]).any())
+    ):
+        raise ValueError("expert offsets must exactly tile [0, M)")
     if gammas is not None and (
-        gammas.shape != (x.shape[0],) or gammas.dtype != torch.float32 or not gammas.is_contiguous()
+        gammas.shape != (x.shape[0],)
+        or gammas.dtype != torch.float32
+        or gammas.device != x.device
+        or not gammas.is_contiguous()
     ):
         raise ValueError("route gammas must be contiguous original FP32 row weights")
     return _Projection.apply(x, codes, scales, offsets, gammas)
