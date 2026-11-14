@@ -142,7 +142,9 @@ def _digest_on_grad(state: ParallelState, key: str, name: str, leaf: torch.Tenso
     assert digest_leaf is not None
 
     def hook(param: torch.Tensor) -> None:
-        state.digests[key] = digest_leaf(name, param.grad)
+        grad = param.grad
+        assert grad is not None
+        state.digests[key] = digest_leaf(name, grad)
         param.grad = None
 
     leaf.register_post_accumulate_grad_hook(hook)
