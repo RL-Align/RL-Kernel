@@ -103,6 +103,25 @@ def test_combine_has_fixed_route_order_and_differentiable_weights():
         )
 
 
+def test_combine_gradients_are_batch_invariant():
+    gen = torch.Generator(device="cuda").manual_seed(803)
+    outputs = (torch.randn(256, 10, 2048, generator=gen, device="cuda") * 0.02).bfloat16()
+    weights = torch.rand(256, 10, generator=gen, device="cuda")
+    grad_out = (torch.randn(256, 2048, generator=gen, device="cuda") * 0.02).bfloat16()
+
+    def run(rows):
+        e = outputs[:rows].clone().requires_grad_()
+        w = weights[:rows].clone().requires_grad_()
+        out = combine_routes(e, w)
+        d_e, d_w = torch.autograd.grad(out, [e, w], grad_out[:rows])
+        return out.detach(), d_e, d_w
+
+    reference = run(8)
+    for rows in (9, 16, 32, 64, 256):
+        for got, want in zip(run(rows), reference):
+            exact(got[:8], want)
+
+
 def test_qwen_moe_actual_tp4_shapes_and_independent_training_forward():
     x = random((4, 2048), grad=True)
     router = random((512, 2048), 802, grad=True)

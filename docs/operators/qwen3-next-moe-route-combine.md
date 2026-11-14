@@ -58,8 +58,12 @@ different instruction stream), and IEEE Triton FP32.
 grouped kernel, then visits experts in ascending id. Each expert's `dgate_up`
 and `ddown` slice is one pinned GEMM written once into a dense buffer; `dx` is
 accumulated per token in ascending expert order (a token's ten experts are
-distinct, so each launch has unique rows). Router-weight gradients flow through
-the selected probabilities; the indices are discrete.
+distinct, so each launch has unique rows). `combine_routes` has its own backward:
+the expert-output gradient is `grad * weight` per route, and the route-weight
+gradient sums `grad * expert_output` over H with `fixed_order_row_sum`, because
+`torch.sum` picks its reduction order from the batch shape and made that gradient
+batch-variant from 16 rows up. Router-weight gradients then flow through the
+selected probabilities; the indices are discrete.
 
 ## Reuse decision
 

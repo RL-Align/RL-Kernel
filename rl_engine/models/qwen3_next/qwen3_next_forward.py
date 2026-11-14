@@ -226,23 +226,48 @@ def stable_top10_routes(router_logits):
     return Routing(selected / fixed_order_row_sum(selected), indices)
 
 
-def combine_routes(expert_outputs, route_weights):
-    """Combine [T, 10, H] BF16 outputs by ten ordered FP32 multiply-adds.
+class _CombineRoutes(torch.autograd.Function):
+    """Ten ordered FP32 multiply-adds; route-weight gradients sum H with fixed_order_row_sum."""
 
-    There are no atomic sums. Each route's product and each addition is a
-    separate eager operation; the single BF16 cast follows the final route.
-    """
-    _cuda_tensors(expert_outputs, route_weights)
-    if expert_outputs.ndim != 3 or expert_outputs.shape[1] != 10:
-        raise ValueError("Qwen3-Next expert outputs must have shape [T, 10, H]")
-    if route_weights.shape != expert_outputs.shape[:2]:
-        raise ValueError("Route weights must have shape [T, 10]")
-    if expert_outputs.dtype != torch.bfloat16 or route_weights.dtype != torch.float32:
-        raise ValueError("Combine requires BF16 expert outputs and FP32 route weights")
-    output = expert_outputs[:, 0].float() * route_weights[:, 0, None]
-    for slot in range(1, 10):
-        output = output + expert_outputs[:, slot].float() * route_weights[:, slot, None]
-    return output.to(torch.bfloat16)
+    @staticmethod
+    def forward(ctx, expert_outputs, route_weights):
+        _cuda_tensors(expert_outputs, route_weights)
+        if expert_outputs.ndim != 3 or expert_outputs.shape[1] != 10:
+            raise ValueError("Qwen3-Next expert outputs must have shape [T, 10, H]")
+        if route_weights.shape != expert_outputs.shape[:2]:
+            raise ValueError("Route weights must have shape [T, 10]")
+        if expert_outputs.dtype != torch.bfloat16 or route_weights.dtype != torch.float32:
+            raise ValueError("Combine requires BF16 expert outputs and FP32 route weights")
+        ctx.save_for_backward(expert_outputs, route_weights)
+        output = expert_outputs[:, 0].float() * route_weights[:, 0, None]
+        for slot in range(1, 10):
+            output = output + expert_outputs[:, slot].float() * route_weights[:, slot, None]
+        return output.to(torch.bfloat16)
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        expert_outputs, route_weights = ctx.saved_tensors
+        grad_expert = grad_weight = None
+        grad_f = grad_output.float()
+        if ctx.needs_input_grad[0]:
+            grad_expert = torch.zeros_like(expert_outputs)
+            for slot in range(10):
+                grad_expert[:, slot] = (grad_f * route_weights[:, slot, None]).to(
+                    expert_outputs.dtype
+                )
+        if ctx.needs_input_grad[1]:
+            grad_weight = route_weights.new_zeros(route_weights.shape)
+            for slot in range(10):
+                grad_weight[:, slot] = fixed_order_row_sum(
+                    grad_f * expert_outputs[:, slot].float()
+                ).reshape(route_weights.shape[0])
+        return grad_expert, grad_weight
+
+
+def combine_routes(expert_outputs, route_weights):
+    """Combine [T, 10, H] BF16 outputs by ten ordered FP32 multiply-adds."""
+    return _CombineRoutes.apply(expert_outputs, route_weights)
 
 
 def _expert_activation(gate_up_rows):
