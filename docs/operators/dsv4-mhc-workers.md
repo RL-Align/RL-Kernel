@@ -38,8 +38,8 @@ points do not start distributed jobs or add DSV4 model support to an orchestrato
 the BF16 residual rounding, the next controller's projection and sum of squares
 in one Triton launch. The gates and Sinkhorn use the same code as split. The
 fused VJP replays the split graph; there is no second backward formula. The
-owned backend supports fusion for power-of-two hidden sizes up to 4096. The
-optional #662 aiter profile is split only. No backend substitutes itself if a
+owned backend supports fusion for power-of-two hidden sizes up to 4096. No
+backend substitutes itself if a
 requested profile is unsupported. Enable fused in a deployment only after
 byte comparison on the target hardware; there is no performance claim.
 
