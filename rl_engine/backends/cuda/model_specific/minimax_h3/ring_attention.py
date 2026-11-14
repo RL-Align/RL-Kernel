@@ -66,6 +66,7 @@ _peer = group_peer
 
 
 def _exchange(sends, recvs, to_rank: int, from_rank: int, group) -> None:
+    """Post every send and receive of one ring step together and wait for all of them."""
     ops = [dist.P2POp(dist.isend, t, to_rank, group) for t in sends]
     ops += [dist.P2POp(dist.irecv, t, from_rank, group) for t in recvs]
     if ops:
@@ -106,6 +107,7 @@ def ring_all_gather(blocks, shard: SeqShard, group=None, dim: int = 1) -> list[t
 class _RingAttention(torch.autograd.Function):
     @staticmethod
     def forward(ctx, q, k, v, shard, group, chunk_rows):
+        """This rank's query rows against K/V gathered over the ring, in global order."""
         ext = fa._extension()
         k_full, v_full = ring_all_gather([k, v], shard, group)
         k_full = k_full.transpose(1, 2).contiguous()
@@ -126,6 +128,7 @@ class _RingAttention(torch.autograd.Function):
     @staticmethod
     @torch.autograd.function.once_differentiable
     def backward(ctx, grad_out):
+        """Continue the kernel's FP32 dK/dV accumulator rank by rank in row order; round once."""
         ext = fa._extension()
         qh, k_full, v_full = ctx.saved_tensors
         shard, group = ctx.shard, ctx.group

@@ -31,6 +31,7 @@ def gpus(n):
 
 
 def _strict_extension():
+    """Skip unless the strict H3 attention extension is built."""
     from rl_engine.backends.cuda.attention import h3_full_attention as fa
 
     try:
@@ -49,6 +50,7 @@ def _qkvg(length, heads, seed=7):
 
 
 def _ring_target(collective, dummy, *, length, heads, chunk_rows, mode):
+    """One rank of the ring / Ulysses check against the unsharded attention."""
     import torch.distributed as dist
 
     from rl_engine.backends.cuda.model_specific.minimax_h3 import ring_attention as ring
@@ -87,6 +89,7 @@ def _ring_target(collective, dummy, *, length, heads, chunk_rows, mode):
 
 
 def _check(ranks):
+    """Every rank's output and dQ / dK / dV equal the unsharded ones."""
     for r in ranks:
         for name in ("out", "dq", "dk", "dv"):
             assert int(r[f"equal_{name}"]) == 1, f"rank {int(r['rank'])}: {name} differs"
@@ -95,6 +98,7 @@ def _check(ranks):
 @needs_gpu
 class TestSharding:
     def test_ring_validates_its_inputs(self):
+        """Refuses non-BF16 inputs, wrong local rows, unequal shapes and a bad ``chunk_rows``."""
         from rl_engine.backends.cuda.model_specific.minimax_h3 import ring_attention as ring
 
         shard = par.SeqShard(4, 1, 0)
@@ -113,6 +117,7 @@ class TestSharding:
 @pytest.mark.parametrize("cp", [2, 3, 4, 5, 8])
 @pytest.mark.parametrize("length", [1, 2, 7, 130, 261])
 def test_ring_equals_unsharded_attention(cp, length):
+    """Ring attention on ``cp`` ranks equals the unsharded op bitwise."""
     if torch.cuda.device_count() < cp:
         pytest.skip(f"needs {cp} GPUs")
     _strict_extension()
@@ -169,6 +174,7 @@ def test_ring_handles_the_full_head_count_and_a_rank_with_no_rows():
 @needs_gpu
 @gpus(2)
 def test_ring_and_ulysses_agree_where_ulysses_applies():
+    """Where Ulysses applies, ring and Ulysses both equal the unsharded op."""
     _strict_extension()
     for mode in ("ring", "ulysses"):
         _check(
@@ -205,6 +211,7 @@ def test_ulysses_cannot_express_cp3_but_the_ring_can():
 
 
 def _assemble(ranks, key="out"):
+    """Join the ranks' row spans into the full tensor; ranks holding a span must agree."""
     pieces: dict[tuple[int, int], torch.Tensor] = {}
     for r in ranks:
         span = tuple(int(v) for v in r["rows"])
@@ -231,6 +238,7 @@ BLOCK_GRIDS = [
 @needs_gpu
 @pytest.mark.parametrize(("tp", "cp", "sp", "mode", "length"), BLOCK_GRIDS)
 def test_block_with_h3_attention_equals_single_gpu_bitwise(tp, cp, sp, mode, length):
+    """A block on TP / CP / SP with the H3 attention equals the single-GPU block bitwise."""
     pytest.importorskip("triton")
     _strict_extension()
     from rl_engine.validation.models import h3_tp

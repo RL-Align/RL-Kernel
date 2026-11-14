@@ -127,6 +127,7 @@ def _cp_rows(t: torch.Tensor, cp_shard: SeqShard | None, cp_group) -> torch.Tens
 class _RowParallel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, w, collective, tp, scatter, cp_shard, cp_group):
+        """Canonical-unit partial GEMM, then the fixed-tree all-reduce (reduce-scatter with SP)."""
         ctx.save_for_backward(x, w)
         ctx.scatter, ctx.collective = scatter, collective
         ctx.cp_shard, ctx.cp_group = cp_shard, cp_group
@@ -139,6 +140,7 @@ class _RowParallel(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad):
+        """``dX`` from this rank's weight shard; ``dW`` sweeps every CP rank's rows."""
         x, w = ctx.saved_tensors
         if ctx.scatter:  # sequence-parallel: the rows of dY are sharded; gather them (exact)
             grad = ctx.collective.all_gather(grad.contiguous())
@@ -177,6 +179,7 @@ def row_parallel_linear(
 class _ColumnParallel(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, collective, tp, gather, cp_shard, cp_group, *weights):
+        """Gather the rows if asked (SP), then one GEMM per weight shard."""
         ctx.save_for_backward(x, *weights)
         ctx.collective, ctx.tp, ctx.gather = collective, tp, gather
         ctx.cp_shard, ctx.cp_group = cp_shard, cp_group
@@ -186,6 +189,7 @@ class _ColumnParallel(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grads):
+        """``dX`` reduced unit by unit in the canonical order; ``dW`` over every CP rank's rows."""
         x, *weights = ctx.saved_tensors
         full_x = ctx.full_x if ctx.gather else x
         local = UNITS // ctx.tp
@@ -393,6 +397,7 @@ def _selected_counts(selected: torch.Tensor, shard: SeqShard) -> list[list[int]]
 
 
 def _check_selection(selected: torch.Tensor, shard: SeqShard) -> None:
+    """Refuse a selection that is not a 1-D integer tensor of unique rows in ``[0, length)``."""
     if selected.dim() != 1 or selected.dtype not in (torch.int32, torch.int64):
         raise ValueError("selected rows must be a 1-D integer tensor")
     if selected.numel():
@@ -405,6 +410,7 @@ def _check_selection(selected: torch.Tensor, shard: SeqShard) -> None:
 class _GatherSelected(torch.autograd.Function):
     @staticmethod
     def forward(ctx, local, shard, selected, group, dim):
+        """Gather the selected rows from the ranks that own them, in selection order."""
         owned = _selected_counts(selected, shard)
         mine = owned[shard.rank]
         rows = torch.tensor(mine, dtype=torch.long, device=local.device)
@@ -425,6 +431,7 @@ class _GatherSelected(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad):
+        """Scatter the selected rows' gradient back to this rank's local rows (zeros elsewhere)."""
         local_ids, rows, shape, dim = ctx.keep
         moved_shape = (shape[dim], *[s for i, s in enumerate(shape) if i != dim])
         back = grad.new_zeros(moved_shape)

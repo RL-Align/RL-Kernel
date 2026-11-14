@@ -45,6 +45,7 @@ INPUTS = ("hidden_states", "audio_hidden_states", "encoder_hidden_states")
 
 
 def _inputs(size: str):
+    """The packed request of ``size`` on CUDA."""
     from tools.validation.models.h3_full_model import packed_inputs
     from tools.validation.models.h3_runtime_report import sized_inputs
 
@@ -82,6 +83,7 @@ def _run(model, base, grid, sp, ops, gradients, digest_leaf, *, inject=None):
 
 
 def main() -> None:
+    """Run the canonical model and the grid on this rank, compare them, write the report."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--tp", type=int, required=True)

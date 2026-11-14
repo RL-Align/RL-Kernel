@@ -32,6 +32,7 @@ def _world(world, target, inputs, **kwargs):
 class TestSpans:
     @pytest.mark.parametrize(("tp", "cp", "length"), [(1, 1, 5), (2, 3, 40), (4, 2, 261)])
     def test_spans_tile_the_sequence_without_sp(self, tp, cp, length):
+        """Without SP the rank spans tile ``[0, length)`` and there is one per rank."""
         spans = pm.rank_spans(tp, cp, length, sp=False)
         covered = sorted({s for s in spans})
         assert covered[0][0] == 0 and covered[-1][1] == length
@@ -39,10 +40,12 @@ class TestSpans:
         assert len(spans) == tp * cp
 
     def test_sp_spans_are_disjoint_shares(self):
+        """With SP every rank holds a disjoint share of the rows."""
         spans = pm.rank_spans(4, 2, 40, sp=True)
         assert sorted(spans) == [(i * 5, i * 5 + 5) for i in range(8)]
 
     def test_sp_needs_divisible_rows(self):
+        """SP refuses a CP shard whose rows are not divisible by ``tp``."""
         with pytest.raises(ValueError, match="divisible"):
             pm.rank_spans(4, 2, 12, sp=True)
 
@@ -52,6 +55,7 @@ class TestDigestOnGrad:
 
     @pytest.mark.parametrize("tp_rank", [0, 1])
     def test_the_hook_digests_the_shard_and_frees_the_gradient(self, tp_rank):
+        """The hook stores the digest of this rank's shard of the gradient and frees ``grad``."""
         name = next(iter(pm.SHARDED_WEIGHTS))
         state = pm.ParallelState(None, False)  # type: ignore[arg-type]
         state.digest_leaf = lambda n, grad: pm.exact_digest(pm.shard_of(grad, n, 2, tp_rank))
@@ -64,6 +68,7 @@ class TestDigestOnGrad:
         assert state.digests == {f"3.{name}": expected}
 
     def test_a_recomputed_leaf_replaces_the_digest_of_the_same_key(self):
+        """A recomputed leaf (checkpointing) overwrites the digest stored under the same key."""
         state = pm.ParallelState(None, False)  # type: ignore[arg-type]
         state.digest_leaf = lambda n, grad: pm.exact_digest(grad)
         for scale in (1.0, 2.0):
@@ -75,16 +80,19 @@ class TestDigestOnGrad:
 
 class TestFirstDrift:
     def _case(self):
+        """Four zero snapshots, two rank spans and per-row modality tags."""
         ref = {f"block.{i}": torch.zeros(1, 8, 4) for i in range(4)}
         spans = [(0, 4), (4, 8)]
         tags = torch.tensor([1, 1, 0, 0, 0, 0, 2, 2])
         return ref, spans, tags
 
     def test_no_drift(self):
+        """Identical snapshots report no drift."""
         ref, spans, tags = self._case()
         assert pm.first_drift(ref, {k: v.clone() for k, v in ref.items()}, spans, tags) is None
 
     def test_names_block_row_owner_and_modality(self):
+        """The first drift names its block, first row, owning rank and modality."""
         ref, spans, tags = self._case()
         seen = {k: v.clone() for k, v in ref.items()}
         seen["block.2"][0, 6, 1] = 1.0  # and everything after it differs too
@@ -99,12 +107,14 @@ class TestFirstDrift:
         }
 
     def test_replicated_rows_name_every_holder(self):
+        """A row held by several ranks names every holder."""
         ref, _, tags = self._case()
         seen = {k: v.clone() for k, v in ref.items()}
         seen["block.0"][0, 1, 0] = 1.0
         assert pm.first_drift(ref, seen, [(0, 4), (0, 4), (4, 8)], tags)["owner_ranks"] == [0, 1]
 
     def test_order_decides_which_node_is_first(self):
+        """The node order passed in decides which drift is reported first."""
         ref, spans, tags = self._case()
         seen = {k: v.clone() for k, v in ref.items()}
         seen["block.1"][0, 0, 0] = 1.0
@@ -116,6 +126,7 @@ class TestFirstDrift:
 @needs_gpu
 class TestDigest:
     def test_equal_tensors_agree_and_one_flipped_bit_disagrees(self):
+        """Equal tensors give equal digests; one flipped bit changes the digest."""
         gen = torch.Generator().manual_seed(1)
         x = torch.randn(300, 7, generator=gen).bfloat16().cuda()
         assert pm.exact_digest(x) == pm.exact_digest(x.clone())
@@ -124,6 +135,7 @@ class TestDigest:
         assert pm.exact_digest(x) != pm.exact_digest(y.view(torch.bfloat16))
 
     def test_a_swap_of_two_values_is_seen(self):
+        """Swapping two values changes the digest."""
         x = torch.arange(64, dtype=torch.float32).bfloat16().cuda()
         y = x.clone()
         y[[3, 40]] = y[[40, 3]]
@@ -163,6 +175,7 @@ def _slice_gather_target(collective, dummy, *, tp, cp, sp, length):
     ],
 )
 def test_slice_then_gather_is_the_identity_with_an_identity_adjoint(tp, cp, sp, length):
+    """Slicing to rank rows and gathering back is the identity, forward and backward."""
     ranks = _world(
         tp * cp, _slice_gather_target, {"dummy": torch.zeros(1)}, tp=tp, cp=cp, sp=sp, length=length
     )
@@ -189,6 +202,7 @@ def _chain_target(collective, dummy, *, tp, cp, sp, cp_mode, depth):
     grad = grad.bfloat16().cuda()
 
     def run(grid, with_sp, world_rank):
+        """Chain the blocks on ``grid``; return the output, input gradient and leaf gradients."""
         spans = pm.rank_spans(grid.tp, grid.cp, length, with_sp)
         hidden = ctx["hidden"].clone().requires_grad_(True)
         x, leaves_all = hidden, []
@@ -248,6 +262,7 @@ def _chain_target(collective, dummy, *, tp, cp, sp, cp_mode, depth):
     ],
 )
 def test_chained_blocks_equal_the_canonical_chain_bitwise(tp, cp, sp, mode):
+    """Chained blocks on a grid equal the canonical chain bitwise, weight gradients included."""
     pytest.importorskip("triton")
     from rl_engine.backends.cuda.attention import h3_full_attention as fa
 

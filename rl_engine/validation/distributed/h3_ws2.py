@@ -313,6 +313,7 @@ def _region_times(collective, case, lay, iters) -> dict[str, float]:
 
 
 def _bootstrap(rank, world, init_method, queue, inputs_path, target, kwargs, with_collective=True):
+    """One rank of ``run_world``: join the group, run ``target``, save its result, report."""
     import traceback
 
     import torch.distributed as dist

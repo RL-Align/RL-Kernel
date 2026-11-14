@@ -29,6 +29,7 @@ from rl_engine.validation.models.h3_weights import load_h3_block_weights
 
 
 def main() -> None:
+    """Run this rank's rows of the layout; rank 0 compares with the single-GPU block."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tp", type=int, required=True)
     parser.add_argument("--cp", type=int, default=1)

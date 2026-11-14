@@ -207,6 +207,7 @@ GRIDS = [
 @needs_gpu
 @pytest.mark.parametrize(("tp", "cp", "sp", "length"), GRIDS)
 def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length, h3_block_weights_cuda):
+    """Each TP / CP / SP layout of the block equals the single-GPU block bitwise, dW included."""
     # the fixture skips without extracted weights; every rank loads the same pinned files
     _triton()
     ranks = run_world(

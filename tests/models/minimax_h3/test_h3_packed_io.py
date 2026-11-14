@@ -46,6 +46,7 @@ def _layout(length, seed=3):
 
 
 def _io_target(collective, dummy, *, length, root):
+    """Per-rank checks of scatter, gather, selected-row gather and the row-identity check."""
     import torch.distributed as dist
 
     del collective, dummy
@@ -105,6 +106,7 @@ def _io_target(collective, dummy, *, length, root):
 
 
 def _check(ranks):
+    """Every rank reports every check as passed."""
     for r in ranks:
         bad = [k for k, v in r.items() if k != "rank" and int(v) != 1]
         assert not bad, f"rank {int(r['rank'])}: {bad}"
@@ -113,6 +115,7 @@ def _check(ranks):
 @needs_gpu
 class TestSingleRank:
     def test_gather_selected_matches_index_select(self):
+        """On one rank, the selected-row gather equals ``index_select``."""
         local = torch.randn(1, 20, 4).cuda()
         shard = par.SeqShard(20, 1, 0)
         sel = torch.tensor([7, 2, 19, 0]).cuda()
@@ -128,17 +131,20 @@ class TestSingleRank:
         ],
     )
     def test_rejects_bad_selections(self, selected, match):
+        """Out-of-range, repeated or non-integer selections are refused."""
         shard = par.SeqShard(20, 1, 0)
         with pytest.raises(ValueError, match=match):
             par.gather_selected(torch.zeros(1, 20, 4).cuda(), shard, selected.cuda(), dim=1)
 
     def test_wrong_local_row_count_is_rejected(self):
+        """A local tensor with the wrong number of rows for its shard is refused."""
         with pytest.raises(ValueError, match="local rows"):
             par.gather_selected(
                 torch.zeros(1, 3, 4).cuda(), par.SeqShard(20, 2, 0), torch.tensor([0]).cuda(), dim=1
             )
 
     def test_scatter_roles_are_checked(self):
+        """Only the root may hold the input, and the root must be a group member."""
         shard = par.SeqShard(4, 1, 0)
         with pytest.raises(ValueError, match="root must hold"):
             par.scatter_from_root(None, shard, tail_shape=(2,), dtype=torch.float32)
@@ -153,6 +159,7 @@ class TestSingleRank:
 @pytest.mark.parametrize("length", [1, 5, 261])
 @pytest.mark.parametrize("root", [0, 1])
 def test_packed_io_matches_single_process_bitwise(cp, length, root):
+    """Distributed packed IO equals the single-process result bitwise on ``cp`` ranks."""
     if torch.cuda.device_count() < cp:
         pytest.skip(f"needs {cp} GPUs")
     _check(_world(cp, _io_target, {"dummy": torch.zeros(1)}, length=length, root=min(root, cp - 1)))

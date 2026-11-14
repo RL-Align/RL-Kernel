@@ -142,6 +142,7 @@ def _digest_on_grad(state: ParallelState, key: str, name: str, leaf: torch.Tenso
     assert digest_leaf is not None
 
     def hook(param: torch.Tensor) -> None:
+        """Digest the accumulated gradient under ``key`` and free it."""
         grad = param.grad
         assert grad is not None
         state.digests[key] = digest_leaf(name, grad)
@@ -152,6 +153,7 @@ def _digest_on_grad(state: ParallelState, key: str, name: str, leaf: torch.Tenso
 
 def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelState):
     def forward(self, hidden_states, temb, adaln_indices, rotary_emb, attention_mask=None):
+        """Block ``index`` on the grid for this rank's rows; the full rows are gathered back."""
         if attention_mask is not None:
             raise ValueError("the parallel H3 block requires an unmasked packed sequence")
         if hidden_states.shape[0] != 1:
