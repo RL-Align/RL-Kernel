@@ -50,6 +50,9 @@ class RLKDeepSeekV4Worker(Worker):
         expected = digest(payload["weights"]["norm.weight"])
         with p1.updating(version, torch.cuda.synchronize):
             loaded = wrapper.load_weights(payload["weights"].items())
+            from .checkpoint_sync import verify_loaded_update
+
+            verified = verify_loaded_update(wrapper, payload, loaded)
             actual = digest(wrapper.model.norm.weight)
             if actual != expected:
                 raise RuntimeError("rollout final norm does not match actor update bytes")
@@ -57,6 +60,9 @@ class RLKDeepSeekV4Worker(Worker):
             weight_version=p1.version,
             updated_tensors=len(payload["weights"]),
             loaded_names=sorted(loaded),
+            verified_original_tensors=verified,
+            parameter_load_completed=True,
+            pid=os.getpid(),
             norm_before=before,
             norm_after=actual,
             norm_expected=expected,
@@ -141,6 +147,9 @@ class RLKDeepSeekV4Worker(Worker):
                 if name:
                     boundaries.append((f"layer.{i}.attn.{name}", module))
             ffn = model.layers[i].ffn
+            from .router_projection import bind_rollout_router_projection
+
+            bind_rollout_router_projection(ffn.gate)
             print(
                 "MOE_MODULES",
                 i,
@@ -186,7 +195,12 @@ class RLKDeepSeekV4Worker(Worker):
             torch.save(tensor.detach().cpu(), root / f"layer-{context['layer']}-{name}.pt")
 
         p1 = bind_mhc_worker(
-            model, "rollout", backend="rocm", mode="split", version=0, observer=observe
+            model,
+            "rollout",
+            backend=os.environ.get("DSV4_MHC_BACKEND", "rocm"),
+            mode="split",
+            version=0,
+            observer=observe,
         )
         from rl_engine.integrations.engines.rollout.vllm.outputs import (
             bind_output_head,
@@ -485,6 +499,7 @@ class RLKDeepSeekV4Worker(Worker):
         grouped_gemm.batched_gemm_a8w8_mxscale = grouped
         inverse_quant.inverse_rope_group_quant = inverse
         original = model.forward
+        forward_signature = inspect.signature(original)
 
         def forward(*args, **kwargs):
             if os.environ.get("DSV4_PHASE") == "generation":
@@ -496,7 +511,13 @@ class RLKDeepSeekV4Worker(Worker):
                     raise ValueError("ordinary eager attention metadata is required")
                 batch = next(m for m in metadata.values() if hasattr(m, "num_reqs"))
                 starts = batch.query_start_loc.detach().cpu().tolist()
-                tokens = kwargs["input_ids"].detach().cpu().tolist()
+                tokens = (
+                    forward_signature.bind(*args, **kwargs)
+                    .arguments["input_ids"]
+                    .detach()
+                    .cpu()
+                    .tolist()
+                )
                 self._rlk_case_batches.append(
                     dict(
                         forward=forward_index[0],

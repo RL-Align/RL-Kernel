@@ -289,6 +289,7 @@ async def main():
                             kind,
                         )
                         extra[0].update(batch_size=len(cases), batch_position=i)
+                        save_json(ROOT / f"compare-{name}-{c['id']}-{kind}.json", extra)
                         results.extend(extra)
                         rows.extend(extra)
                 else:
@@ -383,6 +384,10 @@ async def main():
             ),
         )
     except Exception as error:
+        step_status = ROOT / "actor-step-status.json"
+        if step_status.exists():
+            status = json.loads(step_status.read_text())
+            update_executed = bool(status["optimizer_returned"] and status["parameter_changed"])
         save_json(
             ROOT / "results.json",
             dict(

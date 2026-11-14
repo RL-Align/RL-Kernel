@@ -80,6 +80,7 @@ def main():
         model_type="language_model",
         model_config=HFModelConfig(path="/models/4l", use_remove_padding=False),
         engine_config=RLKNativeMcoreEngineConfig(
+            rlk_mhc_backend=os.environ.get("DSV4_MHC_BACKEND", "rocm"),
             tensor_model_parallel_size=1,
             pipeline_model_parallel_size=1,
             expert_model_parallel_size=1,
@@ -140,6 +141,11 @@ def main():
 
     for layer in model.decoder.layers[1::2]:
         router = layer.inner_layer.mlp.router
+        from rl_engine.integrations.engines.train.megatron.native_router_projection import (
+            bind_native_router_projection,
+        )
+
+        bind_native_router_projection(router)
         if router.is_hash_layer:
             bind_native_hash_route(router)
         else:
@@ -179,6 +185,7 @@ def main():
                 torch.distributed.destroy_process_group()
                 return
             cases = command["cases"]
+            engine.rlk_logical_cases = cases
             record = {"id": name, "weight_version": engine.rlk_weight_version}
             if action == "infer":
                 stop = install(model, ROOT / f"actor-trace-{name}")
@@ -207,25 +214,75 @@ def main():
                 )
             elif action == "step":
                 before = digest(model.decoder.final_norm.weight)
-                out = worker.train_batch(batch(cases))
-                metrics = out["metrics"].data
+                trainable = {id(p): name for name, p in model.named_parameters() if p.requires_grad}
+                covered = {
+                    id(p)
+                    for group in model._rlk_checkpoint_export_parameters.values()
+                    for p in group
+                }
+                missing = [name for identity, name in trainable.items() if identity not in covered]
+                if missing:
+                    raise RuntimeError(
+                        f"trainable parameters missing from export mapping: {missing}"
+                    )
+                witness = dict(backward_executed=False)
+
+                def gradient(value):
+                    witness.update(
+                        backward_executed=True,
+                        tracked_parameter="decoder.final_norm.weight",
+                        gradient_finite=bool(torch.isfinite(value).all()),
+                        gradient_nonzero=bool(value.ne(0).any()),
+                    )
+
+                handle = model.decoder.final_norm.weight.register_hook(gradient)
+                try:
+                    out = worker.train_batch(batch(cases))
+                finally:
+                    handle.remove()
+                after = digest(model.decoder.final_norm.weight)
+                (ROOT / "actor-step-status.json").write_text(
+                    json.dumps(
+                        dict(
+                            weight_version=engine.rlk_weight_version,
+                            optimizer_returned=True,
+                            before=before,
+                            after=after,
+                            parameter_changed=before != after,
+                            gradient_witness=witness,
+                            trainable_parameters=len(trainable),
+                            missing_export_parameters=missing,
+                        )
+                    )
+                    + "\n"
+                )
+                from examples.operators.dsv4_4l.step_evidence import training_metrics
+
+                metrics = training_metrics(out)
                 (ROOT / "actor-step-metrics.json").write_text(
                     json.dumps(metrics, indent=2, default=str) + "\n"
                 )
-                grad_norm = metrics.get("grad_norm", metrics.get("actor/grad_norm"))
-                if grad_norm is not None and not (
-                    float(grad_norm) > 0 and float(grad_norm) < float("inf")
-                ):
-                    raise RuntimeError("actual optimizer gradient norm must be finite and nonzero")
-                after = digest(model.decoder.final_norm.weight)
+                if not witness.get("gradient_finite") or not witness.get("gradient_nonzero"):
+                    raise RuntimeError(f"actual backward gradient witness failed: {witness}")
                 if before == after:
                     raise RuntimeError(
                         "real optimizer step did not change the tracked trainable final norm"
                     )
                 weights, _ = engine.get_per_tensor_param(base_sync_done=True)
                 export = {k: v.detach().cpu().clone() for k, v in weights}
+                manifest = {
+                    k: dict(shape=list(v.shape), dtype=str(v.dtype), sha256=digest(v))
+                    for k, v in export.items()
+                }
+                (ROOT / "actor-update-manifest.json").write_text(
+                    json.dumps(manifest, indent=2) + "\n"
+                )
                 torch.save(
-                    {"weight_version": engine.rlk_weight_version, "weights": export},
+                    {
+                        "weight_version": engine.rlk_weight_version,
+                        "weights": export,
+                        "manifest": manifest,
+                    },
                     ROOT / "actor-update.pt",
                 )
                 record.update(
@@ -235,6 +292,10 @@ def main():
                     exported_tensors=len(export),
                     source="actual TrainingWorker.train_batch/optimizer.step",
                     metrics=metrics,
+                    gradient_witness=witness,
+                    trainable_parameters=len(trainable),
+                    missing_export_parameters=missing,
+                    parameter_export_completed=True,
                 )
             else:
                 raise ValueError(action)

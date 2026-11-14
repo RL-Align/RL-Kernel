@@ -5,6 +5,7 @@ import base64
 import hashlib
 import importlib.metadata as md
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -27,6 +28,16 @@ def audit(root=Path("/opt/dsv4")):
         assert not git("diff", "--name-only", "HEAD"), (name, "patched source")
         assert not git("ls-files", "--others", "--exclude-standard"), (name, "unrecorded source")
         result[name] = {"sha": actual, "pristine": True, "path": str(repo)}
+    if os.environ.get("RLK_ASSEMBLY_SHA"):
+        repository = root / "RL-Kernel"
+        actual = subprocess.check_output(
+            ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
+        ).strip()
+        assert actual == os.environ["RLK_ASSEMBLY_SHA"]
+        assert not subprocess.check_output(
+            ["git", "-C", str(repository), "status", "--porcelain"], text=True
+        ).strip(), "RLK assembled checkout is dirty"
+        result["RL-Kernel"] = dict(sha=actual, pristine_assembly=True, path=str(repository))
     dist = md.distribution("megatron-bridge")
     assert dist.version == "0.7.0"
     checked = 0
