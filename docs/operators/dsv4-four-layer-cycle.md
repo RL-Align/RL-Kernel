@@ -14,6 +14,39 @@ and shared-down fixes. The versioned output boundary is separate from mHC and
 keeps the final head → final norm → original lm_head → raw logprob order.
 The native Megatron-Lite integration remains available.
 
+After these companion changes are merged into `dsv4-rocm`, use one clean
+checkout of that branch inside the image. Record its commit with the image ID;
+an older image does not acquire branch updates automatically. Keep the upstream
+revisions below pinned during reproduction. `audit_dependencies.py` rejects
+modified upstream sources and records the clean RLK checkout SHA. Set
+`RLK_ASSEMBLY_SHA` in the image to additionally enforce an expected RLK revision.
+
+- verl: `8c94a12d7811030413cd85e2bba6db863e0913c8`
+- Megatron-LM: `97b50bdd936022ef58031c35db6d10581c181be0`
+- vLLM: `c07d58dc82d75f7d1a947b3264b460384ec3e18d`
+- Megatron-Bridge: the unmodified `0.7.0` wheel.
+
+Select the mHC backend explicitly for the AMD handoff. Run the baseline first,
+then the Triton backend in a different new output directory:
+
+```bash
+DSV4_MHC_BACKEND=rocm bash examples/operators/dsv4_4l/run_cycle.sh \
+  "$IMAGE" "$PHYSICAL_GPU" "$FOUR_LAYER_CHECKPOINT" "$BASELINE_OUTPUT" "$CACHE"
+DSV4_MHC_BACKEND=rocm_triton bash examples/operators/dsv4_4l/run_cycle.sh \
+  "$IMAGE" "$PHYSICAL_GPU" "$FOUR_LAYER_CHECKPOINT" "$TRITON_OUTPUT" "$CACHE"
+```
+
+The Triton backend is the implementation merged in #662. CPU tests and a clean
+merge do not qualify this path on MI300X. Require actual pre/post/head execution
+records, a complete canonical parameter backward session, and the pre/post-update
+score matrix before reporting it as passed. Repeat in a fresh container.
+
+The CPU-only branch workflow checks contracts and comparison guards. It does
+not run the four-layer model or validate ROCm kernels. Original checkpoint and
+capture fixtures remain external to the repository. The optional PR #622
+provider probe reports a blocker unless its separate collectors are installed;
+it is not required to run the four-layer cycle.
+
 The initial MI300X eager TP=PP=EP=CP=1 cycle compares both original response
 tokens exactly in FP32, then independently replays them, performs actual
 TrainingWorker backward/optimizer.step and synchronizes the same live rollout

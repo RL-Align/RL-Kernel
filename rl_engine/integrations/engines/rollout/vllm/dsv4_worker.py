@@ -1,13 +1,15 @@
 """Real eager vLLM worker with explicit RLK bindings and versioned raw-score capture."""
 
+import hashlib
 import inspect
-import types
 import json
 import os
-import hashlib
+import types
 from pathlib import Path
+
 import torch
 from vllm.v1.worker.gpu_worker import Worker
+
 from rl_engine.integrations.orchestrators.verl.mhc import bind_mhc_worker
 
 

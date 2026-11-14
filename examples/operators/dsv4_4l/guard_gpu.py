@@ -1,5 +1,7 @@
-import json, re, subprocess, sys
-from pathlib import Path
+import json
+import re
+import subprocess
+import sys
 
 gpu = int(sys.argv[1])
 p = subprocess.check_output(["rocm-smi", "--showpidgpus"], text=True)

@@ -380,11 +380,13 @@ if _TRITON_AVAILABLE:
             leaf = tl.program_id(0)
             pid_m = tl.program_id(1)
             pid_n = tl.program_id(2)
-        offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-        offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
         # Qwen prefill workspaces can exceed 2**31 elements.  ROCm Triton
         # otherwise keeps the index expression in i32 and wraps addresses,
-        # causing GPU memory faults for large M*N trees.
+        # causing GPU memory faults for large M*N trees.  The row and column
+        # indices are int64 for the same reason: ``offs_m * stride_am`` passes
+        # 2**31 once M * stride_am does.  Only addresses change, not values.
+        offs_m = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+        offs_n = (pid_n * BLOCK_N + tl.arange(0, BLOCK_N)).to(tl.int64)
         leaf_start = tl.load(leaf_starts_ptr + leaf).to(tl.int64)
         leaf_length = tl.load(leaf_lengths_ptr + leaf).to(tl.int64)
         leaf_node = tl.load(leaf_nodes_ptr + leaf).to(tl.int64)
@@ -406,9 +408,7 @@ if _TRITON_AVAILABLE:
                 other=0.0,
             ).to(tl.float32)
             acc += a[:, None] * b[None, :]
-        output_offsets = (
-            leaf_node * (M * N) + offs_m[:, None].to(tl.int64) * N + offs_n[None, :].to(tl.int64)
-        )
+        output_offsets = leaf_node * M * N + offs_m[:, None] * N + offs_n[None, :]
         output_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
         tl.store(
             workspace_ptr + output_offsets,
@@ -451,8 +451,9 @@ if _TRITON_AVAILABLE:
             pair = tl.program_id(0)
             pid_m = tl.program_id(1)
             pid_n = tl.program_id(2)
-        offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-        offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        # int64 indices, as in _det_gemm_tree_leaf_kernel: addresses only.
+        offs_m = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+        offs_n = (pid_n * BLOCK_N + tl.arange(0, BLOCK_N)).to(tl.int64)
         lower_start = tl.load(lower_starts_ptr + pair).to(tl.int64)
         lower_length = tl.load(lower_lengths_ptr + pair).to(tl.int64)
         upper_start = tl.load(upper_starts_ptr + pair).to(tl.int64)
@@ -495,7 +496,7 @@ if _TRITON_AVAILABLE:
         # add and BF16 store. Only the intermediate global-memory trip is gone.
         result = lower.to(tl.float32) + upper_acc.to(workspace_ptr.dtype.element_ty).to(tl.float32)
         output_mask = (offs_m[:, None] < M) & (offs_n[None, :] < N)
-        offsets = offs_m[:, None].to(tl.int64) * N + offs_n[None, :].to(tl.int64)
+        offsets = offs_m[:, None] * N + offs_n[None, :]
         if WRITE_OUTPUT:
             tl.store(
                 output_ptr + offsets,
@@ -505,7 +506,7 @@ if _TRITON_AVAILABLE:
         else:
             output_node = tl.load(output_nodes_ptr + pair).to(tl.int64)
             tl.store(
-                workspace_ptr + output_node * (M * N) + offsets,
+                workspace_ptr + output_node * M * N + offsets,
                 result.to(workspace_ptr.dtype.element_ty),
                 mask=output_mask,
             )
@@ -523,7 +524,7 @@ if _TRITON_AVAILABLE:
         operation = tl.program_id(0)
         block = tl.program_id(1)
         offsets = (block * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
-        elements = M * N
+        elements = tl.cast(M, tl.int64) * N  # int64: M * N may pass 2**31
         mask = offsets < elements
         lower_node = tl.load(lower_nodes_ptr + operation).to(tl.int64)
         upper_node = tl.load(upper_nodes_ptr + operation).to(tl.int64)
@@ -559,7 +560,7 @@ if _TRITON_AVAILABLE:
         BLOCK: tl.constexpr,
     ):
         offsets = (tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
-        elements = M * N
+        elements = tl.cast(M, tl.int64) * N  # int64: M * N may pass 2**31
         mask = offsets < elements
         lower_node = tl.load(lower_nodes_ptr).to(tl.int64)
         upper_node = tl.load(upper_nodes_ptr).to(tl.int64)
@@ -599,7 +600,7 @@ if _TRITON_AVAILABLE:
         operation = tl.program_id(0)
         block = tl.program_id(1)
         offsets = (block * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
-        elements = M * N
+        elements = tl.cast(M, tl.int64) * N  # int64: M * N may pass 2**31
         mask = offsets < elements
         node0 = tl.load(node0_ptr + operation).to(tl.int64)
         node1 = tl.load(node1_ptr + operation).to(tl.int64)
@@ -646,7 +647,8 @@ if _TRITON_AVAILABLE:
     ):
         offsets = (tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
         mask = offsets < elements
-        values = tl.load(workspace_ptr + root * elements + offsets, mask=mask)
+        # int64: root * elements passes 2**31 for large trees.
+        values = tl.load(workspace_ptr + tl.cast(root, tl.int64) * elements + offsets, mask=mask)
         tl.store(output_ptr + offsets, values, mask=mask)
 
     @triton.jit
@@ -664,7 +666,10 @@ if _TRITON_AVAILABLE:
         elements = M * N
         mask = (offsets_m[:, None] < M) & (offsets_n[None, :] < N)
         values = tl.load(
-            workspace_ptr + root * elements + offsets_m[:, None] * N + offsets_n[None, :],
+            workspace_ptr
+            + tl.cast(root, tl.int64) * elements
+            + offsets_m[:, None] * N
+            + offsets_n[None, :],
             mask=mask,
         )
         # Store the already-rounded BF16 root directly in [N, M] layout.
@@ -698,9 +703,12 @@ if _TRITON_AVAILABLE:
         # One program = one output tile, walks the whole K in fixed order.
         # No split-K -> K-accumulation order independent of M -> batch-invariant.
         pid_m, pid_n = tl.program_id(0), tl.program_id(1)
-        offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-        offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-        offs_k = tl.arange(0, BLOCK_K)
+        # int64 indices: in i32, offs_m * stride_am wraps once M * stride_am passes
+        # 2**31 (e.g. the lm_head input gradient, stride 129280, at M > 16611).
+        # Only addresses change, not the values or their order.
+        offs_m = (pid_m * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+        offs_n = (pid_n * BLOCK_N + tl.arange(0, BLOCK_N)).to(tl.int64)
+        offs_k = tl.arange(0, BLOCK_K).to(tl.int64)
         a_ptrs = a_ptr + (offs_m[:, None] * stride_am + offs_k[None, :] * stride_ak)
         b_ptrs = b_ptr + (offs_k[:, None] * stride_bk + offs_n[None, :] * stride_bn)
         acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)

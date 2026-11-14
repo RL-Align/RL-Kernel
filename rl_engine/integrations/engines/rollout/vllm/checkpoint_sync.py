@@ -2,6 +2,7 @@
 """Read back every original nonquantized tensor after the actual vLLM loader."""
 
 import hashlib
+
 import torch
 
 
@@ -53,6 +54,7 @@ def verify_loaded_update(wrapper, payload, loaded):
         expected_loaded.add(actual_name)
     if set(loaded) != expected_loaded:
         raise RuntimeError(
-            f"actual loader names disagree: missing={expected_loaded - set(loaded)}, extra={set(loaded) - expected_loaded}"
+            f"actual loader names disagree: missing={expected_loaded - set(loaded)}, "
+            f"extra={set(loaded) - expected_loaded}"
         )
     return checked

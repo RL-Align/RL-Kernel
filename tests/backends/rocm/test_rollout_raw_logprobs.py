@@ -15,7 +15,9 @@ def test_selected_scores_full_vocabulary_accuracy_and_gradient():
     logits = torch.randn(3, 129280, device="cuda", dtype=torch.float32, requires_grad=True)
     targets = torch.tensor([92132, 109502, 64432], device="cuda")
     actual = TritonLogpOp()(logits, targets)
-    expected = logits.detach().cpu().double().log_softmax(-1).gather(1, targets.cpu()[:, None])[:, 0]
+    expected = (
+        logits.detach().cpu().double().log_softmax(-1).gather(1, targets.cpu()[:, None])[:, 0]
+    )
     torch.testing.assert_close(actual.cpu().double(), expected, atol=3e-6, rtol=0)
     actual.sum().backward()
     reference = -logits.detach().softmax(-1)

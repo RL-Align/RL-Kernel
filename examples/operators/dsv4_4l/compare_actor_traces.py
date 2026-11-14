@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Byte-compare two actual actor traces and report the first differing boundary."""
 
-from collections import defaultdict
 import argparse
 import json
+from collections import defaultdict
 from pathlib import Path
 
 import torch

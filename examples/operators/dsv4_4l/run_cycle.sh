@@ -10,6 +10,11 @@ gpu=$2
 model=$(realpath "$3")
 output=$(realpath -m "$4")
 cache=$(realpath -m "$5")
+mhc_backend=${DSV4_MHC_BACKEND:-rocm}
+if [[ "$mhc_backend" != rocm && "$mhc_backend" != rocm_triton ]]; then
+  echo "DSV4_MHC_BACKEND must be rocm or rocm_triton" >&2
+  exit 2
+fi
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 python3 "$script_dir/guard_gpu.py" "$gpu"
 mkdir "$output"
@@ -23,6 +28,9 @@ docker run --pull=never --rm --init --name "rlk-dsv4-parity-$$" \
   -e ROCR_VISIBLE_DEVICES="$gpu" -e HIP_VISIBLE_DEVICES=0 -e DSV4_PHYSICAL_GPU="$gpu" \
   -e OMP_NUM_THREADS=4 -e VLLM_ROCM_USE_AITER=1 -e VLLM_ENABLE_V1_MULTIPROCESSING=1 \
   -e DSV4_FIXED_SHARED_DOWN=1 -e DSV4_CHECKPOINT_SHA256="$checkpoint_sha" \
+  -e DSV4_MHC_BACKEND="$mhc_backend" \
+  -e HF_HOME=/cache/huggingface -e TRITON_CACHE_DIR=/cache/triton \
+  -e XDG_CACHE_HOME=/cache/xdg -e TORCH_EXTENSIONS_DIR=/cache/torch_extensions \
   -e TMPDIR=/outputs/tmp \
   -v "$cache:/cache" -v "$output:/outputs" -v "$model:/models/4l:ro" \
   "$image" bash -c 'mkdir /outputs/tmp; cd /opt/dsv4/RL-Kernel; exec /opt/dsv4-venv/bin/python -m examples.operators.dsv4_4l.cycle' \

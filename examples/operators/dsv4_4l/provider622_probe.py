@@ -3,8 +3,6 @@
 
 import argparse
 import json
-from rl_engine.contracts.strict_provider import StrictProviderError
-from rl_engine.runtime.provenance.provider_identity import checkpoint_identity, file_inventory
 
 
 def main():
@@ -18,6 +16,17 @@ def main():
         actual_worker_integration=False,
         actual_gpu_execution_verified=False,
     )
+    try:
+        from rl_engine.contracts.strict_provider import StrictProviderError
+        from rl_engine.runtime.provenance.provider_identity import (
+            checkpoint_identity,
+            file_inventory,
+        )
+    except ModuleNotFoundError as error:
+        result["blocker"] = f"PR 622 provider collectors are not installed: {error}"
+        with open(args.output, "w") as stream:
+            json.dump(result, stream, indent=2)
+        raise SystemExit(2)
     try:
         result["indexed_checkpoint"] = checkpoint_identity(
             args.checkpoint,

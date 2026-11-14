@@ -8,22 +8,16 @@ Post consumes the original four streams; do not add the raw row again.
 The opt-in `rocm` backend runs RLK's row arithmetic on gfx942 or gfx950. It
 uses ordinary on-device tensor operations for correctness bring-up, not a
 throughput-optimized mHC kernel. The explicitly selected `reference` path
-requires CPU. `rocm_aiter` is a forward-only comparison against #662 on
-gfx942, hidden size 4096. It runs each row at M=1, so neither
-the selected configuration nor the compiled M changes with batch packing.
-Use `torch.no_grad()` or `torch.inference_mode()` to compare with trainable
-inputs or weights. With gradients enabled, an input that requires grad is
-rejected before dispatch. The comparison requires #662 and its pinned aiter
-build; it never falls back to RLK. All modes use task 5 for sublayer
-RMSNorm. Use `backend="rocm"` for both training and rollout in a bitwise run.
+requires CPU. `rocm_triton` runs RLK's batch-invariant Triton mHC ops
+(gfx942); it saves forward values instead of recomputing them, and its fn,
+scale and base gradients go through the canonical backward session
+(`logical_keys`, `parameter_id`). All modes use task 5 for sublayer RMSNorm.
+Use `backend="rocm"` for both training and rollout in a bitwise run.
 
-The first-order VJP uses rsqrt(mean(square) + 1e-6), BF16 effective
-projection weights with FP32 accumulation, and asymmetric Sinkhorn. Gradients
-to the FP32 master weights use the straight-through derivative of the BF16
-weight cast. The controller matches the arithmetic choices recorded in #662;
-the owned forward uses explicit adjacent-pair sums, which can round differently
-from AITER's fused instructions. Its saved state and VJP are used only for
-the owned and reference paths, never for AITER outputs.
+The first-order VJP uses rsqrt(mean(square) + 1e-6), the FP32 projection of
+DeepSeek-V4's `inference/model.py`, and asymmetric Sinkhorn. The owned forward
+uses explicit adjacent-pair sums, which can round differently from the Triton
+kernels.
 
 Save mode records the per-token gates and Sinkhorn normalization results;
 recompute mode rebuilds them from version-checked inputs. Frozen parameters

@@ -20,7 +20,12 @@ def save_json(path, value):
 
 async def wait_file(path, process, timeout=600):
     end = time.monotonic() + timeout
-    while not path.exists():
+    while True:
+        if path.exists():
+            try:
+                return json.loads(path.read_text())
+            except json.JSONDecodeError:
+                pass  # The actor may still be publishing this JSON sentinel.
         if process.poll() is not None:
             raise RuntimeError(f"actual actor exited {process.returncode}; see actor-service.log")
         if (ROOT / "actor-error.json").exists():
@@ -28,7 +33,6 @@ async def wait_file(path, process, timeout=600):
         if time.monotonic() > end:
             raise TimeoutError(str(path))
         await asyncio.sleep(0.2)
-    return json.loads(path.read_text())
 
 
 async def command(process, name, action, cases=()):
@@ -128,6 +132,8 @@ def teacher_scores(name, cases, version):
 
 
 async def main():
+    if not __debug__:
+        raise RuntimeError("strict comparison cannot run with Python assertions disabled")
     from examples.operators.dsv4_4l.audit_dependencies import audit
 
     save_json(ROOT / "dependency-audit.json", audit())
@@ -144,7 +150,7 @@ async def main():
         include_dashboard=False,
         object_store_memory=256 * 1024**2,
         _memory=4 * 1024**3,
-        _temp_dir="/cache/ray-parity",
+        _temp_dir="/outputs/tmp/ray-parity",
         log_to_driver=True,
     )
     cfg = RolloutConfig(
@@ -169,7 +175,9 @@ async def main():
         calculate_log_probs=True,
         engine_kwargs={
             "vllm": {
-                "worker_cls": "rl_engine.integrations.engines.rollout.vllm.dsv4_worker.RLKDeepSeekV4Worker",
+                "worker_cls": (
+                    "rl_engine.integrations.engines.rollout.vllm.dsv4_worker." "RLKDeepSeekV4Worker"
+                ),
                 "distributed_executor_backend": "uni",
                 "compilation_config": {"cudagraph_mode": "NONE"},
             }

@@ -4,7 +4,9 @@
 import importlib
 import importlib.metadata as metadata
 import json
+
 import torch
+
 from examples.operators.dsv4_4l.audit_dependencies import audit
 
 
@@ -22,7 +24,8 @@ def main():
             for name in ("rl_engine", "verl", "megatron.core", "vllm")
         },
         versions={
-            name: metadata.version(name) for name in ("torch", "triton", "amd-aiter", "megatron-bridge")
+            name: metadata.version(name)
+            for name in ("torch", "triton", "amd-aiter", "megatron-bridge")
         },
         hip=torch.version.hip,
         architecture=device.gcnArchName,

@@ -10,8 +10,6 @@ from pathlib import Path
 
 import torch
 from tensordict import TensorDict
-
-from rl_engine.integrations.orchestrators.verl.native_engine import RLKNativeMcoreEngineConfig
 from verl.trainer.config import CheckpointConfig
 from verl.utils import tensordict_utils as tu
 from verl.utils.profiler.config import ProfilerConfig
@@ -19,6 +17,7 @@ from verl.workers.config import HFModelConfig, McoreOptimizerConfig, TrainingWor
 from verl.workers.engine_workers import TrainingWorker
 
 from examples.operators.dsv4_4l.native_trace import install
+from rl_engine.integrations.orchestrators.verl.native_engine import RLKNativeMcoreEngineConfig
 
 ROOT = Path("/outputs")
 COMMANDS = ROOT / "actor-commands"
@@ -67,6 +66,7 @@ def batch(cases):
 
 
 def main():
+    rendezvous = ROOT / "actor-rendezvous"
     os.environ.update(
         WORLD_SIZE="1",
         RANK="0",
@@ -74,7 +74,7 @@ def main():
         LOCAL_RANK="0",
         MASTER_ADDR="127.0.0.1",
         MASTER_PORT="29648",
-        DIST_INIT_METHOD="file:///cache/tmp/dsv4-actor-rendezvous",
+        DIST_INIT_METHOD=rendezvous.as_uri(),
     )
     cfg = TrainingWorkerConfig(
         model_type="language_model",
@@ -111,10 +111,10 @@ def main():
     worker.reset()
     engine = worker.engine
     model = engine._rlk_models[0]
-    from rl_engine.integrations.engines.train.megatron.native_sparse import bind_native_sparse
     from rl_engine.integrations.engines.train.megatron.native_inverse_rope import (
         bind_native_inverse_rope,
     )
+    from rl_engine.integrations.engines.train.megatron.native_sparse import bind_native_sparse
 
     for layer in model.decoder.layers[::2]:
         attention = layer.inner_layer.self_attention
@@ -197,7 +197,8 @@ def main():
                 pieces = list(raw.split(lengths))
                 selected = [
                     piece[
-                        len(c["prompt_token_ids"]) - 1 : len(c["prompt_token_ids"])
+                        len(c["prompt_token_ids"])
+                        - 1 : len(c["prompt_token_ids"])
                         - 1
                         + len(c["response_token_ids"])
                     ].clone()

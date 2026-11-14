@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import torch
+
 from examples.operators.dsv4_4l import cycle
 
 
