@@ -48,6 +48,7 @@ from rl_engine.contracts.numerical import (
     resolve_tolerance,
     validate_backend_provenance,
 )
+from rl_engine.validation.common.tensor_identity import tensor_bitwise_equal
 
 _normalize_dtype_name = normalize_dtype_name
 
@@ -349,7 +350,10 @@ def _compare_logical_tensors(
         rel_error = abs_error / canonical_fp32.abs().clamp_min(1e-12)
         max_rel = float(rel_error.max().item())
 
-    passed = bool(torch.allclose(transformed_fp32, canonical_fp32, atol=atol, rtol=rtol))
+    if spec.mode == "bitwise":
+        passed = tensor_bitwise_equal(transformed, canonical)
+    else:
+        passed = bool(torch.allclose(transformed_fp32, canonical_fp32, atol=atol, rtol=rtol))
 
     return TensorComparisonDetail(
         tensor_name=tensor_name,

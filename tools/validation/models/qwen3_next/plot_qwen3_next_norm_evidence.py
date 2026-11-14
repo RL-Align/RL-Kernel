@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Plot a report from tools/validation/models/qwen3_next_norm_evidence.py: one 2x2 figure per op.
+"""Plot a report from tools/validation/models/qwen3_next/qwen3_next_norm_evidence.py: one 2x2
+figure per op.
 
 python -m pip install matplotlib  # optional plotting dependency
-python tools/validation/models/plot_qwen3_next_norm_evidence.py report.json
+python tools/validation/models/qwen3_next/plot_qwen3_next_norm_evidence.py report.json
 
 Writes figure[-<op>].png beside the report.
 """
