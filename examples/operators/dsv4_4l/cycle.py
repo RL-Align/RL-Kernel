@@ -251,7 +251,39 @@ async def main():
                 ):
                     pass
 
-            await asyncio.gather(*(run(c) for c in cases))
+            if len(cases) == 1:
+                await run(cases[0])
+            else:
+                # Stage every actual request while the real scheduler is paused.
+                # Concurrent generators alone may be scheduled as serial B=1.
+                await server.engine.pause_generation(mode="keep", clear_cache=False)
+                queues = []
+                try:
+                    assert server.engine.get_num_unfinished_requests() == 0
+                    for c in cases:
+                        tokens = c["prompt_token_ids"] + c["response_token_ids"]
+                        sampling = SamplingParams(
+                            max_tokens=1, temperature=0, prompt_logprobs=1, ignore_eos=True
+                        )
+                        queues.append(
+                            await server.engine.add_request(
+                                f"{name}-{c['id']}", TokensPrompt(prompt_token_ids=tokens), sampling
+                            )
+                        )
+                    assert server.engine.get_num_unfinished_requests() == len(cases)
+                finally:
+                    await server.engine.resume_generation()
+
+                async def drain(queue):
+                    try:
+                        while True:
+                            output = await queue.get()
+                            if output.finished:
+                                return
+                    finally:
+                        queue.close()
+
+                await asyncio.gather(*(drain(q) for q in queues))
             metadata = await server.collective_rpc("case_batches")
             save_json(ROOT / f"rollout-batches-{name}.json", metadata)
             if len(cases) > 1:
