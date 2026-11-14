@@ -191,6 +191,33 @@ STRICT_BOUNDARY_ROWS = {
 }
 # Bound by a dedicated binding, not by the linear-projection ``project`` below.
 _NON_LINEAR_BOUNDARIES = frozenset({"token_refiner", "time_embedder", "norm_out"})
+# Boundary projections whose rows take ``logical_keys`` / ``parameter_id`` and reduce their
+# parameter gradients in a ``canonical_backward_session`` (#562, #646).
+KEYED_BOUNDARIES = frozenset({"proj_in", "proj_out"})
+
+
+def _flat_keys(x: torch.Tensor) -> torch.Tensor:
+    """Logical ``(batch row, token position)`` of every row of ``[B, S, C]`` (or ``[M, C]``)."""
+
+    if x.dim() == 2:
+        positions = torch.arange(x.shape[0], device=x.device)
+        return torch.stack([torch.zeros_like(positions), positions], dim=1)
+    return h3_block._row_keys(x)
+
+
+@contextmanager
+def _canonical_session(needed: bool):
+    """The canonical backward session the keyed rows need, unless the caller already opened one."""
+
+    from rl_engine.ops.autograd.canonical_backward import active_session, canonical_backward_session
+
+    if not needed or active_session() is not None:
+        yield
+        return
+    with canonical_backward_session() as session:
+        yield
+        if session.backward_started:
+            session.validate_complete()
 
 
 @contextmanager
@@ -213,10 +240,19 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         module, op = getattr(model, name), row_ops[name]
         # the projection-row ops expose ``forward``; the video rows are callables
         call = getattr(op, "forward", op)
+        keyed = name in KEYED_BOUNDARIES
 
         def forward(x):
             flat = x.reshape(-1, x.shape[-1])
-            out = call(flat, module.weight, module.bias)
+            if keyed:
+                # the video rows reduce a trainable weight's gradient over logical rows, in a
+                # canonical backward session (opened by the caller of ``project``), and need
+                # the rows' identities
+                out = call(
+                    flat, module.weight, module.bias, logical_keys=_flat_keys(x), parameter_id=name
+                )
+            else:
+                out = call(flat, module.weight, module.bias)
             return out.view(*x.shape[:-1], out.shape[-1])
 
         originals.append((module, module.forward))
@@ -292,7 +328,8 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         for n, r in STRICT_BOUNDARY_ROWS.items()
     }
     try:
-        yield
+        with _canonical_session(any(n in row_ops for n in KEYED_BOUNDARIES)):
+            yield
     finally:
         for module, _original in originals:
             module.__dict__.pop("forward", None)  # back to the class method
