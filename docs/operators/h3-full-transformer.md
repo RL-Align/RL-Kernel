@@ -9,9 +9,10 @@ with the pinned checkpoint (`MiniMaxAI/MiniMax-H3@42ed227`, all 14 shards, sha25
 - `tools/validation/models/h3_full_transformer.py`: the full 33B forward and backward on a
   packed input through the RL-Kernel block graph (50 real blocks) **and** the boundary rows
   (`video_input_projection_fp32`, `video_output_projection_fp32`, `audio_input_projection_fp32`,
-  `audio_output_projection_fp32`, `text_context_projection`, `token_refiner_block`);
-  `time_embedder` and `norm_out` stay on the provider and the report says so
-  (`boundary_bindings`).
+  `audio_output_projection_fp32`, `text_context_projection`, `token_refiner_block`,
+  `timestep_mlp_fp32` for `time_embedder`, `final_adaln_out` for `norm_out`); the report lists
+  every binding (`boundary_bindings`). `--provider-boundaries` keeps all of them on the
+  provider. `time_proj` has no parameters and stays provider arithmetic.
 - `tools/validation/models/h3_dual_trajectory.py`: a 4-step flow-matching Euler sampler
   (video + audio, FP32 latents) run in two layouts - the request alone, and as row 1 of a
   batch of 2 - sealed with the trajectory artifact and compared with `drift_report`.
@@ -41,7 +42,7 @@ those two modules to `video_input_projection_fp32` / `video_output_projection_fp
 - No FP32 full-model golden (132 GB of weights); agreement is against the provider and its
   kernel-choice spread. Per-block FP32 golden evidence is in the one-block and refiner rows.
 - Attention, O/gate_up/down GEMMs, SwiGLU and QK norm are still `interim` bindings (see the
-  operator trace); `time_embedder` and `norm_out` use the provider in this harness.
+  operator trace); `time_proj` uses the provider in this harness.
 - Parameter-gradient fingerprints are GPU-side position-weighted checksums, not SHA-256.
 - Sampler is the deterministic Euler ODE; the stochastic `cps` transition is a separate row.
 

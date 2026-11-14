@@ -297,15 +297,15 @@ def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
 
 
 def test_strict_boundaries_apply_to_candidate_execution_only():
-    from rl_engine.validation.models.h3_full_model import PROVIDER_BOUNDARIES, STRICT_BOUNDARY_ROWS
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
 
     with pytest.raises(ValueError, match="candidate execution only"):
         with full_model_execution(
             Model(), candidate=False, trace=FullModelTrace(), strict_boundaries=True
         ):
             pass
-    # every boundary module is either bound to a row or explicitly left on the provider
-    assert set(STRICT_BOUNDARY_ROWS) | set(PROVIDER_BOUNDARIES) == {
+    # every boundary module is bound to a row
+    assert set(STRICT_BOUNDARY_ROWS) == {
         "proj_in",
         "audio_proj_in",
         "context_embedder",
@@ -317,11 +317,36 @@ def test_strict_boundaries_apply_to_candidate_execution_only():
     }
 
 
-def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
-    from rl_engine.runtime.registry import KernelRegistry
-    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+class _Embedder(torch.nn.Module):
+    """The provider's ``TimestepEmbedding`` surface the binding reads."""
 
-    called = []
+    def __init__(self, **extra):
+        super().__init__()
+        self.linear_1 = torch.nn.Linear(4, 6)
+        self.linear_2 = torch.nn.Linear(6, 3)
+        self.cond_proj = None
+        self.post_act = None
+        for name, value in extra.items():
+            setattr(self, name, value)
+
+    def forward(self, sample, condition=None):
+        raise AssertionError("the provider forward must not run in a strict run")
+
+
+class _FinalNorm(torch.nn.Module):
+    """The provider's ``MiniMaxH3AdaLayerNormOut`` surface the binding reads."""
+
+    def __init__(self):
+        super().__init__()
+        self.norm = torch.nn.RMSNorm(4, eps=1.25e-6)
+        self.linear = torch.nn.Linear(3, 8)
+
+    def forward(self, hidden_states, temb, timestep_indices):
+        raise AssertionError("the provider forward must not run in a strict run")
+
+
+def _fake_rows(monkeypatch, called):
+    from rl_engine.runtime.registry import KernelRegistry
 
     class Row:
         def __init__(self, row, method):
@@ -335,29 +360,163 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
 
         __call__ = _run
 
-    # the audio/text rows expose ``forward``; the video rows are plain callables
-    monkeypatch.setattr(
-        KernelRegistry,
-        "get_op",
-        lambda self, row, device=None: Row(row, not row.startswith("video_")),
-    )
+    class TimestepMLP:
+        def forward(self, *args):
+            called.append(("timestep_mlp_fp32", args))
+            return torch.zeros(args[0].shape[0], 3)
+
+    class FinalAdaLN:
+        def forward(self, *args):
+            called.append(("final_adaln_out", args))
+            return args[0]
+
+    def get_op(self, row, device=None):
+        if row == "timestep_mlp_fp32":
+            return TimestepMLP()
+        if row == "final_adaln_out":
+            return FinalAdaLN()
+        # the audio/text rows expose ``forward``; the video rows are plain callables
+        return Row(row, not row.startswith("video_"))
+
+    monkeypatch.setattr(KernelRegistry, "get_op", get_op)
+
+
+def _boundary_model():
     model = Model()
-    names = [n for n in STRICT_BOUNDARY_ROWS if n != "token_refiner"]
-    for name in names:
+    for name in ("proj_in", "audio_proj_in", "context_embedder", "proj_out", "audio_proj_out"):
         setattr(model, name, torch.nn.Linear(4, 3))
+    model.time_embedder = _Embedder()
+    model.norm_out = _FinalNorm()
+    return model
+
+
+def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+
+    called = []
+    _fake_rows(monkeypatch, called)
+    model = _boundary_model()
+    names = ["proj_in", "audio_proj_in", "context_embedder", "proj_out", "audio_proj_out"]
     with full_model_execution(
         model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
     ) as trace:
         for name in names:
             out = getattr(model, name)(torch.ones(2, 5, 4))
             assert out.shape == (2, 5, 3)
-        assert sorted(row for row, _ in called) == sorted(STRICT_BOUNDARY_ROWS[n] for n in names)
-        assert {shape for _, shape in called} == {(10, 4)}
+        projections = [(row, shape) for row, shape in called if isinstance(shape, tuple)]
+        assert sorted(row for row, _ in projections) == sorted(
+            STRICT_BOUNDARY_ROWS[n] for n in names
+        )
+        assert {shape for _, shape in projections} == {(10, 4)}
         assert trace.boundary_bindings["proj_in"] == dict(
             row="video_input_projection_fp32", status="row"
         )
         assert trace.boundary_bindings["proj_out"]["status"] == "row"
-        assert trace.boundary_bindings["time_embedder"]["status"] == "provider"
-        assert trace.boundary_bindings["norm_out"]["status"] == "provider"
+        # every boundary module is bound to its row, none stays on the provider
+        assert trace.boundary_bindings == {
+            n: dict(row=r, status="row") for n, r in STRICT_BOUNDARY_ROWS.items()
+        }
+        assert trace.boundary_bindings["time_embedder"] == dict(
+            row="timestep_mlp_fp32", status="row"
+        )
+        assert trace.boundary_bindings["norm_out"] == dict(row="final_adaln_out", status="row")
     # leaving the context restores the provider forward
     assert "forward" not in model.proj_in.__dict__
+
+
+def test_strict_time_embedder_and_norm_out_pass_their_parameters_in_row_order(monkeypatch):
+    called = []
+    _fake_rows(monkeypatch, called)
+    model = _boundary_model()
+    embedder, final = model.time_embedder, model.norm_out
+    sample = torch.ones(2, 4)
+    hidden = torch.ones(1, 5, 4)
+    temb = torch.ones(2, 3)
+    indices = torch.tensor([0, 1, 1, 0, 1])
+    with full_model_execution(
+        model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+    ):
+        model.time_embedder(sample)
+        model.norm_out(hidden, temb, indices)
+        # ``condition=None`` is the provider's default and is accepted explicitly too
+        model.time_embedder(sample, condition=None)
+    (name, args), _, (_, repeat) = called
+    assert name == "timestep_mlp_fp32"
+    assert args[0] is sample
+    assert args[1:] == (
+        embedder.linear_1.weight,
+        embedder.linear_1.bias,
+        embedder.linear_2.weight,
+        embedder.linear_2.bias,
+    )
+    assert repeat[1] is embedder.linear_1.weight
+    name, args = called[1]
+    assert name == "final_adaln_out"
+    assert args[0] is hidden
+    assert args[1] is final.norm.weight
+    assert args[2] is temb
+    assert args[3] is final.linear.weight
+    assert args[4] is final.linear.bias
+    assert args[5] is indices
+    assert args[6] == final.norm.eps == 1.25e-6
+    assert len(args) == 7
+    # leaving the context restores the provider forward of both modules
+    assert "forward" not in embedder.__dict__
+    assert "forward" not in final.__dict__
+
+
+def test_strict_time_embedder_refuses_what_its_row_does_not_cover(monkeypatch):
+    called = []
+    _fake_rows(monkeypatch, called)
+    model = _boundary_model()
+    with full_model_execution(
+        model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+    ):
+        with pytest.raises(ValueError, match="condition"):
+            model.time_embedder(torch.ones(2, 4), condition=torch.ones(2, 4))
+    assert not called
+    for extra in ("cond_proj", "post_act"):
+        model = _boundary_model()
+        setattr(model.time_embedder, extra, torch.nn.Identity())
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            with pytest.raises(ValueError, match=extra):
+                model.time_embedder(torch.ones(2, 4))
+    assert not called
+
+
+def test_strict_boundaries_restore_time_embedder_and_norm_out_after_failure(monkeypatch):
+    called = []
+    _fake_rows(monkeypatch, called)
+    model = _boundary_model()
+    with pytest.raises(RuntimeError, match="injected"):
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            assert "forward" in model.time_embedder.__dict__
+            assert "forward" in model.norm_out.__dict__
+            raise RuntimeError("injected")
+    assert "forward" not in model.time_embedder.__dict__
+    assert "forward" not in model.norm_out.__dict__
+
+
+def test_native_time_embedder_and_norm_out_stay_on_the_provider(monkeypatch):
+    called = []
+    _fake_rows(monkeypatch, called)
+    model = _boundary_model()
+    with full_model_execution(
+        model,
+        candidate=True,
+        trace=(trace := FullModelTrace()),
+        ops=object(),
+        strict_boundaries=True,
+        native_boundaries=("time_embedder", "norm_out"),
+    ):
+        assert "forward" not in model.time_embedder.__dict__
+        assert "forward" not in model.norm_out.__dict__
+        assert trace.boundary_bindings["time_embedder"]["status"] == "provider"
+        assert trace.boundary_bindings["norm_out"]["status"] == "provider"
+        assert trace.boundary_bindings["proj_in"]["status"] == "row"
+        with pytest.raises(AssertionError, match="provider forward"):
+            model.time_embedder(torch.ones(2, 4))

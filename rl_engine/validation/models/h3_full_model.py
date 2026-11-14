@@ -177,9 +177,8 @@ def require_candidate_cuda(ops):
     return backends
 
 
-# Boundary modules bound to RL-Kernel rows by ``strict_boundaries``; the others keep provider
-# arithmetic and are reported as such (``time_embedder``/``norm_out`` have their own rows
-# but are not part of this binding yet).
+# Boundary modules bound to RL-Kernel rows by ``strict_boundaries``. ``time_proj`` has no
+# parameters and is not a boundary module; it stays provider arithmetic.
 STRICT_BOUNDARY_ROWS = {
     "proj_in": "video_input_projection_fp32",
     "proj_out": "video_output_projection_fp32",
@@ -187,13 +186,17 @@ STRICT_BOUNDARY_ROWS = {
     "audio_proj_out": "audio_output_projection_fp32",
     "context_embedder": "text_context_projection",
     "token_refiner": "token_refiner_block",
+    "time_embedder": "timestep_mlp_fp32",
+    "norm_out": "final_adaln_out",
 }
-PROVIDER_BOUNDARIES = ("time_embedder", "norm_out")
+# Bound by a dedicated binding, not by the linear-projection ``project`` below.
+_NON_LINEAR_BOUNDARIES = frozenset({"token_refiner", "time_embedder", "norm_out"})
 
 
 @contextmanager
 def _strict_boundaries(model, trace, ops, native=frozenset()):
-    """Rebind the video and audio projections, the text projection and the token refiner to rows."""
+    """Rebind every boundary module to its row: the projections, the token refiner and the
+    ``time_embedder`` / ``norm_out`` pair."""
 
     from rl_engine.runtime.registry import KernelRegistry
     from rl_engine.validation.models import h3_refiner
@@ -202,7 +205,7 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
     row_ops = {
         name: registry.get_op(row, device="cuda")
         for name, row in STRICT_BOUNDARY_ROWS.items()
-        if name != "token_refiner" and name not in native
+        if name not in _NON_LINEAR_BOUNDARIES and name not in native
     }
     originals = []
 
@@ -243,12 +246,50 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
     if "token_refiner" not in native:
         originals.append((refiner, refiner.forward))
         refiner.forward = refine
+
+    if "time_embedder" not in native:
+        time_op = registry.get_op(STRICT_BOUNDARY_ROWS["time_embedder"], device="cuda")
+        embedder = model.time_embedder
+
+        def embed(sample, condition=None):
+            # the row is ``linear_1`` -> SiLU -> ``linear_2``; anything else is not this row
+            if condition is not None:
+                raise ValueError("the timestep_mlp_fp32 row has no condition input")
+            for extra in ("cond_proj", "post_act"):
+                if getattr(embedder, extra, None) is not None:
+                    raise ValueError(f"timestep_mlp_fp32 does not cover time_embedder.{extra}")
+            return time_op.forward(
+                sample,
+                embedder.linear_1.weight,
+                embedder.linear_1.bias,
+                embedder.linear_2.weight,
+                embedder.linear_2.bias,
+            )
+
+        originals.append((embedder, embedder.forward))
+        embedder.forward = embed
+
+    if "norm_out" not in native:
+        norm_op = registry.get_op(STRICT_BOUNDARY_ROWS["norm_out"], device="cuda")
+        final = model.norm_out
+
+        def final_norm(hidden_states, temb, timestep_indices):
+            return norm_op.forward(
+                hidden_states,
+                final.norm.weight,
+                temb,
+                final.linear.weight,
+                final.linear.bias,
+                timestep_indices,
+                final.norm.eps,
+            )
+
+        originals.append((final, final.forward))
+        final.forward = final_norm
+
     trace.boundary_bindings = {
-        **{
-            n: dict(row=r, status="provider" if n in native else "row")
-            for n, r in STRICT_BOUNDARY_ROWS.items()
-        },
-        **{n: dict(row=None, status="provider") for n in PROVIDER_BOUNDARIES},
+        n: dict(row=r, status="provider" if n in native else "row")
+        for n, r in STRICT_BOUNDARY_ROWS.items()
     }
     try:
         yield
