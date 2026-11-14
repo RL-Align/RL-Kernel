@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -14,8 +15,19 @@ pytest.importorskip("matplotlib")
 from benchmarks.distributed import plot_deterministic_collectives as plotter  # noqa: E402
 
 
-def _write_report(path: Path, world_size: int, sizes: list[int], latency: float) -> None:
-    """Write a report whose latencies identify each size after sorting."""
+def _write_report(
+    path: Path,
+    world_size: int,
+    sizes: list[int],
+    latency: float,
+    slope: float = 1 / 1024,
+    nccl_offset: float = 0.0,
+) -> None:
+    """Write a report whose latencies identify each size after sorting.
+
+    ``slope`` sets how deterministic latency grows with size (negative: it shrinks, so the
+    latency order differs from the size order); ``nccl_offset`` tells two reports' NCCL apart.
+    """
     report = {
         "world_size": world_size,
         "gpu": "test GPU",
@@ -28,8 +40,8 @@ def _write_report(path: Path, world_size: int, sizes: list[int], latency: float)
             {
                 "operation": "all_gather",
                 "input_bytes_per_rank": size,
-                "deterministic_us": latency + size / 1024,
-                "nccl_us": size / 1024,
+                "deterministic_us": latency + slope * size,
+                "nccl_us": size / 1024 + nccl_offset,
             }
             for size in sizes
         ],
@@ -87,9 +99,12 @@ def test_environment_must_match_across_world_sizes(tmp_path, monkeypatch, field)
     paths = {name: tmp_path / f"{name}.json" for name in ("b2", "a2", "b4", "a4")}
     for name, world_size in (("b2", 2), ("a2", 2), ("b4", 4), ("a4", 4)):
         _write_report(paths[name], world_size, [1024, 2048], 10 if name[0] == "b" else 5)
-    report = json.loads(paths["a4"].read_text())
-    report[field] = "different"
-    paths["a4"].write_text(json.dumps(report))
+    # Change both reports of the second pair: each pair stays consistent (so the pair check
+    # passes) and only the comparison with the first world size can reject it.
+    for name in ("b4", "a4"):
+        report = json.loads(paths[name].read_text())
+        report[field] = "different"
+        paths[name].write_text(json.dumps(report))
     monkeypatch.setattr(
         sys,
         "argv",
@@ -111,7 +126,11 @@ def test_environment_must_match_across_world_sizes(tmp_path, monkeypatch, field)
         pytest.fail("reports from different environments must be rejected")
 
     monkeypatch.setattr(plotter.plt, "subplots", unexpected_subplots)
-    with pytest.raises(SystemExit, match=f"different {field} values"):
+    with pytest.raises(
+        SystemExit,
+        match=f"{re.escape(str(paths['a4']))} and {re.escape(str(paths['a2']))} "
+        f"have different {field} values",
+    ):
         plotter.main()
 
 
@@ -163,8 +182,10 @@ def test_reordered_rows_keep_latencies_aligned(tmp_path, monkeypatch):
     before_path = tmp_path / "before.json"
     after_path = tmp_path / "after.json"
     output = tmp_path / "figure.png"
-    _write_report(before_path, 2, [2048, 1024], 10)
-    _write_report(after_path, 2, [1024, 2048], 5)
+    # Latency falls with size and the NCCL series differ, so sorting by latency, or taking the
+    # reference from the before report, would change the asserted series.
+    _write_report(before_path, 2, [2048, 1024], 100, slope=-1 / 1024, nccl_offset=100)
+    _write_report(after_path, 2, [1024, 2048], 50, slope=-1 / 1024)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -184,9 +205,9 @@ def test_reordered_rows_keep_latencies_aligned(tmp_path, monkeypatch):
         plotter.main()
         before, after, reference = axes[0, 0].get_lines()
         assert list(before.get_xdata()) == [1, 2]
-        assert list(before.get_ydata()) == [11, 12]
+        assert list(before.get_ydata()) == [99, 98]
         assert list(after.get_xdata()) == [1, 2]
-        assert list(after.get_ydata()) == [6, 7]
+        assert list(after.get_ydata()) == [49, 48]
         assert list(reference.get_ydata()) == [1, 2]
         assert output.is_file()
     finally:
