@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bind the AMD vLLM DSV4 model at its decoder and final-head boundaries."""
+
 from types import MethodType
 
 from rl_engine.integrations.common.mhc_worker import P1Worker
@@ -10,10 +11,25 @@ def _decoder(layer, x, positions, input_ids, post_mix=None, res_mix=None, residu
         raise RuntimeError("cannot mix native deferred mHC state with RLK")
     w = layer._rlk_p1
     rounds = layer.hc_sinkhorn_iters
-    x, p, b, h = w.pre(x, layer.hc_attn_fn, layer.hc_attn_scale, layer.hc_attn_base, rounds)
+    x, p, b, h = w.pre(
+        x,
+        layer.hc_attn_fn,
+        layer.hc_attn_scale,
+        layer.hc_attn_base,
+        rounds,
+        parameter_id=layer._rlk_parameter_id + ".hc_attn",
+    )
     y = layer.attn(positions, w.norm(h, layer.attn_norm.weight), None)
     x, p, b, h = w.adjacent(
-        y, x, p, b, layer.hc_ffn_fn, layer.hc_ffn_scale, layer.hc_ffn_base, rounds
+        y,
+        x,
+        p,
+        b,
+        layer.hc_ffn_fn,
+        layer.hc_ffn_scale,
+        layer.hc_ffn_base,
+        rounds,
+        parameter_id=layer._rlk_parameter_id + ".hc_ffn",
     )
     y = layer.ffn(w.norm(h, layer.ffn_norm.weight), input_ids)
     return w.post(y, x, p, b), None, None, None
@@ -25,7 +41,8 @@ def bind_rollout_stage(model, worker: P1Worker):
         raise ValueError("expected an unbound rollout stage")
     # Do not walk PPMissingLayer instances owned by other stages.
     layers = [model.layers[i] for i in range(model.start_layer, model.end_layer)]
-    for layer in layers:
+    for layer_index, layer in enumerate(layers, start=model.start_layer):
+        layer._rlk_parameter_id = f"model.layers.{layer_index}"
         worker.check_config(layer.rms_norm_eps, layer.hc_eps, layer.hc_post_alpha)
         for name in (
             "hc_attn_fn",
