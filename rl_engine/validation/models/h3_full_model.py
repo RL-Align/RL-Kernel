@@ -10,6 +10,7 @@ not qualification of the reference/interim bindings as final RFC kernels.
 
 from __future__ import annotations
 
+import sys
 from collections import Counter
 from contextlib import contextmanager
 from types import MethodType
@@ -205,7 +206,14 @@ def _flat_keys(x: torch.Tensor) -> torch.Tensor:
 
 @contextmanager
 def _canonical_session(needed: bool):
-    """The canonical backward session the keyed rows need, unless the caller already opened one."""
+    """The canonical backward session the keyed rows need, unless the caller already opened one.
+
+    One session holds one forward and one backward of the keyed rows: a second forward of a
+    trainable ``proj_in`` / ``proj_out`` registers the same logical rows again (refused as
+    duplicate keys), and a forward after backward started is refused by the session. Run each
+    step in its own context. If the body raises, the error propagates as it is; the session is
+    validated only when the body completed.
+    """
 
     from rl_engine.ops.autograd.canonical_backward import active_session, canonical_backward_session
 
@@ -333,6 +341,7 @@ def full_model_execution(
         if strict_boundaries
         else None
     )
+    exc_info: tuple = (None, None, None)
     try:
         if boundary_context is not None:
             boundary_context.__enter__()
@@ -387,13 +396,18 @@ def full_model_execution(
 
             handles.append(getattr(model, name).register_forward_hook(hook))
         yield trace
+    except BaseException:
+        # the boundary context must see the error: it skips its end-of-step checks then, so
+        # the caller gets this error and not a follow-on one
+        exc_info = sys.exc_info()
+        raise
     finally:
         for handle in handles:
             handle.remove()
         for block, original in originals:
             block.forward = original
         if boundary_context is not None:
-            boundary_context.__exit__(None, None, None)
+            boundary_context.__exit__(*exc_info)
 
 
 # --- Numerics shared with the generation runner --------------------------------------------------

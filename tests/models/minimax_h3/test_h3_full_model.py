@@ -378,3 +378,44 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
     from rl_engine.ops.autograd.canonical_backward import active_session
 
     assert active_session() is None
+
+
+def test_an_error_inside_the_strict_context_is_not_replaced_by_the_session_check(monkeypatch):
+    """A body error after backward started propagates as it is, not as an incomplete session."""
+    from rl_engine.ops.autograd.canonical_backward import active_session
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+
+    class Row:
+        def forward(self, x, weight, bias, **_):
+            """A stand-in row: the provider's linear."""
+            return torch.nn.functional.linear(x, weight, bias)
+
+        __call__ = forward
+
+    monkeypatch.setattr(KernelRegistry, "get_op", lambda self, row, device=None: Row())
+    model = Model()
+    for name in STRICT_BOUNDARY_ROWS:
+        if name != "token_refiner":
+            setattr(model, name, torch.nn.Linear(4, 3))
+
+    def open_step():
+        return full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        )
+
+    with pytest.raises(ValueError, match="non-finite gradient"):
+        with open_step():
+            session = active_session()
+            # one keyed use is registered and backward has started, but its gradient never
+            # arrives: the step fails part-way through backward
+            session.register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            session.backward_started = True
+            raise ValueError("non-finite gradient in block 7")
+    assert active_session() is None
+    # a body that completes with a missing submission is still refused
+    with pytest.raises(RuntimeError, match="incomplete canonical submissions"):
+        with open_step():
+            active_session().register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            active_session().backward_started = True
+    assert active_session() is None
