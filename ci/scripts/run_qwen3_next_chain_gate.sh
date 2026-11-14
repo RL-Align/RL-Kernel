@@ -23,10 +23,19 @@ def invalid(message):
     sys.exit(2)
 
 
-report = json.load(open(sys.argv[1]))
-missing = {f.name for f in dataclasses.fields(ChainGateReport)} - set(report)
+try:
+    with open(sys.argv[1]) as handle:
+        report = json.load(handle)
+except (OSError, ValueError) as error:
+    invalid(f"cannot read {sys.argv[1]!r} as JSON: {error}")
+if not isinstance(report, dict):
+    invalid(f"top level is {type(report).__name__}, expected an object")
+# first_drift_family is added to the payload by build_report; it is not a dataclass field.
+missing = ({f.name for f in dataclasses.fields(ChainGateReport)} | {"first_drift_family"}) - set(report)
 if missing:
-    invalid(f"lacks ChainGateReport fields: {sorted(missing)}")
+    invalid(f"lacks report fields: {sorted(missing)}")
+if not isinstance(report["cells"], dict):
+    invalid(f"cells is {type(report['cells']).__name__}, expected an object")
 for key, expected in (("schema_version", SCHEMA_VERSION), ("compatible_schema", COMPATIBLE_SCHEMA)):
     if report.get(key) != expected:
         invalid(f"{key} is {report.get(key)!r}, expected {expected!r}")
