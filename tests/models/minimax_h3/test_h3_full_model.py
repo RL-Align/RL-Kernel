@@ -324,6 +324,7 @@ class _Embedder(torch.nn.Module):
         super().__init__()
         self.linear_1 = torch.nn.Linear(4, 6)
         self.linear_2 = torch.nn.Linear(6, 3)
+        self.act = torch.nn.SiLU()
         self.cond_proj = None
         self.post_act = None
         for name, value in extra.items():
@@ -499,6 +500,15 @@ def test_strict_time_embedder_refuses_what_its_row_does_not_cover(monkeypatch):
             model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
         ):
             with pytest.raises(ValueError, match=extra):
+                model.time_embedder(torch.ones(2, 4))
+    assert not called
+    for act in (torch.nn.GELU(), None):  # the row's activation is SiLU, nothing else
+        model = _boundary_model()
+        model.time_embedder.act = act
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            with pytest.raises(ValueError, match="SiLU"):
                 model.time_embedder(torch.ones(2, 4))
     assert not called
 

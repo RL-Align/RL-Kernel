@@ -295,6 +295,8 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
             for extra in ("cond_proj", "post_act"):
                 if getattr(embedder, extra, None) is not None:
                     raise ValueError(f"timestep_mlp_fp32 does not cover time_embedder.{extra}")
+            if type(getattr(embedder, "act", None)) is not torch.nn.SiLU:
+                raise ValueError("timestep_mlp_fp32 covers a SiLU time_embedder.act only")
             return time_op.forward(
                 sample,
                 embedder.linear_1.weight,
