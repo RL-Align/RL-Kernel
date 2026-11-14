@@ -160,6 +160,10 @@ def correctness(candidate, args, kind, fp64_check=False):
         high = {k: v.detach().cpu().double().requires_grad_() for k, v in args.items()}
         high_output = reference(**high, execution_dtype=dtype)
         high_grads = torch.autograd.grad(high_output, tuple(high.values()), grad.cpu().double())
+        # Both groups gate the report: candidate_gradients checks the operator against the fp64
+        # truth; cpu_fp32_gradients checks that the fp32 reference the other comparisons use is
+        # itself within the gradient contract of that truth. A reference that is not, would make
+        # "candidate matches reference" evidence meaningless, so the run must fail.
         metrics["fp64_diagnostic"] = {
             "candidate_gradients": {
                 k: compare(a, b, dtype, "gradient_accuracy")

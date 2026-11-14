@@ -7,6 +7,7 @@ Triton products require TRITON_F32_DEFAULT=ieee in the audit subprocess.
 """
 import importlib
 import os
+import pathlib
 import sys
 import types
 
@@ -75,9 +76,16 @@ class FinalFlashAttn:
             package = types.ModuleType("flash_attn")
             package.__path__ = [str(source / "flash_attn")]
             sys.modules["flash_attn"] = package
-        self.layer_norm_fn = importlib.import_module(
-            "flash_attn.ops.triton.layer_norm"
-        ).layer_norm_fn
+        module = importlib.import_module("flash_attn.ops.triton.layer_norm")
+        # An already-imported flash_attn (installed build) would be reused above, so the
+        # numbers would not come from the checkout whose HEAD the audit records.
+        package_dir = (pathlib.Path(source) / "flash_attn").resolve()
+        if package_dir not in pathlib.Path(module.__file__).resolve().parents:
+            raise RuntimeError(
+                f"flash_attn.ops.triton.layer_norm resolved to {module.__file__}, "
+                f"outside --flash-attn-src ({package_dir})"
+            )
+        self.layer_norm_fn = module.layer_norm_fn
 
     def __call__(self, x, temb, weight, bias):
         scale, shift = Projection()(temb, weight, bias).chunk(2, -1)

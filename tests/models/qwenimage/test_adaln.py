@@ -244,9 +244,15 @@ def test_final_scale_then_shift_and_layernorm():
     args["bias"] = torch.cat(
         [torch.full((3072,), 2.0, device="cuda"), torch.full((3072,), 7.0, device="cuda")]
     )
-    args["x"] = torch.full_like(args["x"], 13.0)
+    # A constant x would normalise to zero and leave only the shift, hiding the scale path.
     out = operator("final")(**args)
-    assert equal_bytes(out, torch.full_like(out, 7.0))
+    norm = torch.nn.functional.layer_norm(args["x"].double(), (3072,), eps=1e-6)
+    # scale = bias[:3072] = 2 applies as (1 + scale); shift = bias[3072:] = 7 is added after it.
+    expected = (norm * 3.0 + 7.0).float()
+    torch.testing.assert_close(out, expected, atol=2e-5, rtol=0)
+    # The scale, a missing "1 +", and shift-before-scale each move the result by O(1).
+    assert (expected - (norm * 2.0 + 7.0).float()).abs().max() > 0.5
+    assert (expected - ((norm + 7.0) * 3.0).float()).abs().max() > 0.5
 
 
 def test_token_sum_retains_small_contributions_under_cancellation():
