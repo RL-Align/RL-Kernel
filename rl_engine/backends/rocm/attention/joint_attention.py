@@ -8,9 +8,9 @@ import inspect
 import io
 import linecache
 import os
-from pathlib import Path
 import sys
 import tokenize
+from pathlib import Path
 
 import torch
 
@@ -69,7 +69,9 @@ class AiterJointAttentionBackend:
         self.module = load_pinned_kernel(source)
         self.triton = importlib.import_module("triton")
         cache = importlib.import_module("vllm.models.deepseek_v4.common.ops.cache_utils")
-        self._gather_cache = cache.dequantize_and_gather_k_cache_triton
+        self._gather_cache = getattr(cache, "dequantize_and_gather_k_cache_triton", None)
+        if self._gather_cache is None:
+            self._gather_cache = cache.dequantize_and_gather_k_cache
         require(
             tuple(inspect.signature(self._gather_cache).parameters)
             == (
