@@ -23,7 +23,9 @@ def bind_shared_down(model, worker):
         kernels.append(kernel)
     for kernel in kernels:
 
-        def apply(instance, A, B, As, Bs):
+        def apply(instance, A, B, As, Bs, bias=None, output=None):
+            if bias is not None or output is not None:
+                raise ValueError("shared down profile does not support fused bias/output")
             return worker._record("shared_down", shared_down_fp8(A, B, As, Bs))
 
         kernel.apply_block_scaled_mm = MethodType(apply, kernel)

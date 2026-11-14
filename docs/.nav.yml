@@ -43,6 +43,8 @@ nav:
       - operators/learned-route.md
       - operators/router-training.md
       - operators/router-aux-loss.md
+      - operators/dsv4-batch-invariant-linear.md
+      - operators/dsv4-mhc.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md
