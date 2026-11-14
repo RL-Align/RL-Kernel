@@ -389,6 +389,11 @@ def _fake_rows(monkeypatch, called, keyed_calls=None):
         return Row(row, not row.startswith("video_"))
 
     monkeypatch.setattr(KernelRegistry, "get_op", get_op)
+    # the fakes stand in for the CUDA ops strict mode requires
+    from rl_engine.validation.models import h3_full_model as fm
+
+    for row, fake in (("timestep_mlp_fp32", TimestepMLP), ("final_adaln_out", FinalAdaLN)):
+        monkeypatch.setitem(fm._CUDA_ROW_OPS, row, f"{fake.__module__}.{fake.__qualname__}")
 
 
 def _boundary_model():
@@ -557,3 +562,47 @@ def test_native_time_embedder_and_norm_out_stay_on_the_provider(monkeypatch):
         assert trace.boundary_bindings["proj_in"]["status"] == "row"
         with pytest.raises(AssertionError, match="provider forward"):
             model.time_embedder(torch.ones(2, 4))
+
+
+@pytest.mark.parametrize("row", ["timestep_mlp_fp32", "final_adaln_out"])
+def test_strict_refuses_the_reference_op_of_time_embedder_and_norm_out(monkeypatch, row):
+    """If the registry falls back to the PyTorch reference, strict mode raises, binding nothing."""
+    from rl_engine.runtime.registry import KernelRegistry
+
+    called = []
+    _fake_rows(monkeypatch, called)
+    fake_get_op = KernelRegistry.get_op
+
+    class Reference:
+        """Stands in for the PyTorch reference op the registry falls back to."""
+
+        def forward(self, *args):
+            """Never reached: strict mode refuses this op before binding."""
+            raise AssertionError("the reference op must not be bound")
+
+    def get_op(self, name, device=None):
+        """The fake rows, with ``row`` resolved to the reference."""
+        return Reference() if name == row else fake_get_op(self, name, device)
+
+    monkeypatch.setattr(KernelRegistry, "get_op", get_op)
+    model = _boundary_model()
+    with pytest.raises(RuntimeError, match=f"strict {row} resolved to .*Reference"):
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            pass
+    # nothing stays bound after the refusal
+    assert "forward" not in model.time_embedder.__dict__
+    assert "forward" not in model.norm_out.__dict__
+    assert "forward" not in model.proj_in.__dict__
+
+
+def test_the_required_cuda_ops_are_the_registered_cuda_backends():
+    """The class paths strict mode requires are the registry's CUDA backends of the two rows."""
+    from rl_engine.runtime.registry import OpBackend
+    from rl_engine.validation.models import h3_full_model as fm
+
+    assert fm._CUDA_ROW_OPS == {
+        "timestep_mlp_fp32": OpBackend.CUDA_H3_TIMESTEP_MLP.value,
+        "final_adaln_out": OpBackend.CUDA_H3_FINAL_ADALN_OUT.value,
+    }

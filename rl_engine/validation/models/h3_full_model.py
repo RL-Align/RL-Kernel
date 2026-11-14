@@ -191,6 +191,31 @@ STRICT_BOUNDARY_ROWS = {
 }
 # Bound by a dedicated binding, not by the linear-projection ``project`` below.
 _NON_LINEAR_BOUNDARIES = frozenset({"token_refiner", "time_embedder", "norm_out"})
+# The CUDA op each of these rows must resolve to. Their CUDA priority lists keep the PyTorch
+# reference after the CUDA op (#484, #489), which the registry picks when the CUDA op cannot
+# be constructed (e.g. an ``_C`` without the H3 kernels); strict mode refuses that.
+_CUDA_ROW_OPS = {
+    "timestep_mlp_fp32": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.timestep_mlp.H3TimestepMLPCudaOp"
+    ),
+    "final_adaln_out": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.final_adaln_out.H3FinalAdaLNOutCudaOp"
+    ),
+}
+
+
+def _cuda_row(registry, row: str):
+    """The CUDA op of ``row``; refuses the PyTorch reference the registry may fall back to."""
+
+    op = registry.get_op(row, device="cuda")
+    got = f"{type(op).__module__}.{type(op).__qualname__}"
+    if got != _CUDA_ROW_OPS[row]:
+        raise RuntimeError(
+            f"strict {row} resolved to {got}, not its CUDA op; refusing to fall back"
+        )
+    return op
+
+
 # Boundary projections whose rows take ``logical_keys`` / ``parameter_id`` and reduce their
 # parameter gradients in a ``canonical_backward_session`` (#562, #646).
 KEYED_BOUNDARIES = frozenset({"proj_in", "proj_out"})
@@ -234,6 +259,9 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         for name, row in STRICT_BOUNDARY_ROWS.items()
         if name not in _NON_LINEAR_BOUNDARIES and name not in native
     }
+    # resolved before anything is bound, so a refused op leaves the model untouched
+    time_op = None if "time_embedder" in native else _cuda_row(registry, "timestep_mlp_fp32")
+    norm_op = None if "norm_out" in native else _cuda_row(registry, "final_adaln_out")
     originals = []
 
     def project(name):
@@ -285,7 +313,6 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         refiner.forward = refine
 
     if "time_embedder" not in native:
-        time_op = registry.get_op(STRICT_BOUNDARY_ROWS["time_embedder"], device="cuda")
         embedder = model.time_embedder
 
         def embed(sample, condition=None):
@@ -310,7 +337,6 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         embedder.forward = embed
 
     if "norm_out" not in native:
-        norm_op = registry.get_op(STRICT_BOUNDARY_ROWS["norm_out"], device="cuda")
         final = model.norm_out
 
         def final_norm(hidden_states, temb, timestep_indices):
