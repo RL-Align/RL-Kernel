@@ -2,6 +2,7 @@
 """Bind only the native router's GEMM; preserve Parameters and routing."""
 
 import types
+
 from rl_engine.backends.rocm.moe.router_projection import router_projection
 
 

@@ -4,9 +4,11 @@
 import json
 import os
 from pathlib import Path
+
 import pytest
 import torch
 from safetensors import safe_open
+
 from rl_engine.backends.rocm.moe.router_projection import router_projection
 
 pytestmark = pytest.mark.skipif(

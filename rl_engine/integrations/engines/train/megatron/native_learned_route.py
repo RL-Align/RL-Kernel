@@ -38,7 +38,9 @@ def bind_native_learned_route(router):
             or topk_indices is not None
         ):
             raise ValueError("initial learned route requires ordinary ungrouped eager Top6")
-        weights, ids = native_learned_route(logits, expert_bias, scaling_factor or 1.0)
+        weights, ids = native_learned_route(
+            logits, expert_bias, 1.0 if scaling_factor is None else scaling_factor
+        )
         if not getattr(router, "_rlk_learned_executed", False):
             print(
                 "RLK_NATIVE_LEARNED_ROUTING_EXECUTED",

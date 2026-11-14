@@ -20,7 +20,13 @@ class _Learned(torch.autograd.Function):
             or logits.shape[1] != 256
         ):
             raise ValueError("learned route requires original ROCm FP32 [M,256] logits")
-        if bias.dtype != torch.float32 or bias.shape != (256,) or bias.requires_grad:
+        if (
+            bias is None
+            or bias.dtype != torch.float32
+            or bias.shape != (256,)
+            or bias.requires_grad
+            or bias.device != logits.device
+        ):
             raise ValueError(
                 "selection bias must retain its original non-gradient FP32 representation"
             )
