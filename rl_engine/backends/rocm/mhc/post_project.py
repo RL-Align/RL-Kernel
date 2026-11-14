@@ -51,7 +51,7 @@ def _post_project(Y, X, P, B, W, RES, LIN, SS, C: tl.constexpr):
         tl.store(RES + t * 4 * C + dest, z.to(tl.bfloat16))
         tl.store(SS + t, _pairs(tl.reshape(z * z, (4 * C,)), 4 * C))
     else:
-        w = _rounded(tl.load(W + k * 4 * C + dest))
+        w = tl.load(W + k * 4 * C + dest)
         tl.store(LIN + t * 24 + k, _pairs(tl.reshape(z * w, (4 * C,)), 4 * C))
 
 

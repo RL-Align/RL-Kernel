@@ -26,9 +26,7 @@ class _QKV(torch.autograd.Function):
     def forward(ctx, query, kv, positions, cache, epsilon):
         # Register and execute the exact primitive used by the loaded ROCm vLLM.
         import vllm._custom_ops  # noqa: F401
-        from vllm.models.deepseek_v4.common.ops.cache_utils import (
-            dequantize_and_gather_k_cache,
-        )
+        from vllm.models.deepseek_v4.common.ops.cache_utils import dequantize_and_gather_k_cache
 
         t, b, h, d = query.shape
         if d != 512 or kv.shape != (t, b, 512) or positions.shape != (t, b):
@@ -82,9 +80,8 @@ class DSV4QKVPreprocess(torch.nn.Module):
 
     def __init__(self, config, compression_ratio):
         super().__init__()
-        from vllm.models.deepseek_v4.common.rope import build_deepseek_v4_rope
-
         from vllm.config import VllmConfig, get_current_vllm_config_or_none, set_current_vllm_config
+        from vllm.models.deepseek_v4.common.rope import build_deepseek_v4_rope
 
         context = (
             nullcontext()

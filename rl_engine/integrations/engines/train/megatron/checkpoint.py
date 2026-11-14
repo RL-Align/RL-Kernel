@@ -12,16 +12,16 @@ import torch
 from safetensors import safe_open
 
 from rl_engine.backends.rocm.gemm.checkpoint_fp8 import CheckpointFP8Group, CheckpointFP8Linear
-from rl_engine.backends.rocm.norm.qnorm_fp8 import FusedQNorm
 from rl_engine.backends.rocm.moe.expert_training import RocmExpertTrainingBackend
 from rl_engine.backends.rocm.moe.packed_mx import RocmPackedMXBackend
 from rl_engine.backends.rocm.moe.route_weight_grad import RocmRouteWeightGradient
+from rl_engine.backends.rocm.norm.qnorm_fp8 import FusedQNorm
 from rl_engine.contracts.operators.expert_training import ExpertTrainingConfig, PackedExpertWeight
-from rl_engine.ops.moe.expert_training import routed_expert_training
-from rl_engine.integrations.engines.train.megatron.native_rotation import bind_indexer_rotation
 from rl_engine.integrations.engines.train.megatron.native_group_projection import (
     bind_grouped_projection,
 )
+from rl_engine.integrations.engines.train.megatron.native_rotation import bind_indexer_rotation
+from rl_engine.ops.moe.expert_training import routed_expert_training
 
 
 class _GateUp(torch.nn.Module):
