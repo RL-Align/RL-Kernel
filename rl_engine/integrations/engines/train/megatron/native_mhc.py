@@ -26,6 +26,7 @@ def _pre(
         scales,
         hc.bias,
         hc.sinkhorn_iterations,
+        parameter_id=hc._rlk_parameter_id,
     )
     values = (
         h.reshape(s, b, -1),
@@ -140,10 +141,13 @@ def bind_native_training_stage(model, worker):
     worker.check_config(cfg.layernorm_epsilon, 1e-6)
     layers = list(stack.layers)
     norms = []
-    for layer in layers:
+    for layer_index, layer in enumerate(layers):
         if not isinstance(layer, HyperConnectionHybridLayer):
             raise ValueError("native DSV4 requires HyperConnectionHybridLayer boundaries")
         hc = layer.hyper_connection
+        hc._rlk_parameter_id = (
+            f"model.layers.{layer_index // 2}.hc_{'attn' if layer_index % 2 == 0 else 'ffn'}"
+        )
         if hc.n != 4 or hc.mapping_proj.weight.shape != (24, 4 * cfg.hidden_size):
             raise ValueError("unsupported native HyperConnectionModule ABI")
         for name in ("input_layernorm", "pre_mlp_layernorm"):
@@ -225,3 +229,30 @@ def normalize_native_causal_mask(attention_mask, input_shape=None):
     if not bool((attention_mask == causal).all()):
         raise ValueError("native DSV4 adapter cannot discard padding/document-boundary masks")
     return None
+
+
+def original_mhc_parameters(model):
+    """Return actual native FP32 controller Parameters, without replacing them."""
+    result = {}
+    for index, layer in enumerate(model.decoder.layers):
+        hc = layer.hyper_connection
+        prefix = f"layers.{index // 2}.hc_{'attn' if index % 2 == 0 else 'ffn'}"
+        for name, parameter in (
+            ("fn", hc.mapping_proj.weight),
+            ("base", hc.bias),
+            ("alpha_pre", hc.alpha_pre),
+            ("alpha_post", hc.alpha_post),
+            ("alpha_res", hc.alpha_res),
+        ):
+            result[prefix + "." + name] = parameter
+    for name in ("hc_head_fn", "hc_head_base", "hc_head_scale"):
+        result[name] = getattr(model.decoder, name)
+    for name, parameter in result.items():
+        if (
+            not isinstance(parameter, torch.nn.Parameter)
+            or parameter.dtype != torch.float32
+            or not parameter.requires_grad
+            or not getattr(parameter, "keep_in_fp32", False)
+        ):
+            raise ValueError(f"original trainable FP32 mHC Parameter contract failed: {name}")
+    return result
