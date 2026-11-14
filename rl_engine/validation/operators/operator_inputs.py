@@ -26,6 +26,7 @@ def make_operator_inputs(
 ) -> dict[str, Any]:
     builders = {
         "qwenimage_adaln_mod_projection": _make_qwenimage_projection_inputs,
+        "qwenimage_final_adaln_out": _make_qwenimage_final_inputs,
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
@@ -55,6 +56,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
         "qwenimage_adaln_mod_projection": f"{batch}x3072x18432",
+        "qwenimage_final_adaln_out": f"{batch}x{seq}x3072",
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
@@ -411,3 +413,10 @@ def _qwenimage_inputs(args, dtype, device, multiplier):
 
 def _make_qwenimage_projection_inputs(args, dtype, device):
     return _qwenimage_inputs(args, dtype, device, 6)
+
+
+def _make_qwenimage_final_inputs(args, dtype, device):
+    inputs = _qwenimage_inputs(args, dtype, device, 2)
+    batch, seq = _batch_seq(args)
+    inputs["x"] = _floating_tensor((batch, seq, 3072), args, dtype, device, offset=3)
+    return inputs

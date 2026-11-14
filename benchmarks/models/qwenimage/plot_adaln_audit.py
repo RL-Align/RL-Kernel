@@ -17,7 +17,16 @@ from benchmarks.models.qwenimage.streams import STREAMS  # noqa: E402
 p = argparse.ArgumentParser()
 p.add_argument("directory", type=Path)
 a = p.parse_args()
-modes = ["native", "cublas_policy", "fixed", "vllm_local", "sglang_local", "megatron_local"]
+modes = [
+    "native",
+    "cublas_policy",
+    "fixed",
+    "vllm_local",
+    "sglang_local",
+    "megatron_local",
+    "vllm_liger",
+    "vllm_flashattn",
+]
 labels = [
     "Native",
     "cuBLAS policy",
@@ -25,6 +34,8 @@ labels = [
     "vLLM GEMM adapter",
     "SGLang GEMM adapter",
     "Megatron GEMM adapter",
+    "vLLM + Liger adapter",
+    "vLLM + flash-attn LN adapter",
 ]
 keys = [(s, "torch." + d) for d in ["bfloat16", "float32"] for s, _ in STREAMS]
 reports = {}
@@ -180,6 +191,7 @@ for mode, label in zip(modes, labels):
 lines += [
     "",
     "Latency includes Python launch gaps; separate processes.",
+    "Small-batch final: S=33; large-batch final: S=3.",
     "Raw samples include fwd, bwd, total and peak memory.",
     "FP64 uses explicit storage casts and straight-through VJP.",
     "Strict elementwise tolerance results: *-accuracy.json.",
