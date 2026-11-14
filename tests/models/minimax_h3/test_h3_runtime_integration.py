@@ -46,11 +46,12 @@ def test_runtime_mode_reads_environment(monkeypatch):
 
 
 def test_overlay_parse_label_and_validation():
+    """Overlay strings parse to node and boundary sets, label the run, and reject unknown names."""
     assert rt.AblationOverlay.parse("").label == "R/R"
     o = rt.AblationOverlay.parse("node:attention, boundary:token_refiner")
     assert o.native_nodes == {"attention"} and o.native_boundaries == {"token_refiner"}
     assert o.label == "ablation(native: node:attention,boundary:token_refiner)"
-    for bad in ("node:nope", "boundary:norm_out", "layer:x"):
+    for bad in ("node:nope", "boundary:time_proj", "layer:x"):
         with pytest.raises(ValueError):
             rt.AblationOverlay.parse(bad)
 
@@ -77,6 +78,61 @@ def test_adapter_audit_reports_the_fallback():
     adapter = rt.H3DiffusersAdapter(_FakeModel(), "audit")
     assert adapter._bind() is False and adapter.fell_back == "no CUDA device"
     assert adapter.report()["label"] == "P/P"
+
+
+def _bindable(monkeypatch, mode, *, binding_fails):
+    """An adapter whose model counts as CUDA-resident, with a stand-in for the full-model
+    binding that records each ``candidate`` request and can refuse the candidate graph."""
+
+    from contextlib import contextmanager
+
+    from rl_engine.validation.models import h3_full_model
+
+    entered = []
+
+    @contextmanager
+    def execution(model, *, candidate, trace, **_):
+        """Stand-in for ``full_model_execution``: fails to bind the candidate when asked to."""
+        if candidate and binding_fails:
+            raise ValueError("candidate projection fell back from its CUDA implementation")
+        entered.append(candidate)
+        yield trace
+
+    monkeypatch.setattr(h3_full_model, "full_model_execution", execution)
+    adapter = rt.H3DiffusersAdapter(_FakeModel(), mode)
+    monkeypatch.setattr(adapter, "_bind", lambda: True)
+    return adapter, entered
+
+
+@pytest.mark.parametrize("mode", ["strict", "audit"])
+def test_an_error_inside_the_bound_step_is_not_a_fallback(monkeypatch, mode):
+    """An error raised inside a bound step propagates and is not recorded as a fallback."""
+    adapter, entered = _bindable(monkeypatch, mode, binding_fails=False)
+    with pytest.raises(RuntimeError, match="CUDA out of memory"):
+        with adapter.active():
+            raise RuntimeError("CUDA out of memory (raised by the caller's backward)")
+    assert entered == [True] and adapter.fell_back is None
+    assert adapter.report()["case_id"] == "R/R"
+
+
+def test_audit_runs_the_provider_when_the_graph_cannot_bind(monkeypatch):
+    """Audit mode runs the provider and records the fallback when the graph cannot bind."""
+    adapter, entered = _bindable(monkeypatch, "audit", binding_fails=True)
+    with adapter.active():
+        ran = True
+    assert ran and entered == [False]
+    assert "fell back from its CUDA implementation" in adapter.fell_back
+    rep = adapter.report()
+    assert (rep["bound"], rep["case_id"], rep["label"]) == (False, "P/P", "P/P")
+
+
+def test_strict_raises_when_the_graph_cannot_bind(monkeypatch):
+    """Strict mode raises when the graph cannot bind and records no fallback."""
+    adapter, entered = _bindable(monkeypatch, "strict", binding_fails=True)
+    with pytest.raises(ValueError, match="fell back"):
+        with adapter.active():
+            pass
+    assert entered == [] and adapter.fell_back is None
 
 
 # --- CPS transition -----------------------------------------------------------------------
@@ -163,6 +219,37 @@ class TestTransition:
         out.prev_sample_mean.sum().backward()
         assert v.grad is not None and torch.isfinite(v.grad).all()
 
+    def test_log_prob_carries_the_policy_gradient(self):
+        """The policy loss differentiates the scored log-prob: the gradient must reach the
+        velocity, equal the formula's ``torch.mean`` autograd and not depend on the batch."""
+
+        pytest.importorskip("triton")
+        tr, x, v, noise = self._case()
+        stored = tr.cps_transition(x, v, 0.75, 0.5, noise=noise).prev_sample
+        weights = torch.tensor([0.5, -1.0, 2.0], device="cuda")  # per-sample advantages
+
+        def grad_of(fn, rows):
+            leaf = v[rows].clone().requires_grad_(True)
+            (fn(x[rows], leaf, stored[rows]) * weights[rows]).sum().backward()
+            return leaf.grad
+
+        def scored(xs, vs, prev):
+            """The differentiable CPS log-prob of ``prev`` from ``xs`` under velocities ``vs``."""
+            out = tr.cps_transition(xs, vs, 0.75, 0.5, prev_sample=prev)
+            assert out.log_prob.requires_grad
+            return out.log_prob
+
+        def formula(xs, vs, prev):  # the same log-prob with torch.mean, autograd end to end
+            sigma, sigma_prev = torch.tensor(0.75).cuda(), torch.tensor(0.5).cuda()
+            mean = _scheduler_cps(xs, vs, sigma, sigma_prev, torch.zeros_like(xs), 0.8)[1]
+            return (-((prev - mean) ** 2)).mean(dim=tuple(range(1, prev.ndim)))
+
+        batch = grad_of(scored, slice(None))
+        assert torch.isfinite(batch).all() and batch.abs().sum() > 0
+        assert torch.allclose(batch, grad_of(formula, slice(None)), rtol=1e-6, atol=0)
+        for i in range(3):  # each sample's gradient is the bits it gets on its own
+            assert torch.equal(batch[i : i + 1], grad_of(scored, slice(i, i + 1)))
+
     def test_matches_verl_omni_scheduler_when_available(self):
         root = os.environ.get("VERL_OMNI_PATH")
         if not root:
@@ -206,6 +293,33 @@ def test_lora_gradient_gate():
     report = rt.lora_gradient_gate(w, x, grad)
     assert report["repeatable"] and report["forward_rows_independent"] and report["base_frozen"]
     assert report["forward_rel_err_vs_fp64"] < 5e-3
+
+
+@needs_gpu
+def test_lora_gate_detects_a_gradient_reaching_the_base(monkeypatch):
+    """``base_frozen`` is a real check: a backward that returns a base gradient fails it."""
+
+    pytest.importorskip("triton")
+    backward = rt._StrictLoRA.backward
+
+    def leaky(ctx, grad):
+        dx, _, d_a, d_b, _ = backward(ctx, grad)
+        return dx, torch.zeros_like(ctx.saved_tensors[1]), d_a, d_b, None
+
+    monkeypatch.setattr(rt._StrictLoRA, "backward", staticmethod(leaky))
+    g = torch.Generator().manual_seed(3)
+    w = (torch.randn(64, 32, generator=g) / 20).bfloat16().cuda()
+    x = torch.randn(8, 32, generator=g).bfloat16().cuda()
+    grad = torch.randn(8, 64, generator=g).bfloat16().cuda()
+    assert rt.lora_gradient_gate(w, x, grad)["base_frozen"] is False
+
+
+def test_transition_refuses_sample_ids_that_do_not_match_the_batch():
+    """``transition()`` refuses ``sample_ids`` whose length differs from the batch."""
+    provider = rt.H3TrainingProvider(_FakeModel(), "off")
+    x = torch.zeros(3, 4, 2)
+    with pytest.raises(ValueError, match="sample_ids has 1 entries for a batch of 3"):
+        provider.transition(x, x, 0.75, 0.5, seed=1, step=0, sample_ids=[0], modality="video")
 
 
 @needs_gpu

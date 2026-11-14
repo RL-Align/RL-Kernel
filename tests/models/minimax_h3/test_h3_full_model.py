@@ -297,15 +297,16 @@ def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
 
 
 def test_strict_boundaries_apply_to_candidate_execution_only():
-    from rl_engine.validation.models.h3_full_model import PROVIDER_BOUNDARIES, STRICT_BOUNDARY_ROWS
+    """Strict boundaries need candidate execution, and every boundary module has a row."""
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
 
     with pytest.raises(ValueError, match="candidate execution only"):
         with full_model_execution(
             Model(), candidate=False, trace=FullModelTrace(), strict_boundaries=True
         ):
             pass
-    # every boundary module is either bound to a row or explicitly left on the provider
-    assert set(STRICT_BOUNDARY_ROWS) | set(PROVIDER_BOUNDARIES) == {
+    # every boundary module is bound to a row
+    assert set(STRICT_BOUNDARY_ROWS) == {
         "proj_in",
         "audio_proj_in",
         "context_embedder",
@@ -317,11 +318,41 @@ def test_strict_boundaries_apply_to_candidate_execution_only():
     }
 
 
-def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
-    from rl_engine.runtime.registry import KernelRegistry
-    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+class _Embedder(torch.nn.Module):
+    """The provider's ``TimestepEmbedding`` surface the binding reads."""
 
-    called = []
+    def __init__(self, **extra):
+        """A stand-in with the layers the binding reads; ``extra`` sets further attributes."""
+        super().__init__()
+        self.linear_1 = torch.nn.Linear(4, 6)
+        self.linear_2 = torch.nn.Linear(6, 3)
+        self.act = torch.nn.SiLU()
+        self.cond_proj = None
+        self.post_act = None
+        for name, value in extra.items():
+            setattr(self, name, value)
+
+    def forward(self, sample, condition=None):
+        raise AssertionError("the provider forward must not run in a strict run")
+
+
+class _FinalNorm(torch.nn.Module):
+    """The provider's ``MiniMaxH3AdaLayerNormOut`` surface the binding reads."""
+
+    def __init__(self):
+        super().__init__()
+        self.norm = torch.nn.RMSNorm(4, eps=1.25e-6)
+        self.linear = torch.nn.Linear(3, 8)
+
+    def forward(self, hidden_states, temb, timestep_indices):
+        raise AssertionError("the provider forward must not run in a strict run")
+
+
+def _fake_rows(monkeypatch, called, keyed_calls=None):
+    """Patch the registry with fake rows that record their calls in ``called``."""
+    from rl_engine.runtime.registry import KernelRegistry
+
+    keyed_calls = [] if keyed_calls is None else keyed_calls
 
     class Row:
         def __init__(self, row, method):
@@ -329,35 +360,278 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
             if method:
                 self.forward = self._run
 
-        def _run(self, x, weight, bias):
+        def _run(self, x, weight, bias, **keyed):
+            from rl_engine.ops.autograd.canonical_backward import active_session
+
             called.append((self.row, tuple(x.shape)))
+            keyed_calls.append((self.row, keyed, active_session() is not None))
             return torch.nn.functional.linear(x, weight, bias)
 
         __call__ = _run
 
-    # the audio/text rows expose ``forward``; the video rows are plain callables
-    monkeypatch.setattr(
-        KernelRegistry,
-        "get_op",
-        lambda self, row, device=None: Row(row, not row.startswith("video_")),
-    )
+    class TimestepMLP:
+        def forward(self, *args):
+            called.append(("timestep_mlp_fp32", args))
+            return torch.zeros(args[0].shape[0], 3)
+
+    class FinalAdaLN:
+        def forward(self, *args):
+            called.append(("final_adaln_out", args))
+            return args[0]
+
+    def get_op(self, row, device=None):
+        """The fake row for ``row``: an object with ``forward``, or a plain callable for video."""
+        if row == "timestep_mlp_fp32":
+            return TimestepMLP()
+        if row == "final_adaln_out":
+            return FinalAdaLN()
+        # the audio/text rows expose ``forward``; the video rows are plain callables
+        return Row(row, not row.startswith("video_"))
+
+    monkeypatch.setattr(KernelRegistry, "get_op", get_op)
+    # the fakes stand in for the CUDA ops strict mode requires
+    from rl_engine.validation.models import h3_full_model as fm
+
+    for row, fake in (("timestep_mlp_fp32", TimestepMLP), ("final_adaln_out", FinalAdaLN)):
+        monkeypatch.setitem(fm._CUDA_ROW_OPS, row, f"{fake.__module__}.{fake.__qualname__}")
+
+
+def _boundary_model():
+    """A model whose eight boundary modules are small stand-ins."""
     model = Model()
-    names = [n for n in STRICT_BOUNDARY_ROWS if n != "token_refiner"]
-    for name in names:
+    for name in ("proj_in", "audio_proj_in", "context_embedder", "proj_out", "audio_proj_out"):
         setattr(model, name, torch.nn.Linear(4, 3))
+    model.time_embedder = _Embedder()
+    model.norm_out = _FinalNorm()
+    return model
+
+
+def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
+    """Strict mode routes each boundary module through its row; video rows get keys, a session."""
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+
+    called, keyed_calls = [], []
+    _fake_rows(monkeypatch, called, keyed_calls)
+    model = _boundary_model()
+    names = ["proj_in", "audio_proj_in", "context_embedder", "proj_out", "audio_proj_out"]
     with full_model_execution(
         model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
     ) as trace:
         for name in names:
             out = getattr(model, name)(torch.ones(2, 5, 4))
             assert out.shape == (2, 5, 3)
-        assert sorted(row for row, _ in called) == sorted(STRICT_BOUNDARY_ROWS[n] for n in names)
-        assert {shape for _, shape in called} == {(10, 4)}
+        projections = [(row, shape) for row, shape in called if isinstance(shape, tuple)]
+        assert sorted(row for row, _ in projections) == sorted(
+            STRICT_BOUNDARY_ROWS[n] for n in names
+        )
+        assert {shape for _, shape in projections} == {(10, 4)}
         assert trace.boundary_bindings["proj_in"] == dict(
             row="video_input_projection_fp32", status="row"
         )
         assert trace.boundary_bindings["proj_out"]["status"] == "row"
+        # every boundary module is bound to its row, none stays on the provider
+        assert trace.boundary_bindings == {
+            n: dict(row=r, status="row") for n, r in STRICT_BOUNDARY_ROWS.items()
+        }
+        assert trace.boundary_bindings["time_embedder"] == dict(
+            row="timestep_mlp_fp32", status="row"
+        )
+        assert trace.boundary_bindings["norm_out"] == dict(row="final_adaln_out", status="row")
+        # the video rows get the logical rows' identities, a parameter id and an open canonical
+        # backward session (a trainable weight is refused without one); the others get no keys
+        by_row = {row: (keyed, session) for row, keyed, session in keyed_calls}
+        for name in ("proj_in", "proj_out"):
+            keyed, session = by_row[STRICT_BOUNDARY_ROWS[name]]
+            assert session and keyed["parameter_id"] == name
+            assert keyed["logical_keys"].tolist() == [[b, s] for b in range(2) for s in range(5)]
+        for name in ("audio_proj_in", "audio_proj_out", "context_embedder"):
+            assert by_row[STRICT_BOUNDARY_ROWS[name]][0] == {}
+    # leaving the context restores the provider forward and closes the session
+    assert "forward" not in model.proj_in.__dict__
+    from rl_engine.ops.autograd.canonical_backward import active_session
+
+    assert active_session() is None
+
+
+def test_strict_time_embedder_and_norm_out_pass_their_parameters_in_row_order(monkeypatch):
+    """The two rows get the modules' parameters in the rows' argument order."""
+    called = []
+    _fake_rows(monkeypatch, called)
+    model = _boundary_model()
+    embedder, final = model.time_embedder, model.norm_out
+    sample = torch.ones(2, 4)
+    hidden = torch.ones(1, 5, 4)
+    temb = torch.ones(2, 3)
+    indices = torch.tensor([0, 1, 1, 0, 1])
+    with full_model_execution(
+        model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+    ):
+        model.time_embedder(sample)
+        model.norm_out(hidden, temb, indices)
+        # ``condition=None`` is the provider's default and is accepted explicitly too
+        model.time_embedder(sample, condition=None)
+    (name, args), _, (_, repeat) = called
+    assert name == "timestep_mlp_fp32"
+    assert args[0] is sample
+    assert args[1:] == (
+        embedder.linear_1.weight,
+        embedder.linear_1.bias,
+        embedder.linear_2.weight,
+        embedder.linear_2.bias,
+    )
+    assert repeat[1] is embedder.linear_1.weight
+    name, args = called[1]
+    assert name == "final_adaln_out"
+    assert args[0] is hidden
+    assert args[1] is final.norm.weight
+    assert args[2] is temb
+    assert args[3] is final.linear.weight
+    assert args[4] is final.linear.bias
+    assert args[5] is indices
+    assert args[6] == final.norm.eps == 1.25e-6
+    assert len(args) == 7
+    # leaving the context restores the provider forward of both modules
+    assert "forward" not in embedder.__dict__
+    assert "forward" not in final.__dict__
+
+
+def test_strict_time_embedder_refuses_what_its_row_does_not_cover(monkeypatch):
+    """The time_embedder binding refuses a condition, cond_proj, post_act and a non-SiLU act."""
+    called = []
+    _fake_rows(monkeypatch, called)
+    model = _boundary_model()
+    with full_model_execution(
+        model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+    ):
+        with pytest.raises(ValueError, match="condition"):
+            model.time_embedder(torch.ones(2, 4), condition=torch.ones(2, 4))
+    assert not called
+    for extra in ("cond_proj", "post_act"):
+        model = _boundary_model()
+        setattr(model.time_embedder, extra, torch.nn.Identity())
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            with pytest.raises(ValueError, match=extra):
+                model.time_embedder(torch.ones(2, 4))
+    assert not called
+    for act in (torch.nn.GELU(), None):  # the row's activation is SiLU, nothing else
+        model = _boundary_model()
+        model.time_embedder.act = act
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            with pytest.raises(ValueError, match="SiLU"):
+                model.time_embedder(torch.ones(2, 4))
+    assert not called
+
+
+def test_strict_boundaries_restore_time_embedder_and_norm_out_after_failure(monkeypatch):
+    """Both modules get their provider forward back after an error inside the context."""
+    called = []
+    _fake_rows(monkeypatch, called)
+    model = _boundary_model()
+    with pytest.raises(RuntimeError, match="injected"):
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            assert "forward" in model.time_embedder.__dict__
+            assert "forward" in model.norm_out.__dict__
+            raise RuntimeError("injected")
+    assert "forward" not in model.time_embedder.__dict__
+    assert "forward" not in model.norm_out.__dict__
+
+
+def test_native_time_embedder_and_norm_out_stay_on_the_provider(monkeypatch):
+    """Named in ``native_boundaries``, the two modules stay on the provider."""
+    called = []
+    _fake_rows(monkeypatch, called)
+    model = _boundary_model()
+    with full_model_execution(
+        model,
+        candidate=True,
+        trace=(trace := FullModelTrace()),
+        ops=object(),
+        strict_boundaries=True,
+        native_boundaries=("time_embedder", "norm_out"),
+    ):
+        assert "forward" not in model.time_embedder.__dict__
+        assert "forward" not in model.norm_out.__dict__
         assert trace.boundary_bindings["time_embedder"]["status"] == "provider"
         assert trace.boundary_bindings["norm_out"]["status"] == "provider"
-    # leaving the context restores the provider forward
+        assert trace.boundary_bindings["proj_in"]["status"] == "row"
+        with pytest.raises(AssertionError, match="provider forward"):
+            model.time_embedder(torch.ones(2, 4))
+
+
+@pytest.mark.parametrize("row", ["timestep_mlp_fp32", "final_adaln_out"])
+def test_strict_refuses_the_reference_op_of_time_embedder_and_norm_out(monkeypatch, row):
+    """If the registry falls back to the PyTorch reference, strict mode raises, binding nothing."""
+    from rl_engine.runtime.registry import KernelRegistry
+
+    called = []
+    _fake_rows(monkeypatch, called)
+    fake_get_op = KernelRegistry.get_op
+
+    class Reference:
+        """Stands in for the PyTorch reference op the registry falls back to."""
+
+        def forward(self, *args):
+            """Never reached: strict mode refuses this op before binding."""
+            raise AssertionError("the reference op must not be bound")
+
+    def get_op(self, name, device=None):
+        """The fake rows, with ``row`` resolved to the reference."""
+        return Reference() if name == row else fake_get_op(self, name, device)
+
+    monkeypatch.setattr(KernelRegistry, "get_op", get_op)
+    model = _boundary_model()
+    with pytest.raises(RuntimeError, match=f"strict {row} resolved to .*Reference"):
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            pass
+    # nothing stays bound after the refusal
+    assert "forward" not in model.time_embedder.__dict__
+    assert "forward" not in model.norm_out.__dict__
     assert "forward" not in model.proj_in.__dict__
+
+
+def test_the_required_cuda_ops_are_the_registered_cuda_backends():
+    """The class paths strict mode requires are the registry's CUDA backends of the two rows."""
+    from rl_engine.runtime.registry import OpBackend
+    from rl_engine.validation.models import h3_full_model as fm
+
+    assert fm._CUDA_ROW_OPS == {
+        "timestep_mlp_fp32": OpBackend.CUDA_H3_TIMESTEP_MLP.value,
+        "final_adaln_out": OpBackend.CUDA_H3_FINAL_ADALN_OUT.value,
+    }
+
+
+def test_an_error_inside_the_strict_context_is_not_replaced_by_the_session_check(monkeypatch):
+    """A body error after backward started propagates as it is, not as an incomplete session."""
+    from rl_engine.ops.autograd.canonical_backward import active_session
+
+    _fake_rows(monkeypatch, [])
+    model = _boundary_model()
+
+    def open_step():
+        return full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        )
+
+    with pytest.raises(ValueError, match="non-finite gradient"):
+        with open_step():
+            session = active_session()
+            # one keyed use is registered and backward has started, but its gradient never
+            # arrives: the step fails part-way through backward
+            session.register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            session.backward_started = True
+            raise ValueError("non-finite gradient in block 7")
+    assert active_session() is None
+    # a body that completes with a missing submission is still refused
+    with pytest.raises(RuntimeError, match="incomplete canonical submissions"):
+        with open_step():
+            active_session().register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            active_session().backward_started = True
+    assert active_session() is None

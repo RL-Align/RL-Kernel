@@ -65,15 +65,24 @@ def _norm_node(name: str, source: str, weight: str) -> Node:
     )
 
 
+_QKV_WEIGHTS = ("attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight")
+
+
 def _qkv_node(name: str, weight: str) -> Node:
+    """Q, K or V: one shared ``h3_qkv_gemm`` call for the three nodes, as in the block graph,
+    so the refiner's input gradient is the row's fused ``[Q; K; V]`` backward."""
+
+    index = _QKV_WEIGHTS.index(weight)
+
     def candidate(ops, ctx, x):
-        flat = x.reshape(-1, x.shape[-1])
-        return ops.qkv.project(flat, _w(ctx, weight)).view(*x.shape[:-1], -1)
+        """This node's slice of the refiner's one fused ``[Q; K; V]`` call, shaped like ``x``."""
+        weights = tuple(_w(ctx, w) for w in _QKV_WEIGHTS)
+        return hb.fused_qkv(ctx, x, weights, ops)[index].view(*x.shape[:-1], -1)
 
     return Node(
         name=name,
         inputs=("norm1",),
-        binding=Binding("h3_qkv_gemm", "row", "H3QKVGemmCudaOp.project"),
+        binding=Binding("h3_qkv_gemm", "row", "H3QKVGemmCudaOp.forward"),
         candidate=candidate,
         provider=lambda ctx, x: prov.provider_linear(x, _w(ctx, weight)),
         golden=lambda ctx, x: gold.golden_linear(x, _w(ctx, weight)),

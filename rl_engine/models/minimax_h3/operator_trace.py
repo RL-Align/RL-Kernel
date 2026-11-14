@@ -97,7 +97,7 @@ class OperatorCall:
     split_policy: str = NOT_OBSERVED  # none | split_k | ..., as the operator reported it
     topology: Mapping[str, Any] = field(default_factory=dict)  # e.g. {"tp": 4, "cp": 2, "sp": True}
     shapes: tuple[tuple[int, ...], ...] = ()  # input shapes, when known
-    fallback: bool | None = False  # True if any fallback path was taken; None: not observed
+    fallback: bool | None = None  # True/False as reported; None (the default): not observed
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -160,8 +160,8 @@ class OperatorTrace:
     def record_node(self, path: str, **fields_: Any) -> OperatorCall:
         """Record by path; the row is taken from the graph.
 
-        ``accumulator`` and ``split_policy`` are recorded only if given: they are never filled
-        in from the row contract, so an unobserved value fails ``violations``.
+        ``accumulator``, ``split_policy`` and ``fallback`` are recorded only if given: they are
+        never filled in from the row contract, so an unobserved value fails ``violations``.
         """
 
         node = self._by_path.get(path)
