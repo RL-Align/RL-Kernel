@@ -322,6 +322,7 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
     from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
 
     called = []
+    keyed_calls = []
 
     class Row:
         def __init__(self, row, method):
@@ -329,8 +330,11 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
             if method:
                 self.forward = self._run
 
-        def _run(self, x, weight, bias):
+        def _run(self, x, weight, bias, **keyed):
+            from rl_engine.ops.autograd.canonical_backward import active_session
+
             called.append((self.row, tuple(x.shape)))
+            keyed_calls.append((self.row, keyed, active_session() is not None))
             return torch.nn.functional.linear(x, weight, bias)
 
         __call__ = _run
@@ -359,5 +363,17 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
         assert trace.boundary_bindings["proj_out"]["status"] == "row"
         assert trace.boundary_bindings["time_embedder"]["status"] == "provider"
         assert trace.boundary_bindings["norm_out"]["status"] == "provider"
-    # leaving the context restores the provider forward
+        # the video rows get the logical rows' identities, a parameter id and an open canonical
+        # backward session (a trainable weight is refused without one); the others get no keys
+        by_row = {row: (keyed, session) for row, keyed, session in keyed_calls}
+        for name in ("proj_in", "proj_out"):
+            keyed, session = by_row[STRICT_BOUNDARY_ROWS[name]]
+            assert session and keyed["parameter_id"] == name
+            assert keyed["logical_keys"].tolist() == [[b, s] for b in range(2) for s in range(5)]
+        for name in ("audio_proj_in", "audio_proj_out", "context_embedder"):
+            assert by_row[STRICT_BOUNDARY_ROWS[name]][0] == {}
+    # leaving the context restores the provider forward and closes the session
     assert "forward" not in model.proj_in.__dict__
+    from rl_engine.ops.autograd.canonical_backward import active_session
+
+    assert active_session() is None
