@@ -47,7 +47,7 @@ def test_kernel_in_cpu_interpreter(c):
         want = _post_row(y[0], x[0], p[0], b[0])[None]
         flat = want.float().flatten(1)
         bits(res, want)
-        bits(lin, _sum(flat[:, None, :] * w.bfloat16().float()))
+        bits(lin, _sum(flat[:, None, :] * w))
         bits(ss, _sum(flat.square()))
 
 
