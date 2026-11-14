@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+name: DSV4 ROCm CPU checks
+
+on:
+  push:
+    branches: [dsv4-rocm]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu-contracts:
+    runs-on: ubuntu-latest
+    env:
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test dependencies
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest numpy tabulate tensordict==0.10.0
+      - name: Check CPU contracts and comparison evidence
+        run: |
+          python -m pytest -q -ra \
+            tests/ops/mhc tests/ops/norm/test_rmsnorm_residual.py \
+            tests/integrations/common/test_mhc_worker.py \
+            tests/integrations/common/test_dsv4_canonical_keys.py \
+            tests/integrations/common/test_native_megatron_mhc.py \
+            tests/backends/rocm/test_qnorm_vjp_on_cpu.py \
+            tests/examples/test_dsv4_step_evidence.py \
+            tests/examples/test_dsv4_strict_comparison.py \
+            tests/examples/test_dsv4_cycle_guards.py \
+            tests/models/deepseek_v4/test_layer_end.py \
+            tests/contracts/operators/test_mhc_contract.py \
+            tests/runtime/test_dispatch.py \
+            tests/validation/common/test_batch_invariance.py
