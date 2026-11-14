@@ -911,15 +911,18 @@ def main() -> None:
         part.unlink(missing_ok=True)
     megatron_commit = None
     if args.megatron_src:
-        megatron_commit = (
-            subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
-                cwd=args.megatron_src,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-            or None
-        )
+        try:
+            megatron_commit = (
+                subprocess.run(
+                    ["git", "rev-parse", "--short", "HEAD"],
+                    cwd=args.megatron_src,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                or None
+            )
+        except OSError:  # a bad path must not discard the finished modes
+            megatron_commit = None
     report = {
         "kind": "h3_prior_art",
         "rfc": "RL-Align/RL-Kernel#420",

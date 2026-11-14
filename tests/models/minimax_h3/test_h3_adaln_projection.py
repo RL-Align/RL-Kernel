@@ -41,6 +41,15 @@ def _cuda_op():
     return H3AdaLNProjectionCudaOp()
 
 
+def test_pre_sm80_device_is_refused_at_construction_so_the_registry_can_fall_back(monkeypatch):
+    from rl_engine.backends.cuda.model_specific.minimax_h3 import adaln_projection as module
+
+    monkeypatch.setattr(module, "det_linear_available", lambda: True)
+    monkeypatch.setattr(module, "det_linear_device_supported", lambda *args: False)
+    with pytest.raises(RuntimeError, match="SM80"):
+        module.H3AdaLNProjectionCudaOp()
+
+
 def _temb(num, dim=2688, seed=0, device="cuda"):
     """Generate seeded FP32 timestep embeddings on CPU and move them to the test device."""
 
@@ -97,6 +106,19 @@ class TestReference:
             op.forward(_temb(0, 16, device="cpu"), weight, bias)
         with pytest.raises(TypeError):
             op.forward(_temb(2, 16, device="cpu"), weight, bias.float())
+
+    def test_rejects_a_weight_without_rows_instead_of_hidden_size_zero(self):
+        """A (0, D) weight divides by 18 and would give H = 0 and six empty outputs."""
+
+        temb = _temb(2, 16, device="cpu")
+        weight, bias = _synthetic(8, 16, device="cpu")
+        with pytest.raises(ValueError, match="nonzero row count"):
+            NativeH3AdaLNProjectionOp().forward(temb, weight[:0], bias[:0])
+
+    def test_rejects_a_zero_width_input_instead_of_returning_the_bias(self):
+        weight, bias = _synthetic(8, 16, device="cpu")
+        with pytest.raises(ValueError, match="nonzero input width"):
+            NativeH3AdaLNProjectionOp().forward(_temb(2, 0, device="cpu"), weight[:, :0], bias)
 
 
 @requires_cuda
@@ -280,6 +302,45 @@ class TestCudaSynthetic:
             single = _cuda_op()(temb[i : i + 1], weight, bias)
             for s_out, f_out in zip(single, full, strict=True):
                 assert torch.equal(s_out, f_out[3 * i : 3 * i + 3])
+
+    @pytest.mark.parametrize(
+        "frozen", [("bias",), ("weight",), ("temb",), ("weight", "bias"), ("temb", "bias")]
+    )
+    def test_frozen_inputs_get_no_gradient_and_do_not_change_the_others(self, frozen, monkeypatch):
+        """Only a bias that needs a gradient is folded; the other gradients stay bitwise equal."""
+
+        from rl_engine.backends.cuda.model_specific.minimax_h3 import adaln_projection
+
+        op = _cuda_op()
+        weight, bias = _synthetic(64, 2688, seed=11)
+        temb = _temb(3, seed=11)
+        grads = [torch.randn(9, 64, device="cuda").bfloat16() for _ in range(6)]
+        names = ("temb", "weight", "bias")
+
+        def run(frozen_names):
+            leaves = [t.detach().clone() for t in (temb, weight, bias)]
+            for name, leaf in zip(names, leaves, strict=True):
+                leaf.requires_grad_(name not in frozen_names)
+            torch.autograd.backward(list(op(*leaves)), grads)
+            return leaves
+
+        full = run(())
+        calls = []
+        real = adaln_projection.det_linear_backward_weight
+
+        def recording(*args, **kwargs):
+            calls.append(kwargs.get("with_bias", True))
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(adaln_projection, "det_linear_backward_weight", recording)
+        part = run(frozen)
+        for name, a, b in zip(names, full, part, strict=True):
+            if name in frozen:
+                assert b.grad is None, name
+            else:
+                assert torch.equal(a.grad, b.grad), name
+        wants_params = "weight" not in frozen or "bias" not in frozen
+        assert calls == ([("bias" not in frozen)] if wants_params else []), (frozen, calls)
 
     def test_rejects_cpu(self):
         """Reject CPU tensors at the CUDA projection boundary."""

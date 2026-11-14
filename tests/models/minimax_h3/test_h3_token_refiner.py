@@ -187,7 +187,10 @@ def test_operator_trace_covers_the_refiner_paths(refiner_weights):
         node = call.path.rsplit(".", 1)[1]
         assert (call.status, call.row) == (bound[node].status, bound[node].rfc_row)
     assert trace.violations(paths=paths)  # interim nodes still present
-    assert trace.violations(paths=paths, allowed_statuses=("row", "interim")) == []
+    assert (
+        trace.violations(paths=paths, allowed_statuses=("row", "interim"), require_observed=False)
+        == []
+    )
 
 
 @needs_gpu

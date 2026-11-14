@@ -13,6 +13,12 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -74,6 +80,27 @@ class TestReference:
             expected,
         )
 
+    def test_modulation_backward_is_bitwise_the_per_row_scan_it_replaced(self):
+        from rl_engine.reference.minimax_h3.rmsnorm import _DeterministicModulation
+
+        g = torch.Generator(device="cpu").manual_seed(11)
+        n = torch.randn(300, 16, generator=g)
+        shift, scale = torch.randn(7, 16, generator=g), torch.randn(7, 16, generator=g)
+        index = torch.randint(0, 5, (300,), generator=g)  # rows 5 and 6 are never referenced
+        grad = torch.randn(300, 16, generator=g)
+        leaves = [t.clone().requires_grad_(True) for t in (n, shift, scale)]
+        _DeterministicModulation.apply(*leaves, index).backward(grad)
+
+        per_shift = grad.reshape(-1, 300, 16).sum(dim=0)
+        per_scale = (grad * n).reshape(-1, 300, 16).sum(dim=0)
+        d_shift, d_scale = torch.zeros(7, 16), torch.zeros(7, 16)
+        for row in range(7):  # the loop of the earlier implementation
+            positions = torch.nonzero(index == row).flatten()
+            if positions.numel():
+                d_shift[row] = per_shift.index_select(0, positions).sum(dim=0)
+                d_scale[row] = per_scale.index_select(0, positions).sum(dim=0)
+        assert torch.equal(leaves[1].grad, d_shift) and torch.equal(leaves[2].grad, d_scale)
+
     def test_rejects_bad_inputs(self):
         op = NativeH3RMSNormOp()
         x, w = torch.randn(2, 8), torch.ones(8)
@@ -88,6 +115,13 @@ class TestReference:
         shift, scale = torch.zeros(3, 8), torch.zeros(3, 8)
         with pytest.raises(IndexError):
             op.forward_modulated(x, w, shift, scale, torch.tensor([0, 3]))
+        with pytest.raises(IndexError):  # the golden takes check_range like the provider path
+            op.forward_modulated_fp32(x, w, shift, scale, torch.tensor([0, 3]))
+        op.forward_modulated_fp32(x, w, shift, scale, torch.tensor([0, 2]), check_range=False)
+        with pytest.raises(ValueError, match="is on meta"):  # a device mismatch is a ValueError
+            op.forward_modulated(x, w, shift.to("meta"), scale, torch.tensor([0, 1]))
+        with pytest.raises(TypeError, match="dtype"):  # a dtype mismatch stays a TypeError
+            op.forward_modulated(x, w, shift.double(), scale, torch.tensor([0, 1]))
         with pytest.raises(ValueError):  # one index per position S
             op.forward_modulated(x, w, shift, scale, torch.tensor([0]))
 
@@ -139,6 +173,28 @@ class TestCudaForward:
         ours = _cuda_op().forward_modulated(x, w, shift, scale, index)
         assert torch.equal(ours, provider_norm_modulate(x, w, shift, scale, index))
 
+    def test_overlapping_table_rows_are_copied_and_wider_table_views_are_not(self):
+        w = (torch.rand(5376, device="cuda") + 0.5).bfloat16()
+        table = _x((9, 2 * 5376), seed=21, scale=0.5)
+        wide_shift, wide_scale = table.chunk(2, dim=-1)  # row stride 2H, handed over as views
+        ti, tags = h3_packed_layout(100, 3, seed=21)
+        index = ti * 3 + tags
+        x = _x((1, 100, 5376), seed=21)
+        op = _cuda_op()
+        expected = op.forward_modulated(
+            x, w, wide_shift.contiguous(), wide_scale.contiguous(), index
+        )
+        assert torch.equal(op.forward_modulated(x, w, wide_shift, wide_scale, index), expected)
+        # An expanded table (row stride 0) is a table of equal rows: copied, not rejected.
+        row = _x((1, 5376), seed=22, scale=0.5)
+        expanded = row.expand(9, 5376)
+        assert expanded.stride(0) == 0
+        dense = row.repeat(9, 1)
+        assert torch.equal(
+            op.forward_modulated(x, w, expanded, expanded, index),
+            op.forward_modulated(x, w, dense, dense, index),
+        )
+
     def test_rows_are_batch_and_position_invariant(self):
         w = (torch.rand(5376, device="cuda") + 0.5).bfloat16()
         shift, scale, *_ = _table(9, 5376, 6, seed=4)
@@ -155,6 +211,22 @@ class TestCudaForward:
             _cuda_op()(_x((2, 6)), w)
         with pytest.raises(ValueError):
             _cuda_op()(_x((2, 8)).cpu(), torch.ones(8).bfloat16())
+
+    def test_rejects_a_row_wider_than_the_int_the_kernels_count_with(self):
+        """N goes to the kernels as ``int``: forward and backward both refuse it up front."""
+
+        from rl_engine.backends.extension import _C
+
+        _cuda_op()
+        n = 2**31  # a multiple of 4 above INT_MAX
+        if torch.cuda.mem_get_info()[0] < 10 * 2**30:
+            pytest.skip("needs about 8 GiB of free device memory for the two operands")
+        x = torch.empty(1, n, device="cuda", dtype=torch.float16)
+        w = torch.empty(n, device="cuda", dtype=torch.float16)
+        with pytest.raises(RuntimeError, match="too large"):
+            _C.h3_rmsnorm_forward(x, w, 1e-6)
+        with pytest.raises(RuntimeError, match="too large"):
+            _C.h3_rmsnorm_backward(x, x, w, torch.empty(1, device="cuda"))
 
 
 _DEVICE_MESSAGES = {
@@ -299,4 +371,79 @@ class TestCudaBackward:
         _cuda_op()
         assert (
             type(KernelRegistry().get_op("h3_rmsnorm", device="cuda")).__name__ == "H3RMSNormCudaOp"
+        )
+
+
+def _index_probe(entry: str, bad: int):
+    """Run one native entry point with a table-row index outside the table, in a child process."""
+
+    probe = textwrap.dedent(
+        """
+        import sys
+        import torch
+        from rl_engine.backends.extension import _C
+
+        entry, bad = sys.argv[1], int(sys.argv[2])
+        rows, hidden, table_rows = 600, 64, 4
+        x = torch.randn(rows, hidden, device="cuda").bfloat16()
+        w = torch.ones(hidden, device="cuda").bfloat16()
+        table = torch.randn(table_rows, 2 * hidden, device="cuda").bfloat16()
+        shift, scale = table.chunk(2, dim=-1)
+        index = torch.arange(rows, device="cuda") % table_rows
+        index[rows - 3] = bad  # the last tile of rows, past the first dx blocks
+        if entry == "forward":
+            _C.h3_rmsnorm_forward(x, w, 1e-5, shift, scale, index)
+        else:
+            from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather import (
+                _segment_tiles,
+            )
+            valid = index.clamp(0, table_rows - 1)
+            y, rstd = _C.h3_rmsnorm_forward(x, w, 1e-5, shift, scale, valid)
+            tiles = _segment_tiles(valid, table_rows)
+            _C.h3_rmsnorm_backward(torch.ones_like(x), x, w, rstd, shift, scale, index, *tiles)
+        torch.cuda.synchronize()
+        """
+    )
+    return subprocess.run(
+        [sys.executable, "-c", probe, entry, str(bad)],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "CUDA_LAUNCH_BLOCKING": "1"},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+@requires_cuda
+@pytest.mark.parametrize("entry", ["forward", "backward"])
+@pytest.mark.parametrize("bad", [-1, 4, 10**9], ids=["negative", "past-table", "far"])
+def test_a_modulation_index_outside_the_table_stops_the_kernels(entry, bad):
+    """check_range=False and direct calls get a device-side assert, not an out-of-bounds read.
+
+    The dweight partials read the index inside their row loop, where an assert costs about 11% of
+    the backward; the entry point checks the index values once before launching them.
+    """
+
+    _cuda_op()
+    assert _index_probe(entry, 1).returncode == 0  # the control: the same call with a valid index
+    done = _index_probe(entry, bad)
+    assert done.returncode != 0, entry
+    assert "device-side assert triggered" in done.stderr, done.stderr
+
+
+@pytest.mark.parametrize("missing", ["shift", "scale", "index"])
+def test_the_modulated_form_rejects_a_missing_table_or_index(missing):
+    """``index=None`` must not fall back to the plain norm (or fail on a ``None`` attribute)."""
+
+    x = torch.randn(4, 8, dtype=torch.bfloat16)
+    weight = torch.ones(8, dtype=torch.bfloat16)
+    args = {
+        "shift": torch.randn(2, 8, dtype=torch.bfloat16),
+        "scale": torch.randn(2, 8, dtype=torch.bfloat16),
+        "index": torch.tensor([0, 1, 1, 0]),
+    }
+    args[missing] = None
+    with pytest.raises(TypeError, match=f"{missing} must be a torch.Tensor"):
+        NativeH3RMSNormOp().forward_modulated(
+            x, weight, args["shift"], args["scale"], args["index"]
         )

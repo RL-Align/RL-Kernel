@@ -12,7 +12,7 @@ import torch
 from rl_engine.backends.extension import _C
 from rl_engine.validation.models import h3_block as block
 from rl_engine.validation.models.h3_weights import load_h3_block_weights
-from tools.validation.models.h3_full_model import digest
+from tools.validation.models.h3_evidence_integrity import digest
 
 
 def main():

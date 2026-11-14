@@ -31,7 +31,14 @@
 //     partials for those chunks, which is what tensor-parallel shards gather.
 // d_weight dW[n, k] = sum_t g[t, n] * x[t, k];  d_bias db[n] = sum_t g[t, n]
 //   * an ascending-t fmaf chain into FP32 from 0, cast once. This is the one
-//     cross-row reduction; its order is the logical row order.
+//     cross-row reduction; its order is the logical row order. db is the same
+//     chain with the multiplier 1, which is a plain FP32 add (fmaf(g, 1, a) == a + g).
+//
+// Tails: the host requires K % VEC == 0 (VEC = 16 / sizeof(w)), and every 16-byte
+// load in the forward kernels starts at a multiple of VEC (the MMA kernel's at
+// k = kb + 32u + 8q), so `k < K` implies `k + VEC <= K`: no load straddles the end
+// of a row, and every row start stays 16-byte aligned. N and the row count have no
+// such requirement; their tails are masked per column / per row.
 //
 // Reduction contract h3-det-linear-bf16-mma-v1 (BF16 x and W, FP32 accumulate)
 // -----------------------------------------------------------------------------
@@ -54,10 +61,17 @@
 #include <cuda_bf16.h>
 
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace {
 
+// The FP32 forward launch shape is one pair of knobs, and the single compiled case below is built
+// from the same pair, so the shape picked at run time is always one that was compiled. A build that
+// overrides one knob has to override the other (and H3_FWD_CONFIGS for a multi-case sweep).
+#if defined(H3_FWD_F32_COLS) != defined(H3_FWD_F32_AHEAD)
+#error "define H3_FWD_F32_COLS and H3_FWD_F32_AHEAD together"
+#endif
 #ifndef H3_FWD_F32_COLS
 #define H3_FWD_F32_COLS 2
 #define H3_FWD_F32_AHEAD 6
@@ -126,8 +140,9 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
                               int64_t k_in, int64_t activation) {
   using WV = Vec16<w_t>;
   using XV = Vec16<x_t>;
+  static_assert(kCols * kRows <= kWarp,
+                "the epilogue stores through lane == c * kRows + r, so kCols * kRows must fit a warp");
   constexpr int kVec = WV::kN;
-  static_assert(kCols * kRows <= kWarp, "one warp cannot store more than kWarp outputs per tile");
   static_assert(XV::kN == kVec, "x and weight share a dtype");
   constexpr int64_t kStride = static_cast<int64_t>(kWarp) * kVec;
 
@@ -149,6 +164,8 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
         uint4 raw[kLoadAhead][kCols];
 #pragma unroll
         for (int u = 0; u < kLoadAhead; ++u) {
+          // K % kVec == 0 (host check) and k0 is a multiple of kVec, so k0 < k_in means the whole
+          // 16-byte chunk lies inside the row.
           const int64_t k0 = g0 + u * kStride;
 #pragma unroll
           for (int c = 0; c < kCols; ++c) {
@@ -166,10 +183,14 @@ __global__ void __launch_bounds__(kWarpsPerBlock * kWarp)
               XV::load(x + (t0 + r) * k_in + k0, xv);
 #pragma unroll
               for (int c = 0; c < kCols; ++c) {
-                float wv[kVec];
-                WV::unpack(raw[u][c], wv);
+                // raw[u][c] is only loaded for columns inside the output; the last column tile of
+                // an N that is not a multiple of kCols must not read the other registers.
+                if (n0 + c < n_out) {
+                  float wv[kVec];
+                  WV::unpack(raw[u][c], wv);
 #pragma unroll
-                for (int j = 0; j < kVec; ++j) acc[c][r] = fmaf(xv[j], wv[j], acc[c][r]);
+                  for (int j = 0; j < kVec; ++j) acc[c][r] = fmaf(xv[j], wv[j], acc[c][r]);
+                }
               }
             }
           }
@@ -508,6 +529,12 @@ torch::Tensor h3_det_linear_backward_input_partials(torch::Tensor grad, torch::T
   const int64_t k_in = weight.size(1);
   const c10::cuda::CUDAGuard device_guard(grad.device());
   const int64_t chunks = (n_out + kDInputChunk - 1) / kDInputChunk;
+  // chunks is blockIdx.y and rows * k_in / threads is blockIdx.x of the fold: fail with a clear message
+  // instead of "invalid configuration argument" when a launch dimension would overflow.
+  TORCH_CHECK(chunks <= 65535, "N=", n_out, " needs ", chunks,
+              " input-gradient chunks; at most 65535 are supported");
+  TORCH_CHECK((rows * k_in + 255) / 256 <= std::numeric_limits<int32_t>::max(), "rows * K = ",
+              rows * k_in, " is too large for one input-gradient fold launch");
   auto partial = torch::empty({chunks, rows, k_in}, grad.options());
   if (partial.numel() == 0) return partial;
   auto stream = at::cuda::getCurrentCUDAStream();
@@ -540,6 +567,10 @@ torch::Tensor h3_det_linear_fold_chunks(torch::Tensor partial, c10::ScalarType o
   if (elems == 0) return out;
   auto stream = at::cuda::getCurrentCUDAStream();
   const int threads = 256;
+  // Same bound as h3_det_linear_backward_input: grid.x holds at most INT32_MAX blocks. (That is 5e11
+  // elements, beyond any tensor that fits in memory; the check keeps the two entry points alike.)
+  TORCH_CHECK((elems + threads - 1) / threads <= std::numeric_limits<int32_t>::max(),
+              "rows * K = ", elems, " needs more blocks than one grid.x launch holds");
   const unsigned fold_blocks = static_cast<unsigned>((elems + threads - 1) / threads);
   if (out_dtype == at::kFloat) {
     det_fold_chunks_kernel<float><<<fold_blocks, threads, 0, stream>>>(
@@ -591,6 +622,7 @@ std::vector<torch::Tensor> h3_det_linear_backward_weight(torch::Tensor grad, tor
   const int64_t total = n_out * k_in;
   const unsigned blocks = static_cast<unsigned>(grid_for(total, threads));
   const float* g = grad.data_ptr<float>();
+  // check_matrix(x) above admits float32 and bfloat16 only, so the last branch is bfloat16.
 #define H3_DW_LAUNCH(XT, XC, WT, WC)                                                     \
   det_linear_dweight_kernel<float, XC, WC><<<blocks, threads, 0, stream>>>(             \
       g, cptr<XT>(x), mptr<WT>(dw), rows, n_out, k_in)

@@ -96,6 +96,14 @@ class TestReference:
         with pytest.raises(ValueError):
             NativeH3TimestepSinusoidOp().forward(torch.tensor([0.5]), num_channels=255)
 
+    @pytest.mark.parametrize("num_channels", [0, -2, 1, 255])
+    def test_frequency_table_rejects_what_the_validator_rejects(self, num_channels):
+        # The table is public API (the backward builds it): it must not truncate an odd count to
+        # half = (n - 1) / 2 or return an empty table where forward raises.
+        with pytest.raises(ValueError, match="positive even"):
+            NativeH3TimestepSinusoidOp.frequencies_fp32(num_channels, "cpu")
+        assert NativeH3TimestepSinusoidOp.frequencies_fp32(256, "cpu").shape == (128,)
+
 
 @requires_cuda
 class TestCuda:
@@ -238,6 +246,32 @@ class TestCuda:
         NativeH3TimestepSinusoidOp().forward_fp32(t_ref).backward(grad)
         torch.testing.assert_close(t.grad, t_ref.grad, atol=1e-4, rtol=1e-4)
 
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+    def test_gradient_dtype_and_value_follow_the_reference_for_every_timestep_dtype(self, dtype):
+        base = h3_timesteps(9).to(dtype)
+        t, t_ref = base.clone().requires_grad_(True), base.clone().requires_grad_(True)
+        grad = torch.randn(9, 256, device="cuda", generator=torch.Generator("cuda").manual_seed(3))
+        _cuda_op()(t).backward(grad)
+        NativeH3TimestepSinusoidOp().forward(t_ref).backward(grad)
+        assert t.grad.dtype == t_ref.grad.dtype == dtype
+        torch.testing.assert_close(t.grad.float(), t_ref.grad.float(), atol=2e-2, rtol=2e-2)
+
+    def test_forward_fp32_takes_check_range_like_the_reference(self):
+        t = torch.tensor([0.5, 2.0], device="cuda")
+        op, ref = _cuda_op(), NativeH3TimestepSinusoidOp()
+        for fn in (op.forward_fp32, ref.forward_fp32):
+            with pytest.raises((ValueError, RuntimeError)):
+                fn(t)
+        assert op.forward_fp32(t[:1], check_range=False).shape == (1, 256)
+        assert ref.forward_fp32(t[:1], check_range=False).shape == (1, 256)
+
+    def test_odd_num_channels_is_rejected_before_the_native_call(self):
+        # check_range=False only skips the value check: the structural checks that backward's
+        # [cos | sin] split depends on still run on every call.
+        t = torch.tensor([0.5], device="cuda", requires_grad=True)
+        with pytest.raises(ValueError, match="even"):
+            _cuda_op().forward(t, num_channels=255, check_range=False)
+
     def test_backward_is_row_invariant(self):
         """Keep a timestep gradient bitwise unchanged when unrelated rows join the batch."""
 
@@ -266,3 +300,18 @@ class TestCuda:
         _cuda_op()
         op = KernelRegistry().get_op("timestep_sinusoid_h3", device="cuda")
         assert type(op).__name__ == "H3TimestepSinusoidCudaOp"
+
+
+def test_h3_layout_constants_agree_with_each_other():
+    from rl_engine.reference.minimax_h3 import (
+        H3_ADALN_CHUNK_NAMES,
+        H3_ADALN_CHUNKS,
+        H3_FREQ_DIM,
+        H3_MODALITY_NUM,
+    )
+
+    # The chunk count is the length of the name list, and the pinned layout is six chunks of three
+    # modalities (diffusers order) with 256 sinusoid channels.
+    assert H3_ADALN_CHUNKS == len(H3_ADALN_CHUNK_NAMES) == 6
+    assert H3_ADALN_CHUNK_NAMES[:3] == ("shift_msa", "scale_msa", "gate_msa")
+    assert H3_MODALITY_NUM == 3 and H3_FREQ_DIM == 256

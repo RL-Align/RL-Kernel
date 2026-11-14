@@ -22,7 +22,9 @@ from rl_engine.runtime.registry import kernel_registry
 
 op = kernel_registry.get_op("adaln_row_gather", device="cuda")
 outs = op(table.view(-1, 6 * 5376), timestep_indices, token_tags)    # six (S, 5376)
-outs = op.gather_chunks((shift_msa, ..., gate_mlp), timestep_indices, token_tags)  # drop-in
+outs = op.gather_chunks(
+    (shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp), timestep_indices, token_tags
+)  # drop-in: six (3T, 5376) tables in, six (S, 5376) tensors out (S = len(timestep_indices))
 ```
 
 ## Backends
@@ -131,11 +133,11 @@ There are two data files:
 - [`chain_replay.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-adaln-row-gather-b200/chain_replay.json): the full
   stage-wise forward replay and backward replay over T in {1, 2, 3, 4} × S in {3, 257, 4097, 32768}.
 
-`report.json` was regenerated from a clean tree at commit `f020f7d5` with backward-only
+`report.json` was regenerated from a clean tree at commit `29b07c5d` with backward-only
 timings and alternating execution order, and with the op-backward check's rows and gradients
 drawn from a seeded generator. Before, they came from the process's default CUDA generator,
-so the fraction depended on how many draws the runner made first (99.99965% at `80e4609`).
-`chain_replay.json` was written from a clean tree at commit `d3b37fe1`. Both were regenerated
+so the fraction depended on how many draws the runner made first (99.99965% at `d2a6546`).
+`chain_replay.json` was written from a clean tree at commit `61d23ade`. Both were regenerated
 after the AdaLN projection golden's declared cast was changed to round the FP32 SiLU, as the
 model does; every CUDA pass/fail flag is unchanged.
 
@@ -172,7 +174,7 @@ gradient with diffusers' path and with this kernel.
 ![adaln_row_gather bitwise comparison](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.png)
 
 There is no reuse candidate beyond diffusers' six index_select calls. The forward is bitwise identical to them at every S (1 to 32768). The table gradient matches at S = 1 and differs from S = 257 on: index_select accumulates it with BF16 atomics, this kernel in a fixed FP32 order.
-[`adaln_row_gather.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json) was written from a clean tree at `46347118` by
+[`adaln_row_gather.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr486/reports/experiments/h3-bitwise-reuse-b200/adaln_row_gather.json) was written from a clean tree at `62f8009e` by
 
 ```bash
 python tools/validation/models/h3_bitwise_reuse.py --op adaln_row_gather \

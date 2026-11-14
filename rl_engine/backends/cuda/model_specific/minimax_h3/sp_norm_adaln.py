@@ -349,6 +349,10 @@ class H3SPNormAdaLNCudaOp:
         device = index.device if index is not None else torch.device(device or "cuda")
         if device.type == "cuda" and device.index is None:
             device = torch.device("cuda", torch.cuda.current_device())
+        if index is not None and index.is_inference():
+            # An inference tensor has no version counter (reading it raises), so an in-place edit
+            # could not be seen: build the plan every time instead of reusing a cached one.
+            return sp_plan(self.layout, index, num_rows, device=device)
         version = -1 if index is None else index._version
         for obj, ver, rows, cached_device, plan in self._plans:
             if obj is index and ver == version and rows == num_rows and cached_device == device:
@@ -388,7 +392,14 @@ class H3SPNormAdaLNCudaOp:
         self._check(x, index, shift.shape[0])
         validate_h3_rmsnorm(x, weight, eps)
         validate_h3_modulation(x, shift, scale, index[self.layout.lo : self.layout.hi])
-        if shift.stride(1) != 1 or scale.stride(1) != 1 or shift.stride(0) != scale.stride(0):
+        # As in the WS1 op: a table whose rows overlap (an expanded view, stride(0) below N) is
+        # copied, the native table views reject it.
+        if (
+            shift.stride(1) != 1
+            or scale.stride(1) != 1
+            or shift.stride(0) != scale.stride(0)
+            or (shift.shape[0] > 1 and shift.stride(0) < shift.shape[1])
+        ):
             shift, scale = shift.contiguous(), scale.contiguous()
         sp = self.plan(index, shift.shape[0])
         return _SPRMSNorm.apply(x, weight, shift, scale, sp, self.collective, eps)
@@ -396,7 +407,7 @@ class H3SPNormAdaLNCudaOp:
     def gate_residual(self, residual, y, gate, index) -> torch.Tensor:
         self._check(residual, index, gate.shape[0])
         validate_h3_gate_residual(residual, y, gate, index[self.layout.lo : self.layout.hi])
-        if gate.stride(1) != 1:
+        if gate.stride(1) != 1 or (gate.shape[0] > 1 and gate.stride(0) < gate.shape[1]):
             gate = gate.contiguous()
         sp = self.plan(index, gate.shape[0])
         return _SPGateResidual.apply(residual, y, gate, sp, self.collective)

@@ -28,10 +28,11 @@ op.readback()  # tp, rank, owned columns/slots, collective backend, kernel ids, 
 Rank `r` of `tp` owns the contiguous output columns `[r * N / tp, (r + 1) * N / tp)` of the
 `N = 3 x 6 x 5376` table, which are the same rows of `adaln_proj.linear.weight` and `bias`.
 `N / tp` must be a multiple of 64, the `d_input` chunk of contract `h3-det-linear-v1`, so a shard
-never splits a WS1 partial sum. The shard constructor accepts positive TP sizes satisfying
-this alignment, including 1, 2, 3, 4, 6, 7, 8 and 9 (TP=9 gives 10752 columns per rank).
-The `DeterministicCollective` backend supports only 1, 2, 4 and 8 ranks; shard alignment
-alone does not imply backend support.
+never splits a WS1 partial sum. Any TP size that divides `N / 64 = 1512` passes this alignment
+check (for example 1, 2, 3, 4, 6, 7, 8, 9, 12 and 14) and any other size fails closed when the op
+is built. Only TP 1, 2, 4 and 8 can run: `DeterministicCollective` supports exactly those world
+sizes and rejects any other group when it is constructed, so the other aligned sizes are covered by
+the ownership tests only.
 
 | TP | Columns per rank | Rank 0 owns |
 | --- | --- | --- |
@@ -67,14 +68,19 @@ be identical on every TP rank, as it is when every rank applies the modulation t
 | backward | `(N / 64 / tp) x T x 2688` FP32 | 6.1 MB |
 
 `DeterministicCollective` copies all-gathers whose output is at most 256 KiB with a single-block
-byte loop, at about 4 µs per KiB on B200. `ws2_comm.gather_rows` pads such shards just past that
-size, where the multi-block path takes about 45 µs. This matters for the forward at small `T`.
+byte loop, at about 4 µs per KiB on B200. For a gathered output above 8 KiB (and at most 256 KiB),
+`ws2_comm.gather_rows` appends whole zero rows to each shard until the gathered output exceeds
+256 KiB, so the temporary buffer is larger than 256 KiB by up to one row of every rank. There the
+multi-block path takes a flat 55-65 µs for 2 and 4 ranks (about 90 µs for 8; measured on 8 x B200);
+the padding rows are dropped afterwards. Outputs of at most 8 KiB are gathered
+unpadded, because the single-block loop is faster there, and outputs already above 256 KiB need no
+padding. This matters for the forward at small `T`.
 
 ## Evidence
 
 ![tp_adaln_3mod on 8 x B200: byte equality and time](https://raw.githubusercontent.com/fusheng-ji/RL-Kernel/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr493/reports/experiments/h3-tp-adaln-3mod-b200/figure.png)
 
-The report is written by `tools/validation/models/h3_ws2_evidence.py` from a clean tree at commit `4947996`, with
+The report is written by `tools/validation/models/h3_ws2_evidence.py` from a clean tree at commit `507c9ad`, with
 real NCCL processes on one 8 x B200 node, one GPU per rank, on the pinned block-0 weights. For
 TP 1, 2, 4 and 8 and T = 1..4, every rank's table and `d_temb`, and its `dW`/`db` shard, are
 byte-equal to WS1 computed on the same GPU.
@@ -96,7 +102,7 @@ and gains 1.7-1.8x at TP8. Each rank also holds only `1 / tp` of the weight and 
 
 ```bash
 export RL_KERNEL_H3_WEIGHTS=<dir written by tools/weights/prepare_h3_weights.py>
-python -m pytest tests/models/minimax_h3/test_h3_tp_adaln.py -v   # ownership, shard arithmetic, NCCL TP2/4/8
+python -m pytest tests/distributed/tp/test_h3_tp_adaln.py -v   # ownership, shard arithmetic, NCCL TP2/4/8
 python tools/validation/models/h3_ws2_evidence.py --op tp_adaln_3mod --worlds 1,2,4,8 \
     --out reports/experiments/h3-tp-adaln-3mod-b200/report.json
 python tools/validation/models/plot_h3_evidence.py reports/experiments/h3-tp-adaln-3mod-b200/report.json

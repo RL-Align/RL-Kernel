@@ -68,14 +68,19 @@ def make_grid(
     if world != tp * cp:
         raise ValueError(f"world {world} != tp {tp} x cp {cp}")
     cp_rank, tp_rank = divmod(rank, tp)
-    tp_groups = [dist.new_group(list(range(c * tp, (c + 1) * tp))) for c in range(cp)]
+    tp_ranks = [list(range(c * tp, (c + 1) * tp)) for c in range(cp)]
+    tp_groups = [dist.new_group(ranks) for ranks in tp_ranks]
     cp_groups = [dist.new_group(list(range(t, world, tp))) for t in range(tp)]
     collective: DeterministicCollective | HierarchicalCollective | None = None
     if tp > 1:
         mine = tp_groups[cp_rank]
         if local_size is not None and local_size < tp:
             collective = HierarchicalCollective(
-                local_size, mine, torch.cuda.current_device(), max_size_bytes=256 << 20
+                local_size,
+                mine,
+                torch.cuda.current_device(),
+                max_size_bytes=256 << 20,
+                group_ranks=tp_ranks,  # every rank creates all TP groups' subgroups (CP > 1)
             )
         else:
             collective = DeterministicCollective(
@@ -128,6 +133,7 @@ def run_tp_block(
     tp = grid.tp
     seq = seq_len or hidden.shape[1]
     shard = grid.seq_shard(seq)
+    par.require_rows_on_every_rank(shard)  # every rank refuses alike, before any collective
     h = par.coshard(shard, hidden, dim=1)[0]
     idx = par.coshard(shard, index, dim=0)[0]
     cos, sin = par.coshard(shard, rope[0], rope[1], dim=0)

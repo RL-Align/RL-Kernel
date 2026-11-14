@@ -50,6 +50,11 @@ def h3_block_layout(
     ``h3_packed_layout`` is the interleaved stress case.
     """
 
+    if not 1 <= num_timesteps <= seq_len:
+        raise ValueError(
+            f"num_timesteps must be in [1, seq_len={seq_len}] (every timestep owns at least one "
+            f"row); got {num_timesteps}"
+        )
     generator = torch.Generator(device="cpu").manual_seed(seed)
     cuts = torch.sort(torch.randperm(seq_len - 1, generator=generator)[: num_timesteps - 1] + 1)
     edges = [0, *cuts.values.tolist(), seq_len]

@@ -335,6 +335,8 @@ def doctor(
     *,
     ray_address: str,
     as_json: bool = False,
+    rollout_layout: str = "regular",
+    mode: str = "native",
 ) -> int:
     requirements = profile.get("requirements", {})
     expected = int(requirements.get("gpus", 8))
@@ -388,6 +390,43 @@ def doctor(
             _version_matches(actual_version, str(expected_version)),
             f"found {actual_version}, expected {expected_version}",
         )
+    if rollout_layout == "1p1d":
+        probe_env = os.environ.copy()
+        probe_env["PYTHONPATH"] = os.pathsep.join(
+            filter(None, (str(paths.rl_kernel_root), probe_env.get("PYTHONPATH", "")))
+        )
+        probes = [
+            (
+                "pd_nixl",
+                "from nixl._api import nixl_agent; from nixl._bindings import nixlXferTelemetry",
+            )
+        ]
+        if canonical_arm(mode) == "consistency":
+            probes.append(
+                (
+                    "pd_cuda_extension",
+                    "import rl_engine._C as C\n"
+                    "required = ('deterministic_collective_all_gather_many', "
+                    "'linear_logp_local_bf16_forward', 'linear_logp_logits_bf16_to_dlogits')\n"
+                    "missing = [name for name in required if not hasattr(C, name)]\n"
+                    "if missing: raise RuntimeError(f'{C.__file__}: missing {missing}')\n"
+                    "print(C.__file__)",
+                )
+            )
+        for name, script in probes:
+            try:
+                probe = subprocess.run(
+                    [str(paths.python), "-c", script],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env=probe_env,
+                )
+                detail = (probe.stdout if probe.returncode == 0 else probe.stderr).strip()
+                add(name, probe.returncode == 0, detail[-1000:] or f"exit {probe.returncode}")
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                add(name, False, str(exc))
     try:
         ray_status = subprocess.run(
             [str(paths.ray), "job", "list", f"--address={ray_address}"],
@@ -395,6 +434,7 @@ def doctor(
             capture_output=True,
             text=True,
             timeout=15,
+            env={**os.environ, "RAY_API_SERVER_ADDRESS": ray_address},
         )
         ray_detail = (
             f"{ray_address} reachable"
@@ -472,7 +512,11 @@ def _example_root_for_run(run_dir: Path) -> Path:
 
 
 def _runner_command(paths: Paths, profile: dict[str, Any], args: argparse.Namespace) -> list[str]:
+    if hasattr(args, "pd"):
+        args.rollout_layout = "1p1d" if args.pd else "regular"
     arm = canonical_arm(args.arm)
+    if args.rollout_layout == "1p1d" and getattr(args, "backend", "cuda") != "cuda":
+        raise ReproError("1p1d is currently limited to the CUDA H100 example")
     for name in ("lr", "weight_decay", "kl_coef"):
         value = getattr(args, name)
         if not math.isfinite(value) or value < 0:
@@ -579,6 +623,13 @@ def _runner_command(paths: Paths, profile: dict[str, Any], args: argparse.Namesp
         raise ReproError("these workload options require --backend rocm: " + ", ".join(rocm_only))
     _arm_config(profile, arm)
     _validate_topology_args(args)
+    if args.rollout_layout == "1p1d" and (
+        args.tp_size,
+        args.cp_size,
+        args.rollout_tp_size,
+        args.rollout_cp_size,
+    ) != (4, 2, 4, 1):
+        raise ReproError("1p1d requires training TP4/CP2 and rollout TP4/CP1")
     # The launcher and runner are one interface and must come from the same
     # checkout.  The target RL-Kernel checkout may intentionally be pinned to
     # an older runtime revision whose runner predates the current CLI modes.
@@ -623,11 +674,18 @@ def _runner_command(paths: Paths, profile: dict[str, Any], args: argparse.Namesp
         "--ld-library-path",
         f"{paths.cuda_runtime_root / 'lib'}:{paths.te_root / 'transformer_engine/wheel_lib'}",
     ]
+    if args.rollout_layout == "1p1d":
+        command.append("--pd")
     for extra_pythonpath in dict.fromkeys(
         (paths.runtime_site, paths.cuda_python_site, paths.te_root)
     ):
         command.extend(["--extra-pythonpath", str(extra_pythonpath)])
+    overridden_profile_args = {"--max-tokens-per-gpu", "--vllm-gpu-memory-utilization"}
+    if args.max_response_len is not None:
+        overridden_profile_args.add("--max-response-len")
     for item in profile.get("runner_args", []):
+        if item and item[0] in overridden_profile_args:
+            continue
         command.extend([str(part) for part in item])
     max_tokens_per_gpu = args.max_tokens_per_gpu
     if max_tokens_per_gpu is None:
@@ -638,7 +696,11 @@ def _runner_command(paths: Paths, profile: dict[str, Any], args: argparse.Namesp
     vllm_gpu_memory_utilization = (
         float(args.vllm_gpu_memory_utilization)
         if args.vllm_gpu_memory_utilization is not None
-        else (0.2 if int(args.tp_size) == 1 and int(args.rollout_tp_size) != 1 else 0.4)
+        else (
+            0.25
+            if args.rollout_layout == "1p1d"
+            else 0.2 if int(args.tp_size) == 1 and int(args.rollout_tp_size) != 1 else 0.4
+        )
     )
     command.extend(
         [
@@ -848,6 +910,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor_parser.add_argument("--json", action="store_true", dest="as_json")
     doctor_parser.add_argument(
+        "--pd",
+        action="store_true",
+        help="probe the CUDA H100 Prefill/Decode split configuration",
+    )
+    doctor_parser.add_argument(
         "--ray-address",
         default=os.environ.get("RAY_API_SERVER_ADDRESS", "http://127.0.0.1:8265"),
         help="Ray Jobs API address",
@@ -911,6 +978,11 @@ def build_parser() -> argparse.ArgumentParser:
         command_parser.add_argument("--rollout-tp-size", "--rollout-tp", type=int, default=4)
         command_parser.add_argument("--rollout-cp-size", "--rollout-cp", type=int, default=1)
         command_parser.add_argument(
+            "--pd",
+            action="store_true",
+            help="use one TP4 prefill and one TP4 decode engine (CUDA H100 only)",
+        )
+        command_parser.add_argument(
             "--rollout-temperature", "--temperature", type=float, default=1.0
         )
         command_parser.add_argument("--rollout-top-p", "--top-p", type=float, default=1.0)
@@ -928,7 +1000,10 @@ def build_parser() -> argparse.ArgumentParser:
             "--vllm-gpu-memory-utilization",
             type=float,
             default=None,
-            help=("vLLM memory fraction; defaults to 0.2 for training TP1 and 0.4 otherwise"),
+            help=(
+                "vLLM memory fraction; defaults to 0.25 for 1p1d, 0.2 for training TP1, "
+                "and 0.4 otherwise"
+            ),
         )
         command_parser.add_argument("--rollout-top-k", "--top-k", type=int, default=-1)
         command_parser.add_argument(
@@ -1050,6 +1125,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "This ROCm profile supports plan and run (including automatic validation); "
                 f"the {args.command} command is currently CUDA-only"
             )
+        args.rollout_layout = "1p1d" if getattr(args, "pd", False) else "regular"
         if args.command == "validate":
             run_dir = args.run_dir.expanduser().resolve()
             command = [
@@ -1064,7 +1140,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         paths = _resolved_paths(profile, args)
         if args.command == "doctor":
-            return doctor(paths, profile, ray_address=args.ray_address, as_json=args.as_json)
+            return doctor(
+                paths,
+                profile,
+                ray_address=args.ray_address,
+                as_json=args.as_json,
+                rollout_layout=args.rollout_layout,
+                mode=args.arm,
+            )
         if args.command == "prepare":
             return prepare(paths, profile, args)
         if args.command == "plan":
@@ -1096,7 +1179,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 # and Ray ownership before starting; CUDA doctor is not applicable.
                 return _run(command, env=env).returncode
             command = _runner_command(paths, profile, args)
-            preflight = doctor(paths, profile, ray_address=args.ray_address)
+            preflight = doctor(
+                paths,
+                profile,
+                ray_address=args.ray_address,
+                rollout_layout=args.rollout_layout,
+                mode=args.arm,
+            )
             if preflight:
                 print("Run aborted: fix the failed doctor checks first.", file=sys.stderr)
                 return preflight

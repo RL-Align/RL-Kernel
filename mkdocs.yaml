@@ -52,6 +52,11 @@ plugins:
       exclude:
         - api/*
 
+hooks:
+  # Pages embed images with GitHub-relative ../assets/ paths; rewrite them for
+  # the page depth the built site serves (see build_tools/docs_hooks.py).
+  - build_tools/docs_hooks.py
+
 markdown_extensions:
   - attr_list
   - def_list

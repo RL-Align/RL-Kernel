@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -13,11 +14,38 @@ from typing import Callable, Iterator
 import torch
 
 WeightReducer = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+# H20/H3 row-count heuristic for attempting the CUDA order check.
+# Small inputs retain stable sorting to avoid the extra check and synchronization.
+# Larger, already ordered inputs can skip sorting and gradient gathering.
+_CANONICAL_ORDER_REUSE_MIN_ROWS = 4096
+# H20 measurements keep small copies on the original path, including when
+# CUDA deterministic algorithms add sorting overhead to index_copy_.
+_DIRECT_ROW_COPY_MIN_BYTES = 256 * 1024 * 1024
+
+
+def _keys_are_canonical(keys: torch.Tensor) -> bool:
+    """Prove that physical rows already have the unpadded logical order."""
+    if keys.device.type == "cuda" and torch.version.hip is None:
+        from rl_engine.backends.shared.triton.gemm.det_gemm import (
+            _TRITON_AVAILABLE,
+            _triton_keys_are_canonical,
+        )
+
+        if _TRITON_AVAILABLE:
+            return _triton_keys_are_canonical(keys)
+    before, after = keys[:-1], keys[1:]
+    greater = after[:, 0] > before[:, 0]
+    equal = after[:, 0] == before[:, 0]
+    for column in range(1, keys.shape[1]):
+        greater = greater | (equal & (after[:, column] > before[:, column]))
+        equal = equal & (after[:, column] == before[:, column])
+    return bool(torch.all(keys[:, 0] >= 0) & torch.all(greater))
 
 
 @dataclass
 class _Use:
     keys: torch.Tensor
+    contribution: object | None = None
     rows: torch.Tensor | None = None
     grads: torch.Tensor | None = None
 
@@ -29,15 +57,110 @@ class CanonicalBackwardSession:
     uses: dict[str, list[_Use]] = field(default_factory=dict)
     received: dict[str, int] = field(default_factory=dict)
     backward_started: bool = False
+    _normalized: dict[tuple[object, ...], tuple[torch.Tensor, torch.Tensor]] = field(
+        default_factory=dict, repr=False
+    )
+    _shareable: set[tuple[object, ...]] | None = field(default=None, repr=False)
 
-    def register(self, parameter_id: str, keys: torch.Tensor) -> int:
+    def register(
+        self,
+        parameter_id: str,
+        keys: torch.Tensor,
+        *,
+        contribution: object | None = None,
+    ) -> int:
         if self.backward_started:
             raise RuntimeError("cannot register canonical rows after backward started")
         if keys.dim() != 2 or keys.shape[1] not in (2, 3):
             raise ValueError("logical keys must have shape [rows, 2] or [rows, 3]")
         slot = len(self.uses.setdefault(parameter_id, []))
-        self.uses[parameter_id].append(_Use(keys=keys.detach()))
+        self.uses[parameter_id].append(
+            _Use(
+                keys=keys.detach(),
+                contribution=contribution,
+            )
+        )
         return slot
+
+    @staticmethod
+    def _concatenate(values: list[torch.Tensor]) -> torch.Tensor:
+        return values[0] if len(values) == 1 else torch.cat(values, dim=0)
+
+    @staticmethod
+    def _ordered_rows(values: list[torch.Tensor], order: torch.Tensor) -> torch.Tensor:
+        """Copy multiple inputs directly into the existing canonical row order."""
+        first = values[0]
+        if (
+            len(values) == 1
+            or any(value.dtype != first.dtype or value.device != first.device for value in values)
+            or first.device.type not in {"cpu", "cuda"}
+            or (first.device.type == "cuda" and torch.version.hip is not None)
+        ):
+            return CanonicalBackwardSession._concatenate(values).index_select(0, order)
+
+        total = sum(value.shape[0] for value in values)
+        active = order.numel()
+        if active < total:
+            # Put padding after the active prefix. Every physical row gets a
+            # unique destination, so each source can be copied without a gather.
+            padding = torch.ones(total, dtype=torch.bool, device=order.device)
+            padding.index_fill_(0, order, False)
+            destination = padding.cumsum(0, dtype=torch.int64).add_(active - 1)
+        else:
+            destination = torch.empty(total, dtype=torch.int64, device=order.device)
+        destination.index_copy_(
+            0, order, torch.arange(active, dtype=torch.int64, device=order.device)
+        )
+        ordered = first.new_empty((total, first.shape[1]))
+        offset = 0
+        for value in values:
+            count = value.shape[0]
+            ordered.index_copy_(0, destination[offset : offset + count], value)
+            offset += count
+        return ordered[:active]
+
+    def _normalize(
+        self, parameter_id: str, values: list[torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        entries = self.uses[parameter_id]
+        # A token names one forward's shared weight/bias contribution. Matching
+        # complete token sequences prove that both parameters receive the same
+        # keys and upstream gradients, without a device equality check.
+        signature = tuple(item.contribution for item in entries)
+        if self._shareable is None:
+            # Forward registration is complete before backward. Build this once
+            # so a model's parameters do not each scan the complete session.
+            signatures = Counter(
+                tuple(item.contribution for item in other)
+                for other in self.uses.values()
+                if all(item.contribution is not None for item in other)
+            )
+            self._shareable = {key for key, count in signatures.items() if count == 2}
+        shared = signature in self._shareable
+        if shared and signature in self._normalized:
+            return self._normalized.pop(signature)
+        keys = self._concatenate([item.keys for item in entries])
+        reuse_order = (
+            keys.shape[0] >= _CANONICAL_ORDER_REUSE_MIN_ROWS
+            and keys.device.type == "cuda"
+            and torch.version.hip is None
+            and _keys_are_canonical(keys)
+        )
+        if reuse_order:
+            order = torch.arange(keys.shape[0], device=keys.device)
+            normalized = order, self._concatenate(values).contiguous()
+        else:
+            valid = torch.nonzero(keys[:, 0] >= 0, as_tuple=True)[0]
+            active_keys = keys.index_select(0, valid)
+            order = torch.arange(valid.numel(), device=keys.device)
+            for column in range(keys.shape[1] - 1, -1, -1):
+                column_values = active_keys.index_select(0, order)[:, column]
+                order = order.index_select(0, torch.argsort(column_values, stable=True))
+            order = valid.index_select(0, order)
+            normalized = order, self._concatenate(values).index_select(0, order)
+        if shared:
+            self._normalized[signature] = normalized
+        return normalized
 
     def submit_linear(
         self,
@@ -60,20 +183,23 @@ class CanonicalBackwardSession:
         self.received[parameter_id] = count
         if count != len(entries):
             return None
-        all_keys = torch.cat([item.keys for item in entries], dim=0)
-        all_rows = torch.cat([item.rows for item in entries if item.rows is not None], dim=0)
-        all_grads = torch.cat([item.grads for item in entries if item.grads is not None], dim=0)
-        valid = all_keys[:, 0] >= 0
-        all_keys = all_keys[valid]
-        all_rows = all_rows[valid]
-        all_grads = all_grads[valid]
-        if all_keys.shape[0] == 0:
+        order, grads = self._normalize(
+            parameter_id, [item.grads for item in entries if item.grads is not None]
+        )
+        if order.numel() == 0:
             raise RuntimeError(f"no active logical rows for {parameter_id}")
-        order = torch.arange(all_keys.shape[0], device=all_keys.device)
-        for column in range(all_keys.shape[1] - 1, -1, -1):
-            values = all_keys.index_select(0, order)[:, column]
-            order = order.index_select(0, torch.argsort(values, stable=True))
-        return reducer(all_rows.index_select(0, order), all_grads.index_select(0, order))
+        values = [item.rows for item in entries if item.rows is not None]
+        if (
+            len(values) > 1
+            and values[0].device.type == "cuda"
+            and torch.version.hip is None
+            and sum(value.numel() * value.element_size() for value in values)
+            >= _DIRECT_ROW_COPY_MIN_BYTES
+        ):
+            rows = self._ordered_rows(values, order)
+            return reducer(rows, grads)
+        rows = self._concatenate(values)
+        return reducer(rows.index_select(0, order), grads)
 
     def submit_rows(
         self,
@@ -94,15 +220,10 @@ class CanonicalBackwardSession:
         self.received[parameter_id] = count
         if count != len(entries):
             return None
-        all_keys = torch.cat([item.keys for item in entries], dim=0)
-        all_rows = torch.cat([item.rows for item in entries if item.rows is not None], dim=0)
-        valid = all_keys[:, 0] >= 0
-        all_keys, all_rows = all_keys[valid], all_rows[valid]
-        order = torch.arange(all_keys.shape[0], device=all_keys.device)
-        for column in range(all_keys.shape[1] - 1, -1, -1):
-            values = all_keys.index_select(0, order)[:, column]
-            order = order.index_select(0, torch.argsort(values, stable=True))
-        return reducer(all_rows.index_select(0, order))
+        _, rows = self._normalize(
+            parameter_id, [item.rows for item in entries if item.rows is not None]
+        )
+        return reducer(rows)
 
     def validate_complete(self) -> None:
         missing = {

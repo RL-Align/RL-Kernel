@@ -21,6 +21,8 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
+from rl_engine.reference.minimax_h3.adaln_row_gather import positions_by_row
+
 H3_NORM_EPS = 1e-5
 _DTYPES = (torch.float32, torch.bfloat16, torch.float16)
 
@@ -54,9 +56,16 @@ def validate_h3_modulation(
     same_dtype: bool = True,
 ) -> None:
     hidden = x.shape[-1]
+    # The modulated form always gathers rows: a missing table or index is an error, not the plain
+    # norm (which is ``forward``, without shift and scale).
+    for name, tensor in (("shift", shift), ("scale", scale), ("index", index)):
+        if not isinstance(tensor, torch.Tensor):
+            raise TypeError(f"{name} must be a torch.Tensor, got {type(tensor).__name__}")
     for name, tensor in (("shift", shift), ("scale", scale)):
-        if tensor.device != x.device or (same_dtype and tensor.dtype != x.dtype):
-            raise TypeError(f"{name} must match x's dtype and device")
+        if tensor.device != x.device:
+            raise ValueError(f"{name} is on {tensor.device}, x is on {x.device}")
+        if same_dtype and tensor.dtype != x.dtype:
+            raise TypeError(f"{name} must match x's dtype, got {tensor.dtype} for {x.dtype}")
         if tensor.dim() != 2 or tensor.shape[1] != hidden:
             raise ValueError(f"{name} must be (R, {hidden}), got {tuple(tensor.shape)}")
     if shift.shape != scale.shape:
@@ -93,8 +102,7 @@ class _DeterministicModulation(torch.autograd.Function):
         per_scale = (g * n.float().reshape(-1, index.shape[0], hidden)).sum(dim=0)
         d_shift = per_shift.new_zeros((ctx.rows, hidden))
         d_scale = per_scale.new_zeros((ctx.rows, hidden))
-        for row in range(ctx.rows):
-            positions = torch.nonzero(index == row).flatten()
+        for row, positions in enumerate(positions_by_row(index, ctx.rows)):
             if positions.numel():
                 d_shift[row] = per_shift.index_select(0, positions).sum(dim=0)
                 d_scale[row] = per_scale.index_select(0, positions).sum(dim=0)
@@ -134,9 +142,11 @@ class NativeH3RMSNormOp:
         n = self.forward(x, weight, eps)
         return _DeterministicModulation.apply(n, shift, scale, index)
 
-    def forward_modulated_fp32(self, x, weight, shift, scale, index, eps: float = H3_NORM_EPS):
+    def forward_modulated_fp32(
+        self, x, weight, shift, scale, index, eps: float = H3_NORM_EPS, *, check_range=True
+    ):
         # The golden may be fed FP32 golden modulation rows for a BF16 x.
-        validate_h3_modulation(x, shift, scale, index, same_dtype=False)
+        validate_h3_modulation(x, shift, scale, index, check_range=check_range, same_dtype=False)
         validate_h3_rmsnorm(x, weight, eps)
         x64 = x.double()
         n = x64 * torch.rsqrt(x64.square().mean(dim=-1, keepdim=True) + eps) * weight.double()

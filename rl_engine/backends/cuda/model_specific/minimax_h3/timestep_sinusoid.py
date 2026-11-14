@@ -46,6 +46,12 @@ class _H3TimestepSinusoidCuda(torch.autograd.Function):
 
         (out,) = ctx.saved_tensors
         half = ctx.num_channels // 2
+        # The VJP slices the native output as [cos | sin] over frequencies_fp32 order.
+        if out.dim() != 2 or out.shape[-1] != ctx.num_channels:
+            raise RuntimeError(
+                f"native timestep features have shape {tuple(out.shape)}, expected "
+                f"(T, {ctx.num_channels}) in [cos | sin] order"
+            )
         freq = NativeH3TimestepSinusoidOp.frequencies_fp32(ctx.num_channels, out.device)
         cos_part, sin_part = out[:, :half], out[:, half:]
         g = grad_out.float()
@@ -54,6 +60,8 @@ class _H3TimestepSinusoidCuda(torch.autograd.Function):
         contrib = torch.cat(
             [-(g[:, :half] * sin_part) * freq, (g[:, half:] * cos_part) * freq], dim=-1
         )
+        # Autograd hands back a gradient in the input's dtype, as it does through the reference's
+        # ``.float()`` cast (a bf16 timestep gets a bf16 gradient from either path).
         grad_t = tree_sum_lastdim_fp32(contrib).to(ctx.timestep_dtype)
         record_backward(
             "timestep_sinusoid_h3",
@@ -104,14 +112,23 @@ class H3TimestepSinusoidCudaOp:
         when ``check_range`` is true; backward returns the original input dtype.
         """
 
-        # Native code owns value validation, avoiding a second host sync here.
+        # Dtype, rank, emptiness and even num_channels are checked here on every call (they are
+        # what backward's [cos | sin] split relies on); only the value check is left to the native
+        # entry point, which enforces check_range itself and avoids a second host sync here.
         validate_h3_timesteps(timestep, num_channels, check_range=False)
         if not timestep.is_cuda:
             raise ValueError("H3TimestepSinusoidCudaOp needs a CUDA timestep tensor")
         return _H3TimestepSinusoidCuda.apply(timestep, num_channels, check_range)
 
-    def forward_fp32(self, timestep: torch.Tensor, *, num_channels: int = H3_FREQ_DIM):
+    def forward_fp32(
+        self,
+        timestep: torch.Tensor,
+        *,
+        num_channels: int = H3_FREQ_DIM,
+        check_range: bool = True,
+    ) -> torch.Tensor:
         """Use the standard CUDA sinusoid path, which already returns FP32 features."""
 
-        # The op is FP32 end to end; the FP32 path is the op itself.
-        return self.forward(timestep, num_channels=num_channels)
+        # The op is FP32 end to end; the FP32 path is the op itself. The signature matches the
+        # reference's, so validation can call either one with the same arguments.
+        return self.forward(timestep, num_channels=num_channels, check_range=check_range)

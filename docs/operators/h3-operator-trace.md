@@ -29,24 +29,27 @@ trace.digest; trace.dumps(); ot.OperatorTrace.loads(text)
 ot.first_difference(a, b)          # first call where two traces disagree
 ```
 
-`block_observer(trace, block_index=0)` (`stage="token_refiner"` for the 14-node refiner block) plugs into `h3_block.run_graph` through the existing
-`ctx["node_observer"]` hook. It records each node with the binding `h3_block.NODES` declares,
-so the one-block replay and the full-model replay emit a trace without any change in arithmetic.
+`block_observer(trace, block_index=0)` (`stage="token_refiner"` for the 14-node refiner
+block) plugs into `h3_block.run_graph` through the existing `ctx["node_observer"]` hook.
+It records each node with the binding `h3_block.NODES` declares, so the one-block replay
+and the full-model replay emit a trace without any change in arithmetic.
 
 ## What `violations` Reports
 
 | Check | Reported when |
 | --- | --- |
 | Binding | status is not in `allowed_statuses` (default only `row`: `interim` stand-ins and `reference` provider replays are not strict evidence) |
-| Fallback | any fallback path was taken (`OperatorResolutionTrace.fallback_attempts` non-empty) |
+| Fallback | any fallback path was taken (`OperatorResolutionTrace.fallback_attempts` non-empty), or the fallback state was not observed (`None`) |
 | Dispatch | `requested_backend` is set and differs from the backend that ran |
-| Split policy | anything other than `none` (split-K, stream-K, atomics) |
-| Accumulator | a reduction row (GEMMs, RMSNorm, attention, AdaLN projection, projections) without an FP32 accumulator; element-wise rows must declare `none` |
+| Split policy | anything other than `none` (split-K, stream-K, atomics), or not observed |
+| Accumulator | a reduction row (GEMMs, RMSNorm, attention, AdaLN projection, projections) without an FP32 accumulator; element-wise rows must declare `none`; or not observed |
 | Backend | no backend recorded |
 | Coverage | a node ran a different number of times than `forwards`, or a node outside the expected set ran |
 
 `record` also fails immediately for paths outside the graph, a row that disagrees with the
-graph's owner, or an unknown status. A trace serialises with a content digest
+graph's owner, or an unknown status. Accumulator, split policy and fallback state are
+recorded only as the caller observed them; nothing fills them in from the row contract, so
+an unset value is reported as "not observed" instead of passing. A trace serialises with a content digest
 (`trace_sha256`) and the graph digest; loading rejects tampered content or a trace recorded
 against a different graph.
 
@@ -55,8 +58,10 @@ against a different graph.
 On block 0 (tiny layout, H100) the trace reports 17 calls and 9 non-`row` nodes: 7
 `interim` (O, gate-up and down GEMMs, QK norm, attention, SwiGLU, ...) and 2 `reference`
 (RoPE of Q and K). That list is exactly the work the unclaimed and claimed rows still owe;
-`h3_operator_trace.py verify --block 0` exits non-zero until it is empty, and
-`--allow row interim reference` records the current honest state.
+`h3_operator_trace.py verify --block 0` exits non-zero until it is empty. The block hook
+only sees node names, so every call also reports its accumulator, split policy and fallback
+state as not observed; `--allow row interim reference --allow-unobserved` checks the
+bindings alone and records the current honest state, which is not strict evidence.
 
 ```bash
 python tools/validation/models/h3_operator_trace.py block --layout tiny --out trace.json
@@ -75,5 +80,6 @@ statuses and backends equal `h3_block`'s declared bindings and are repeatable.
 ## Out Of Scope
 
 The trace does not measure numerics and does not change dispatch. Accumulator and split
-policy are the contract values declared per row, not hardware counters; kernels that can
-change them must record the real value through `record`/`trace_call_from_resolution`.
+policy are what the caller reports, not hardware counters; until the operators report them
+(through `record`/`record_node`/`trace_call_from_resolution`), they are not observed and the
+strict gate fails.

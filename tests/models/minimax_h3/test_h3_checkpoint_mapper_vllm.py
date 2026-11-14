@@ -126,7 +126,105 @@ def test_vllm_adapter_strict_rejects_wrong_dtype_and_empty_models():
 
     with pytest.raises(RuntimeError, match="no H3 projection"):
         install_h3_rollout(torch.nn.Linear(2, 2).cuda())
-    holder = torch.nn.Module()
-    holder.qkv_proj = torch.nn.Linear(8, 8).cuda()  # float32
+    holder = _model_with(attn=("qkv_proj", torch.nn.Linear(8, 8).cuda()))  # float32
     with pytest.raises(RuntimeError, match="BF16"):
         install_h3_rollout(holder)
+    # the patched forward has no bias term: refuse, never drop it
+    biased = _model_with(mlp=("fc2", torch.nn.Linear(8, 8, bias=True).cuda().bfloat16()))
+    with pytest.raises(RuntimeError, match="has a bias"):
+        install_h3_rollout(biased)
+    fc2 = biased.blocks[0].mlp.fc2
+    with install_h3_rollout(biased, strict=False) as handle:
+        assert handle.patched == [] and "forward" not in fc2.__dict__
+
+
+def _model_with(**parts):
+    """``blocks.0.<attn|mlp>.<name>`` holding the given module, as in vLLM-Omni's DiT."""
+
+    model = torch.nn.Module()
+    model.blocks = torch.nn.ModuleList([torch.nn.Module()])
+    for group, (name, module) in parts.items():
+        setattr(model.blocks[0], group, torch.nn.Module())
+        setattr(getattr(model.blocks[0], group), name, module)
+    return model
+
+
+@needs_gpu
+def test_vllm_adapter_patches_block_projections_only_and_restores_exactly():
+    from rl_engine.integrations.engines.rollout.vllm.h3_omni import install_h3_rollout
+
+    model = _model_with(attn=("qkv_proj", _Lin(3 * 128, 64)), mlp=("fc1", _Lin(256, 64)))
+    model.audio_head = torch.nn.Module()
+    model.audio_head.fc1 = _Lin(64, 64)  # same leaf name, not a block projection
+    own = model.blocks[0].mlp.fc1.forward = lambda x: ("own forward", x)
+    with install_h3_rollout(model) as handle:
+        assert sorted(handle.patched) == ["blocks.0.attn.qkv_proj", "blocks.0.mlp.fc1"]
+        assert "forward" not in model.audio_head.fc1.__dict__
+    assert model.blocks[0].mlp.fc1.forward is own  # the instance override is back
+    assert "forward" not in model.blocks[0].attn.qkv_proj.__dict__
+
+
+@needs_gpu
+def test_vllm_adapter_strict_refusal_leaves_every_module_unpatched():
+    from rl_engine.integrations.engines.rollout.vllm.h3_omni import install_h3_rollout
+
+    model = _model_with(attn=("qkv_proj", _Lin(3 * 128, 64)))
+    model.blocks.append(torch.nn.Module())
+    model.blocks[1].attn = torch.nn.Module()
+    model.blocks[1].attn.qkv_proj = torch.nn.Linear(64, 3 * 128).cuda()  # float32: refused
+    with pytest.raises(RuntimeError, match="BF16"):
+        install_h3_rollout(model)
+    assert "forward" not in model.blocks[0].attn.qkv_proj.__dict__
+
+
+def test_qkv_layout_is_explicit_module_or_serialised_checkpoint():
+    """The module layout is ``[Q; K; V]``; a serialised native checkpoint holds per-head groups
+    (vLLM-Omni's loader converts them). Each direction round-trips in its own layout."""
+
+    gen = torch.Generator().manual_seed(1)
+    heads, d = 2, cm.HEAD_DIM
+    state = {
+        f"transformer_blocks.0.attn.to_{s}.weight": torch.randn(heads * d, 3, generator=gen)
+        for s in "qkv"
+    }
+    module = cm.diffusers_to_native(state)["blocks.0.attn.qkv_proj.weight"]
+    ckpt = cm.diffusers_to_native(state, qkv_layout="checkpoint")["blocks.0.attn.qkv_proj.weight"]
+    assert torch.equal(
+        module, torch.cat([state[f"transformer_blocks.0.attn.to_{s}.weight"] for s in "qkv"])
+    )
+    assert torch.equal(ckpt, cm.qkv_to_grouped(module, heads=heads, head_dim=d))
+    assert not torch.equal(ckpt, module)  # writing the module layout for the loader is wrong
+    for layout, tensor in (("module", module), ("checkpoint", ckpt)):
+        back = cm.native_to_diffusers({"blocks.0.attn.qkv_proj.weight": tensor}, qkv_layout=layout)
+        assert all(torch.equal(back[n], state[n]) for n in state)
+    with pytest.raises(ValueError, match="qkv_layout"):
+        cm.diffusers_to_native(state, qkv_layout="grouped")
+
+
+def test_native_tensor_kinds_other_than_weight_and_bias_are_refused():
+    with pytest.raises(ValueError, match="unmapped"):
+        cm.native_to_diffusers({"video_patch_proj.running_mean": torch.zeros(1)})
+    with pytest.raises(ValueError, match="unmapped"):
+        cm.native_to_diffusers({"blocks.0.mlp.fc2.scale": torch.zeros(1)})
+
+
+def test_checkpoint_qkv_layout_is_what_the_vllm_omni_loader_reorders():
+    """vLLM-Omni's ``load_weights`` reorders a native ``attn.qkv_proj.weight`` from per-head groups
+    to ``[Q; K; V]``: the ``"checkpoint"`` layout must come out as the module layout."""
+
+    loader = pytest.importorskip("vllm_omni.diffusion.models.minimax_h3.minimax_h3_transformer")
+    gen = torch.Generator().manual_seed(2)
+    heads = 3
+    state = {
+        f"transformer_blocks.0.attn.to_{s}.weight": torch.randn(
+            heads * cm.HEAD_DIM, 4, generator=gen
+        )
+        for s in "qkv"
+    }
+    key = "blocks.0.attn.qkv_proj.weight"
+    module = cm.diffusers_to_native(state)[key]
+    ckpt = cm.diffusers_to_native(state, qkv_layout="checkpoint")[key]
+    loaded = loader._reorder_grouped_qkv_to_qkv(
+        ckpt, num_query_groups=heads, heads_per_group=1, head_dim=cm.HEAD_DIM
+    )
+    assert torch.equal(loaded, module)

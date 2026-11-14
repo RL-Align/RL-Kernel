@@ -80,7 +80,17 @@ def _rollout_topology(
     *,
     tensor_parallel_size: int = 4,
     context_parallel_size: int = 2,
+    rollout_layout: str = "regular",
 ) -> dict[str, int | bool | str]:
+    if rollout_layout not in {"regular", "1p1d"}:
+        raise ValueError(f"unsupported rollout layout: {rollout_layout}")
+    if rollout_layout == "1p1d" and (
+        tensor_parallel_size,
+        context_parallel_size,
+        rollout_tp_size,
+        rollout_cp_size,
+    ) != (4, 2, 4, 1):
+        raise ValueError("1p1d requires training TP4/CP2 and rollout TP4/CP1 on eight GPUs")
     if tensor_parallel_size <= 0:
         raise ValueError("--tp-size must be positive")
     if context_parallel_size <= 0:
@@ -113,13 +123,16 @@ def _rollout_topology(
     topology["rollout_cp"] = rollout_cp_size
     topology["rollout_gpus_per_engine"] = gpus_per_engine
     topology["rollout_engines"] = rollout_gpus // gpus_per_engine
+    topology["rollout_layout"] = rollout_layout
     is_reference = (
         tensor_parallel_size,
         context_parallel_size,
         rollout_tp_size,
         rollout_cp_size,
     ) == (4, 2, 4, 1)
-    topology["evidence_level"] = "reference" if is_reference else "experimental"
+    topology["evidence_level"] = (
+        "reference" if is_reference and rollout_layout == "regular" else "experimental"
+    )
     return topology
 
 
@@ -170,15 +183,17 @@ def _max_engine_decode_batch(
     n_samples_per_prompt: int,
     router_policy: str,
     rollout_engines: int,
+    rollout_layout: str = "regular",
 ) -> int:
     """Largest decode batch one vLLM engine can hold under the active router.
 
-    round_robin is the only supported policy that guarantees an even split for
-    this finite request burst. cache_aware can pin a shared prefix and random
-    can produce an uneven split, so both must graph the full concurrency.
+    In 1P1D all requests reach the only Decode engine. For regular engines,
+    round_robin guarantees an even split; cache_aware and random do not.
     """
 
     concurrency = rollout_batch_size * n_samples_per_prompt
+    if rollout_layout == "1p1d":
+        return concurrency
     if router_policy == "round_robin" and rollout_engines > 1:
         return -(-concurrency // rollout_engines)  # ceil
     return concurrency
@@ -282,10 +297,13 @@ def _write_json(path: Path, value: Any) -> None:
 
 
 def _submit_ray_job(
-    command: list[str], *, wait: bool, run_dir: Path
+    command: list[str], *, wait: bool, run_dir: Path, ray_address: str | None = None
 ) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    if ray_address is not None:
+        env["RAY_API_SERVER_ADDRESS"] = ray_address
     if not wait:
-        return subprocess.run(command, capture_output=True, text=True)
+        return subprocess.run(command, capture_output=True, text=True, env=env)
 
     output: list[str] = []
     with (run_dir / "run.log").open("w", encoding="utf-8") as log_file:
@@ -295,6 +313,7 @@ def _submit_ray_job(
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=env,
         )
         if process.stdout is None:
             raise RuntimeError("Ray submission did not expose its output stream")
@@ -353,6 +372,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--rollout-temperature", type=float, default=1.0)
+    parser.add_argument(
+        "--pd",
+        action="store_true",
+        help="use one TP4 prefill and one TP4 decode engine on eight H100s",
+    )
     parser.add_argument("--rollout-top-p", type=float, default=1.0)
     parser.add_argument("--rollout-top-k", type=int, default=-1)
     parser.add_argument("--lr", type=float, default=5e-7)
@@ -398,6 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    args.rollout_layout = "1p1d" if args.pd else "regular"
     args.group = LEGACY_GROUP_ALIASES.get(args.group, args.group)
     if args.num_rollout <= 0:
         raise ValueError("--num-rollout must be positive")
@@ -435,11 +460,16 @@ def main(argv: list[str] | None = None) -> int:
         args.rollout_cp_size,
         tensor_parallel_size=args.tp_size,
         context_parallel_size=args.cp_size,
+        rollout_layout=args.rollout_layout,
     )
     vllm_gpu_memory_utilization = (
         float(args.vllm_gpu_memory_utilization)
         if args.vllm_gpu_memory_utilization is not None
-        else (0.2 if int(topology["tp"]) == 1 and int(topology["rollout_tp"]) != 1 else 0.4)
+        else (
+            0.25
+            if args.rollout_layout == "1p1d"
+            else 0.2 if int(topology["tp"]) == 1 and int(topology["rollout_tp"]) != 1 else 0.4
+        )
     )
     if not 0.0 < vllm_gpu_memory_utilization < 1.0:
         raise ValueError("--vllm-gpu-memory-utilization must be between 0 and 1")
@@ -456,6 +486,13 @@ def main(argv: list[str] | None = None) -> int:
     entrypoint = _path(
         str(script_dir / "aligned_python_entrypoint.sh"), "aligned Python entrypoint"
     )
+    pd_config = (
+        rl_kernel_root / "examples/vime_qwen3_8b_tp4_cp2_200/vllm_1p1d.yaml"
+        if args.rollout_layout == "1p1d"
+        else None
+    )
+    if pd_config is not None and not pd_config.is_file():
+        raise FileNotFoundError(f"1p1d vLLM config is missing: {pd_config}")
     repository_state = {
         "rl_kernel": _repository_state(rl_kernel_root),
         "vime": _repository_state(vime_root),
@@ -490,6 +527,7 @@ def main(argv: list[str] | None = None) -> int:
         args.n_samples_per_prompt,
         args.router_policy,
         int(topology["rollout_engines"]),
+        args.rollout_layout,
     )
     canonical_tp = int(TOPOLOGY["gpus"])
     vocab_alignment = 128 * canonical_tp
@@ -660,6 +698,8 @@ def main(argv: list[str] | None = None) -> int:
         "processed_logprobs",
         *_mismatch_metrics_args(),
     ]
+    if pd_config is not None:
+        train_command.extend(["--vllm-config", str(pd_config)])
     if arm.framework_use_rollout_logprobs:
         train_command.append("--use-rollout-logprobs")
     if args.require_updates:
@@ -742,6 +782,17 @@ def main(argv: list[str] | None = None) -> int:
             "full_model_checkpoint_every_step": False,
         },
         "rollout_routing": {
+            "layout": args.rollout_layout,
+            "vllm_config": str(pd_config) if pd_config is not None else None,
+            "vllm_config_sha256": _sha256(pd_config) if pd_config is not None else None,
+            "server_groups": (
+                [
+                    {"worker_type": role, "num_gpus": 4, "num_gpus_per_engine": 4}
+                    for role in ("prefill", "decode")
+                ]
+                if pd_config is not None
+                else None
+            ),
             "router_policy": args.router_policy,
             "engine_count": topology["rollout_engines"],
             "tensor_parallel_size": topology["rollout_tp"],
@@ -791,7 +842,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    result = _submit_ray_job(ray_command, wait=args.wait, run_dir=run_dir)
+    result = _submit_ray_job(
+        ray_command, wait=args.wait, run_dir=run_dir, ray_address=args.ray_address
+    )
     if args.wait:
         status_result = subprocess.run(
             [
@@ -803,6 +856,7 @@ def main(argv: list[str] | None = None) -> int:
             ],
             capture_output=True,
             text=True,
+            env={**os.environ, "RAY_API_SERVER_ADDRESS": args.ray_address},
         )
         status_text = status_result.stdout
         if status_result.stderr:

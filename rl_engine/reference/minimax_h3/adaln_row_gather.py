@@ -78,14 +78,31 @@ def h3_adaln_indices(timestep_indices: torch.Tensor, token_tags: torch.Tensor) -
     return timestep_indices.long() * H3_MODALITY_NUM + token_tags.long()
 
 
+def positions_by_row(index: torch.Tensor, num_rows: int) -> list[torch.Tensor]:
+    """Ascending positions of every table row, with one host read for all rows.
+
+    Equal to ``torch.nonzero(index == row).flatten()`` for each ``row``: a stable sort keeps the
+    positions of a row in ascending order, and the per-row counts split the sorted list. It
+    replaces one device scan and one host sync per row, which grew with the 3T table rows.
+    """
+
+    order = torch.argsort(index, stable=True)
+    counts = torch.bincount(index, minlength=num_rows).tolist()
+    positions, start = [], 0
+    for count in counts:
+        positions.append(order[start : start + count])
+        start += count
+    return positions
+
+
 class _DeterministicRowGather(torch.autograd.Function):
     """``index_select`` forward; FP32 per-row segment sums for the backward.
 
     ``index_select``'s own backward is an atomic scatter-add in the grad dtype
     (BF16 for H3), which is neither deterministic nor accurate. There are
-    only 3T table rows, so the reference sums each row's positions with one
-    FP32 ``torch.sum`` per row (a fixed reduction for a fixed packing) and
-    rounds once.
+    only 3T table rows (T is the handful of distinct timesteps), so the reference sums each row's
+    positions with one FP32 ``torch.sum`` per row (a fixed reduction for a fixed packing) and
+    rounds once. The positions of all rows come from one sort and one host read.
     """
 
     @staticmethod
@@ -102,8 +119,7 @@ class _DeterministicRowGather(torch.autograd.Function):
         num_rows, dtype = ctx.rows_meta
         grad32 = grad.float()  # (6, S, H)
         out = grad32.new_zeros((num_rows, grad32.shape[0], grad32.shape[2]))
-        for row in range(num_rows):
-            positions = torch.nonzero(index == row).flatten()
+        for row, positions in enumerate(positions_by_row(index, num_rows)):
             if positions.numel():
                 out[row] = grad32.index_select(1, positions).sum(dim=1)
         return out.reshape(num_rows, -1).to(dtype), None

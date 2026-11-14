@@ -22,7 +22,7 @@ import torch
 import torch.nn.functional as F
 
 from rl_engine.backends.cuda.model_specific.minimax_h3.tp_adaln_projection import adaln_column_shard
-from rl_engine.validation.models.h3_ws2 import (
+from rl_engine.validation.distributed.h3_ws2 import (
     run_world,
     tp_matches_ws1,
     tp_projection_rank,
@@ -43,6 +43,15 @@ def _require_ext():
         pytest.skip("rl_engine._C lacks h3_det_linear_*")
 
 
+def _require_sm80():
+    from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import (
+        det_linear_device_supported,
+    )
+
+    if not det_linear_device_supported():
+        pytest.skip("the BF16 deterministic linear needs SM80 or newer")
+
+
 def _inputs(num_t, n_out, k, dtype=torch.bfloat16, seed=0):
     g = torch.Generator(device="cpu").manual_seed(seed)
     temb = (torch.randn(num_t, k, generator=g) * 2).cuda()
@@ -53,7 +62,7 @@ def _inputs(num_t, n_out, k, dtype=torch.bfloat16, seed=0):
 
 
 class TestOwnership:
-    @pytest.mark.parametrize("tp", [1, 2, 3, 4, 6, 7, 8, 9])
+    @pytest.mark.parametrize("tp", [1, 2, 3, 4, 6, 7, 8, 9, 12, 14])
     def test_shards_tile_the_table_once(self, tp):
         shards = [adaln_column_shard(N_H3, tp, r) for r in range(tp)]
         assert [s.begin for s in shards] == [0, *[s.end for s in shards[:-1]]]
@@ -78,6 +87,7 @@ class TestShardArithmetic:
     @pytest.mark.parametrize("tp", [2, 4, 8])
     def test_pinned_shards_reproduce_ws1(self, h3_weights_cpu, tp):
         _require_ext()
+        _require_sm80()
         from rl_engine.backends.cuda.model_specific.minimax_h3 import det_linear as dl
 
         weight, bias = h3_weights_cpu[WEIGHT].cuda(), h3_weights_cpu[BIAS].cuda()
@@ -102,6 +112,7 @@ class TestShardArithmetic:
 
     def test_tp1_op_is_ws1(self):
         _require_ext()
+        _require_sm80()
         one = SimpleNamespace(rank=0, world_size=1, backend_id="none", all_gather=lambda t: t)
         temb, weight, bias, grad = _inputs(3, 3 * 6 * 256, 136)
         ws1 = ws1_projection(temb, weight, bias, grad)
@@ -127,6 +138,78 @@ class TestShardArithmetic:
         with pytest.raises(ValueError):  # 4608 / 16 is not a multiple of 64
             H3TPAdaLNProjectionCudaOp(SimpleNamespace(rank=0, world_size=16), weight.shape[0])
         assert op.readback()["columns"] == [2304, 4608]
+
+    def test_pre_sm80_is_refused_at_construction_and_before_the_first_collective(self, monkeypatch):
+        _require_ext()
+        from rl_engine.backends.cuda.model_specific.minimax_h3 import tp_adaln_projection as module
+
+        calls = []
+        collective = SimpleNamespace(
+            rank=0, world_size=2, backend_id="unused", all_gather=lambda t: calls.append(t)
+        )
+        temb, weight, bias, _ = _inputs(2, 3 * 6 * 256, 136)
+        op = module.H3TPAdaLNProjectionCudaOp(collective, weight.shape[0])
+        w, b = module.shard_adaln_projection(weight, bias, 2, 0)
+        monkeypatch.setattr(module, "det_linear_device_supported", lambda *args: False)
+        with pytest.raises(RuntimeError, match="SM80"):
+            module.H3TPAdaLNProjectionCudaOp(collective, weight.shape[0])
+        with pytest.raises(RuntimeError, match="SM80"):
+            op(temb, w, b)
+        assert not calls  # no rank is left waiting in a collective
+
+    def test_backward_rejects_a_table_gradient_of_the_wrong_width(self):
+        _require_ext()
+        from rl_engine.backends.cuda.model_specific.minimax_h3.tp_adaln_projection import (
+            H3TPAdaLNProjectionCudaOp,
+            _TPAdaLNProjection,
+            shard_adaln_projection,
+        )
+
+        one = SimpleNamespace(rank=0, world_size=1, backend_id="none", all_gather=lambda t: t)
+        temb, weight, bias, grad = _inputs(2, 3 * 6 * 256, 136)
+        op = H3TPAdaLNProjectionCudaOp(one, weight.shape[0])
+        w, b = shard_adaln_projection(weight, bias, 1, 0)
+        leaf = temb.clone().requires_grad_(True)
+        table = op.forward_table(leaf, w, b)
+        node = table.grad_fn  # the autograd node is the ``ctx`` its backward receives
+        # Autograd checks the shape of a gradient that reaches this node through the graph, so the
+        # check guards a direct call of the node's backward, which this makes.
+        for bad in (grad[:, :-64], grad[:1]):
+            with pytest.raises(ValueError, match="table gradient must be"):
+                _TPAdaLNProjection.backward(node, bad.to(table.dtype))
+        assert _TPAdaLNProjection.backward(node, grad.to(table.dtype))[0].shape == temb.shape
+
+    @pytest.mark.parametrize("frozen", [("weight",), ("bias",), ("weight", "bias")])
+    def test_backward_skips_the_gradients_of_a_frozen_shard(self, frozen):
+        _require_ext()
+        from rl_engine.backends.cuda.model_specific.minimax_h3.tp_adaln_projection import (
+            H3TPAdaLNProjectionCudaOp,
+            shard_adaln_projection,
+        )
+
+        one = SimpleNamespace(rank=0, world_size=1, backend_id="none", all_gather=lambda t: t)
+        temb, weight, bias, grad = _inputs(2, 3 * 6 * 256, 136)
+        op = H3TPAdaLNProjectionCudaOp(one, weight.shape[0])
+        w, b = shard_adaln_projection(weight, bias, 1, 0)
+        leaves = {
+            "temb": temb.clone().requires_grad_(True),
+            "weight": w.clone().requires_grad_("weight" not in frozen),
+            "bias": b.clone().requires_grad_("bias" not in frozen),
+        }
+        table = op.forward_table(*leaves.values())
+        got = table.grad_fn.apply(grad.to(table.dtype))
+        reference = {
+            name: leaf.detach().clone().requires_grad_(True) for name, leaf in leaves.items()
+        }
+        for name in leaves:
+            reference[name].requires_grad_(name not in frozen)
+        reference["temb"].requires_grad_(True)
+        op.forward_table(*reference.values()).backward(grad.to(table.dtype))
+        for name, value in zip(("temb", "weight", "bias"), got[:3], strict=True):
+            if name in frozen:
+                assert value is None
+            else:
+                assert torch.equal(value, reference[name].grad)
 
 
 @pytest.mark.parametrize("world", [2, 4, 8])

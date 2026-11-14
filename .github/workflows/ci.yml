@@ -71,14 +71,39 @@ jobs:
       - name: Check refactor packaging and compatibility
         run: python ci/run.py layout -q
 
+      - name: Run H3 Sigma Schedule Tests (CPU-safe)
+        run: |
+          python -m pytest tests/reference/minimax_h3 tests/runtime/test_h3_sigma_schedule_dispatch.py -q
+
       - name: Run full H3 binding contracts
-        run: python -m pytest -q tests/models/minimax_h3/test_h3_full_model.py
+        run: |
+          python -m pytest -q \
+            tests/models/minimax_h3/test_h3_full_model.py \
+            tests/models/minimax_h3/test_h3_full_ensemble_rule.py \
+            tests/models/minimax_h3/test_h3_generation_resume.py
 
       - name: Run Mocked Hardware Discovery Tests
         run: |
           python -m pytest tests/runtime/test_dispatch.py -v
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ops/attention/test_attention_correctness.py -q -rs
           python -m pytest tests/validation/operators/test_forward_invariance.py tests/contracts/test_tolerance_contract.py tests/validation/operators/test_ws1_workload.py tests/validation/operators/test_gradient_invariance.py tests/validation/operators/test_elementwise_inventory.py tests/validation/operators/test_four_judgment_matrix.py tests/validation/operators/test_op_checks.py tests/validation/operators/test_operator_inputs.py tests/benchmarks/test_profiler.py tests/validation/operators/test_kv_consistency.py tests/models/qwen3/test_ws1_qwen3_dense.py tests/validation/models/test_ws1_chain_integration.py -q
+
+      - name: Run Linear-Attention Reference Tests (CPU-only)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
+            tests/ops/linear_attn/ tests/reference/linear_attn/
+
+      - name: Run GDN Batch-Invariance Regression Tests (AVX2)
+        env:
+          ATEN_CPU_CAPABILITY: avx2
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+        run: |
+          if ! grep -qw avx2 /proc/cpuinfo; then
+            echo "::error::AVX2 is required for this regression test."
+            exit 1
+          fi
+          python -c "import torch; assert torch.backends.cpu.get_cpu_capability() == 'AVX2'"
+          python -m pytest -q tests/reference/linear_attn/test_gdn_reference.py -k gdn_batch_invariance
 
       - name: Run Cross-Configuration Contract Tests (CPU-safe)
         run: |

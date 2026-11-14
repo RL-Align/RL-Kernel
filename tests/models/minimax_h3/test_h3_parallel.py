@@ -16,8 +16,8 @@ import torch
 
 from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
 from rl_engine.distributed.algorithms.hierarchical import tree_add
+from rl_engine.validation.distributed.h3_ws2 import run_world
 from rl_engine.validation.models import h3_tp
-from rl_engine.validation.models.h3_ws2 import run_world
 
 needs_gpu = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 
@@ -174,12 +174,8 @@ class TestPackedIO:
 # --- Multi-process grids --------------------------------------------------------------------
 
 
-def _reference(seq_len=0, backward=False):
-    from rl_engine.validation.models.h3_weights import load_h3_block_weights
-
-    return h3_tp.block_case(
-        load_h3_block_weights("cuda"), h3_tp.Grid(1, 1, 0, 0), seq_len=seq_len, backward=backward
-    )
+def _reference(weights, seq_len=0, backward=False):
+    return h3_tp.block_case(weights, h3_tp.Grid(1, 1, 0, 0), seq_len=seq_len, backward=backward)
 
 
 def _assemble(ranks, tp, cp, key="out"):
@@ -210,7 +206,8 @@ GRIDS = [
 
 @needs_gpu
 @pytest.mark.parametrize(("tp", "cp", "sp", "length"), GRIDS)
-def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length):
+def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length, h3_block_weights_cuda):
+    # the fixture skips without extracted weights; every rank loads the same pinned files
     _triton()
     ranks = run_world(
         tp * cp,
@@ -222,7 +219,7 @@ def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length):
         seq_len=length,
         backward=True,
     )
-    ref = _reference(length, backward=True)
+    ref = _reference(h3_block_weights_cuda, length, backward=True)
     out, spans = _assemble(ranks, tp, cp)
     assert out.shape == ref["out"].shape, (spans, out.shape)
     assert torch.equal(out.cpu(), ref["out"].cpu()), "forward differs from the single-GPU block"
@@ -318,3 +315,68 @@ def test_hierarchical_equals_single_node_fixed_tree(local_size, dtype):
     assert torch.equal(ranks[0]["rs"], ranks[0]["hier"][:64])
     assert torch.equal(ranks[3]["rs"], ranks[3]["hier"][192:256])
     assert torch.equal(ranks[1]["ag"], torch.cat([r["x"][:2] for r in ranks]))
+
+
+def _fake_dist(rank: int, world: int, calls: list):
+    """Just enough of ``torch.distributed`` for one rank to build a ``HierarchicalCollective``."""
+
+    from types import SimpleNamespace
+
+    everything = tuple(range(world))
+
+    def new_group(ranks):
+        calls.append(tuple(ranks))
+        return tuple(ranks)
+
+    return SimpleNamespace(
+        is_initialized=lambda: True,
+        group=SimpleNamespace(WORLD=everything),
+        get_world_size=lambda group=None: len(everything if group is None else group),
+        get_rank=lambda group=None: (everything if group is None else group).index(rank),
+        get_process_group_ranks=lambda group: list(group),
+        new_group=new_group,
+        ProcessGroup=tuple,
+    )
+
+
+@pytest.mark.parametrize(("tp", "cp", "local_size"), [(2, 2, 1), (4, 2, 2), (8, 2, 4), (8, 1, 4)])
+def test_hierarchical_subgroups_are_created_in_one_global_order(monkeypatch, tp, cp, local_size):
+    """``dist.new_group`` is entered by every rank with the same lists in the same order, also
+    when several TP groups (CP > 1) each build a hierarchical collective."""
+
+    from types import SimpleNamespace
+
+    import rl_engine.distributed.algorithms.hierarchical as hier
+
+    world = tp * cp
+    tp_ranks = [list(range(c * tp, (c + 1) * tp)) for c in range(cp)]
+    monkeypatch.setattr(hier, "DeterministicCollective", lambda g, d, **_: SimpleNamespace(g=g))
+    sequences = []
+    for rank in range(world):
+        calls: list = []
+        monkeypatch.setattr(hier, "dist", _fake_dist(rank, world, calls))
+        mine = tuple(tp_ranks[rank // tp])
+        h = hier.HierarchicalCollective(local_size, mine, group_ranks=tp_ranks)
+        sequences.append(calls)
+        assert rank in h._local.g and rank in h._cross  # its own subgroups, of its own TP group
+        assert set(h._local.g) | set(h._cross) <= set(mine)
+        assert len(h._local.g) == local_size and len(h._cross) == tp // local_size
+    assert all(seq == sequences[0] for seq in sequences)
+    if cp > 1:  # a TP subgroup alone would make the ranks disagree; it is refused instead
+        monkeypatch.setattr(hier, "dist", _fake_dist(0, world, []))
+        with pytest.raises(ValueError, match="group_ranks"):
+            hier.HierarchicalCollective(local_size, tuple(tp_ranks[0]))
+
+
+@pytest.mark.parametrize("rank", [0, 1])
+def test_compute_paths_refuse_a_sequence_shorter_than_cp_on_every_rank(rank):
+    """``seq_len < cp`` is fine for data movement but not for the compute paths: every rank
+    (also the one that holds a row) refuses before any GEMM or collective."""
+
+    shard = par.SeqShard(1, 2, rank)
+    with pytest.raises(ValueError, match="at least one row per rank"):
+        par.seq_sharded_linear(torch.ones(shard.hi - shard.lo, 4), torch.ones(3, 4), shard)
+    grid = h3_tp.Grid(1, 2, 0, rank)
+    with pytest.raises(ValueError, match="at least one row per rank"):
+        h3_tp.run_tp_block({}, torch.ones(1, 1, 8), None, torch.zeros(1), (None, None), None, grid)
+    par.require_rows_on_every_rank(par.SeqShard(2, 2, rank))  # one row each: accepted
