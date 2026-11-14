@@ -606,3 +606,32 @@ def test_the_required_cuda_ops_are_the_registered_cuda_backends():
         "timestep_mlp_fp32": OpBackend.CUDA_H3_TIMESTEP_MLP.value,
         "final_adaln_out": OpBackend.CUDA_H3_FINAL_ADALN_OUT.value,
     }
+
+
+def test_an_error_inside_the_strict_context_is_not_replaced_by_the_session_check(monkeypatch):
+    """A body error after backward started propagates as it is, not as an incomplete session."""
+    from rl_engine.ops.autograd.canonical_backward import active_session
+
+    _fake_rows(monkeypatch, [])
+    model = _boundary_model()
+
+    def open_step():
+        return full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        )
+
+    with pytest.raises(ValueError, match="non-finite gradient"):
+        with open_step():
+            session = active_session()
+            # one keyed use is registered and backward has started, but its gradient never
+            # arrives: the step fails part-way through backward
+            session.register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            session.backward_started = True
+            raise ValueError("non-finite gradient in block 7")
+    assert active_session() is None
+    # a body that completes with a missing submission is still refused
+    with pytest.raises(RuntimeError, match="incomplete canonical submissions"):
+        with open_step():
+            active_session().register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            active_session().backward_started = True
+    assert active_session() is None

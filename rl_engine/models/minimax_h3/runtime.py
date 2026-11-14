@@ -181,7 +181,11 @@ class H3DiffusersAdapter:
 
 
 class H3TrainingProvider:
-    """Actor-side strict training scope: ``with provider.step(): forward(...); loss.backward()``."""
+    """Actor-side strict training scope: ``with provider.step(): forward(...); loss.backward()``.
+
+    One forward and one backward per ``step()``: with trainable video projections, their rows
+    collect parameter gradients in one canonical backward session per step.
+    """
 
     def __init__(
         self, model, mode: str | RLKernelMode | None = None, overlay: AblationOverlay | None = None
