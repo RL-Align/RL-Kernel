@@ -70,8 +70,10 @@ class FusedQNorm(torch.nn.Module):
         self.weight = norm.weight  # Preserve the actual trainable Parameter identity.
         self.epsilon = epsilon
         self._activation = None
+        self._raw_input = None
 
     def forward(self, x):
+        self._raw_input = x
         y, codes, scales = _FusedQNorm.apply(x, self.weight, self.epsilon)
         self._activation = (y, codes, scales)
         if not hasattr(self, "_executed"):
@@ -88,3 +90,81 @@ class FusedQNorm(torch.nn.Module):
         if x.data_ptr() != y.data_ptr() or x.shape != y.shape or x.stride() != y.stride():
             raise ValueError("FP8 consumer does not reference the current normalized activation")
         return codes, scales
+
+
+class _FusedKVNorm(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, weight, raw_q, q_weight, q_epsilon, epsilon):
+        from aiter.ops.fused_qk_rmsnorm_group_quant import fused_qk_rmsnorm_group_quant
+
+        if (
+            x.dtype != torch.bfloat16
+            or weight.dtype != x.dtype
+            or raw_q.dtype != x.dtype
+            or q_weight.dtype != x.dtype
+        ):
+            raise ValueError("original BF16 Q/K norm operands are required")
+        if x.shape[:-1] != raw_q.shape[:-1] or x.shape[-1] != 512 or raw_q.shape[-1] != 1024:
+            raise ValueError("original aligned 1024-Q / 512-KV geometry is required")
+        if (
+            x.device.type != "cuda"
+            or not torch.version.hip
+            or torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0] != "gfx942"
+        ):
+            raise ValueError("the initial joint KV norm profile requires gfx942")
+        flat = x.reshape(-1, 512).contiguous()
+        q = raw_q.reshape(-1, 1024).contiguous()
+        q_codes = torch.empty_like(q, dtype=torch.float8_e4m3fnuz)
+        q_scales = torch.empty((q.shape[0], 8), device=q.device, dtype=torch.float32)
+        out = torch.empty_like(flat)
+        # Execute the actual K branch of the loaded rollout's joint kernel.
+        # The real current Q is supplied; its independently recomputed outputs
+        # are unused and never replace the actor's existing Q/cache data.
+        fused_qk_rmsnorm_group_quant(
+            q=q,
+            q_weight=q_weight,
+            q_epsilon=q_epsilon,
+            q_out_quantized=q_codes,
+            q_out_scale=q_scales,
+            k=flat,
+            k_weight=weight,
+            k_epsilon=epsilon,
+            k_out=out,
+            group_size=128,
+            transpose_scale=False,
+        )
+        ctx.save_for_backward(x, weight)
+        ctx.epsilon = epsilon
+        return out.reshape_as(x)
+
+    @staticmethod
+    def backward(ctx, dy):
+        x, weight = ctx.saved_tensors
+        dx, dw = rmsnorm_vjp(x, weight, dy, ctx.epsilon)
+        return dx, dw, None, None, None, None
+
+
+def fused_kv_norm(x, weight, raw_q, q_weight, q_epsilon, epsilon):
+    return _FusedKVNorm.apply(x, weight, raw_q, q_weight, q_epsilon, epsilon)
+
+
+class FusedKVNorm(torch.nn.Module):
+    profile = "dsv4-kvnorm-aiter-joint-original-bf16-boundary-v1"
+
+    def __init__(self, norm, qnorm, epsilon):
+        super().__init__()
+        self.weight = norm.weight
+        object.__setattr__(self, "qnorm", qnorm)
+        self.epsilon = epsilon
+
+    def forward(self, x):
+        raw_q = self.qnorm._raw_input
+        if raw_q is None:
+            raise RuntimeError("KV norm requested before the current actual Q projection")
+        out = fused_kv_norm(
+            x, self.weight, raw_q, self.qnorm.weight, self.qnorm.epsilon, self.epsilon
+        )
+        if not getattr(self, "_executed", False):
+            print("RLK_KVNORM_EXECUTED", __file__, self.profile, tuple(x.shape), flush=True)
+            self._executed = True
+        return out

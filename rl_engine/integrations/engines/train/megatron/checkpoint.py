@@ -203,6 +203,11 @@ def load_native_checkpoint(model, directory):
         if getattr(model, "_rlk_fused_qnorm", False):
             norm = FusedQNorm(attn.q_layernorm, cfg.layernorm_epsilon)
             attn.q_layernorm = norm
+            from rl_engine.backends.rocm.norm.qnorm_fp8 import FusedKVNorm
+
+            original_kv_weight = attn.kv_layernorm.weight
+            attn.kv_layernorm = FusedKVNorm(attn.kv_layernorm, norm, cfg.layernorm_epsilon)
+            assert attn.kv_layernorm.weight is original_kv_weight
             attn.linear_q_up_proj.bind_qnorm(norm)
             if getattr(core, "indexer", None) is not None:
                 core.indexer.linear_wq_b.bind_qnorm(norm)
