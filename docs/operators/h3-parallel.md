@@ -107,8 +107,23 @@ any node count and compares against the single-GPU block.
 | TP2 | 2 / 1 | IPC tree | bitwise | bitwise | bitwise |
 | TP4 | 4 / 1 | IPC tree | bitwise | bitwise | bitwise |
 | TP8 | 8 / 2 | hierarchical | bitwise | bitwise | bitwise |
-| TP4 x CP2 | 8 / 2 | IPC tree (TP in node), NCCL all-to-all (CP across) | bitwise | bitwise | not compared (token axis sharded) |
-| TP4 x CP2 + SP | 8 / 2 | same | bitwise | bitwise | not compared |
+| TP4 x CP2 | 8 / 2 | IPC tree (TP in node), NCCL all-to-all (CP across) | bitwise | bitwise | not compared in these block reports (they predate the CP dW sweep); bitwise in the full-model runs below |
+| TP4 x CP2 + SP | 8 / 2 | same | bitwise | bitwise | same |
+
+Full model (50 blocks, 94 GB H100, `h3_parallel_full_model.py`, every check true on every rank:
+video / audio velocity, the three input gradients, every block output and output gradient, and the
+350 weight-shard gradients; `first_drift_*` is null):
+
+| Grid | GPUs / nodes | Sizes | Result |
+| --- | --- | --- | --- |
+| TP2, TP4 | 2, 4 / 1 | 40 | bitwise |
+| TP2 x CP2 (ring, Ulysses) | 4 / 1 | 40 | bitwise |
+| TP4 x CP2 (ring) | 8 / 2 | 40, 925 (uneven CP shards 463 / 462) | bitwise |
+| TP4 x CP2 + SP (ring) | 8 / 2 | 40, 928 (925 is refused: SP needs rows divisible by TP) | bitwise |
+| TP8 (hierarchical collective) | 8 / 2 | 40, 925, 928 | bitwise |
+
+The negative control (`--inject 17:5:3` on TP4 x CP2) is reported at block 17, row 5, and every
+check that sees it fails.
 
 Mean time per rank of one forward call (ms), from the `h3-ws2-parallel-h100/*.json` reports: TP2
 33.1, TP4 32.6, TP8 32.4, TP4xCP2 31.5, TP4xCP2+SP 33.3 (tiny 264-row case, launch-bound; not a
