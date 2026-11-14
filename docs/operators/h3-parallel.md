@@ -90,7 +90,10 @@ gradient (`first_drift_*` names the first block, logical row, owning rank and mo
 rank's weight-shard gradients of all 350 sharded projections. `--inject BLOCK:ROW:RANK` perturbs one
 row on one rank: a negative control that has to be reported at that block, row and owner. Every
 rank loads the whole checkpoint and runs the canonical model first, so it is a validation harness,
-not a memory-sharded implementation.
+not a memory-sharded implementation. Weight-shard gradients are reduced to their digest the moment
+they are accumulated and freed (`ParallelState.digest_leaf`), so a run holds one block's shard
+gradients at a time: without that, the canonical run's unsharded leaves and gradients need about
+twice the 33B weights on top of the weights themselves, which does not fit a 94 GB H100.
 
 ## Tests and evidence
 

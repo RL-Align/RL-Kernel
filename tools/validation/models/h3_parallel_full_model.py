@@ -51,8 +51,12 @@ def _inputs(size: str):
     return packed_inputs("cuda") if SIZES[size] is None else sized_inputs("cuda", **SIZES[size])
 
 
-def _run(model, base, grid, sp, ops, gradients, *, inject=None):
-    """Forward + backward on ``grid``: outputs, input gradients, snapshots, shard gradients."""
+def _run(model, base, grid, sp, ops, gradients, digest_leaf, *, inject=None):
+    """Forward + backward on ``grid``: outputs, input gradients, snapshots, shard-gradient digests.
+
+    ``digest_leaf(name, grad)`` reduces each weight-shard gradient to its digest as it is
+    accumulated (the run never holds more than one block's worth of them).
+    """
 
     inputs = {
         k: (v.detach().clone().requires_grad_() if k in INPUTS else v) for k, v in base.items()
@@ -62,29 +66,19 @@ def _run(model, base, grid, sp, ops, gradients, *, inject=None):
     began = time.perf_counter()
     with pm.parallel_model_execution(model, grid, sp=sp, trace=trace, ops=ops) as state:
         state.inject = inject
+        state.digest_leaf = digest_leaf
         video, audio = model(**inputs)
         torch.autograd.backward([video, audio], list(gradients))
         torch.cuda.synchronize()
     seconds = time.perf_counter() - began
-    digests = {}
-    for i, leaves in state.leaves.items():
-        for name, leaf in leaves.items():
-            digests[f"{i}.{name}"] = (name, leaf.grad)
     return {
         "video": video.detach().cpu(),
         "audio": audio.detach().cpu(),
         "input_grads": {k: inputs[k].grad.detach().cpu() for k in INPUTS},
         "snapshots": dict(trace.snapshots),
-        "leaf_grads": digests,
+        "leaf_digests": state.digests,
         "seconds": seconds,
     }
-
-
-def _expected_shard_digests(reference, tp, tp_rank):
-    out = {}
-    for key, (name, grad) in reference["leaf_grads"].items():
-        out[key] = pm.exact_digest(pm.shard_of(grad, name, tp, tp_rank))
-    return out
 
 
 def main() -> None:
@@ -151,8 +145,6 @@ def main() -> None:
     torch.cuda.empty_cache()
 
     spans = pm.rank_spans(args.tp, args.cp, length, args.sp)
-    canonical = h3_tp.Grid(1, 1, 0, 0, attention=args.attention)
-    reference = _run(model, base, canonical, False, ops, gradients)
     grid = h3_tp.make_grid(
         args.tp,
         args.cp,
@@ -160,15 +152,33 @@ def main() -> None:
         attention=args.attention,
         cp_mode=args.cp_mode,
     )
-    expected = _expected_shard_digests(reference, args.tp, grid.tp_rank)
-    for key in list(reference["leaf_grads"]):
-        del reference["leaf_grads"][key]
+    canonical = h3_tp.Grid(1, 1, 0, 0, attention=args.attention)
+    # The canonical run reduces each unsharded gradient to the digest of this rank's shard of it.
+    reference = _run(
+        model,
+        base,
+        canonical,
+        False,
+        ops,
+        gradients,
+        lambda name, grad: pm.exact_digest(pm.shard_of(grad, name, args.tp, grid.tp_rank)),
+    )
+    expected = reference["leaf_digests"]
     torch.cuda.empty_cache()
     inject = None
     if args.inject:
         block, row, victim = (int(v) for v in args.inject.split(":"))
         inject = (block, row, victim)
-    observed = _run(model, base, grid, args.sp, ops, gradients, inject=inject)
+    observed = _run(
+        model,
+        base,
+        grid,
+        args.sp,
+        ops,
+        gradients,
+        lambda name, grad: pm.exact_digest(grad),
+        inject=inject,
+    )
 
     checks = {
         "video_velocity_bitwise": torch.equal(reference["video"], observed["video"]),
@@ -192,12 +202,10 @@ def main() -> None:
     checks["block_outputs_bitwise"] = drift_forward is None
     checks["block_output_gradients_bitwise"] = drift_backward is None
     mismatched = [
-        key
-        for key, (name, grad) in observed["leaf_grads"].items()
-        if pm.exact_digest(grad) != expected[key]
+        key for key, digest in observed["leaf_digests"].items() if digest != expected.get(key)
     ]
     checks["weight_shard_gradients_bitwise"] = not mismatched and len(expected) == len(
-        observed["leaf_grads"]
+        observed["leaf_digests"]
     )
     result = {
         "rank": rank,

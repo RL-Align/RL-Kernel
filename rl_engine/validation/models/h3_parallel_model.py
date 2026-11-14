@@ -23,6 +23,7 @@ of the projections out of them on each call. It does not shard the weight storag
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import contextmanager
 from types import MethodType
 from typing import Any
@@ -127,6 +128,24 @@ class ParallelState:
         # (block, global row, rank): that rank perturbs that row of that block's output, a
         # negative control for the first-drift report. Never set outside such a control.
         self.inject: tuple[int, int, int] | None = None
+        # With ``digest_leaf`` set, a weight-shard gradient is reduced to its digest the moment it
+        # is accumulated and then freed, and the leaves are not kept: a run then holds one
+        # block's shard gradients at a time instead of a full copy of the model's.
+        self.digest_leaf: Callable[[str, torch.Tensor], list[int]] | None = None
+        self.digests: dict[str, list[int]] = {}
+
+
+def _digest_on_grad(state: ParallelState, key: str, name: str, leaf: torch.Tensor) -> None:
+    """Reduce ``leaf``'s gradient to ``state.digests[key]`` once it is accumulated, then free it."""
+
+    digest_leaf = state.digest_leaf
+    assert digest_leaf is not None
+
+    def hook(param: torch.Tensor) -> None:
+        state.digests[key] = digest_leaf(name, param.grad)
+        param.grad = None
+
+    leaf.register_post_accumulate_grad_hook(hook)
 
 
 def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelState):
@@ -155,7 +174,10 @@ def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelS
                 scale = torch.ones_like(out)
                 scale[:, row - lo] = 1.0078125  # one bf16 step on that row
                 out = out * scale
-        if leaves is not None:
+        if leaves is not None and state.digest_leaf is not None:
+            for name, leaf in leaves.items():  # a recomputation registers the live ones
+                _digest_on_grad(state, f"{index}.{name}", name, leaf)
+        elif leaves is not None:
             state.leaves[index] = leaves  # a recomputation (checkpointing) replaces the entry
         state.calls += 1
         return _RowsGather.apply(out, spans, rank, length)

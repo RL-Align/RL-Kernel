@@ -47,6 +47,32 @@ class TestSpans:
             pm.rank_spans(4, 2, 12, sp=True)
 
 
+class TestDigestOnGrad:
+    """A weight-shard gradient is reduced to its digest as it is accumulated, then freed."""
+
+    @pytest.mark.parametrize("tp_rank", [0, 1])
+    def test_the_hook_digests_the_shard_and_frees_the_gradient(self, tp_rank):
+        name = next(iter(pm.SHARDED_WEIGHTS))
+        state = pm.ParallelState(None, False)  # type: ignore[arg-type]
+        state.digest_leaf = lambda n, grad: pm.exact_digest(pm.shard_of(grad, n, 2, tp_rank))
+        leaf = torch.randn(8, 8).bfloat16().requires_grad_()
+        pm._digest_on_grad(state, f"3.{name}", name, leaf)
+        grad = torch.randn(8, 8).bfloat16()
+        (leaf * grad).sum().backward()
+        assert leaf.grad is None
+        expected = pm.exact_digest(pm.shard_of(grad, name, 2, tp_rank))
+        assert state.digests == {f"3.{name}": expected}
+
+    def test_a_recomputed_leaf_replaces_the_digest_of_the_same_key(self):
+        state = pm.ParallelState(None, False)  # type: ignore[arg-type]
+        state.digest_leaf = lambda n, grad: pm.exact_digest(grad)
+        for scale in (1.0, 2.0):
+            leaf = torch.ones(4, 4).bfloat16().requires_grad_()
+            pm._digest_on_grad(state, "0.w", "w", leaf)
+            (leaf * scale).sum().backward()
+        assert state.digests == {"0.w": pm.exact_digest(torch.full((4, 4), 2.0).bfloat16())}
+
+
 class TestFirstDrift:
     def _case(self):
         ref = {f"block.{i}": torch.zeros(1, 8, 4) for i in range(4)}
