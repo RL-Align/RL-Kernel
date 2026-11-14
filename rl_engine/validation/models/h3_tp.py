@@ -177,7 +177,10 @@ def run_tp_block_rows(
     coll = grid.tp_collective
 
     def leaf(name, tensor):
-        tensor = tensor.detach().clone()
+        # A contiguous shard (all of the weight for tp=1, a row slice otherwise) stays a view of
+        # it: a leaf is only read, and a copy per block would keep the weights twice over for as
+        # long as autograd holds the leaf (all 50 blocks of a checkpointed forward).
+        tensor = tensor.detach().contiguous()
         if leaves is not None:
             tensor.requires_grad_(True)
             leaves[name] = tensor
