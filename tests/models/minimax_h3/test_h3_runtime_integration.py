@@ -91,6 +91,7 @@ def _bindable(monkeypatch, mode, *, binding_fails):
 
     @contextmanager
     def execution(model, *, candidate, trace, **_):
+        """Stand-in for ``full_model_execution``: fails to bind the candidate when asked to."""
         if candidate and binding_fails:
             raise ValueError("candidate projection fell back from its CUDA implementation")
         entered.append(candidate)
@@ -104,6 +105,7 @@ def _bindable(monkeypatch, mode, *, binding_fails):
 
 @pytest.mark.parametrize("mode", ["strict", "audit"])
 def test_an_error_inside_the_bound_step_is_not_a_fallback(monkeypatch, mode):
+    """An error raised inside a bound step propagates and is not recorded as a fallback."""
     adapter, entered = _bindable(monkeypatch, mode, binding_fails=False)
     with pytest.raises(RuntimeError, match="CUDA out of memory"):
         with adapter.active():
@@ -113,6 +115,7 @@ def test_an_error_inside_the_bound_step_is_not_a_fallback(monkeypatch, mode):
 
 
 def test_audit_runs_the_provider_when_the_graph_cannot_bind(monkeypatch):
+    """Audit mode runs the provider and records the fallback when the graph cannot bind."""
     adapter, entered = _bindable(monkeypatch, "audit", binding_fails=True)
     with adapter.active():
         ran = True
@@ -123,6 +126,7 @@ def test_audit_runs_the_provider_when_the_graph_cannot_bind(monkeypatch):
 
 
 def test_strict_raises_when_the_graph_cannot_bind(monkeypatch):
+    """Strict mode raises when the graph cannot bind and records no fallback."""
     adapter, entered = _bindable(monkeypatch, "strict", binding_fails=True)
     with pytest.raises(ValueError, match="fell back"):
         with adapter.active():
@@ -229,6 +233,7 @@ class TestTransition:
             return leaf.grad
 
         def scored(xs, vs, prev):
+            """The differentiable CPS log-prob of ``prev`` from ``xs`` under velocities ``vs``."""
             out = tr.cps_transition(xs, vs, 0.75, 0.5, prev_sample=prev)
             assert out.log_prob.requires_grad
             return out.log_prob
@@ -309,6 +314,7 @@ def test_lora_gate_detects_a_gradient_reaching_the_base(monkeypatch):
 
 
 def test_transition_refuses_sample_ids_that_do_not_match_the_batch():
+    """``transition()`` refuses ``sample_ids`` whose length differs from the batch."""
     provider = rt.H3TrainingProvider(_FakeModel(), "off")
     x = torch.zeros(3, 4, 2)
     with pytest.raises(ValueError, match="sample_ids has 1 entries for a batch of 3"):

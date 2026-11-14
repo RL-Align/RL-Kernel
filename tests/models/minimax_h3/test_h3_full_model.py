@@ -318,6 +318,7 @@ def test_strict_boundaries_apply_to_candidate_execution_only():
 
 
 def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
+    """Strict mode routes each boundary module through its row; video rows get keys, a session."""
     from rl_engine.runtime.registry import KernelRegistry
     from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
 

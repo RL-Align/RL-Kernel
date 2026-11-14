@@ -58,6 +58,7 @@ def test_accumulator_contract_per_row() -> None:
 
 
 def test_an_unreported_accumulator_or_split_policy_is_not_filled_in_from_the_contract() -> None:
+    """Accumulator, split policy and fallback stay unobserved until an operator reports them."""
     trace = ot.OperatorTrace()
     call = trace.record_node("transformer_blocks.3.q_proj", status="row", backend="b")
     assert (call.accumulator, call.split_policy) == (ot.NOT_OBSERVED, ot.NOT_OBSERVED)
@@ -152,6 +153,7 @@ def test_digest_is_stable_and_content_sensitive() -> None:
 
 
 def test_roundtrip_and_tamper_detection() -> None:
+    """A trace survives dumps/loads, keeps an unobserved fallback as None, and detects tampering."""
     trace = _run(ot.OperatorTrace(metadata={"run": "x"}))
     again = ot.OperatorTrace.loads(trace.dumps())
     assert again.digest == trace.digest and again.calls == trace.calls

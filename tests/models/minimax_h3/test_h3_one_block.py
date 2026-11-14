@@ -153,6 +153,7 @@ def test_qkv_nodes_share_one_combined_row_call():
     class _Ops:
         @staticmethod
         def qkv(flat, wq, wk, wv, *, logical_keys):
+            """Record the keys of a fused QKV call and return the three projections."""
             calls.append(logical_keys.shape)
             return tuple(flat @ w.t() for w in (wq, wk, wv))
 

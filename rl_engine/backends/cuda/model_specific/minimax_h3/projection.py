@@ -61,6 +61,7 @@ def _keyed(logical_keys, x, *params):
 
 
 def _weight_grads(grad_out, x, order, with_bias):
+    """Weight and bias gradients over the rows in ``order``; zeros when every row is padding."""
     if order is not None and order.numel() == 0:  # every row is padding: no contribution
         dweight = grad_out.new_zeros(grad_out.shape[1], x.shape[1])
         return dweight, grad_out.new_zeros(grad_out.shape[1]) if with_bias else None
