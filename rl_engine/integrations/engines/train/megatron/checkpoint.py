@@ -112,6 +112,7 @@ def load_native_checkpoint(model, directory):
     device = next(model.parameters()).device
     export = []
     model._rlk_checkpoint_export = export
+    model._rlk_checkpoint_export_parameters = {}
 
     def get(key):
         loaded.add(key)
@@ -126,6 +127,8 @@ def load_native_checkpoint(model, directory):
         with torch.no_grad():
             dest.copy_(value)
         export.append((key, dest))
+        if isinstance(dest, torch.nn.Parameter):
+            model._rlk_checkpoint_export_parameters[key] = (dest,)
 
     def fp8(prefix):
         return CheckpointFP8Linear(get(prefix + ".weight"), get(prefix + ".scale"))
@@ -141,6 +144,11 @@ def load_native_checkpoint(model, directory):
                     [target.alpha_pre, target.alpha_post, target.alpha_res]
                 ),
             )
+        )
+        model._rlk_checkpoint_export_parameters[prefix + "_scale"] = (
+            target.alpha_pre,
+            target.alpha_post,
+            target.alpha_res,
         )
         with torch.no_grad():
             for i, n in enumerate(("alpha_pre", "alpha_post", "alpha_res")):
