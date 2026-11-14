@@ -151,6 +151,24 @@ def run_tp_block(
     )
 
 
+def shard_leaf(
+    name: str, tensor: torch.Tensor, leaves: dict[str, torch.Tensor] | None
+) -> torch.Tensor:
+    """A detached view (or contiguous copy) of ``tensor``; a gradient leaf in ``leaves`` if set.
+
+    A contiguous shard (all of the weight for tp=1, a row slice otherwise) stays a view of it: a
+    leaf is only read, and a copy per block would keep the weights twice over for as long as
+    autograd holds the leaf (all 50 blocks of a checkpointed forward). A tensor that is not
+    contiguous is copied.
+    """
+
+    tensor = tensor.detach().contiguous()
+    if leaves is not None:
+        tensor.requires_grad_(True)
+        leaves[name] = tensor
+    return tensor
+
+
 def run_tp_block_rows(
     weights: dict[str, torch.Tensor],
     h_res: torch.Tensor,
@@ -177,15 +195,8 @@ def run_tp_block_rows(
     coll = grid.tp_collective
 
     def leaf(name, tensor):
-        """A detached view (or contiguous copy) of ``tensor``; a leaf if ``leaves`` is set."""
-        # A contiguous shard (all of the weight for tp=1, a row slice otherwise) stays a view of
-        # it: a leaf is only read, and a copy per block would keep the weights twice over for as
-        # long as autograd holds the leaf (all 50 blocks of a checkpointed forward).
-        tensor = tensor.detach().contiguous()
-        if leaves is not None:
-            tensor.requires_grad_(True)
-            leaves[name] = tensor
-        return tensor
+        """This block's weight shard ``name`` (see ``shard_leaf``)."""
+        return shard_leaf(name, tensor, leaves)
 
     table = ops.projection(temb, w("adaln_proj.linear.weight"), w("adaln_proj.linear.bias"))
 

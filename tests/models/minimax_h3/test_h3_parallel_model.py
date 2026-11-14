@@ -50,6 +50,43 @@ class TestSpans:
             pm.rank_spans(4, 2, 12, sp=True)
 
 
+class TestShardLeaf:
+    """A weight shard becomes a leaf without a copy when it is contiguous (``h3_tp.shard_leaf``)."""
+
+    @pytest.mark.parametrize("tp, tp_rank", [(1, 0), (2, 1), (4, 3)])
+    def test_a_contiguous_row_shard_is_a_view_of_the_weight(self, tp, tp_rank):
+        """A row shard shares the weight's storage, is a gradient leaf, and is recorded."""
+        from rl_engine.validation.models import h3_tp
+
+        weight = torch.randn(16, 8).bfloat16().requires_grad_()
+        shard = par.shard_rows(weight, tp, tp_rank)
+        leaves: dict[str, torch.Tensor] = {}
+        leaf = h3_tp.shard_leaf("w", shard, leaves)
+        assert leaf.untyped_storage().data_ptr() == weight.untyped_storage().data_ptr()
+        assert leaf.data_ptr() == shard.data_ptr() and torch.equal(leaf, shard)
+        assert leaf.is_leaf and leaf.requires_grad and leaves == {"w": leaf}
+        leaf.float().sum().backward()
+        assert weight.grad is None  # the gradient goes to the leaf, not to the weight
+
+    def test_a_non_contiguous_shard_is_copied(self):
+        """A slice that is not contiguous gives a contiguous copy as the leaf."""
+        from rl_engine.validation.models import h3_tp
+
+        weight = torch.randn(8, 16).bfloat16()
+        shard = weight[:, 8:]  # a non-contiguous slice (``shard_cols`` copies before this)
+        leaf = h3_tp.shard_leaf("w", shard, {})
+        assert not shard.is_contiguous() and leaf.is_contiguous() and torch.equal(leaf, shard)
+        assert leaf.untyped_storage().data_ptr() != weight.untyped_storage().data_ptr()
+
+    def test_without_leaves_nothing_requires_grad(self):
+        """Without a ``leaves`` dict (no gradients wanted) the shard is a plain detached view."""
+        from rl_engine.validation.models import h3_tp
+
+        weight = torch.randn(16, 8).requires_grad_()
+        leaf = h3_tp.shard_leaf("w", weight, None)
+        assert not leaf.requires_grad and leaf.data_ptr() == weight.data_ptr()
+
+
 class TestDigestOnGrad:
     """A weight-shard gradient is reduced to its digest as it is accumulated, then freed."""
 
