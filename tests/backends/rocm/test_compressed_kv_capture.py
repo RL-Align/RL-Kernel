@@ -46,7 +46,10 @@ def test_actual_c4_compressed_kv_bytes_and_backward(layer, ratio, width, n):
     config = AutoConfig.from_pretrained(os.environ["RLK_DSV4_CHECKPOINT"])
     cache = DSV4QKVPreprocess(config, ratio).cos_sin_cache
     actual = compressed_kv(kv, score, ape, weight, cache, ratio)
-    bad = actual[:, 0].detach().cpu().view(torch.int16) != expected.view(torch.int16)
+    actual_cpu = actual[:, 0].detach().cpu().contiguous()
+    expected = expected.contiguous()
+    assert actual_cpu.shape == expected.shape
+    bad = actual_cpu.view(torch.int16) != expected.view(torch.int16)
     print(
         "C4_COMPRESSED_KV_BYTES",
         dict(elements=expected.numel(), mismatch_count=int(bad.sum())),

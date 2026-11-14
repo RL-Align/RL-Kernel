@@ -29,13 +29,13 @@ def _functional(kv, score, ape, weight, cache, ratio, eps):
 
 
 def _forward(kv, score, ape, weight, cache, ratio, eps):
-    from vllm.models.deepseek_v4.compressor import CompressorMetadata
-    from vllm.models.deepseek_v4.common.ops.save_partial_states import _SAVE_PARTIAL_STATES_KERNEL
+    from vllm.models.deepseek_v4.common.ops.cache_utils import dequantize_and_gather_k_cache
     from vllm.models.deepseek_v4.common.ops.fused_compress_quant_cache import (
         compress_norm_rope_store_triton,
         compress_norm_rope_store_two_stage_triton,
     )
-    from vllm.models.deepseek_v4.common.ops.cache_utils import dequantize_and_gather_k_cache
+    from vllm.models.deepseek_v4.common.ops.save_partial_states import _SAVE_PARTIAL_STATES_KERNEL
+    from vllm.models.deepseek_v4.compressor import CompressorMetadata
 
     t, b, width = kv.shape
     n = t // ratio
