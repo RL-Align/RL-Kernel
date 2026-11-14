@@ -16,6 +16,8 @@ def _reduce(value, group):
     from rl_engine.distributed.algorithms.collectives import collective_for_group
 
     collective = collective_for_group(group, min_size_bytes=value.numel() * value.element_size())
+    if collective is None:
+        raise RuntimeError("Qwen3-Next TP reduction needs a process group")
     return collective.all_reduce(value.contiguous())
 
 
