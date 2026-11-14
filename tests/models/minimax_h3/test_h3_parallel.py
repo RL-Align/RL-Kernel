@@ -207,6 +207,7 @@ GRIDS = [
 @needs_gpu
 @pytest.mark.parametrize(("tp", "cp", "sp", "length"), GRIDS)
 def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length, h3_block_weights_cuda):
+    """Each TP / CP / SP layout of the block equals the single-GPU block bitwise, dW included."""
     # the fixture skips without extracted weights; every rank loads the same pinned files
     _triton()
     ranks = run_world(
@@ -225,21 +226,25 @@ def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length, h3_block_w
     assert torch.equal(out.cpu(), ref["out"].cpu()), "forward differs from the single-GPU block"
     dx, _ = _assemble(ranks, tp, cp, "dx")
     assert torch.equal(dx.cpu(), ref["dx"].cpu()), "input gradient differs"
-    if cp == 1:  # weight gradients: shards of the unsharded gradient
-        for name, axis in (
-            ("attn.to_out.0.weight", 1),
-            ("ff.net.2.weight", 1),
-            ("attn.to_q.weight", 0),
-            ("attn.to_k.weight", 0),
-            ("attn.to_v.weight", 0),
-            ("ff.hidden", 0),
-            ("ff.gate", 0),
-        ):
-            if sp:
-                continue  # SP shards sequence rows; dW is reduced over rows below
-            full = ref["dw." + name].cpu()
-            shards = [r["dw." + name].cpu() for r in sorted(ranks, key=lambda r: r["rank"])]
-            assert torch.equal(torch.cat(shards, dim=axis), full), f"dW {name} differs"
+    # weight gradients are shards of the unsharded gradient; with CP every CP rank of a TP column
+    # computes the same shard (the sweep over all rows), so the columns agree with each other
+    ordered = sorted(ranks, key=lambda r: r["rank"])
+    for name, axis in (
+        ("attn.to_out.0.weight", 1),
+        ("ff.net.2.weight", 1),
+        ("attn.to_q.weight", 0),
+        ("attn.to_k.weight", 0),
+        ("attn.to_v.weight", 0),
+        ("ff.hidden", 0),
+        ("ff.gate", 0),
+    ):
+        full = ref["dw." + name].cpu()
+        shards = [r["dw." + name].cpu() for r in ordered[:tp]]
+        assert torch.equal(torch.cat(shards, dim=axis), full), f"dW {name} differs"
+        for r in ordered:
+            assert torch.equal(
+                r["dw." + name].cpu(), shards[ordered.index(r) % tp]
+            ), f"dW {name} differs between CP ranks"
 
 
 @needs_gpu
@@ -376,3 +381,25 @@ def test_compute_paths_refuse_a_sequence_shorter_than_cp_on_every_rank(rank):
     with pytest.raises(ValueError, match="at least one row per rank"):
         h3_tp.run_tp_block({}, torch.ones(1, 1, 8), None, torch.zeros(1), (None, None), None, grid)
     par.require_rows_on_every_rank(par.SeqShard(2, 2, rank))  # one row each: accepted
+
+
+@pytest.mark.parametrize("rank", [0, 1])
+def test_chained_model_entry_refuses_a_sequence_shorter_than_cp_on_every_rank(rank):
+    """``run_tp_block_rows`` is where the full model enters a block, not ``run_tp_block``."""
+
+    shard = par.SeqShard(1, 2, rank)
+    grid = h3_tp.Grid(1, 2, 0, rank)
+    rows = shard.sizes[rank]
+    with pytest.raises(ValueError, match="at least one row per rank"):
+        h3_tp.run_tp_block_rows(
+            {},
+            torch.ones(1, rows, 8),
+            torch.zeros(rows, dtype=torch.long),
+            torch.ones(rows, 4),
+            torch.ones(rows, 4),
+            torch.zeros(1, 8),
+            None,
+            grid,
+            sp=False,
+            shard=shard,
+        )
