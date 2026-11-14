@@ -31,6 +31,8 @@ change the arithmetic.
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 import torch.distributed as dist
 
@@ -80,7 +82,7 @@ def ring_all_gather(blocks, shard: SeqShard, group=None, dim: int = 1) -> list[t
 
     cp, rank, sizes = shard.cp, shard.rank, shard.sizes
     mine = [b.contiguous() for b in blocks]
-    held = [[None] * cp for _ in mine]
+    held: list[list[Any]] = [[None] * cp for _ in mine]  # every slot is filled before the cat
     for i, b in enumerate(mine):
         held[i][rank] = b
     nxt, prv = _peer(group, (rank + 1) % cp), _peer(group, (rank - 1) % cp)
