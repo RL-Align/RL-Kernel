@@ -14,7 +14,7 @@ import pytest
 import torch
 
 from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
-from rl_engine.validation.models.h3_ws2 import run_world
+from rl_engine.validation.distributed.h3_ws2 import run_world
 
 
 def _world(world, target, inputs, **kwargs):

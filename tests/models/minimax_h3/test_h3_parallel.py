@@ -380,3 +380,25 @@ def test_compute_paths_refuse_a_sequence_shorter_than_cp_on_every_rank(rank):
     with pytest.raises(ValueError, match="at least one row per rank"):
         h3_tp.run_tp_block({}, torch.ones(1, 1, 8), None, torch.zeros(1), (None, None), None, grid)
     par.require_rows_on_every_rank(par.SeqShard(2, 2, rank))  # one row each: accepted
+
+
+@pytest.mark.parametrize("rank", [0, 1])
+def test_chained_model_entry_refuses_a_sequence_shorter_than_cp_on_every_rank(rank):
+    """``run_tp_block_rows`` is where the full model enters a block, not ``run_tp_block``."""
+
+    shard = par.SeqShard(1, 2, rank)
+    grid = h3_tp.Grid(1, 2, 0, rank)
+    rows = shard.sizes[rank]
+    with pytest.raises(ValueError, match="at least one row per rank"):
+        h3_tp.run_tp_block_rows(
+            {},
+            torch.ones(1, rows, 8),
+            torch.zeros(rows, dtype=torch.long),
+            torch.ones(rows, 4),
+            torch.ones(rows, 4),
+            torch.zeros(1, 8),
+            None,
+            grid,
+            sp=False,
+            shard=shard,
+        )

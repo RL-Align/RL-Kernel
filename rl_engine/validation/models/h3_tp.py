@@ -171,6 +171,7 @@ def run_tp_block_rows(
     with ``sp``), ``cos`` / ``sin`` the rotary tables of its CP rows. Returns the residual rows.
     """
 
+    par.require_rows_on_every_rank(shard)  # the chained model enters here, not through run_tp_block
     tp, w = grid.tp, (lambda name: weights[f"{hb.BLOCK}.{name}"])
     rows = shard.sizes[grid.cp_rank]
     coll = grid.tp_collective
