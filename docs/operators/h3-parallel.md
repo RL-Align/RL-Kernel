@@ -67,9 +67,11 @@ two nodes.
   hands each rank its own rows) and `check_row_identity` (fails when the ranks' rows are not the
   packed sequence in order) complete it.
 - `seq_sharded_linear`: weight gradient from gathered rows so it equals the unsharded token sweep.
-  The TP x CP block does the same: under CP every weight gradient (column- and row-parallel) is an
+  The TP x CP block does the same for its sharded projection weights: under CP the gradient of
+  every column- and row-parallel weight shard (`to_q/k/v`, `to_out`, ff hidden / gate / down) is an
   exact gather of all CP ranks' rows followed by the same fixed-order token GEMM, so it equals the
-  unsharded `dW` bit for bit (`run_tp_block_rows` passes `cp_shard` / `cp_group`).
+  unsharded `dW` shard bit for bit (`run_tp_block_rows` passes `cp_shard` / `cp_group`). The
+  block's unsharded parameters are not covered (see Limits).
 
 ## Sequence parallelism
 
@@ -139,6 +141,12 @@ this is the time of a whole `block_case(..., backward=False)` call, not of the k
   fixed-order GEMM), also in the TP x CP block, whose weight-gradient shards are compared with the
   single-GPU block's. The gather makes every rank hold all rows of the GEMM operands for the
   backward.
+- Only the sharded projection weights get exact gradients. The block's unsharded parameters
+  (`norm1` / `norm2` / `attn.norm_q` / `attn.norm_k` weights, `adaln_proj.linear`) are applied to
+  the rows or heads this rank holds and their gradients are not reduced across ranks: under CP, SP
+  or (for the QK norms) TP each rank holds a partial gradient. The full-model runner freezes them
+  and compares the 350 shard gradients only; training them on a grid needs a reduction that is not
+  part of `h3-parallel-v1`.
 - The compute paths (`seq_sharded_linear`, `run_tp_block`, `run_tp_block_rows`, hence the full
   model) need at least one row on every CP rank; the ring and the packed IO themselves accept ranks
   that hold no rows.
