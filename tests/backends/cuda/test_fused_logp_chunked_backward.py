@@ -255,7 +255,7 @@ def test_chunked_fallback_rejects_mismatched_lengths():
         fused_logp_backward_chunked(logits, labels, grad[:1], torch.float32)
     with pytest.raises(ValueError, match="labels length"):
         fused_logp_backward_chunked(logits, labels[:3], grad, torch.float32)
-    # Unlike the binding, the fallback accepts a BF16 upstream gradient and int32 labels: it upcasts.
+    # Unlike the binding, the fallback upcasts a BF16 upstream gradient and int32 labels.
     grad_bf16 = grad.bfloat16()
     actual = fused_logp_backward_chunked(logits, labels.int(), grad_bf16, torch.float32)
     expected = fused_logp_backward_chunked(logits, labels, grad_bf16.float(), torch.float32)

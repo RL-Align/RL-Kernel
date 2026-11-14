@@ -62,7 +62,8 @@ def _loop_arithmetic_harness(source: str) -> str:
             body = f"for (int u = 0; u < kUnroll; ++u) {{ {offsets} }}"
         else:
             body = ""
-        functions.append(f"""
+        functions.append(
+            f"""
 int check_{number}(int vocab_size, int thread) {{
     constexpr int kUnroll = {unroll};
     struct {{ int x; }} blockDim{{256}};
@@ -76,7 +77,8 @@ int check_{number}(int vocab_size, int thread) {{
     }}
     return iterations == 2 ? 0 : 3;
 }}
-""")
+"""
+        )
         checks.append(f"if (check_{number}(vocab_size, thread)) return {number + 1};")
     return "\n".join(
         [
