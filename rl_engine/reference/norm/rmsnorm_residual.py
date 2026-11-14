@@ -81,9 +81,7 @@ class RMSNormResidualReference:
         q = fixed_sum(u * x32, dim=1)
         r3 = (r * r) * r
         denominator = torch.full((), hidden, dtype=torch.float32, device=x.device)
-        dx_norm = (r.unsqueeze(1) * u) - (
-            ((x32 * r3.unsqueeze(1)) * q.unsqueeze(1)) / denominator
-        )
+        dx_norm = (r.unsqueeze(1) * u) - (((x32 * r3.unsqueeze(1)) * q.unsqueeze(1)) / denominator)
         dx = dx_norm + d_residual.to(torch.float32)
         dgamma = fixed_sum((dy32 * x32) * r.unsqueeze(1), dim=0)
         return dx, dgamma
