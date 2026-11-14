@@ -289,6 +289,7 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         embedder = model.time_embedder
 
         def embed(sample, condition=None):
+            """``time_embedder`` on its row; refuses what the row does not compute."""
             # the row is ``linear_1`` -> SiLU -> ``linear_2``; anything else is not this row
             if condition is not None:
                 raise ValueError("the timestep_mlp_fp32 row has no condition input")

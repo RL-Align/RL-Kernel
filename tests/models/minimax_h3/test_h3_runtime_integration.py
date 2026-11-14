@@ -46,6 +46,7 @@ def test_runtime_mode_reads_environment(monkeypatch):
 
 
 def test_overlay_parse_label_and_validation():
+    """Overlay strings parse to node and boundary sets, label the run, and reject unknown names."""
     assert rt.AblationOverlay.parse("").label == "R/R"
     o = rt.AblationOverlay.parse("node:attention, boundary:token_refiner")
     assert o.native_nodes == {"attention"} and o.native_boundaries == {"token_refiner"}

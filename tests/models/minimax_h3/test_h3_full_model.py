@@ -297,6 +297,7 @@ def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
 
 
 def test_strict_boundaries_apply_to_candidate_execution_only():
+    """Strict boundaries need candidate execution, and every boundary module has a row."""
     from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
 
     with pytest.raises(ValueError, match="candidate execution only"):
@@ -321,6 +322,7 @@ class _Embedder(torch.nn.Module):
     """The provider's ``TimestepEmbedding`` surface the binding reads."""
 
     def __init__(self, **extra):
+        """A stand-in with the layers the binding reads; ``extra`` sets further attributes."""
         super().__init__()
         self.linear_1 = torch.nn.Linear(4, 6)
         self.linear_2 = torch.nn.Linear(6, 3)
@@ -347,6 +349,7 @@ class _FinalNorm(torch.nn.Module):
 
 
 def _fake_rows(monkeypatch, called, keyed_calls=None):
+    """Patch the registry with fake rows that record their calls in ``called``."""
     from rl_engine.runtime.registry import KernelRegistry
 
     keyed_calls = [] if keyed_calls is None else keyed_calls
@@ -377,6 +380,7 @@ def _fake_rows(monkeypatch, called, keyed_calls=None):
             return args[0]
 
     def get_op(self, row, device=None):
+        """The fake row for ``row``: an object with ``forward``, or a plain callable for video."""
         if row == "timestep_mlp_fp32":
             return TimestepMLP()
         if row == "final_adaln_out":
@@ -388,6 +392,7 @@ def _fake_rows(monkeypatch, called, keyed_calls=None):
 
 
 def _boundary_model():
+    """A model whose eight boundary modules are small stand-ins."""
     model = Model()
     for name in ("proj_in", "audio_proj_in", "context_embedder", "proj_out", "audio_proj_out"):
         setattr(model, name, torch.nn.Linear(4, 3))
@@ -397,6 +402,7 @@ def _boundary_model():
 
 
 def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
+    """Strict mode routes each boundary module through its row; video rows get keys, a session."""
     from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
 
     called, keyed_calls = [], []
@@ -443,6 +449,7 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
 
 
 def test_strict_time_embedder_and_norm_out_pass_their_parameters_in_row_order(monkeypatch):
+    """The two rows get the modules' parameters in the rows' argument order."""
     called = []
     _fake_rows(monkeypatch, called)
     model = _boundary_model()
@@ -484,6 +491,7 @@ def test_strict_time_embedder_and_norm_out_pass_their_parameters_in_row_order(mo
 
 
 def test_strict_time_embedder_refuses_what_its_row_does_not_cover(monkeypatch):
+    """The time_embedder binding refuses a condition, cond_proj, post_act and a non-SiLU act."""
     called = []
     _fake_rows(monkeypatch, called)
     model = _boundary_model()
@@ -514,6 +522,7 @@ def test_strict_time_embedder_refuses_what_its_row_does_not_cover(monkeypatch):
 
 
 def test_strict_boundaries_restore_time_embedder_and_norm_out_after_failure(monkeypatch):
+    """Both modules get their provider forward back after an error inside the context."""
     called = []
     _fake_rows(monkeypatch, called)
     model = _boundary_model()
@@ -529,6 +538,7 @@ def test_strict_boundaries_restore_time_embedder_and_norm_out_after_failure(monk
 
 
 def test_native_time_embedder_and_norm_out_stay_on_the_provider(monkeypatch):
+    """Named in ``native_boundaries``, the two modules stay on the provider."""
     called = []
     _fake_rows(monkeypatch, called)
     model = _boundary_model()
