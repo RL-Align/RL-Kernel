@@ -51,7 +51,7 @@ inverse RMS in backward with the same kernel; the bytes equal the saved path.
 
 | Backend | Wrapper | Implementation | Status |
 | --- | --- | --- | --- |
-| ROCm (gfx942, gfx950) | `RocmRMSNormResidual` | `rl_engine/backends/rocm/norm/rmsnorm_residual_kernels.py` (Triton) | Written against the contract; MI300X/MI355X byte acceptance pending |
+| ROCm (gfx942, gfx950) | `RocmRMSNormResidual` | `rl_engine/backends/rocm/norm/rmsnorm_residual_kernels.py` (Triton) | MI300X byte acceptance measured below; MI355X pending |
 | Reference | `RMSNormResidualReference` | `rl_engine/reference/norm/rmsnorm_residual.py` | CPU tests pass |
 | AITER | — | — | Not used; see **AITER integration boundary** |
 
@@ -91,14 +91,19 @@ reference executed on the same device.
   ascending FP32 fold over tokens. No Split-K, Stream-K, atomics, `tl.sum` or any
   tree that depends on `T`, `D` or the device.
 - Multiplies and adds round separately (`enable_fp_fusion=False`); scaling stays
-  `(x * r) * gamma`; divisions use `tl.div_rn`.
+  `(x * r) * gamma`; divisions use `tl.div_rn`. The reference divides by a
+  device tensor, avoiding PyTorch's rounded-reciprocal optimization for Python scalars.
 - `rsqrt(mean + eps)`, never `1 / sqrt(mean + eps)`.
 - `gamma` and all intermediates stay FP32; `y` is rounded to BF16 once at the store;
   `residual` is copied without conversion.
 - Rows are independent: the same row gives the same bytes at any position in any
   batch, with any padding or input strides.
 
-`rsqrt` is the device's rsqrt in both the kernel and the reference (`torch.rsqrt`).
+The kernel applies a compensated FP32 Newton correction to the AMD hardware
+`rsqrt` estimate to match the device reference (`torch.rsqrt`). The correction
+uses explicit FP32 FMAs internally; the surrounding sum, scaling and gradient
+arithmetic still round separately. A raw `tl.rsqrt` or HIP libdevice call can
+differ by one ULP and must not be assumed to match PyTorch.
 Byte equality against a CPU reference is therefore not claimed; the CPU reference is
 checked against FP64 math instead.
 
@@ -147,3 +152,33 @@ do not establish correctness.
 - TP/SP semantics and the cross-rank `dgamma` reduction belong to the WS2 item
   (KLR #21); this operator is rank-local.
 - Graph capture and performance are not validated.
+
+## MI300X qualification (2026-11-13)
+
+On one gfx942 MI300X VF, PyTorch 2.13.0+rocm10.0.0 (HIP 7.15.26333),
+Triton 3.8.0, the original task-5 device suite produced 9 passes and 10
+failures. The first inverse-RMS counterexample was the BF16 input -0.3515625:
+the raw hardware estimate was `0x40360b30`, while device PyTorch returned
+`0x40360b31`. Calling Triton's HIP libdevice rsqrt did not change those bits.
+The compensated FP32 correction matched PyTorch on 1,000,000 seeded positive
+FP32 inputs; the raw estimate differed on 109,893 of them. This is measured
+coverage, not a proof over all FP32 inputs or ROCm versions.
+
+A separate D=7 probe matched the sum of squares, then first diverged at the
+reference's Python-scalar division. Dividing by a device tensor restored the
+specified correctly rounded division without changing the reference's reduction.
+
+The corrected task-5 device suite (20 cases), mHC device suite (12 cases),
+and CPU mathematical/contract suite (13 cases) passed: 45 passed, 0 failed,
+0 skipped; 4 interpreter cases were deselected in that invocation. Commands:
+
+```sh
+RLK_REQUIRE_ROCM=1 python -m pytest -q -ra \
+  tests/backends/rocm/test_dsv4_rmsnorm_residual.py \
+  tests/backends/rocm/test_dsv4_mhc_post_pre.py \
+  tests/ops/norm/test_rmsnorm_residual.py -k 'not interpreter'
+```
+
+These results qualify the tested operator paths only. Real verl workers,
+NVIDIA Megatron main DSV4 binding, four-layer checkpoint parity and post-update
+actor/rollout parity remain unvalidated. No MI355X claim is made.

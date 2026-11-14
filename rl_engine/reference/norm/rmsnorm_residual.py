@@ -58,7 +58,10 @@ class RMSNormResidualReference:
         tokens, hidden = validate_forward(x, gamma, eps)
         x32 = x.to(torch.float32)
         s = fixed_sumsq(x32, dim=1)
-        m = s / float(hidden)
+        # A Python scalar lets PyTorch multiply by a rounded reciprocal.
+        # A device tensor keeps this the contract's correctly rounded division.
+        denominator = torch.full((), hidden, dtype=torch.float32, device=x.device)
+        m = s / denominator
         r = torch.rsqrt(m + float(eps))
         y32 = (x32 * r.unsqueeze(1)) * gamma.to(torch.float32).unsqueeze(0)
         y = y32.to(torch.bfloat16)
@@ -77,9 +80,8 @@ class RMSNormResidualReference:
         u = dy32 * gamma.to(torch.float32).unsqueeze(0)
         q = fixed_sum(u * x32, dim=1)
         r3 = (r * r) * r
-        dx_norm = (r.unsqueeze(1) * u) - (
-            ((x32 * r3.unsqueeze(1)) * q.unsqueeze(1)) / float(hidden)
-        )
+        denominator = torch.full((), hidden, dtype=torch.float32, device=x.device)
+        dx_norm = (r.unsqueeze(1) * u) - (((x32 * r3.unsqueeze(1)) * q.unsqueeze(1)) / denominator)
         dx = dx_norm + d_residual.to(torch.float32)
         dgamma = fixed_sum((dy32 * x32) * r.unsqueeze(1), dim=0)
         return dx, dgamma

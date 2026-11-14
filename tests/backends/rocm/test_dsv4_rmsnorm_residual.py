@@ -68,6 +68,19 @@ def test_bytes_match_reference_across_shapes(d, grad_dtype):
         _compare(*_inputs(t, d, seed=t, grad_dtype=grad_dtype))
 
 
+def test_inverse_rms_rounding_matches_torch_on_hardware_rsqrt_counterexample():
+    # gfx942's raw rsq returns 0x40360b30 for the first row; torch returns ...31.
+    # Include overflow of a finite BF16 square: inverse RMS must then be zero.
+    x = torch.tensor([[-0.3515625], [0.0], [256.0], [3.0e20]], device="cuda", dtype=torch.bfloat16)
+    gamma = torch.ones(1, device="cuda", dtype=torch.float32)
+    y, residual, saved = Backend.forward(x, gamma, EPS)
+    want_y, want_residual, want_saved = Reference.forward(x, gamma, EPS)
+    _bytes_equal(saved.r, want_saved.r)
+    _bytes_equal(y, want_y)
+    _bytes_equal(residual, want_residual)
+    assert saved.r[-1].item() == 0.0
+
+
 def test_edge_values_match_reference():
     d = 128
     x = torch.zeros(6, d, dtype=torch.bfloat16)
