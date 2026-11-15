@@ -32,11 +32,14 @@ def _toy(
     w_sh2 = torch.randn(
         width, shared_width, generator=torch.Generator().manual_seed(seed + 2), dtype=exact
     )
-    ids = torch.stack(
-        [torch.arange(slots) + (index % (experts - slots + 1)) for index in range(tokens)]
-    )
     if tokens == 0:
+        # `torch.stack` rejects an empty list, so the zero-token case must not
+        # go through the comprehension at all.
         ids = torch.zeros((0, slots), dtype=torch.int64)
+    else:
+        ids = torch.stack(
+            [torch.arange(slots) + (index % (experts - slots + 1)) for index in range(tokens)]
+        )
     weights = torch.rand(
         tokens, slots, generator=torch.Generator().manual_seed(seed + 3), dtype=exact
     )

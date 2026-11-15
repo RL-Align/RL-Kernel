@@ -317,17 +317,26 @@ def test_provider_selection_prefers_native(monkeypatch):
 
 
 @_SM90
-def test_provider_selection_rejects_pre_sm90_device(monkeypatch):
-    """The compile flag says the kernel exists, not that this GPU can run it."""
+def test_native_provider_rejects_pre_sm90_payload_device(monkeypatch):
+    """The SM90 gate follows the payload device, not the current CUDA device."""
     if not _native_compiled():
         pytest.skip("native SM90 experts extension is not built")
-    from rl_engine.backends.shared.triton.moe.nemotron_experts import TritonNemotronExpertsOp
-    from rl_engine.runtime.registry import KernelRegistry
-
+    provider = _provider("native")
+    case = _small_case()
+    arguments = (
+        case["packed"],
+        case["x"],
+        case["weights"],
+        case["permutation"],
+        case["offsets"],
+        case["w_up"],
+        case["w_down"],
+        case["w_sh1"],
+        case["w_sh2"],
+    )
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *args, **kwargs: (8, 0))
-    op = KernelRegistry().get_op("moe_experts_combine", device="cuda")
-    assert isinstance(op, TritonNemotronExpertsOp)
-    assert op.provider_id == "rlkernel.nemotron_experts.triton.v1"
+    with pytest.raises(RuntimeError, match="requires NVIDIA SM90"):
+        provider(*arguments)
 
 
 @pytest.mark.parametrize("device", ["cpu", "mps"])
@@ -485,9 +494,10 @@ def test_empty_batch(name):
             )
             assert not gradient.any(), f"{name} gradient is not zero"
         else:
-            # Row-shaped gradients are empty, and `_optional` reports a
-            # zero-element tensor as absent; either is fine, a flat `(0,)` is not.
-            assert gradient is None or gradient.shape == leaves[name].shape, (
+            # A row-shaped gradient is an empty tensor of the input's shape, not
+            # absent and not a flat `(0,)`; both providers return it.
+            assert gradient is not None, f"{name} gradient is absent for a zero-token batch"
+            assert gradient.shape == leaves[name].shape, (
                 f"{name} gradient shape {tuple(gradient.shape)} != "
                 f"input shape {tuple(leaves[name].shape)}"
             )

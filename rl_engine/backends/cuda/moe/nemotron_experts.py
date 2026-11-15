@@ -18,6 +18,15 @@ from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 PROVIDER_ID = "rlkernel.nemotron_experts.sm90.v1"
 
 
+def _require_sm90(device: torch.device) -> None:
+    major, minor = torch.cuda.get_device_capability(device)
+    if major < 9:
+        raise RuntimeError(
+            f"nemotron experts native kernel requires NVIDIA SM90, got sm_{major}{minor} "
+            f"on {device}"
+        )
+
+
 class NemotronExpertsOp:
     """Registry entry point for the SM90 grouped expert operator."""
 
@@ -33,18 +42,6 @@ class NemotronExpertsOp:
             raise RuntimeError(
                 "nemotron experts native kernel requires KERNEL_ALIGN_DET_GEMM_SM90=1"
             )
-        # The build flag says the kernel exists, not that this device can run
-        # it: `KERNEL_ALIGN_DET_GEMM_SM90=1` compiles the SM90 wgmma/MMA paths
-        # from the build host's architecture, and the registry lists this
-        # provider first for every CUDA device. Reject a pre-Hopper device here
-        # so `get_op` falls through to the strict Triton provider instead of
-        # failing at the first launch.
-        major, minor = torch.cuda.get_device_capability()
-        if major < 9:
-            raise RuntimeError(
-                f"nemotron experts native kernel requires NVIDIA SM90, got sm_{major}{minor}"
-            )
-        self._compiled = True
 
     def __call__(
         self,
@@ -58,6 +55,14 @@ class NemotronExpertsOp:
         w_sh1: torch.Tensor | None = None,
         w_sh2: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        # The build flag says the kernel exists, not that `packed`'s device can
+        # run it: `KERNEL_ALIGN_DET_GEMM_SM90=1` compiles the SM90 paths from
+        # the build host's architecture, while the registry lists this provider
+        # first for every CUDA device and caches the instance for the process.
+        # The check therefore follows the payload device on every call, not
+        # `torch.cuda.current_device()` once at construction, so a pre-Hopper
+        # device fails closed and a Hopper device stays usable in one process.
+        _require_sm90(packed.device)
         return _ExpertsCombine.apply(
             packed, x, weights, permutation, offsets, w_up, w_down, w_sh1, w_sh2
         )
@@ -161,21 +166,7 @@ class _ExpertsCombine(torch.autograd.Function):
             bool(needs[5]) or bool(needs[6]),
             need_shared_weight_grad,
         )
-        return (
-            _optional(d_packed),
-            _optional(d_x),
-            _optional(d_weights),
-            None,
-            None,
-            _optional(d_w_up),
-            _optional(d_w_down),
-            _optional(d_w_sh1),
-            _optional(d_w_sh2),
-        )
-
-
-def _optional(gradient):
-    """The extension returns undefined tensors for gradients it did not build."""
-    if gradient is None:
-        return None
-    return gradient if gradient.numel() else None
+        # Undefined extension results already arrive as `None`; a zero-element
+        # tensor is a real gradient (the zero-token payload case) and keeps its
+        # shape instead of collapsing to "absent".
+        return (d_packed, d_x, d_weights, None, None, d_w_up, d_w_down, d_w_sh1, d_w_sh2)

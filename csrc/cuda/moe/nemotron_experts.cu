@@ -1268,7 +1268,7 @@ std::vector<torch::Tensor> nemotron_experts_backward(
     return {
         need_packed ? torch::zeros({rows, width}, options) : empty,
         need_x ? torch::zeros({tokens, width}, options) : empty,
-        torch::zeros({tokens, 6}, float_options),
+        need_weights ? torch::zeros({tokens, 6}, float_options) : empty,
         need_weight_grad ? torch::zeros_like(w_up) : empty,
         need_weight_grad ? torch::zeros_like(w_down) : empty,
         shared_grad ? torch::zeros_like(*w_sh1) : empty,

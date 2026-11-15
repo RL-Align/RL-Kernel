@@ -708,12 +708,6 @@ def _backward(
     return [d_packed, d_x, d_weights, d_w_up, d_w_down, d_w_sh1, d_w_sh2]
 
 
-def _optional(gradient):
-    if gradient is None:
-        return None
-    return gradient if gradient.numel() else None
-
-
 class _ExpertsCombine(torch.autograd.Function):
     @staticmethod
     def forward(ctx, packed, x, weights, permutation, offsets, w_up, w_down, w_sh1, w_sh2):
@@ -795,14 +789,7 @@ class _ExpertsCombine(torch.autograd.Function):
             need_shared_weight_grad,
         )
         d_packed, d_x, d_weights, d_w_up, d_w_down, d_w_sh1, d_w_sh2 = gradients
-        return (
-            _optional(d_packed),
-            _optional(d_x),
-            _optional(d_weights),
-            None,
-            None,
-            _optional(d_w_up),
-            _optional(d_w_down),
-            _optional(d_w_sh1),
-            _optional(d_w_sh2),
-        )
+        # `_backward` returns `None` for a gradient it was not asked for and a
+        # real tensor otherwise; a zero-token payload's empty row gradient is
+        # still shaped like its input, so it must not be coerced to "absent".
+        return (d_packed, d_x, d_weights, None, None, d_w_up, d_w_down, d_w_sh1, d_w_sh2)

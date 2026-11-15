@@ -15,10 +15,8 @@ Two implementations satisfy it:
 
 Selection is the registry's, never a manual probe: the CUDA column lists the
 native provider first and the Triton provider second, so a build without
-`KERNEL_ALIGN_DET_GEMM_SM90=1` and a device below SM90 (the native provider
-declines at construction) both fall through to Triton instead of failing at the
-first launch; the ROCm column lists only the Triton provider, which is its sole
-implementation.
+`KERNEL_ALIGN_DET_GEMM_SM90=1` falls through to Triton instead of failing; the
+ROCm column lists only the Triton provider, which is its sole implementation.
 `cpu`, `npu`, `musa` and `mps` fail closed. `nemotron_experts_provider_id()`
 reports the provider that would run, and the first call prints one
 `[RL-Kernel][route] ... provider=<id>` line when route reporting is enabled.
@@ -174,9 +172,9 @@ from the native tree. `dWeights` folds 32-wide FP32 leaves the same way.
 
 ## Fail-closed gates
 
-A non-SM90 device (the native provider declines, so the registry falls through to
-the strict Triton provider instead of launching a kernel with no matching image),
-a build without `KERNEL_ALIGN_DET_GEMM_SM90=1`, a dtype, rank or
+A non-SM90 device (the native provider checks `packed.device` on every call, so
+the verdict follows the device that will actually run, not the current device at
+construction), a build without `KERNEL_ALIGN_DET_GEMM_SM90=1`, a dtype, rank or
 contiguity mismatch, widths not 64-aligned, `tokens > 65536`, an `offsets` table
 that is not `experts + 1` long, unpaired shared weights and a reduction depth
 beyond the merge tree all raise. `permutation`/`offsets` *values* are trusted as

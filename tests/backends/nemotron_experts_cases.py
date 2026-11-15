@@ -265,10 +265,15 @@ def run_core_assertions(provider, device, geometry=None, *, concentrated=False, 
         bits(grads["weights"][token], one_grads["weights"][0])
         if "w_sh1" in case:
             bits(grads["x"][token], one_grads["x"][0])
+        # `slot_order` maps a sorted-expert position to the original route slot;
+        # the isolated payload is packed in that sorted order, so matching the
+        # original slot `slot` needs the inverse map (its sorted position), not
+        # `slot_order[slot]` -- the two agree only for an involution.
         slot_order = torch.argsort(case["ids"][token]).to(case["packed"].device)
+        slot_position = torch.argsort(slot_order)
         for slot in range(single["permutation"].numel()):
             full_row = inverse[token * slot_order.numel() + slot]
-            isolated_row = slot_order[slot]
+            isolated_row = slot_position[slot]
             bits(grads["packed"][full_row], one_grads["packed"][isolated_row])
 
     # Row relocation: the same rows appear in different tiles, same bits.
