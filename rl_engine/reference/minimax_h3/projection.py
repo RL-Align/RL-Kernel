@@ -140,16 +140,28 @@ def canonical_row_order(logical_keys: torch.Tensor | None, x: torch.Tensor) -> t
     return order
 
 
-def _linear(x, weight, bias, logical_keys):
+def _linear(x, weight, bias, logical_keys, *, fp64=False):
     """``F.linear`` with the rows' ``logical_keys`` contract: padding rows give no parameter
     gradient. The keys are validated exactly as the CUDA rows validate them; the token-axis
-    reduction itself stays the provider's (this is the reference, not a fixed-order kernel)."""
+    reduction itself stays the provider's (this is the reference, not a fixed-order kernel).
+
+    ``fp64`` computes the product in FP64 (the golden); the caller rounds it. Masking padding
+    changes no output value, only which rows reach the parameter gradients.
+    """
 
     canonical_row_order(logical_keys, x)  # validation only
-    out = F.linear(x, weight, bias)
+
+    def product(w, b):
+        """The product of ``x`` with ``w`` / ``b``, in FP64 for the golden."""
+
+        if fp64:
+            return F.linear(x.double(), w.double(), None if b is None else b.double())
+        return F.linear(x, w, b)
+
+    out = product(weight, bias)
     if logical_keys is None or not bool((logical_keys[:, 0] < 0).any()):
         return out
-    frozen = F.linear(x, weight.detach(), None if bias is None else bias.detach())
+    frozen = product(weight.detach(), None if bias is None else bias.detach())
     return torch.where((logical_keys[:, 0] < 0)[:, None], frozen, out)
 
 
@@ -172,12 +184,13 @@ class _NativeProjection:
         return _linear(x, weight, bias, logical_keys)
 
     def forward_fp32(self, x, weight, bias=None, *, logical_keys=None) -> torch.Tensor:
-        """Independent golden: the product in FP64, rounded once to the module dtype."""
+        """Independent golden: the product in FP64, rounded once to the module dtype.
+
+        Same ``logical_keys`` contract as ``forward``: padding rows give no parameter gradient.
+        """
 
         validate_h3_projection(self.spec, x, weight, bias)
-        canonical_row_order(logical_keys, x)  # validation only
-        out = F.linear(x.double(), weight.double(), None if bias is None else bias.double())
-        return out.to(self.spec.dtype)
+        return _linear(x, weight, bias, logical_keys, fp64=True).to(self.spec.dtype)
 
 
 class NativeH3AudioInputProjectionOp(_NativeProjection):
@@ -223,13 +236,16 @@ class NativeH3QKVGemmOp:
         return _linear(x, weight_qkv, None, logical_keys)
 
     def forward_fp32(self, x, weight_q, weight_k, weight_v, *, logical_keys=None):
-        """FP64 golden of each projection, rounded once to BF16."""
+        """FP64 golden of each projection, rounded once to BF16.
 
-        canonical_row_order(logical_keys, x)  # validation only
+        Same ``logical_keys`` contract as ``forward``: padding rows give no parameter gradient.
+        """
+
+        canonical_row_order(logical_keys, x)  # validation only, before the weights
         outputs = []
         for w in (weight_q, weight_k, weight_v):
             validate_h3_projection(QKV, x, w, None)
-            outputs.append(F.linear(x.double(), w.double()).to(torch.bfloat16))
+            outputs.append(_linear(x, w, None, logical_keys, fp64=True).to(torch.bfloat16))
         return tuple(outputs)
 
 
