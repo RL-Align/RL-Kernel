@@ -64,9 +64,13 @@
       "groups": {
         "ep.cases": [
           "hf-load-export-each-expert-once",
+          "ep4-vs-ep1-router-combine-backward-8",
           "ep4-vs-ep1-chunk-reorder-train-8",
+          "ep4-vs-ep1-router-combine-backward-64",
           "ep4-vs-ep1-chunk-reorder-train-64",
+          "ep4-vs-ep1-router-combine-backward-256",
           "ep4-vs-ep1-chunk-reorder-train-256",
+          "ep4-vs-ep1-router-combine-backward-1024",
           "ep4-vs-ep1-chunk-reorder-train-1024",
           "empty-rank-participation"
         ]
