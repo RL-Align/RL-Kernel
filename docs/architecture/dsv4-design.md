@@ -462,24 +462,39 @@ layer against vLLM's modules on the same shapes (needs vLLM's forward context).
 Whole-layer numbers (H200): decode 64 requests x 4K context 0.47 / 0.52 / 0.22 ms (C4 /
 C128 / window-only, graph replay); prefill one 4096-token request 3.0 / 2.2 / 1.8 ms.
 
-## 10. What the rollout must change
+## 10. The vLLM rollout (verl integration)
 
-The vLLM fork is not byte-equal to this profile in these places; the verl rollout patch
-must run our kernels or tables there:
+`rl_engine/integrations/dsv4/vllm_model.py` registers `RlkDeepseekV4ForCausalLM` under
+vLLM's `DeepseekV4ForCausalLM` name (the `RL_KERNEL_DSV4_ROLLOUT=1` general plugin; no
+vLLM source changes). It keeps vLLM's scheduler, paged caches, FlashMLA layer (gathers,
+indices, sink), indexer logits and top-k, `save_partial_states` and the FP8 input
+projections, and runs this kernel set wherever the fork rounds differently. Each item
+below broke the gate (`scripts/check_dsv4_vllm_gate.py`) until replaced:
 
-- **RoPE on window-only layers**: vLLM builds YaRN (factor 16) for every layer; pass our
-  table to every layer (within a window they differ by up to about 0.04 rad).
-- **Router**: vLLM's two softplus kernels use approximate math and a cuBLAS gate; run ours.
-- **Logits**: vLLM's head produces BF16 logits; this profile keeps FP32.
-- **mHC**: our kernels (fixed slices, explicit pre / post) instead of the TileLang ones,
-  whose split count depends on T; four identical first-layer streams instead of the
-  pre-summed broadcast.
-- **Routed experts**: confirm which kernel vLLM runs on Hopper for FP4 experts; if it is
-  not ours, vLLM must call ours.
+| vLLM fork (BI mode, Hopper) | Replaced by |
+|---|---|
+| TileLang mHC (split count depends on T), pre-summed first-layer broadcast | `mhc_pre` / `mhc_post` / `hc_head`, four identical first-layer streams |
+| `DeepseekV4MoE` (router, grouped experts, shared expert) | `Dsv4MoE`, loaded from the checkpoint; vLLM allocates no experts |
+| YaRN RoPE on window-only layers | the plain table (`rope.py`) |
+| `fused_q_kv_rmsnorm` (a rare row rounds differently and stays in the KV cache a window long) | `rmsnorm_cuda` |
+| `fused_deepseek_v4_qnorm_rope_kv_rope_quant_insert` (about 1 query row in 10) | `q_norm_rope_kv_insert` into vLLM's `fp8_ds_mla` cache |
+| FlashMLA paged FP8 decode kernel | `VLLM_DS4_DECODE_KERNEL=sparse` (decode on the prefill kernel) |
+| vLLM's FlashMLA build (same commit `a8f794d`, other flags: about 6 % of rows) | our pinned build serves vLLM's interface (both register `torch.ops._flashmla_C`, so ours loads first) |
+| `fused_indexer_q_rope_quant` | `indexer_q_rope_fp8_cuda` |
+| compress / norm / RoPE / quant / store (cutedsl main KV, Triton indexer K; a rare entry) | `compress_main_cuda` / `compress_indexer_cuda` |
+| BI-mode `o_proj` (Triton block-scaled GEMM per group instead of `fp8_einsum`) | `OutputProjection`, `wo_a` / `wo_b` loaded from the checkpoint |
+| BF16 logits, Triton / torch log-softmax | FP32 head; the sampled token's log-prob from the 64-tile LSE (`processed_logprobs`, V1 and V2 runners) |
+| no LoRA | unmerged adapters on `wq_a` / `wkv` / `wq_b` / `wo_b` and in `Dsv4MoE` |
 
-Already equal to vLLM (no patch): `fp8_group_quant`, indexer query, stable top-k, the
-compressors, FlashMLA sparse forward, DeepGEMM projections and `fp8_einsum`, the shared
-expert's clamped SwiGLU.
+Also: the attention runs on one stream (vLLM overlaps the compressor / indexer on aux
+streams); `VLLM_BATCH_INVARIANT=1` starts on the pinned DeepGEMM (vLLM's
+`set_batch_invariant` check guards MoE kernels this model does not run). Supported: TP 1,
+PP 1, no sequence parallel, MTP or EPLB; DP attention with EP MoE.
+
+Gate, toy checkpoint (4 layers: window, window, C4, C128; 256 experts), 6 requests under a
+256-token budget (chunked prefill, decode next to prefill), T = 0.8: every layer, sub-layer
+and sampled-token log-prob byte-identical to one packed `Dsv4Model` prefill, without and
+with rank-16 LoRA. Not yet: EP > 1, CUDA graphs, the real checkpoint.
 
 ## 11. Legacy code not used by DSv4
 
@@ -507,11 +522,16 @@ Open, needs the multi-GPU machine:
 
 - [ ] EP = 4 / 8 with real collectives; DeepEP (`zhuzilin/DeepEP@align_fp8_quantization`)
       transport with the same bytes, fixed-capacity staging, route-metadata capture.
-- [ ] verl integration: rollout patch (section 10), actor recompute on this kernel set,
-      `linear_cross_entropy` hook, a TP-sharded head wrapper, M10 wiring.
+- [x] vLLM rollout plugin (section 10): bitwise equal to `Dsv4Model` on one GPU, with LoRA.
+- [ ] verl integration (user decision 2026-11-15: the actor is a verl engine backend on
+      `Dsv4Model`, not Megatron; verl and Megatron stay unmodified): engine backend,
+      adapter sync into the rollout (`worker_extension_cls`), toy GRPO on 2 GPUs, then an
+      8-GPU guide against verl #7483 (Hopper, non-BI, LoRA).
+- [ ] Rollout plugin at EP = 2 (vLLM DP attention + EP MoE), with CUDA graphs, and on the
+      real checkpoint.
 - [ ] Baseline first: verl + vLLM batch-invariant (verl #7688) end to end on 8 Hopper GPUs,
       bitwise and speed (`scripts/verl_e2e/README.md`, a guide for another machine; not run yet).
-- [ ] Layerwise gate against the patched vLLM rollout and on the real checkpoint
+- [ ] Layerwise gate on the real checkpoint
       (`scripts/check_dsv4_layerwise_gate.py --ckpt DIR --layers N`, advancing N).
 - [ ] #230 cross-config M0-M10 selected-token logprob bitwise; a logprob threshold in CI
       (target 0).
@@ -539,6 +559,13 @@ orchestration), independent of this PR.
 ## 13. Numerics lessons
 
 Each of these broke a byte-equality test at some point.
+
+- "Already equal to vLLM" from an op probe on a few inputs is not enough: vLLM's fused
+  q / kv RMSNorm, q-norm / RoPE / KV insert, compressor store and its FlashMLA build each
+  matched on some data and differed on other data. Only the end-to-end gate on mixed
+  batches found them; a rare row in a cache entry spreads to every later query.
+- vLLM loads weights under the model dtype as the default dtype: `torch.randn` without
+  `dtype=` then draws BF16 directly.
 
 - CUDA PyTorch `tensor / python_scalar` multiplies by the reciprocal (not correctly
   rounded); goldens use `tensor / tensor`. CPU is exact, so CPU-only tests miss it.
