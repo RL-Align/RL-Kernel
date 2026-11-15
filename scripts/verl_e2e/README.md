@@ -20,8 +20,8 @@ lineage, DeepGEMM grouped FP8 MoE, DeepEP, the BI kernel library). All pins are 
 The recipe trains all parameters (no LoRA on Hopper), so on 8 GPUs the training tests use the
 first 8 layers of the real checkpoint; the rollout speed test uses the full 43-layer model.
 
-Order: setup -> T1 (environment check, ~1 h) -> rollout speed (~3 h) -> T4 (50 training steps,
-~2-5 h). Rollout speed comes before T4 because it is the most useful number and needs all 8 GPUs.
+Order: setup -> T1 (environment check, ~1 h) -> rollout speed (~3 h) -> T2 (50 training steps,
+~2-5 h). Rollout speed comes before T2 because it is the most useful number and needs all 8 GPUs.
 
 Why a patch to verl: verl's own `training/rollout_probs_diff_max` compares `exp(log_prob)` and
 reports **0.0 for log-probs that differ by 1 ulp** (checked), and `rollout_corr/k3_kl` rounds tiny
@@ -34,7 +34,7 @@ number of response tokens whose FP32 bits differ. That number is the verdict.
 |---|---|
 | GPUs | 8 x H100 80 GB (or H200), one node, NVLink (NV18 in `nvidia-smi topo -m`) |
 | Driver | R580+ (the image is CUDA 13) |
-| Host RAM | ~700 GB for T4 (8 layers); ~360 GB for T1 (4 layers). The optimizer state (12 bytes per parameter, ~6.6 B parameters per layer) lives in host RAM |
+| Host RAM | ~700 GB for T2 (8 layers); ~360 GB for T1 (4 layers). The optimizer state (12 bytes per parameter, ~6.6 B parameters per layer) lives in host RAM |
 | Disk | >= 600 GB free under `E2E_ROOT` (default `~/dsv4-e2e`) |
 | Software | docker with the NVIDIA Container Toolkit, git, curl, python3, tmux |
 | Network | Docker Hub, GitHub, Hugging Face (set `HF_TOKEN` if needed) |
@@ -95,7 +95,7 @@ fails, rerun with `GPU_UTIL=0.9 MAX_MODEL_LEN=4096` and say so. If a server fail
 check `server.log`; if a flag is rejected, check `vllm serve --help` in the container and report
 the flag and message (do not drop BI flags silently).
 
-## 4. T4: 50 training steps (8 GPUs, 8 layers)
+## 4. T2: 50 training steps (8 GPUs, 8 layers)
 
 Actor EP8, rollout DP8 + EP8, the first 8 layers, 32 prompts x 8 samples per step, responses up
 to 2048 tokens, one optimizer update per step (so the first grad-enabled actor forward must equal
@@ -103,7 +103,7 @@ the rollout too: `actor/ppo_kl` exactly 0 at every step), learning rate 1e-5, 50
 
 A model cut to 8 of 43 layers cannot solve the math prompts: every sample would score 0, GRPO
 advantages would be 0 and the weights would never move, which would make "bitwise after updates"
-vacuous. T4 therefore uses `custom_reward.py` (fraction of digits in the response) as a dense
+vacuous. T2 therefore uses `custom_reward.py` (fraction of digits in the response) as a dense
 synthetic reward, and a learning rate of 1e-5 so that the BF16 / FP8 weights the rollout receives
 change every step. The reward measures nothing about quality; this run tests the alignment
 machinery over real updates and weight syncs, and the step time.
@@ -111,14 +111,14 @@ machinery over real updates and weight syncs, and the step time.
 Run it inside tmux so it survives a disconnect:
 
 ```bash
-tmux new -s t4
-docker exec -it dsv4-e2e bash /e2e/tools/run_e2e.sh T4
+tmux new -s t2
+docker exec -it dsv4-e2e bash /e2e/tools/run_e2e.sh T2
 ```
 
 **Early check at step 5** (from the host, while it runs):
 
 ```bash
-python3 ~/verl_e2e/summarize_metrics.py $E2E_ROOT/outputs/T4_*/metrics.jsonl --out /tmp/t4_progress
+python3 ~/verl_e2e/summarize_metrics.py $E2E_ROOT/outputs/T2_*/metrics.jsonl --out /tmp/t2_progress
 ```
 
 At step 5 every row should be `BITWISE` with `ppo_kl` 0 and a nonzero `grad_norm`. If not, stop
@@ -128,7 +128,7 @@ starts later means weight sync or reload.
 Out of memory: retry in this order and note what worked: GPU OOM ->
 `ROLLOUT_GPU_MEMORY_UTILIZATION=0.45`, then `MAX_RESPONSE_LENGTH=1024`, then `LAYERS=6`; host OOM
 -> `LAYERS=6` (or 4). Pass them as
-`docker exec -it dsv4-e2e bash -c 'LAYERS=6 bash /e2e/tools/run_e2e.sh T4'`.
+`docker exec -it dsv4-e2e bash -c 'LAYERS=6 bash /e2e/tools/run_e2e.sh T2'`.
 
 Success: **Bitwise on every step: YES** over all 50 steps, and `steps_with_nonzero_grad_norm`
 equal (or close) to the step count in `summary.json`, which shows the weights were updated.
@@ -155,7 +155,7 @@ Plus a short note:
 |---|---|
 | Setup | GPU model, driver, host RAM, anything that needed a workaround |
 | T1 | bitwise YES/NO, tokens compared, mismatched tokens |
-| T4 | steps completed, bitwise YES/NO, mismatched tokens and the first such step, `actor/ppo_kl`, steps with nonzero grad norm, score at step 1 vs the last step; mean `timing_s/step`, `timing_s/gen`, `timing_s/old_log_prob`, `timing_s/update_actor`, `timing_s/update_weights` (whatever `timing_s/*` keys exist); settings changed after OOM |
+| T2 | steps completed, bitwise YES/NO, mismatched tokens and the first such step, `actor/ppo_kl`, steps with nonzero grad norm, score at step 1 vs the last step; mean `timing_s/step`, `timing_s/gen`, `timing_s/old_log_prob`, `timing_s/update_actor`, `timing_s/update_weights` (whatever `timing_s/*` keys exist); settings changed after OOM |
 | Rollout | per variant: probe PASS/FAIL; output tok/s, TPOT p50, TTFT p50 at each concurrency |
 | Failures | exact command, last 50 lines of the relevant log, what was tried |
 
@@ -171,8 +171,8 @@ reload).
 | `setup.sh` | Host preflight, pull, clone, patch, download |
 | `patch_verl_bitwise_metric.py` | Adds the FP32-bits mismatch metric to verl (idempotent) |
 | `launch_container.sh` | Long-lived container with `/e2e` mounted, sanity print |
-| `run_e2e.sh` | T1 and T4 through verl #7688's launcher, then `summarize_metrics.py` (T2 / T3: optional smaller and longer-response variants) |
-| `custom_reward.py` | T4's synthetic dense reward |
+| `run_e2e.sh` | T1 and T2 through verl #7688's launcher, then `summarize_metrics.py` |
+| `custom_reward.py` | T2's synthetic dense reward |
 | `summarize_metrics.py` | Per-step bitwise verdict, grad-norm count and timing from verl's JSONL |
 | `bench_rollout.sh` | vLLM server BI / non-BI / native: probe + throughput sweep |
 | `probe_server_bi.py` | Black-box batch-invariance probe against a vLLM server |

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Synthetic dense reward for the long run (T4) on a layer-truncated model.
+"""Synthetic dense reward for the training run (T2) on a layer-truncated model.
 
 A DeepSeek-V4-Flash cut to a few layers cannot solve DAPO math, so the math reward is 0 for
 every sample, every GRPO group has identical rewards, the advantages are 0 and the policy
