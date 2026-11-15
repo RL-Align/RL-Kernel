@@ -106,8 +106,9 @@ def _torch_backward_chain(case, up, grad_out):
     from rl_engine.backends.extension import _C
 
     original = case["permutation"]
+    slots = case["weights"].shape[1]
     weight = case["weights"].reshape(-1)[original]
-    dy = (grad_out.float()[original // 6] * weight[:, None]).to(torch.bfloat16)
+    dy = (grad_out.float()[original // slots] * weight[:, None]).to(torch.bfloat16)
     chain = {}
     for expert, lo, hi in _segments(case):
         dz = _C.det_gemm_fwd(dy[lo:hi].contiguous(), case["w_down"][expert].contiguous())

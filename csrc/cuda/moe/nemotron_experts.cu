@@ -620,9 +620,13 @@ void launch_grouped_v1(const nv_bf16* a_ptr, uint64_t a_height, uint64_t a_width
                              : (additive < rows ? additive : (int64_t)rows);
   if (grid_y <= 0) return;
   const int smem = STAGES * (BM * BK + BN * BK) * sizeof(nv_bf16) + STAGES * 8;
-  if (smem > 48 * 1024)
-    cudaFuncSetAttribute(nemotron_experts_gemm<output_t, MODE, EPI_RELU2_GRAD>,
-                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+  if (smem > 48 * 1024) {
+    const cudaError_t attr_err =
+        cudaFuncSetAttribute(nemotron_experts_gemm<output_t, MODE, EPI_RELU2_GRAD>,
+                             cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+    TORCH_CHECK(attr_err == cudaSuccess,
+                "nemotron experts: cudaFuncSetAttribute failed: ", cudaGetErrorString(attr_err));
+  }
   dim3 grid(cdiv(N, BN), (unsigned)grid_y);
   nemotron_experts_gemm<output_t, MODE, EPI_RELU2_GRAD><<<grid, WG_THREADS, smem, stream>>>(
       a_tmap, b_tmap, c_ptr, z_ptr, aux_ptr, offsets, nseg, M, N, K, rows);
@@ -994,12 +998,17 @@ void launch_grouped_v2(const nv_bf16* a_ptr, uint64_t a_height, uint64_t a_width
   if (grid_y <= 0) return;
   const int smem =
       V2_STAGES * (V2_A_ELEMS + V2_B_ELEMS) * sizeof(nv_bf16) + V2_STAGES * 16;
-  static bool attributed = false;
-  if (!attributed) {
-    cudaFuncSetAttribute(nemotron_experts_gemm_v2<output_t, MODE, EPI_RELU2_GRAD>,
-                         cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
-    attributed = true;
-  }
+  // The 72 KB dynamic shared-memory request is above the 48 KB default, and the
+  // attribute is scoped to the (function, device) pair, not to the process: a
+  // one-shot static would leave a second GPU in the same process unconfigured
+  // and its first launch would fail with `invalid argument`. Issue it on every
+  // launch (it is a host-side call next to the launch itself) and check it,
+  // because a dropped failure would only surface as a confusing launch error.
+  const cudaError_t attr_err =
+      cudaFuncSetAttribute(nemotron_experts_gemm_v2<output_t, MODE, EPI_RELU2_GRAD>,
+                           cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+  TORCH_CHECK(attr_err == cudaSuccess,
+              "nemotron experts: cudaFuncSetAttribute failed: ", cudaGetErrorString(attr_err));
   dim3 grid(cdiv(N, V2_BN), (unsigned)grid_y);
   nemotron_experts_gemm_v2<output_t, MODE, EPI_RELU2_GRAD><<<grid, V2_THREADS, smem, stream>>>(
       a_tmap, b_tmap, c_ptr, z_ptr, aux_ptr, offsets, nseg, M, N, K, rows);
