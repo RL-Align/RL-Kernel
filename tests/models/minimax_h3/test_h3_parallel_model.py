@@ -143,6 +143,16 @@ class TestFirstDrift:
             "modality": "audio",
         }
 
+    def test_a_length_mismatch_is_refused(self):
+        """Tags or snapshots of another packed length than the spans are refused, not misread."""
+        ref, spans, tags = self._case()
+        seen = {k: v.clone() for k, v in ref.items()}
+        with pytest.raises(ValueError, match="7 token tags for a packed length of 8"):
+            pm.first_drift(ref, seen, spans, tags[:7])
+        longer = {k: torch.zeros(1, 9, 4) for k in ref}
+        with pytest.raises(ValueError, match="block.0 has 9 rows; the spans cover 8"):
+            pm.first_drift(longer, {k: v.clone() for k, v in longer.items()}, spans, None)
+
     def test_replicated_rows_name_every_holder(self):
         """A row held by several ranks names every holder."""
         ref, _, tags = self._case()

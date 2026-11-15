@@ -73,7 +73,8 @@ def _io_target(collective, dummy, *, length, root):
     flags["scatter_ids"] = int(torch.equal(local_ids, ids[shard.lo : shard.hi]))
     par.check_row_identity(local_ids, shard)  # raises on drift
     flags["identity_ok"] = 1
-    # negative control: rank 0 (always holds rows) declares ids that are not its rows
+    # negative control: rank 0 (always holds rows) declares ids that are not its rows. The check
+    # gathers every rank's ids, so every rank, not only rank 0, must detect the drift.
     corrupt = local_ids.clone()
     if rank == 0:
         if corrupt.numel() >= 2:

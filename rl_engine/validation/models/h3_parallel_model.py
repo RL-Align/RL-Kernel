@@ -245,12 +245,20 @@ def first_drift(
     ``reference`` / ``observed`` map node names (``block.0`` ...) to ``(1, S, C)`` tensors (the
     trace snapshots). ``spans`` are the rows each rank holds; the owners are the ranks whose span
     contains the row (all TP ranks of a CP rank when sequence parallelism is off).
+
+    The spans, the tags and every compared snapshot must describe the same packed length:
+    otherwise the owners and the modality would be read from the wrong rows, so it raises.
     """
 
+    length = max(hi for _, hi in spans)
+    if token_tags is not None and token_tags.numel() != length:
+        raise ValueError(f"{token_tags.numel()} token tags for a packed length of {length}")
     for name in order or list(reference):
         a, b = reference[name], observed[name]
         if a.shape != b.shape:
             return {"node": name, "reason": f"shape {tuple(a.shape)} vs {tuple(b.shape)}"}
+        if a.shape[1] != length:
+            raise ValueError(f"{name} has {a.shape[1]} rows; the spans cover {length}")
         if torch.equal(a, b):
             continue
         rows = (a != b).reshape(a.shape[0], a.shape[1], -1).any(dim=-1).any(dim=0)
