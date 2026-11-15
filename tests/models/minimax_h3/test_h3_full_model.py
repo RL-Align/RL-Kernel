@@ -437,6 +437,30 @@ def _projection_model():
     return model
 
 
+def test_a_boundary_context_that_failed_to_enter_is_not_exited(monkeypatch):
+    """If the strict boundary context raises while entering, its error propagates as it is and
+    the context is not exited (it never reached its body)."""
+    from rl_engine.validation.models import h3_full_model as fm
+
+    exits = []
+
+    class Failing:
+        def __enter__(self):
+            raise fm.CandidateBindingError("no CUDA op for proj_in")
+
+        def __exit__(self, *exc):
+            exits.append(exc)
+            return False
+
+    monkeypatch.setattr(fm, "_strict_boundaries", lambda *args, **kwargs: Failing())
+    with pytest.raises(fm.CandidateBindingError, match="no CUDA op for proj_in"):
+        with full_model_execution(
+            Model(), candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            pass
+    assert exits == []
+
+
 def test_an_instance_forward_from_before_the_binding_is_restored(monkeypatch):
     """A module that already had its own instance ``forward`` gets that one back on exit."""
     _stand_in_rows(monkeypatch)

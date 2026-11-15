@@ -171,3 +171,38 @@ def test_qkv_nodes_share_one_combined_row_call():
     nodes["k_proj"].candidate(_Ops, other, x)
     nodes["q_proj"].candidate(_Ops, ctx, torch.randn(1, 3, 6))
     assert len(calls) == 3
+
+
+def test_each_graph_evaluation_makes_its_own_fused_qkv_call():
+    """Two evaluations with the same ``ctx`` and inputs, or with other ops, each make their own
+    combined call: a repeat check never compares an evaluation with its own cached outputs."""
+
+    calls = []
+
+    class _Ops:
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            """Record a fused QKV call and return the three projections."""
+            calls.append(_Ops)
+            return tuple(flat @ w.t() for w in (wq, wk, wv))
+
+    class _OtherOps(_Ops):
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            """The same projections under another operator set."""
+            calls.append(_OtherOps)
+            return tuple(flat @ w.t() for w in (wq, wk, wv))
+
+    nodes = {n.name: n for n in h3_block.NODES}
+    weights = {f"{h3_block.BLOCK}.{w}": torch.randn(4, 6) for w in h3_block.QKV_WEIGHTS}
+    ctx = {"weights": weights}
+    x = torch.randn(1, 3, 6)
+    provider = {"norm1": x}
+    for _ in range(2):  # what ``run_isolated`` does per evaluation, with the same inputs
+        run = h3_block.evaluation_ctx(ctx)
+        first = [nodes[n].candidate(_Ops, run, provider["norm1"]) for n in ("q_proj", "k_proj")]
+    assert calls == [_Ops, _Ops] and h3_block.FUSED_QKV_CACHE not in ctx
+    second = nodes["q_proj"].candidate(_Ops, run, x)
+    assert len(calls) == 2 and torch.equal(second, first[0])  # one evaluation shares its call
+    nodes["v_proj"].candidate(_OtherOps, run, x)  # other ops on the same inputs recompute
+    assert calls[-1] is _OtherOps
