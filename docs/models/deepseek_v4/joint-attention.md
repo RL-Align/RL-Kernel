@@ -51,7 +51,7 @@ downloads code or falls back to an unverified provider.
 * an explicit model/cache version.
 
 It owns its metadata, sorts KV identities canonically and remaps Top-K.
-The selected order is compressed rows in increasing global position, then
+The selected order is compressed rows in decreasing global position, then
 the complete recent window in increasing position, then invalid padding.
 It checks request ownership, causality, C4/C128 complete-group boundaries,
 duplicates, capacities and window completeness. A query cannot silently
