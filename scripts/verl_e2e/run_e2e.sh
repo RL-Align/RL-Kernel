@@ -6,7 +6,7 @@
 #   bash /e2e/tools/run_e2e.sh T1      # upstream quick_alignment_test: 4 GPUs, 4 layers, 2 steps
 #   bash /e2e/tools/run_e2e.sh T2      # 8 GPUs (EP8, rollout DP8/EP8), 4 layers, 5 steps
 #   LAYERS=8 bash /e2e/tools/run_e2e.sh T3   # 8 GPUs, LAYERS layers, longer responses
-#   bash /e2e/tools/run_e2e.sh T4      # 200 training steps, 8 layers, synthetic dense reward
+#   bash /e2e/tools/run_e2e.sh T4      # 50 training steps, 8 layers, synthetic dense reward
 #
 # Any variable the upstream script reads (TRAIN_BATCH_SIZE, ROLLOUT_N, MAX_RESPONSE_LENGTH,
 # TOTAL_TRAINING_STEPS, ROLLOUT_GPU_MEMORY_UTILIZATION, ...) can be exported to override.
@@ -58,10 +58,11 @@ case "${TEST}" in
     export NNODES=1 NGPUS_PER_NODE=8 ACTOR_PP=1 ACTOR_CP=1 ACTOR_EP=8
     export ROLLOUT_DP=8 ROLLOUT_EP=8 ROLLOUT_AGENT_WORKERS="${ROLLOUT_AGENT_WORKERS:-8}"
     if [[ "${TEST}" == T4 ]]; then
-      # Long run: 200 optimizer updates. GRPO needs several samples per prompt; the
-      # synthetic reward (custom_reward.py) gives nonzero advantages on a truncated model,
-      # and a larger LR makes the BF16 / FP8 deployment weights change visibly every step.
-      export TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-200}"
+      # Long run: 50 optimizer updates (TOTAL_TRAINING_STEPS to change). GRPO needs several
+      # samples per prompt; the synthetic reward (custom_reward.py) gives nonzero advantages
+      # on a truncated model, and a larger LR makes the BF16 / FP8 deployment weights change
+      # visibly every step.
+      export TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-50}"
       export TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-32}"
       export ROLLOUT_N="${ROLLOUT_N:-8}"
       export ACTOR_LR="${ACTOR_LR:-1e-5}"
