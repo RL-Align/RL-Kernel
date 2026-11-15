@@ -20,6 +20,8 @@ keeps those, and vLLM's scheduler, paged KV cache and sampler, and replaces the 
 - ``q_norm`` / ``kv_norm``: RL-Kernel's RMSNorm (vLLM's fused pair rounds a rare row
   differently, which then sits in the KV cache for a whole window).
 - Indexer query RoPE + FP8 quant: RL-Kernel's ``indexer_q_rope_fp8_cuda``.
+- Compressors (main C4 / C128 KV and indexer K): vLLM saves the partial states; the
+  compress -> RMSNorm -> RoPE -> FP8 quant -> store step is RL-Kernel's.
 - Query norm / RoPE / KV insert: RL-Kernel's ``q_norm_rope_kv_insert`` writes vLLM's paged
   ``fp8_ds_mla`` cache (same layout); vLLM's fused kernel rounds differently in about one
   query row in ten (``scripts/probe_dsv4_vllm_attention_ops.py``).
@@ -107,6 +109,8 @@ def register() -> None:
         "DeepseekV4ForCausalLM", "rl_engine.integrations.dsv4.vllm_model:RlkDeepseekV4ForCausalLM"
     )
     import vllm.models.deepseek_v4.attention as vattention
+    import vllm.models.deepseek_v4.compressor as vcompressor
+    import vllm.models.deepseek_v4.nvidia.ops.sparse_attn_compress_cutedsl as vcutedsl
 
     import vllm.v1.worker.gpu.model_runner as runner_v2
 
@@ -114,6 +118,9 @@ def register() -> None:
     runner_v2.Sampler = _rlk_sampler_v2()
     vattention.fused_q_kv_rmsnorm = _rlk_q_kv_rmsnorm
     vattention.fused_indexer_q_rope_quant = _rlk_indexer_q
+    vcompressor.compress_norm_rope_store_triton = _rlk_compress_store
+    vcompressor.compress_norm_rope_store_two_stage_triton = _rlk_compress_store
+    vcutedsl.compress_norm_rope_store_cutedsl = _rlk_compress_store
     _accept_pinned_deepgemm()
     # Decode through FlashMLA's sparse kernel, as prefill: the paged FP8 decode kernel
     # rounds differently (checked in RlkDeepseekV4Model).
@@ -128,6 +135,56 @@ def _rlk_q_kv_rmsnorm(qr, kv, q_weight, kv_weight, eps):
         rmsnorm_cuda(qr.contiguous(), q_weight, eps),
         rmsnorm_cuda(kv.contiguous(), kv_weight, eps),
     )
+
+
+def _rlk_compress_store(
+    *,
+    state_cache,
+    num_actual,
+    token_to_req_indices,
+    positions,
+    block_table,
+    cos_sin_cache,
+    kv_cache,
+    k_cache_metadata,
+    head_dim,
+    compress_ratio,
+    overlap,
+    use_fp4_cache,
+    rms_norm_weight,
+    rms_norm_eps,
+    **_unused,
+):
+    """vLLM's compress -> RMSNorm -> RoPE -> FP8 quant -> cache store step (both the main
+    ``fp8_ds_mla`` KV and the indexer K) on RL-Kernel's compressor kernels. vLLM's
+    ``save_partial_states`` (a copy and one FP32 add) has filled ``state_cache``."""
+    from rl_engine.kernels.ops.cuda.compressor import compress_indexer_cuda, compress_main_cuda
+
+    if use_fp4_cache or kv_cache.dtype != torch.uint8:
+        raise NotImplementedError("RL-Kernel DSv4 rollout: FP8 compressed caches only")
+    pos = positions[:num_actual]
+    slots = k_cache_metadata.slot_mapping[:num_actual].long()
+    slots = torch.where((pos + 1) % compress_ratio == 0, slots, -1)
+    args = (
+        state_cache,
+        block_table,
+        token_to_req_indices[:num_actual].int(),
+        pos,
+        rms_norm_weight,
+        rms_norm_eps,
+        cos_sin_cache,
+        kv_cache.view(kv_cache.shape[0], -1),
+        kv_cache.shape[1],
+        slots,
+    )
+    if head_dim == 512:
+        compress_main_cuda(*args, compress_ratio)
+    elif head_dim == 128 and compress_ratio == 4 and overlap:
+        compress_indexer_cuda(*args)
+    else:
+        raise NotImplementedError(
+            f"RL-Kernel DSv4 compressor: head {head_dim}, ratio {compress_ratio}"
+        )
 
 
 def _rlk_indexer_q(

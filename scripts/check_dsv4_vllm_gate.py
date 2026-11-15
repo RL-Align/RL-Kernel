@@ -161,6 +161,7 @@ def compare(args, dump: pathlib.Path) -> dict:
     differ = [0] * (layers + 1)
     maxdiff = [0.0] * (layers + 1)
     compared = 0
+    o_bad = [[] for _ in range(layers)]  # (request, position) of differing attention outputs
 
     def bad_rows(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         x = x.cuda().reshape(y.shape)
@@ -192,7 +193,10 @@ def compare(args, dump: pathlib.Path) -> dict:
                     sub_differ[li][site] += int(bad_rows(got, detail[li][k][ref]).sum())
                 for site in inner_sites:
                     got = d["inner"][li][site][a:b]
-                    sub_differ[li][site] += int(bad_rows(got, inner[li][site][ref]).sum())
+                    bad = bad_rows(got, inner[li][site][ref])
+                    sub_differ[li][site] += int(bad.sum())
+                    if site == "o":
+                        o_bad[li] += [(r, s + j) for j in bad.nonzero().flatten().tolist()]
             compared += b - a
     # Sampled-token log-probs: generated token j of request r is predicted at position P + j - 1.
     temp = args.temperature if args.temperature > 1e-5 else 1.0
@@ -220,6 +224,7 @@ def compare(args, dump: pathlib.Path) -> dict:
     passed = compared == expected and not any(differ) and lp_total and not lp_differ
     return {
         "sub_layers": [{"layer": li, **sub_differ[li]} for li in range(layers)],
+        "attention_out_differ": [sorted(o) for o in o_bad],
         "passed": bool(passed),
         "logprobs_compared": lp_total,
         "logprobs_differ": lp_differ,
