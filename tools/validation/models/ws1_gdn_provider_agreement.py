@@ -278,6 +278,7 @@ def _conv_noact_bf16(check, batches: list[int]) -> dict[str, Any]:
     for batch in batches:
         (b_ref, _), (b_got, _) = bf16_out[batch]
         (d_ref, _), (d_got, _) = fp32_out[batch]
+        assert b_ref.dtype == b_got.dtype == torch.bfloat16, (b_ref.dtype, b_got.dtype)
         differ = torch.nonzero(b_ref.view(torch.int16) != b_got.view(torch.int16)).tolist()
         mismatches = []
         for r, ch in differ:
@@ -338,14 +339,22 @@ def _triton_silu():
 
 
 def _ulp_histogram(a: torch.Tensor, b: torch.Tensor) -> dict[str, int]:
-    """Differing fp32 elements by bit-pattern distance."""
-    d = (a.contiguous().view(torch.int32).long() - b.contiguous().view(torch.int32).long()).abs()
-    d = d[d != 0]
+    """Differing fp32 elements by bit-pattern distance.
+
+    The distance is not a ULP count for elements whose signs differ (a bit-pattern
+    difference across zero is large however close the values are). Those elements are
+    still in ``>4``; ``sign_differs`` counts how many of them there are, and ``>4`` minus
+    ``sign_differs`` is the number of same-sign elements more than 4 ULP apart.
+    """
+    ai, bi = a.contiguous().view(torch.int32).long(), b.contiguous().view(torch.int32).long()
+    d = (ai - bi).abs()
+    differ = d != 0
     return {
         "1": int((d == 1).sum()),
         "2": int((d == 2).sum()),
         "3-4": int(((d == 3) | (d == 4)).sum()),
         ">4": int((d > 4).sum()),
+        "sign_differs": int((differ & ((ai < 0) != (bi < 0))).sum()),
     }
 
 
@@ -398,17 +407,33 @@ def _arm_variants(arm: dict[str, Any]) -> list[Any] | None:
 
 
 def _conv_report_without_fusion(batches: str) -> dict[str, Any]:
-    """Rerun the conv arm in a child process that compiles with fusion off."""
+    """Rerun the conv arm in a child process that compiles with fusion off.
+
+    A failed child is returned as ``{"error": ...}`` so that the measurements already
+    taken are still reported; ``main`` then exits non-zero.
+    """
     with tempfile.TemporaryDirectory(prefix="triton-nofusion-") as cache_dir:
         env = dict(os.environ, TRITON_DEFAULT_FP_FUSION="0", TRITON_CACHE_DIR=cache_dir)
-        child = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()), "--conv-only", "--batches", batches],
-            env=env,
-            stdout=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
-    return json.loads(child.stdout)
+        try:
+            child = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__).resolve()),
+                    "--conv-only",
+                    "--batches",
+                    batches,
+                ],
+                env=env,
+                stdout=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+            # The report is the child's last stdout line; libraries may print banners before it.
+            return json.loads(child.stdout.strip().splitlines()[-1])
+        except subprocess.CalledProcessError as exc:
+            return {"error": f"fusion-off child exited with status {exc.returncode}"}
+        except (IndexError, ValueError):
+            return {"error": "fusion-off child printed no JSON report on its last stdout line"}
 
 
 def _fusion_check(on: Any, off: Any) -> dict[str, Any]:
@@ -484,11 +509,24 @@ def main() -> int:
     report["conv_silu"] = _conv_silu(check, batches)
     if not args.skip_fusion_off:
         unfused = _conv_report_without_fusion(args.batches)
-        report["conv"] += unfused["conv"]
-        report["conv_kernels"]["fusion_off"] = unfused["conv_kernels"]
-        report["conv_noact_bf16"]["fusion_off"] = unfused["conv_noact_bf16"]
-        report["fusion_check"] = _fusion_check(_arm_variants(fused), _arm_variants(unfused))
+        if "error" in unfused:
+            report["fusion_off_error"] = unfused["error"]
+        else:
+            report["conv"] += unfused["conv"]
+            report["conv_kernels"]["fusion_off"] = unfused["conv_kernels"]
+            report["conv_noact_bf16"]["fusion_off"] = unfused["conv_noact_bf16"]
+            report["fusion_check"] = _fusion_check(_arm_variants(fused), _arm_variants(unfused))
     print(json.dumps(report, indent=2, sort_keys=True))
+    if "fusion_off_error" in report:
+        print(f"FAILED: {report['fusion_off_error']}", file=sys.stderr)
+        return 1
+    if "fusion_check" in report and not report["fusion_check"]["fusion_off_effective"]:
+        print(
+            "FAILED: the fusion-off arm did not compile every conv variant with fusion off "
+            "(or its variants could not be listed); see fusion_check",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 
