@@ -92,6 +92,7 @@ their shape with a device-vs-device oracle instead:
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 from contextlib import contextmanager
@@ -476,11 +477,19 @@ def _gate_fold(gate: torch.Tensor) -> torch.Tensor:
 
 
 def _gate_fingerprint(gate: torch.Tensor) -> bytes:
-    """A cheap digest of the gate's first row, used to key the backward cache."""
+    """A digest of the *whole* gate, used to key the backward cache.
 
-    return bytes(
-        gate[:1].detach().float().cpu().contiguous().view(torch.uint8).reshape(-1).tolist()
-    )
+    The two contracts' ``pre`` are not byte-equal -- the mma order is a different
+    association of the same sum -- so their gates differ on a fraction of elements
+    (measured: ~1.6e-5 of them, one bf16 ulp). A first-row-only digest collides in
+    practice, because the row is bf16 and the two gates usually agree on it: the
+    second path would then be handed the first path's reference triple, which
+    masks ``dx``/``dW`` defects and makes the bit-exact ``db`` assertion pass or
+    fail by execution order.
+    """
+
+    raw = gate.detach().cpu().contiguous().view(torch.uint8)
+    return hashlib.blake2b(raw.numpy(), digest_size=16).digest()
 
 
 def _reference_backward_with_gate(x, weight, pre, grad, gate, key):
@@ -492,9 +501,9 @@ def _reference_backward_with_gate(x, weight, pre, grad, gate, key):
     exactly the three contractions. ``key`` names the bounded slice
     (``("backward", K, N, rows)``): the slice's operands are a function of
     (K, N, rows) alone, so the 256-token anchor and the 4096-token tier share one
-    K-step tree plus the two folds. The gate's first row is folded into the cache
-    key so a different device gate (a different ``pre``) can never reuse another
-    gate's reference.
+    K-step tree plus the two folds. The gate's bytes are folded into the cache key
+    so a different device gate (a different ``pre``, e.g. the other contract's) can
+    never reuse another gate's reference.
     """
 
     key = (*key, _gate_fingerprint(gate))
@@ -911,6 +920,41 @@ def _backward_with_device_gate(shape, checked):
         x[:checked], weight, pre, grad, device_gate, ("backward", k_dim, n_dim, checked)
     )
     return (xr.grad, wr.grad, br.grad), ref
+
+
+class TestBackwardReferenceCache:
+    """The cached fp32 backward reference is keyed on the whole gate.
+
+    The two contracts' ``pre`` differ, so the tree and the Hopper path may hand
+    the reference gates that agree on row 0 and differ later. The cache used to
+    digest only the first row, which collided on exactly that and let one path's
+    reference triple -- ``db`` included, and it is asserted bit-exact -- serve the
+    other. This is CPU-only: it exercises the cache seam, not a kernel.
+    """
+
+    def test_gates_that_agree_on_row_zero_get_separate_references(self):
+        from rl_engine.reference.gemm.mlp_up_gemm_gelu import left_fold_bias_gradient
+
+        torch.manual_seed(0)
+        x = torch.randn(4, 8)
+        weight = torch.randn(5, 8)
+        grad = torch.randn(4, 5)
+        pre = torch.randn(4, 5)
+        gate_a = (pre * grad).to(torch.bfloat16)
+        gate_b = gate_a.clone()
+        gate_b[1, 2] += 0.5
+        assert torch.equal(gate_a[:1], gate_b[:1]), "the two gates must agree on row 0"
+
+        key = ("backward", 8, 5, 4)
+        ref_a = _reference_backward_with_gate(x, weight, pre, grad, gate_a, key)
+        ref_b = _reference_backward_with_gate(x, weight, pre, grad, gate_b, key)
+
+        with _reference_threads():
+            want_a = left_fold_bias_gradient(gate_a.float())
+            want_b = left_fold_bias_gradient(gate_b.float())
+        assert torch.equal(ref_a[2], want_a)
+        assert torch.equal(ref_b[2], want_b)
+        assert not torch.equal(ref_a[2], ref_b[2])
 
 
 @CUDA
@@ -1424,8 +1468,9 @@ class TestHopperPath:
         The reference runs on the bounded ``TREE_REFERENCE_ROWS`` slice (the fp32
         CPU tree costs ~1 s per row at the model's K/N) and the device gradients are
         taken on that same slice, so the row-folding ``dW``/``db`` compare like for
-        like. The slice's cache entry is shared with the tree path, because both
-        paths publish the same (byte-equal) ``pre`` and hence the same device gate.
+        like. The reference is keyed on the gate's bytes, so this path's triple is
+        computed from its own gate: the Hopper ``pre`` is not byte-equal to the
+        tree's, and the two gates can differ on a fraction of elements.
         """
 
         from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
@@ -1477,8 +1522,8 @@ class TestBackward:
         model's K/N), so it runs on the bounded ``TREE_REFERENCE_ROWS`` slice, and
         the device gradients are taken on that same slice: ``dW``/``db`` fold over
         the batch rows, so slicing keeps both sides comparable. The slice's cache
-        entry is shared with :class:`TestTreeContractByteEquality` (the gate's first
-        row is part of the cache key).
+        entry is shared with :class:`TestTreeContractByteEquality` (the whole gate is
+        part of the cache key).
         """
 
         checked = min(shape[0], TREE_REFERENCE_ROWS)
