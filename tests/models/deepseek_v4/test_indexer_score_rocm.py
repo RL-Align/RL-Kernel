@@ -152,9 +152,9 @@ def test_rejects_cpu_tensors_and_graph_capture(op):
 
 def test_unvalidated_architecture_is_rejected(monkeypatch):
     monkeypatch.setattr(
-        torch.cuda, "get_device_properties", lambda *_: SimpleNamespace(gcnArchName="gfx942")
+        torch.cuda, "get_device_properties", lambda *_: SimpleNamespace(gcnArchName="gfx950")
     )
-    with pytest.raises(IndexerScoreError, match="unvalidated architecture gfx942"):
+    with pytest.raises(IndexerScoreError, match="unvalidated architecture gfx950"):
         AiterIndexerScoreBackend()
 
 
