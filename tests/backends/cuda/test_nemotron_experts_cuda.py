@@ -253,10 +253,15 @@ def test_instruction_paths_agree_bitwise(monkeypatch, geometry, tokens):
     monkeypatch.setenv("RL_KERNEL_NEMOTRON_EXPERTS_BACKEND", "sm90_v1")
     assert _C.nemotron_experts_preferred_path() == "sm90_v1"
     reference, reference_grads = cases.run(_provider("native"), case, cotangent)
+    # The executed path, not the preference: if a launch ever ignored the
+    # selector (or cached it), this fails instead of comparing one kernel with
+    # itself.
+    assert _C.nemotron_experts_last_path() == "sm90_v1"
 
     monkeypatch.setenv("RL_KERNEL_NEMOTRON_EXPERTS_BACKEND", "sm90_v2")
     assert _C.nemotron_experts_preferred_path() == "sm90_v2"
     actual, actual_grads = cases.run(_provider("native"), case, cotangent)
+    assert _C.nemotron_experts_last_path() == "sm90_v2"
 
     cases.bits(actual, reference)
     for label in cases.gradient_names(case):
@@ -311,6 +316,10 @@ def test_provider_selection_prefers_native(monkeypatch):
             return False
 
     monkeypatch.setattr(native, "_C", _Uncompiled())
+    # `native._C` is the module global `NemotronExpertsOp` dereferences, and the
+    # patched object reports the flag as False: if the provider read another
+    # object, the next lookup would return the native op and the assert fails.
+    assert native._C.nemotron_experts_compiled() is False
     fallback = KernelRegistry().get_op("moe_experts_combine", device="cuda")
     assert isinstance(fallback, TritonNemotronExpertsOp)
     assert fallback.provider_id == "rlkernel.nemotron_experts.triton.v1"

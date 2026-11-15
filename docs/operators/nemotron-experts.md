@@ -110,7 +110,11 @@ is an instruction-path decision, not a numerical one.
 | Occupancy ceiling | 5 CTAs/SM by registers (31% of warp slots) | 3 CTAs/SM (`2` for dW) by registers and shared memory (23%, 16%) |
 
 `RL_KERNEL_NEMOTRON_EXPERTS_BACKEND=sm90_v1|sm90_v2|auto` selects the path
-(`auto` is v2) and is read per launch, so one process can measure both. v2 is a
+(`auto` is v2) and is read per launch, so one process can measure both.
+`_C.nemotron_experts_preferred_path()` reports that selection, and
+`_C.nemotron_experts_last_path()` reports the path the last launch actually took
+(including the per-shape fallback to v1); the parity test asserts the executed
+path around each run, so it cannot degrade into a kernel compared with itself. v2 is a
 warp-specialised wgmma pipeline applied per expert segment, self-contained in
 `csrc/cuda/moe/nemotron_experts.cu` (its descriptor encoding, wgmma wrappers,
 swizzled tensor map and barrier primitives are that file's own), with three

@@ -1019,6 +1019,13 @@ void launch_grouped_v2(const nv_bf16* a_ptr, uint64_t a_height, uint64_t a_width
 // other.  Both satisfy the same contract and are bitwise identical.  The
 // variable is read per launch rather than cached, so a test or benchmark can
 // compare the two paths inside one process.
+// The instruction path the last `run_grouped` launch actually took.
+// `preferred_path` is the env-selected preference *before* the per-shape gate;
+// this records the branch that ran, so a test can prove a parity comparison
+// executed two different kernels rather than the same one twice. Thread-local
+// because a launch is host-thread work.
+thread_local const char* experts_last_path = "none";
+
 bool experts_prefer_v2() {
   const char* value = std::getenv("RL_KERNEL_NEMOTRON_EXPERTS_BACKEND");
   if (value == nullptr) return true;
@@ -1049,11 +1056,13 @@ void run_grouped(const nv_bf16* a_ptr, uint64_t a_height, uint64_t a_width,
   // padded); the width check below only guards a hand-built call.
   const bool v2_shape = N % 64 == 0 && M > 0 && (MODE == MODE_WGRAD || K % K_TREE_LEAF == 0);
   if (experts_prefer_v2() && v2_shape) {
+    experts_last_path = "sm90_v2";
     launch_grouped_v2<output_t, MODE, EPI_RELU2_GRAD>(a_ptr, a_height, a_width, b_ptr, b_height,
                                                       b_width, c_ptr, z_ptr, aux_ptr, offsets, nseg,
                                                       M, N, K, rows, stream);
     return;
   }
+  experts_last_path = "sm90_v1";
   launch_grouped_v1<output_t, MODE, EPI_RELU2_GRAD>(a_ptr, a_height, a_width, b_ptr, b_height,
                                                     b_width, c_ptr, z_ptr, aux_ptr, offsets, nseg,
                                                     M, N, K, rows, stream);
@@ -1079,6 +1088,17 @@ const char* nemotron_experts_preferred_path() {
   return "none";
 #else
   return experts_prefer_v2() ? "sm90_v2" : "sm90_v1";
+#endif
+}
+
+// The instruction path the last launch actually took, including the per-shape
+// fallback to v1 that `preferred_path` does not model; "none" before the first
+// launch or when the operator is not compiled.
+const char* nemotron_experts_last_path() {
+#if !defined(RL_KERNEL_ENABLE_SM90)
+  return "none";
+#else
+  return experts_last_path;
 #endif
 }
 
