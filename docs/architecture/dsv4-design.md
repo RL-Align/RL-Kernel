@@ -509,6 +509,8 @@ Open, needs the multi-GPU machine:
       transport with the same bytes, fixed-capacity staging, route-metadata capture.
 - [ ] verl integration: rollout patch (section 10), actor recompute on this kernel set,
       `linear_cross_entropy` hook, a TP-sharded head wrapper, M10 wiring.
+- [ ] Baseline first: verl + vLLM batch-invariant (verl #7688) end to end on 8 Hopper GPUs,
+      bitwise and speed (`scripts/verl_e2e/README.md`, a guide for another machine; not run yet).
 - [ ] Layerwise gate against the patched vLLM rollout and on the real checkpoint
       (`scripts/check_dsv4_layerwise_gate.py --ckpt DIR --layers N`, advancing N).
 - [ ] #230 cross-config M0-M10 selected-token logprob bitwise; a logprob threshold in CI
