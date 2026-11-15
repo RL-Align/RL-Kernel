@@ -9,7 +9,7 @@ table; this page links to them.
 - Hardware: NVIDIA H100 / H200 (SM90). ROCm and SM100 are out of scope.
 - Reference architecture: vLLM #54955 (`ISEEKYAN/vllm@1a6542c`, batch-invariant mode)
 - Integration target: verl. Rollout and actor recompute must run this kernel set.
-- Last updated: 2026-11-11
+- Last updated: 2026-11-15
 
 Contents:
 1. Goal and guarantees
@@ -38,8 +38,8 @@ token the same bytes whatever else is in the batch.
 |---|---|
 | Forward (rollout, actor recompute, training forward) | **Bitwise batch-invariant.** A token's bytes do not depend on the other tokens in the step, the batch order, or whether its request runs as one prefill, chunked prefill or decode. `forward_train` is byte-equal to `forward_batch`. |
 | Selected-token logprob | Bitwise batch-invariant, and invariant to a vocab-TP split (TP 1/2/4/8). |
-| Expert parallelism | EP = 2 forward and dX bitwise equal to EP = 1 (tested on 2 GPUs, without LoRA; `check_dsv4_moe_ep.py --lora` has not run yet). |
-| Backward (LoRA, dX path) | Correct against FP32 autograd per component. **Not required to be deterministic** (user decision 2026-11-11): cuDNN's sparse-attention dKV uses FP32 atomics. |
+| Expert parallelism | EP = 2 forward bitwise equal to EP = 1, with and without LoRA (tested on 2 GPUs). dX bitwise equal without LoRA; with LoRA, dX is the same run to run and within 1e-4 relative of EP = 1 (next row). |
+| Backward (LoRA, dX path) | Correct against FP32 autograd per component. **Not required to be deterministic** (user decision 2026-11-11): cuDNN's sparse-attention dKV uses FP32 atomics. Not batch-invariant either: `lora_backward` runs FP32 `torch.mm`, and cuBLAS picks its kernel from the row count, so a row's dX depends on how many rows share the call (seen on the routed `fc2` adapter, ~1e-4 relative). |
 | LoRA weight gradients | Deterministic for fixed shapes; not batch-invariant (a reduction over tokens). |
 | Performance | Every forward operator within 1.3x of its non-invariant baseline (section 9). |
 
@@ -151,7 +151,8 @@ batch-invariant before we depend on it. Their reports are in `docs/validation/`.
 Parity scripts against vLLM's compiled kernels: `check_indexer_q_vllm_parity.py`,
 `check_stable_topk_vllm_parity.py`. Against DeepSeek's inference code:
 `check_dsv4_model_ref.py`. Real FP4 checkpoint scale range: `check_dsv4_fp4_scales.py`.
-EP = 2: `check_dsv4_moe_ep.py` (needs 2 GPUs, `torchrun`).
+EP = 2: `PYTHONPATH=. torchrun --nproc-per-node 2 scripts/check_dsv4_moe_ep.py [--lora]`
+(needs 2 GPUs).
 
 ## 3. Model structure and module map
 
@@ -405,7 +406,8 @@ from vLLM are also checked byte-equal to vLLM's compiled kernels (parity scripts
   bytewise; a permuted top-k gives the same bytes; a decode step captured in a CUDA graph
   replays the eager bytes.
 - MoE block: batch-invariant across splits, run to run, within 3% of an FP32 reference on
-  the same MX operands; EP = 2 bitwise equal to EP = 1 (`scripts/check_dsv4_moe_ep.py`).
+  the same MX operands; EP = 2 bitwise equal to EP = 1 (`scripts/check_dsv4_moe_ep.py`;
+  with LoRA the dX path matches to rounding, section 1).
 - Model: batch = alone = chunked = decode for hidden states and logprobs; a whole decode
   step captures in a CUDA graph; against DeepSeek's inference code on a toy checkpoint
   there is no wiring error (layer-0 attention 4.2%, MoE 2.5% rel L2, from the FP8 choices).
@@ -497,13 +499,12 @@ start kits; docstrings in the legacy modules may still mention them.
 ## 12. Status and open work
 
 Done on one GPU: every forward operator BI and within the gate; LoRA training end to end;
-EP = 2 forward and dX bitwise equal to EP = 1; graph-capturable decode at EP = 1; the
-layerwise gate on one device.
+EP = 2 forward and dX bitwise equal to EP = 1; EP = 2 with LoRA adapters (forward bitwise,
+dX and adapter gradients to rounding); graph-capturable decode at EP = 1; the layerwise
+gate on one device.
 
 Open, needs the multi-GPU machine:
 
-- [ ] EP = 2 with LoRA adapters: `torchrun --nproc-per-node 2 scripts/check_dsv4_moe_ep.py
-      --lora` (written, not run yet).
 - [ ] EP = 4 / 8 with real collectives; DeepEP (`zhuzilin/DeepEP@align_fp8_quantization`)
       transport with the same bytes, fixed-capacity staging, route-metadata capture.
 - [ ] verl integration: rollout patch (section 10), actor recompute on this kernel set,
@@ -557,6 +558,10 @@ Each of these broke a byte-equality test at some point.
 - `ptxas` serializes every WGMMA issued inside index-dependent branches (warning C7518);
   keep the consumer loop straight-line.
 - Timing: use CUDA-graph replay for small shapes; eager timing measures host overhead.
+- FP32 `torch.mm` is not row-invariant: cuBLAS picks its kernel from M, so rows of
+  `[M, 1024] @ [1024, 16]` at M = 1, 2, 12 differ from the same rows at M = 97 (H200).
+  It looks invariant on one GPU at many sizes and then breaks once EP changes each rank's
+  row count (`check_dsv4_moe_ep.py --lora`, routed `fc2` adapter dX).
 
 ## 14. References
 

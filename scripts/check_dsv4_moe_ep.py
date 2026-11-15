@@ -10,9 +10,13 @@ experts. Scored and
 hash-routed layers; two runs each (run to run).
 
 With ``--lora`` both blocks carry the same LoRA adapters (routed fc1 / fc2, shared
-expert fc1 / fc2). Outputs and input gradients must still match byte for byte. The
-routed adapters' gradients (summed over the EP group inside the backward) must match
-the EP = 1 gradients to rounding: partial sums per rank reorder the token reduction.
+expert fc1 / fc2). Outputs must still match byte for byte. Input gradients must be the
+same run to run and match EP = 1 to rounding (relative L2 < 1e-3): the adapters' FP32
+backward GEMMs (``lora_backward``, ``torch.mm``) let cuBLAS pick its kernel from the row
+count, so a row's dX depends on how many rows share the call, and EP changes that count.
+The LoRA dX path is not required to be batch-invariant (design doc, section 1). The
+routed adapters' gradients (summed over the EP group inside the backward) must match the
+EP = 1 gradients to the same tolerance.
 
 Usage (SM90, a ``KERNEL_ALIGN_MOE_SM90=1`` build, DeepGEMM):
     torchrun --nproc-per-node 8 scripts/check_dsv4_moe_ep.py [--hidden 1024 --ffn 256]
@@ -32,6 +36,7 @@ from rl_engine.models.deepseek_v4.router import Dsv4Router
 from rl_engine.moe.mx_format import mx_quantize
 
 E, SCALE, VOCAB = 256, 1.5, 4096
+TOL = 1e-3  # LoRA dX and adapter gradients vs EP = 1 (relative L2)
 
 
 def _weights(hidden, ffn, shared_ffn, device):
@@ -177,15 +182,24 @@ def main() -> int:
                     ref.backward(dout)
                     gsame = torch.equal(grads[0].view(torch.int16), xf.grad.view(torch.int16))
                     grerun = torch.equal(grads[0].view(torch.int16), grads[1].view(torch.int16))
+                    want = xf.grad.float()
+                    grel = float((grads[0].float() - want).norm() / want.norm().clamp_min(1e-30))
                     for got, want in zip(lgrads[0], routed_grads(ref_moe)):
                         err = float((got - want).norm() / want.norm().clamp_min(1e-30))
                         lerr = max(lerr, err)
-                    lclose = lerr < 1e-4
-                good = same and rerun and gsame and grerun and lclose
+                    lclose = lerr < TOL
+                # Without LoRA dX is batch-invariant: byte equal to EP = 1.
+                gok = gsame if not args.lora else (gsame or grel < TOL)
+                good = same and rerun and gok and grerun and lclose
                 ok &= good
                 diff = (outs[0].float() - ref.float()).abs().max().item() if n else 0.0
                 kind = "hash" if hash_layer else "scored"
-                bwd = f", dx {'same' if gsame and grerun else 'DIFFERS'}" if backward else ""
+                bwd = (
+                    f", dx vs EP1 {'same' if gsame else f'DIFFERS rel {grel:.1e}'}"
+                    f", dx run-to-run {'same' if grerun else 'DIFFERS'}"
+                    if backward
+                    else ""
+                )
                 if backward and args.lora:
                     bwd += f", LoRA grads rel {lerr:.1e}"
                 print(
