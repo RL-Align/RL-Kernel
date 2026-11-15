@@ -170,11 +170,23 @@ class FullModelTrace:
         )
 
 
+class CandidateBindingError(RuntimeError, ValueError):
+    """The RL-Kernel graph could not be bound: a candidate or boundary row has no CUDA op.
+
+    This is the only error a caller may treat as a fallback (audit mode runs the provider
+    instead). A structural or configuration error of the model or of the call is a plain
+    ``ValueError`` and must propagate. It subclasses both ``RuntimeError`` (what the registry
+    raises for a missing backend) and ``ValueError`` (what ``require_candidate_cuda`` raised).
+    """
+
+
 def require_candidate_cuda(ops):
+    """The candidate ops' backends; raises ``CandidateBindingError`` if one is not CUDA."""
+
     backends = ops.backends()
     for name in ("projection", "norm", "gate"):
         if ".cuda." not in backends[name]:
-            raise ValueError(f"candidate {name} fell back from its CUDA implementation")
+            raise CandidateBindingError(f"candidate {name} fell back from its CUDA implementation")
     return backends
 
 
@@ -234,11 +246,14 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
     from rl_engine.validation.models import h3_refiner
 
     registry = KernelRegistry()
-    row_ops = {
-        name: registry.get_op(row, device="cuda")
-        for name, row in STRICT_BOUNDARY_ROWS.items()
-        if name != "token_refiner" and name not in native
-    }
+    try:
+        row_ops = {
+            name: registry.get_op(row, device="cuda")
+            for name, row in STRICT_BOUNDARY_ROWS.items()
+            if name != "token_refiner" and name not in native
+        }
+    except RuntimeError as exc:  # no functional CUDA backend for a row
+        raise CandidateBindingError(str(exc)) from exc
     originals = []
 
     def project(name):
@@ -333,7 +348,11 @@ def full_model_execution(
     if unknown_boundaries:
         raise ValueError(f"unknown boundary modules: {sorted(unknown_boundaries)}")
     if candidate:
-        ops = ops or h3_block.CandidateOps()
+        if ops is None:
+            try:
+                ops = h3_block.CandidateOps()
+            except RuntimeError as exc:  # e.g. the candidate ops' CUDA kernels are missing
+                raise CandidateBindingError(str(exc)) from exc
         if hasattr(ops, "backends"):
             trace.actual_backends = require_candidate_cuda(ops)
     boundary_context = (
