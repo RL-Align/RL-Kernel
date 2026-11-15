@@ -218,6 +218,22 @@ def verify_environment(expected, *, require_venv=False):
     return actual
 
 
+SUPPORTED_GPU_NAMES = ("B200", "H100", "H200")
+
+
+def require_four_supported_gpus():
+    """Require exactly four Blackwell B200 or Hopper H100/H200 GPUs."""
+    import torch
+
+    names = [torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())]
+    if len(names) != 4 or any(
+        not any(gpu in name for gpu in SUPPORTED_GPU_NAMES) for name in names
+    ):
+        raise RuntimeError(
+            f"topology_mismatch: requires exactly four GPUs of {SUPPORTED_GPU_NAMES}, got {names}"
+        )
+
+
 if __name__ == "__main__":
     print(json.dumps(current_identity(), sort_keys=True))
 

@@ -23,6 +23,28 @@ from rl_engine.reference.linear_attn.gated_delta_rule import NULL_BLOCK_ID, _val
 __all__ = ["CausalConv1dUpdateOp"]
 
 
+class _SiluFp32(torch.autograd.Function):
+    """``acc / (1 + exp(-acc))`` in the forward, a backward that cannot overflow.
+
+    ``exp(-acc)`` overflows FP32 for ``acc < -88.7``. The forward then still returns a
+    finite ``-0.``, but autograd's backward of the same expression multiplies ``inf`` by
+    ``0`` and returns NaN. The forward is kept as is, so the values stay the ones the
+    provider comparison was made against; the backward is ``s * (1 + acc * (1 - s))``
+    with ``s = sigmoid(acc)``, which is finite for every finite ``acc``.
+    """
+
+    @staticmethod
+    def forward(ctx, acc: torch.Tensor) -> torch.Tensor:
+        ctx.save_for_backward(acc)
+        return acc / (1.0 + torch.exp(-acc))
+
+    @staticmethod
+    def backward(ctx, grad_out: torch.Tensor) -> torch.Tensor:
+        (acc,) = ctx.saved_tensors
+        s = torch.sigmoid(acc)
+        return grad_out * (s * (1.0 + acc * (1.0 - s)))
+
+
 class CausalConv1dUpdateOp:
     """One decode token through the paged causal-conv1d cache.
 
@@ -33,10 +55,14 @@ class CausalConv1dUpdateOp:
     ``conv_state`` ``[num_blocks, dim, W-1]``  paged; ``dim_first`` layout
     ``weight``     ``[dim, W]``
     ``bias``       ``[dim]`` or ``None``
-    ``indices``    ``[B]``                     ``<= 0`` skips (vLLM: ``== 0``)
+    ``indices``    ``[B]``                     ``== 0`` skips (as vLLM); ``< 0`` is rejected
     ============== ========================== ==========================
 
     Returns ``(out, conv_state)``; the state is updated out of place.
+
+    A skipped row (index ``0``) leaves its cache block unchanged and gets an all-zero
+    output row. vLLM's kernel leaves ``out`` untouched for such a row instead, so a
+    comparison against the provider must not include skipped rows.
     """
 
     def __call__(
@@ -135,11 +161,14 @@ class CausalConv1dUpdateOp:
             raise ValueError("weight must be 2-D [dim, W] with positive dimensions")
         if x.shape[1] != dim:
             raise ValueError("x and conv_state must have the same dim")
-        _validate_state_indices(conv_state_indices, x.shape[0], state.shape[0], x.device)
         # vLLM's causal_conv1d_update skips only the null block id; a negative entry is
-        # not a null block there. Reject it instead of treating it as inactive.
+        # not a null block there. Reject it instead of treating it as inactive, before
+        # any other check, and validate the rest with the conv rule (only 0 is skipped).
         if bool((conv_state_indices < 0).any()):
             raise ValueError("conv state indices must be >= 0; only the null block id is skipped")
+        _validate_state_indices(
+            conv_state_indices, x.shape[0], state.shape[0], x.device, skip_negative=False
+        )
         for name, tensor in (
             ("x", x),
             ("conv_state", conv_state),
@@ -158,7 +187,10 @@ class CausalConv1dUpdateOp:
 
         active = conv_state_indices != NULL_BLOCK_ID
         out = torch.zeros(x.shape, dtype=torch.float32, device=x.device)
-        new_state = conv_state.clone()  # the cache dtype is the contract here
+        # The cache dtype is the contract here. `state` above is a view of the caller's
+        # `conv_state` (transposed for the SD layout) and is only read; every write goes
+        # to this clone, so the caller's cache is never modified.
+        new_state = conv_state.clone()
         if not bool(active.any()):
             return out.to(output_dtype), new_state
 
@@ -177,7 +209,7 @@ class CausalConv1dUpdateOp:
             product = window[..., tap] * weight[:, tap].unsqueeze(0)
             acc = acc + product.float()
         if activation in ("silu", "swish"):
-            acc = acc / (1.0 + torch.exp(-acc))
+            acc = _SiluFp32.apply(acc)
 
         out[rows] = acc
         rolled = window[..., 1:]

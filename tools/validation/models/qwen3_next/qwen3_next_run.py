@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Run the Qwen3-Next full-model chain inside any allocation with four B200 GPUs.
+"""Run the Qwen3-Next full-model chain on four B200 or Hopper (H100/H200) GPUs.
 
     python tools/validation/models/qwen3_next/qwen3_next_run.py --stage all \\
         --runs-root <dir> --checkpoint <Qwen3-Next-80B-A3B-Instruct> --cuda-home <cuda-13.0>
