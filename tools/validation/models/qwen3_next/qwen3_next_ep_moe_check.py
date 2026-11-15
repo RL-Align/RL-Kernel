@@ -16,6 +16,12 @@ Each rank writes ``rank-<r>.json``. The gate requires, bitwise:
 * the EP4 routed output, its input gradient and every owned expert's weight
   gradients equal to the same experts evaluated on one GPU with all 512
   experts at full width (``shared_moe``, EP1), for 8, 64, 256 and 1024 tokens;
+* the whole routed block, differentiated end to end through ``shared_router``,
+  ``stable_top10_routes``, the experts and ``combine_routes``
+  (``shared_moe_ep``), equal to ``shared_moe`` (EP1) on the same weights: the
+  output, the route indices and weights, the input gradient, the router weight
+  gradient (non-zero, identical on every rank) and the owned experts' weight
+  gradients, for the same token counts;
 * full batch == concatenated chunks, reordered tokens == reordered output;
 * a batch in which one rank owns no route (empty-rank participation);
 * the training forward (autograd on) == the no-grad forward, on every rank.
@@ -39,9 +45,11 @@ from rl_engine.models.qwen3_next.qwen3_next_ep import (  # noqa: E402
     LOCAL_EXPERTS,
     EP4MoE,
     _EPRoutedExperts,
+    shared_moe_ep,
 )
 from rl_engine.models.qwen3_next.qwen3_next_forward import (  # noqa: E402
     _RoutedExperts,
+    shared_moe,
     shared_router,
     stable_top10_routes,
 )
@@ -90,6 +98,36 @@ def _routed_pair(module, gate_up_ref, down_ref, hidden, indices, dy):
     return (rows, dx, dgu, ddown), (ref, rdx, rdgu[owned], rddown[owned])
 
 
+def _full_path_pair(module, gate_up_ref, down_ref, hidden, dy):
+    """EP4 vs EP1 through the router, top-10 routing, the experts and combine_routes."""
+    owned = slice(module.rank * LOCAL_EXPERTS, (module.rank + 1) * LOCAL_EXPERTS)
+    x = hidden.detach().requires_grad_(True)
+    router = module.gate.weight.detach().requires_grad_(True)
+    out, routes = shared_moe_ep(
+        x, router, module.experts.gate_up, module.experts.down, group=module.group
+    )
+    grads = torch.autograd.grad(out, (x, router, module.experts.gate_up, module.experts.down), dy)
+    xr = hidden.detach().requires_grad_(True)
+    rr = module.gate.weight.detach().requires_grad_(True)
+    gu = gate_up_ref.detach().requires_grad_(True)
+    dn = down_ref.detach().requires_grad_(True)
+    reference, ref_routes = shared_moe(xr, rr, gu, dn)
+    rgrads = torch.autograd.grad(reference, (xr, rr, gu, dn), dy)
+    ep = (out, routes.indices, routes.weights, *grads)
+    expected = (
+        reference,
+        ref_routes.indices,
+        ref_routes.weights,
+        *rgrads[:2],
+        rgrads[2][owned],
+        rgrads[3][owned],
+    )
+    return ep, expected
+
+
+FULL_PATH = ("output", "route_indices", "route_weights", "dx", "drouter", "dgate_up", "ddown")
+
+
 def ep_gate(checkpoint, generator):
     group = dist.group.WORLD
     rank = dist.get_rank()
@@ -128,6 +166,18 @@ def ep_gate(checkpoint, generator):
         ep, ref = _routed_pair(module, gate_up_ref, down_ref, hidden, routes.indices, dy)
         for name, a, b in zip(("rows", "dx", "dgate_up", "ddown"), ep, ref):
             exact(a, b, name=f"EP4 vs EP1 {name} {length}")
+        dy_block = torch.randn(
+            length, 2048, device=device, dtype=torch.bfloat16, generator=generator
+        )
+        ep, ref = _full_path_pair(module, gate_up_ref, down_ref, hidden, dy_block)
+        for name, a, b in zip(FULL_PATH, ep, ref):
+            exact(a, b, name=f"EP4 vs EP1 router/combine {name} {length}")
+        drouter = ep[FULL_PATH.index("drouter")]
+        if not torch.count_nonzero(drouter):
+            raise AssertionError(f"Router weight gradient is zero at {length} tokens")
+        for peer in gather(drouter):
+            exact(peer, drouter, name=f"router weight gradient across ranks {length}")
+        cases.append(f"ep4-vs-ep1-router-combine-backward-{length}")
         with torch.no_grad():
             whole = module(hidden)
             cut = min(65, length - 1)
