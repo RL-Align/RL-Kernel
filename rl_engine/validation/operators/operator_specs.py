@@ -32,6 +32,22 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "qwenimage_adaln_mod_projection": OperatorSpec(
+        name="qwenimage_adaln_mod_projection",
+        op_class="reduction",
+        gold_path=(
+            "rl_engine.reference.model_specific.qwenimage."
+            "adaln_mod_projection.QwenImageAdaLNModProjectionReference"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.qwenimage."
+                "adaln_mod_projection.QwenImageAdaLNModProjectionCudaOp"
+            )
+        },
+        grad_input_names=("temb", "weight", "bias"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
