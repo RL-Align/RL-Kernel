@@ -443,6 +443,8 @@ def full_model_execution(
         if ops is None:
             try:
                 ops = h3_block.CandidateOps()
+            except torch.cuda.OutOfMemoryError:
+                raise  # the device is out of memory: an error of the run, not a missing kernel
             except RuntimeError as exc:  # e.g. the candidate ops' CUDA kernels are missing
                 raise CandidateBindingError(str(exc)) from exc
         if hasattr(ops, "backends"):
