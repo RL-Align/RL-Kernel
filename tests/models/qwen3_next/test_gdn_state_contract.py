@@ -52,6 +52,9 @@ def test_invalid_cache_indices_are_rejected(kind, indices, message):
     "kind, indices",
     [
         ("conv", torch.tensor([0, 0, 0])),
+        # The two ops differ on purpose: the GDN provider skips every index <= 0, while
+        # vLLM's conv provider skips only 0 and a negative conv index is rejected below
+        # (see NULL_BLOCK_ID in gated_delta_rule.py).
         ("gdn", torch.tensor([0, -1, 0])),
         ("conv", torch.empty(0, dtype=torch.int64)),
         ("gdn", torch.empty(0, dtype=torch.int64)),
@@ -76,25 +79,21 @@ def test_gdn_requires_positive_integer_heads(heads):
 
 
 def test_conv_bias_is_accumulated_before_taps():
-    # Adding bias last would yield 1.0 instead of 0.0.
+    # Two products of 3.0 and a bias of 1e8 (fp32 spacing 8 there). Bias first: 1e8 + 3
+    # and 1e8 + 3 both round back to 1e8. Bias last: 3 + 3 = 6 survives, and 6 + 1e8
+    # rounds up to 100000008.
+    state = torch.zeros(2, 1, 1)
+    state[1] = 3.0
     out, _ = CausalConv1dUpdateOp()(
-        torch.tensor([[-1e8]]),
-        torch.zeros(2, 1, 1),
-        torch.tensor([[0.0, 1.0]]),
-        torch.tensor([1]),
-        bias=torch.tensor([1e8]),
-        activation=None,
-    )
-    assert out.item() == 0.0
-    out, _ = CausalConv1dUpdateOp()(
-        torch.tensor([[-1e8]]),
-        torch.ones(2, 1, 1),
+        torch.tensor([[3.0]]),
+        state,
         torch.ones(1, 2),
         torch.tensor([1]),
         bias=torch.tensor([1e8]),
         activation=None,
     )
-    assert out.item() == 0.0
+    assert out.item() == 1e8
+    assert out.item() != (3.0 + 3.0) + 1e8  # what adding the bias last would give
 
 
 def test_conv_bf16_products_round_before_fp32_accumulation():
@@ -129,3 +128,34 @@ def test_chunked_sum_keeps_fixed_order_for_non_multiple_of_32_width():
     assert torch.equal(_chunked_sum(x), chunked)
     # The reduction must not depend on the leading shape either.
     assert torch.equal(_chunked_sum(x[:1]), _chunked_sum(x)[:1])
+
+
+@pytest.mark.parametrize("tap_weight", [-100.0, -30.0, 0.5, 30.0, 100.0])
+def test_conv_silu_backward_is_finite_and_matches_torch_silu(tap_weight):
+    # exp(-acc) overflows FP32 for acc < -88.7; the forward value must stay the
+    # provider-matching one while the gradient stays finite and equal to F.silu's.
+    dim, width = 4, 4
+    state = torch.zeros(2, dim, width - 1)
+    weight = torch.zeros(dim, width)
+    weight[:, -1] = tap_weight
+    indices = torch.tensor([1])
+    x = torch.ones(1, dim, requires_grad=True)
+    out, _ = CausalConv1dUpdateOp().forward_fp32(x, state, weight, indices)
+    out.sum().backward()
+    acc = torch.full((1, dim), tap_weight, requires_grad=True)
+    torch.nn.functional.silu(acc).sum().backward()
+    assert torch.isfinite(x.grad).all()
+    torch.testing.assert_close(x.grad, acc.grad * tap_weight, rtol=1e-5, atol=1e-30)
+    plain = acc.detach() / (1.0 + torch.exp(-acc.detach()))
+    assert torch.equal(out.detach(), plain)
+
+
+def test_state_index_helper_skip_rule_is_explicit():
+    # The recurrent rule skips every index <= 0; the conv rule skips only 0, so a negative
+    # index is an active row and fails the range check instead of being dropped.
+    from rl_engine.reference.linear_attn.gated_delta_rule import _validate_state_indices
+
+    indices = torch.tensor([0, -1, 2])
+    _validate_state_indices(indices, 3, 4, indices.device)
+    with pytest.raises(ValueError, match="out of range"):
+        _validate_state_indices(indices, 3, 4, indices.device, skip_negative=False)
