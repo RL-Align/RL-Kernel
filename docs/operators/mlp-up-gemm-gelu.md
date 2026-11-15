@@ -195,7 +195,11 @@ RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND=hopper   # force the Hopper path; refuse if i
 RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND=auto     # default: Hopper when it can serve, general otherwise
 ```
 
-`general` is how the two paths are A/B compared on one machine. The two paths
+`general` is how the two paths are A/B compared on one machine. The switch is
+honoured at both levels -- the registry keeps only the candidates that can
+produce the requested contract, then the CUDA backend picks its kernel -- so a
+`general` call cannot be served by Triton's mma order (see
+[Dispatch Behavior](#dispatch-behavior)). The two paths
 are *different contracts*, so they do not produce the same `pre`/gradient bytes:
 the portable tree is byte-equal to the fp32 CPU reference and the Hopper path is
 byte-identical to the Triton backend.
@@ -265,12 +269,21 @@ under the mma contract.
 
 ## Dispatch Behavior
 
-- CUDA: the registry's candidates for the op (the CUDA backend, and the Triton
-  backend where it supports the target), then the PyTorch reference. Within the
-  CUDA backend, `auto` prefers the Hopper path when the extension has those
-  symbols and the device is cc 9.0, and runs the portable tree otherwise;
-  `hopper`/`general` override that (see above).
-- ROCm / MUSA: Triton, then the PyTorch reference.
+- CUDA (`auto`, or the switch unset): Triton first -- on Hopper it lowers to a
+  kernel byte-identical to the hand-written one -- then the CUDA backend, then
+  the PyTorch reference. Within the CUDA backend, `auto` prefers the Hopper path
+  when the extension has those symbols and the device is cc 9.0, and runs the
+  portable tree otherwise.
+- The switch names a *contract*, not a backend, so the registry narrows the
+  candidates before dispatch: `general` keeps only the tree producers (the CUDA
+  portable kernel, then the fp32 reference) and drops Triton, which implements
+  only the mma order; `hopper` keeps the CUDA Hopper kernel first and Triton
+  (the same mma contract, byte-identical) as its fallback, and drops the fp32
+  reference, which is the tree. A pinned contract never falls through to a
+  backend that would change the arithmetic: when nothing can serve it, dispatch
+  raises instead of running the other order.
+- ROCm / MUSA: Triton, then the PyTorch reference (`general` makes it the fp32
+  reference only, since the tree kernel is CUDA-only).
 - CPU / NPU: the PyTorch reference only.
 
 The CUDA and Triton backends raise on fp32 input and on non-CUDA tensors; the

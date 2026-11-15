@@ -118,6 +118,12 @@ def mlp_up_gemm_gelu_backend() -> str:
     arithmetic order) when it cannot serve the operands. ``auto`` picks the
     Hopper path when it can serve the contraction and the portable tree
     otherwise.
+
+    This switch is also honoured above this module: the registry narrows the
+    row's candidates to the backends that can produce the requested contract
+    (``KernelRegistry._pin_mlp_up_gemm_gelu_contract``), so a ``general`` call
+    cannot be served by Triton's mma order before it ever reaches here. The
+    value is validated in both places, so a typo fails at dispatch as well.
     """
 
     raw = os.environ.get(_BACKEND_ENV, _AUTO_BACKEND).strip().lower()

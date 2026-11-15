@@ -999,7 +999,60 @@ class KernelRegistry:
             else:
                 candidates.append(backend)
 
+    # The mlp_up_gemm_gelu row's path switch names a *contract*, not a backend:
+    # ``general`` is the portable fp32 tree, ``hopper`` the hardware (mma) order.
+    # The Triton backend implements only the mma order and the fp32 reference
+    # only the tree, so a pinned contract maps to the backends that can produce
+    # it, in dispatch order. ``auto`` is absent on purpose: it leaves the static
+    # lists untouched.
+    _MLP_UP_GEMM_GELU_CONTRACT_BACKENDS = {
+        "general": (
+            OpBackend.CUDA_MLP_UP_GEMM_GELU,
+            OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+        ),
+        "hopper": (
+            OpBackend.CUDA_MLP_UP_GEMM_GELU,
+            OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        ),
+    }
+
+    def _pin_mlp_up_gemm_gelu_contract(self, requested: str) -> None:
+        """Narrow this row's candidates to the backends that implement ``requested``.
+
+        ``RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND`` is read by the CUDA backend to
+        pick between its two kernels, but dispatch happens *before* that, and
+        the static order puts Triton first (on Hopper it lowers to a kernel
+        byte-identical to the hand-written one). Triton cannot produce the
+        portable tree, so without this filter a ``general`` request would run
+        the mma arithmetic anyway -- the pin silently doing nothing.
+
+        A candidate that cannot produce the requested contract is dropped, not
+        demoted: if nothing is left, ``get_op`` raises instead of running a
+        different arithmetic order. The reference keeps its slot under
+        ``general`` because it *is* the tree; it has none under ``hopper``.
+        """
+
+        if requested == "auto":
+            return
+        producers = self._MLP_UP_GEMM_GELU_CONTRACT_BACKENDS.get(requested)
+        if producers is None:
+            raise ValueError(
+                "RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND must be one of "
+                f"{('auto',) + tuple(self._MLP_UP_GEMM_GELU_CONTRACT_BACKENDS)}; "
+                f"got {requested!r}"
+            )
+        for platform_candidates in self._priority_map.values():
+            candidates = platform_candidates.get("mlp_up_gemm_gelu")
+            if candidates is None:
+                continue
+            candidates[:] = [backend for backend in producers if backend in candidates]
+
     def _adjust_priority_from_env(self):
+        mlp_up_gemm_gelu_backend = (
+            os.getenv("RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND", "").strip().lower()
+        )
+        if mlp_up_gemm_gelu_backend:
+            self._pin_mlp_up_gemm_gelu_contract(mlp_up_gemm_gelu_backend)
         rocm_attn_backend = os.getenv("RL_KERNEL_ROCM_ATTN_BACKEND", "").strip().lower()
         if rocm_attn_backend in {"flash_attn", "flash-attn", "flash_attention"}:
             self._priority_map["rocm"]["attn"] = [
