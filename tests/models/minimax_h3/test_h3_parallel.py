@@ -241,9 +241,9 @@ def test_parallel_block_equals_single_gpu_bitwise(tp, cp, sp, length, h3_block_w
         full = ref["dw." + name].cpu()
         shards = [r["dw." + name].cpu() for r in ordered[:tp]]
         assert torch.equal(torch.cat(shards, dim=axis), full), f"dW {name} differs"
-        for r in ordered:
+        for r in ordered:  # global rank r is (cp_rank, tp_rank) = divmod(r, tp)
             assert torch.equal(
-                r["dw." + name].cpu(), shards[ordered.index(r) % tp]
+                r["dw." + name].cpu(), shards[int(r["rank"]) % tp]
             ), f"dW {name} differs between CP ranks"
 
 
