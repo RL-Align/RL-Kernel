@@ -453,9 +453,11 @@ def full_model_execution(
         else None
     )
     exc_info: tuple = (None, None, None)
+    boundary_entered = False  # exit the boundary context only if its ``__enter__`` returned
     try:
         if boundary_context is not None:
             boundary_context.__enter__()
+            boundary_entered = True
         for i, block in enumerate(model.transformer_blocks):
             if candidate:
                 original = block.forward
@@ -517,7 +519,7 @@ def full_model_execution(
             handle.remove()
         for block, original in originals:
             block.forward = original
-        if boundary_context is not None:
+        if boundary_context is not None and boundary_entered:
             boundary_context.__exit__(*exc_info)
 
 

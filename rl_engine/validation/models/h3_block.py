@@ -203,6 +203,18 @@ def _row_keys(x: torch.Tensor) -> torch.Tensor:
 
 
 QKV_WEIGHTS = ("attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight")
+FUSED_QKV_CACHE = "_fused_qkv"
+
+
+def evaluation_ctx(ctx: dict[str, Any]) -> dict[str, Any]:
+    """``ctx`` for one evaluation of a graph: a shallow copy with its own fused-QKV cache.
+
+    The three projection nodes of that evaluation share one combined call; a repeated
+    evaluation of the same ``ctx`` (a repeat or determinism check), or one with other ops,
+    always recomputes and never reads an earlier evaluation's outputs.
+    """
+
+    return {**ctx, FUSED_QKV_CACHE: {}}
 
 
 def fused_qkv(
@@ -211,13 +223,13 @@ def fused_qkv(
     """``(q, k, v)`` of one combined ``h3_qkv_gemm`` call, shared by the three projection nodes.
 
     The first node to run on ``x`` makes the call (``ops.qkv(x2d, wq, wk, wv)``, with the rows'
-    logical keys); the others read its outputs. The cache is keyed on the identity of ``x`` and
-    of the three weights, so a copied ``ctx`` (new weights or inputs) never reads another run's
-    outputs.
+    logical keys); the others read its outputs. The cache lives for one graph evaluation
+    (``evaluation_ctx``, used by ``run_graph`` / ``run_isolated``) and is keyed on the identity of
+    ``ops``, ``x`` and the three weights, so other ops, inputs or weights always recompute.
     """
 
-    key = (x, *weights)
-    cache = ctx.setdefault("_fused_qkv", {})
+    key = (ops, x, *weights)
+    cache = ctx.setdefault(FUSED_QKV_CACHE, {})
     cached = cache.get("key")
     if cached is None or any(a is not b for a, b in zip(cached, key, strict=True)):
         flat = x.reshape(-1, x.shape[-1])
@@ -449,6 +461,7 @@ def strict_fp32_matmul():
 def run_graph(mode: str, ctx: dict[str, Any], ops: CandidateOps | None = None) -> dict[str, Any]:
     """Every node's output for one mode ("candidate", "provider" or "golden")."""
 
+    ctx = evaluation_ctx(ctx)
     values: dict[str, Any] = {"hidden": ctx["hidden"], "temb": ctx["temb"]}
     # Diagnostic hybrids only: these candidate nodes run their provider replay instead.
     provider_nodes = ctx.get("provider_nodes", ())
@@ -474,6 +487,7 @@ def run_isolated(
 ) -> dict[str, Any]:
     """Each candidate node fed the provider's inputs to that node."""
 
+    ctx = evaluation_ctx(ctx)
     return {
         node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
         for node in NODES

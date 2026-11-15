@@ -203,6 +203,7 @@ def make_refiner_context(
 def run_graph(mode: str, ctx: dict[str, Any], ops: hb.CandidateOps | None = None) -> dict[str, Any]:
     """Every node's output for one refiner block ("candidate", "provider" or "golden")."""
 
+    ctx = hb.evaluation_ctx(ctx)
     values: dict[str, Any] = {"hidden": ctx["hidden"]}
     observer = ctx.get("node_observer")
     with hb.strict_fp32_matmul():
@@ -224,6 +225,7 @@ def run_isolated(
 ) -> dict[str, Any]:
     """Each candidate node fed the provider's inputs to that node."""
 
+    ctx = hb.evaluation_ctx(ctx)
     return {
         node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
         for node in NODES
