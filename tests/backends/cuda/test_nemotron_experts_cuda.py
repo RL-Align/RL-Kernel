@@ -316,6 +316,20 @@ def test_provider_selection_prefers_native(monkeypatch):
     assert fallback.provider_id == "rlkernel.nemotron_experts.triton.v1"
 
 
+@_SM90
+def test_provider_selection_rejects_pre_sm90_device(monkeypatch):
+    """The compile flag says the kernel exists, not that this GPU can run it."""
+    if not _native_compiled():
+        pytest.skip("native SM90 experts extension is not built")
+    from rl_engine.backends.shared.triton.moe.nemotron_experts import TritonNemotronExpertsOp
+    from rl_engine.runtime.registry import KernelRegistry
+
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *args, **kwargs: (8, 0))
+    op = KernelRegistry().get_op("moe_experts_combine", device="cuda")
+    assert isinstance(op, TritonNemotronExpertsOp)
+    assert op.provider_id == "rlkernel.nemotron_experts.triton.v1"
+
+
 @pytest.mark.parametrize("device", ["cpu", "mps"])
 def test_unsupported_devices_fail_closed(device):
     from rl_engine.runtime.registry import KernelRegistry

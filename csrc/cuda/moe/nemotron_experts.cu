@@ -1144,7 +1144,11 @@ nemotron_experts_forward(torch::Tensor packed, c10::optional<torch::Tensor> x,
   TORCH_CHECK(w_down.size(0) == experts, "up and down weights must cover the same experts");
   TORCH_CHECK(offsets.numel() == experts + 1, "offsets must hold experts+1 prefix sums");
   TORCH_CHECK(permutation.numel() == rows, "permutation must cover every packed row");
-  TORCH_CHECK(weights.numel() == rows, "weights must hold one value per route");
+  // Rank two is part of the contract, not just the element count: backward
+  // returns the route gradient as [tokens, 6], so a flat [rows] input would make
+  // autograd reject that gradient at accumulation time.
+  TORCH_CHECK(weights.dim() == 2 && weights.size(0) == tokens && weights.size(1) == 6,
+              "weights must be [tokens, 6] float32");
   TORCH_CHECK(w_sh1.has_value() == w_sh2.has_value(), "shared expert weights come as a pair");
 
   const bool shared = w_sh1.has_value();

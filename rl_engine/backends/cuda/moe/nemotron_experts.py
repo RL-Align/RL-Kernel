@@ -33,6 +33,17 @@ class NemotronExpertsOp:
             raise RuntimeError(
                 "nemotron experts native kernel requires KERNEL_ALIGN_DET_GEMM_SM90=1"
             )
+        # The build flag says the kernel exists, not that this device can run
+        # it: `KERNEL_ALIGN_DET_GEMM_SM90=1` compiles the SM90 wgmma/MMA paths
+        # from the build host's architecture, and the registry lists this
+        # provider first for every CUDA device. Reject a pre-Hopper device here
+        # so `get_op` falls through to the strict Triton provider instead of
+        # failing at the first launch.
+        major, minor = torch.cuda.get_device_capability()
+        if major < 9:
+            raise RuntimeError(
+                f"nemotron experts native kernel requires NVIDIA SM90, got sm_{major}{minor}"
+            )
         self._compiled = True
 
     def __call__(

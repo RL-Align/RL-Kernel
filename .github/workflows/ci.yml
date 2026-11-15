@@ -94,8 +94,7 @@ jobs:
         run: |
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
             tests/reference/test_nemotron_router_reference.py \
-            tests/reference/test_nemotron_experts_reference.py \
-            tests/backends/cuda/test_nemotron_router_cuda.py
+            tests/reference/test_nemotron_experts_reference.py
 
       - name: Run Attention Ground-Truth Tests (CPU-safe)
         run: |

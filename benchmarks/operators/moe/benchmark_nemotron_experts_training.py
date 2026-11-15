@@ -17,8 +17,10 @@ Cotangents are prepared outside timing.
 
 The FP64 qualification rebuilds the pipeline in FP64 and reports the relative L2
 error of the forward and every gradient. It is memory bound, so
-`--qualify-max-tokens` bounds which rows carry a verdict; larger rows record why
-they carry none.
+`--qualify-max-tokens` bounds which rows carry a verdict, and a set whose
+estimated FP64 footprint (dominated by the token-independent FP64 weights and
+their gradients) exceeds the free device memory is skipped with that reason
+instead of OOMing; skipped rows record why they carry none.
 
 Transformer Engine is not used: the pinned `transformer_engine==2.19.0` grouped
 GEMM is not available in this environment, and the documented baseline is the
@@ -46,6 +48,7 @@ EXPERTS = 128
 SHARED = 3712
 SLOTS = 6
 GRADIENT_NAMES = ("packed", "x", "weights", "w_up", "w_down", "w_sh1", "w_sh2")
+DTYPES = {"bf16": torch.bfloat16}
 
 
 def stats_error(actual, expected):
@@ -56,7 +59,7 @@ def stats_error(actual, expected):
     }
 
 
-def build(tokens, distribution, seed=434):
+def build(tokens, distribution, seed=434, dtype=torch.bfloat16):
     """Router output, payload, stacked weights and a fixed cotangent."""
     generator = torch.Generator().manual_seed(seed)
     payload = torch.randn(tokens, HIDDEN, generator=generator) * 0.5
@@ -68,22 +71,22 @@ def build(tokens, distribution, seed=434):
     permutation, offsets, packed = dispatch_tokens(payload, ids, EXPERTS)
     device = "cuda"
     case = {
-        "packed": packed.to(device=device, dtype=torch.bfloat16),
-        "x": payload.to(device=device, dtype=torch.bfloat16),
+        "packed": packed.to(device=device, dtype=dtype),
+        "x": payload.to(device=device, dtype=dtype),
         "weights": route_weights.to(device=device),
         "permutation": permutation.to(device=device),
         "offsets": offsets.to(device=device),
         "w_up": (torch.randn(EXPERTS, INTERMEDIATE, HIDDEN, generator=generator) * 0.05).to(
-            device=device, dtype=torch.bfloat16
+            device=device, dtype=dtype
         ),
         "w_down": (torch.randn(EXPERTS, HIDDEN, INTERMEDIATE, generator=generator) * 0.02).to(
-            device=device, dtype=torch.bfloat16
+            device=device, dtype=dtype
         ),
         "w_sh1": (torch.randn(SHARED, HIDDEN, generator=generator) * 0.05).to(
-            device=device, dtype=torch.bfloat16
+            device=device, dtype=dtype
         ),
         "w_sh2": (torch.randn(HIDDEN, SHARED, generator=generator) * 0.02).to(
-            device=device, dtype=torch.bfloat16
+            device=device, dtype=dtype
         ),
         "ids": ids,
     }
@@ -101,7 +104,7 @@ def build(tokens, distribution, seed=434):
             "active_experts": active,
         },
         "cotangent": (torch.randn(tokens, HIDDEN, generator=steps) * 0.01).to(
-            device=device, dtype=torch.bfloat16
+            device=device, dtype=dtype
         ),
     }
     return case, meta
@@ -132,7 +135,7 @@ def baseline_calls(case, spans, leaves, cotangent):
             row = wide[packed_rows[:, slot]]
             routed = routed + row * source_weights[:, slot : slot + 1]
         shared = torch.relu(source_x.float() @ sh1.float().t()).square() @ sh2.float().t()
-        return (routed + shared).to(torch.bfloat16)
+        return (routed + shared).to(packed.dtype)
 
     def forward():
         return body(
@@ -189,14 +192,14 @@ def grouped_mm_calls(case):
         routed = torch.zeros((tokens, width), device=device, dtype=torch.float32)
         for slot in range(SLOTS):
             routed = routed + wide[packed_rows[:, slot]].float() * weights[:, slot : slot + 1]
-        return (routed + shared.float()).to(torch.bfloat16)
+        return (routed + shared.float()).to(packed.dtype)
 
     def forward():
         up = grouped_mm(packed, up_t, offs=offs)
-        gate = torch.relu(up.float()).square().to(torch.bfloat16)
+        gate = torch.relu(up.float()).square().to(packed.dtype)
         wide = grouped_mm(gate, down_t, offs=offs)
         shared_up = grouped_mm(case["x"], sh1_t, offs=single)
-        shared_gate = torch.relu(shared_up.float()).square().to(torch.bfloat16)
+        shared_gate = torch.relu(shared_up.float()).square().to(packed.dtype)
         shared = grouped_mm(shared_gate, sh2_t, offs=single)
         return combine(wide, shared)
 
@@ -237,11 +240,41 @@ def provider_calls(op, case, leaves, cotangent):
     return forward, backward
 
 
+def qualification_bytes(case):
+    """Estimate the FP64 qualification's peak device memory.
+
+    Parameters and their gradients dominate and do not depend on the token
+    count; the routed activations add one term proportional to `rows`. The
+    estimate is a lower bound with a small margin, used only to skip a
+    qualification that cannot fit rather than to size an allocation.
+    """
+    parameters = sum(
+        case[name].numel()
+        for name in ("w_up", "w_down", "w_sh1", "w_sh2")
+        if case.get(name) is not None
+    )
+    rows = case["packed"].shape[0]
+    width = case["packed"].shape[1]
+    intermediate = case["w_up"].shape[1]
+    shared = case["w_sh1"].shape[0] if case.get("w_sh1") is not None else 0
+    tokens = case["x"].shape[0]
+    # FP64 parameters + their FP64 gradients, then the routed and token
+    # activation/backward buffer sets at FP64.
+    elements = 2 * parameters + 6 * rows * (width + intermediate) + 3 * tokens * (width + shared)
+    return int(elements * 8 * 1.1)
+
+
 def qualify(op, case, meta, token_limit):
     """FP64 comparison of the forward and every gradient on this provider."""
     tokens = case["x"].shape[0]
     if tokens > token_limit:
         return {"skipped": f"above --qualify-max-tokens={token_limit}"}
+    needed = qualification_bytes(case)
+    free_bytes, _ = torch.cuda.mem_get_info()
+    if needed > free_bytes:
+        return {
+            "skipped": f"needs ~{needed / 2**30:.1f} GiB FP64, {free_bytes / 2**30:.1f} GiB free"
+        }
     leaves = leaves_of(case)
     cotangent = meta["cotangent"]
     args = (case["permutation"], case["offsets"])
@@ -272,18 +305,20 @@ def capture(fn):
     for _ in range(5):
         fn()
     torch.cuda.synchronize()
+    # Measure the increment around capture, not around an eager call: a graph
+    # keeps its own private pool, so an eager call taken before capture misses
+    # exactly the memory graph mode adds. Providers are captured in sequence and
+    # `before` already holds the previous graphs, so the subtraction isolates
+    # this provider's increment and the numbers stay comparable across providers.
     before = torch.cuda.memory_allocated()
     torch.cuda.reset_peak_memory_stats()
-    once = fn()
-    torch.cuda.synchronize()
-    peak = torch.cuda.max_memory_allocated() - before
-    del once
     graph = torch.cuda.CUDAGraph()
     with torch.cuda.graph(graph):
         outputs = fn()
     for _ in range(5):
         graph.replay()
     torch.cuda.synchronize()
+    peak = torch.cuda.max_memory_allocated() - before
     return graph, outputs, peak
 
 
@@ -335,9 +370,11 @@ def provider_op(name):
         from rl_engine.backends.cuda.moe.nemotron_experts import NemotronExpertsOp
 
         return NemotronExpertsOp()
-    from rl_engine.backends.shared.triton.moe.nemotron_experts import TritonNemotronExpertsOp
+    if name == "triton":
+        from rl_engine.backends.shared.triton.moe.nemotron_experts import TritonNemotronExpertsOp
 
-    return TritonNemotronExpertsOp()
+        return TritonNemotronExpertsOp()
+    raise ValueError(f"unknown provider {name!r}: expected 'native' or 'triton'")
 
 
 def main():
@@ -346,9 +383,11 @@ def main():
     parser.add_argument(
         "--tokens", type=int, nargs="+", default=[1, 16, 128, 513, 1024, 4096, 8192, 32768]
     )
-    parser.add_argument("--dtype", choices=["bf16"], default="bf16")
+    parser.add_argument("--dtype", choices=list(DTYPES), default="bf16")
     parser.add_argument("--distributions", nargs="+", default=["random", "concentrated"])
-    parser.add_argument("--providers", nargs="+", default=["native", "triton"])
+    parser.add_argument(
+        "--providers", nargs="+", choices=["native", "triton"], default=["native", "triton"]
+    )
     parser.add_argument(
         "--baselines",
         nargs="+",
@@ -383,12 +422,13 @@ def main():
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     torch.manual_seed(434)
+    dtype = DTYPES[args.dtype]
 
     providers = {}
     for name in args.providers:
         try:
             providers[name] = provider_op(name)
-        except RuntimeError as error:
+        except (RuntimeError, ImportError) as error:
             print(f"provider {name} unavailable: {error}", flush=True)
     if not providers:
         parser.error("no provider available")
@@ -414,6 +454,12 @@ def main():
             "Transformer Engine 2.19 grouped GEMM is not installed, so the baseline is the "
             "eager expert-by-expert formulation that actually ran"
         ),
+        "precision": (
+            "providers run the selected payload dtype with FP32 accumulation and the "
+            "contract's BF16 leaf rounding; the eager baseline widens every operand to "
+            "float32, so speedup_*_vs_baseline compares a BF16 operator with an FP32 "
+            "reference rather than two equal-precision GEMMs. grouped_mm runs BF16."
+        ),
         "arguments": {**vars(args), "output": args.output.name},
         "rows": [],
     }
@@ -422,7 +468,7 @@ def main():
     with torch.cuda.stream(stream):
         for distribution in args.distributions:
             for tokens in args.tokens:
-                case, meta = build(tokens, distribution)
+                case, meta = build(tokens, distribution, dtype=dtype)
                 cotangent = meta["cotangent"]
                 leaves = leaves_of(case)
                 calls = {}
@@ -459,6 +505,7 @@ def main():
                     row = {
                         "tokens": tokens,
                         "dtype": args.dtype,
+                        "baseline_dtypes": {"eager": "float32", "grouped_mm": args.dtype},
                         "distribution": distribution,
                         "phase": phase,
                         "reverse": args.reverse,
