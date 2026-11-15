@@ -559,6 +559,9 @@ def test_cuda_dispatch_fails_closed_without_triton(monkeypatch):
     from rl_engine.runtime.registry import KernelRegistry
 
     monkeypatch.setattr(cu.gemm, "available", lambda: False)
+    # the NVIDIA priority lists are what this checks, also on a HIP build of torch, where
+    # ``device="cuda"`` would otherwise select the ROCm lists
+    monkeypatch.setattr(KernelRegistry, "_platform_for_device", lambda self, device: "cuda")
     registry = KernelRegistry()
     for row in ref.SPECS:
         with pytest.raises(RuntimeError, match="No functional backend"):

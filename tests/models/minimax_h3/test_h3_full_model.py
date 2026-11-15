@@ -413,6 +413,68 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
     assert active_session() is None
 
 
+def _stand_in_rows(monkeypatch):
+    """Every boundary row resolves to the provider's linear."""
+    from rl_engine.runtime.registry import KernelRegistry
+
+    class Row:
+        def forward(self, x, weight, bias, **_):
+            """A stand-in row: the provider's linear."""
+            return torch.nn.functional.linear(x, weight, bias)
+
+        __call__ = forward
+
+    monkeypatch.setattr(KernelRegistry, "get_op", lambda self, row, device=None: Row())
+
+
+def _projection_model():
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+
+    model = Model()
+    for name in STRICT_BOUNDARY_ROWS:
+        if name != "token_refiner":
+            setattr(model, name, torch.nn.Linear(4, 3))
+    return model
+
+
+def test_an_instance_forward_from_before_the_binding_is_restored(monkeypatch):
+    """A module that already had its own instance ``forward`` gets that one back on exit."""
+    _stand_in_rows(monkeypatch)
+    model = _projection_model()
+
+    def wrapper(x):
+        """A pre-existing instance forward (e.g. another tool's wrapper)."""
+        return torch.zeros(x.shape[:-1] + (3,))
+
+    model.proj_out.forward = wrapper
+    with full_model_execution(
+        model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+    ):
+        assert model.proj_out.forward is not wrapper
+    assert model.proj_out.forward is wrapper
+    assert "forward" not in model.proj_in.__dict__
+
+
+def test_a_wrapped_boundary_linear_is_refused_before_binding(monkeypatch):
+    """A boundary projection that is not a plain ``nn.Linear`` (e.g. a PEFT adapter) is refused:
+    its row would compute from ``weight`` / ``bias`` alone and drop the adapter."""
+    from rl_engine.validation.models.h3_full_model import CandidateBindingError
+
+    class Adapted(torch.nn.Linear):
+        """A linear with extra trainable parameters of its own."""
+
+    _stand_in_rows(monkeypatch)
+    model = _projection_model()
+    model.context_embedder = Adapted(4, 3)
+    with pytest.raises(ValueError, match="strict context_embedder binding needs a plain") as raised:
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            pass
+    assert not isinstance(raised.value, CandidateBindingError)
+    assert all("forward" not in getattr(model, n).__dict__ for n in ("proj_in", "proj_out"))
+
+
 def test_an_error_inside_the_strict_context_is_not_replaced_by_the_session_check(monkeypatch):
     """A body error after backward started propagates as it is, not as an incomplete session."""
     from rl_engine.ops.autograd.canonical_backward import active_session

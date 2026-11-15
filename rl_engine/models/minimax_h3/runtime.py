@@ -155,6 +155,7 @@ class H3DiffusersAdapter:
 
         from rl_engine.validation.models.h3_full_model import CandidateBindingError, FullModelTrace
 
+        self.fell_back = None  # per activation: an earlier failed binding does not carry over
         bind = self._bind()
         with ExitStack() as stack:
             try:

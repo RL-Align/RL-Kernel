@@ -276,9 +276,17 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
                 out = call(flat, module.weight, module.bias)
             return out.view(*x.shape[:-1], out.shape[-1])
 
-        originals.append((module, module.forward))
+        originals.append((module, module.__dict__.get("forward")))
         module.forward = forward
 
+    # the rows compute from ``weight`` / ``bias`` alone: a wrapped module (e.g. a PEFT adapter)
+    # would lose its own parameters, so it is refused before anything is bound
+    for name in row_ops:
+        module = getattr(model, name)
+        if type(module) is not torch.nn.Linear:
+            raise ValueError(
+                f"strict {name} binding needs a plain nn.Linear, got {type(module).__name__}"
+            )
     for name in row_ops:
         project(name)
 
@@ -301,7 +309,7 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         )
 
     if "token_refiner" not in native:
-        originals.append((refiner, refiner.forward))
+        originals.append((refiner, refiner.__dict__.get("forward")))
         refiner.forward = refine
     trace.boundary_bindings = {
         **{
@@ -314,8 +322,11 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         with _canonical_session(any(n in row_ops for n in KEYED_BOUNDARIES)):
             yield
     finally:
-        for module, _original in originals:
-            module.__dict__.pop("forward", None)  # back to the class method
+        for module, original in originals:
+            if original is None:
+                module.__dict__.pop("forward", None)  # back to the class method
+            else:
+                module.forward = original  # the instance ``forward`` it had before
 
 
 @contextmanager
