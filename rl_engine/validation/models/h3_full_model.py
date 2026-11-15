@@ -309,9 +309,26 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
                 out = call(flat, module.weight, module.bias)
             return out.view(*x.shape[:-1], out.shape[-1])
 
-        originals.append((module, module.forward))
+        originals.append((module, module.__dict__.get("forward")))
         module.forward = forward
 
+    # the rows compute from ``weight`` / ``bias`` alone: a wrapped module (e.g. a PEFT adapter)
+    # would lose its own parameters, so it is refused before anything is bound
+    linears = {name: getattr(model, name) for name in row_ops}
+    if time_op is not None:  # the timestep MLP row reads both linears' weights and biases
+        linears.update(
+            {
+                f"time_embedder.{n}": getattr(model.time_embedder, n)
+                for n in ("linear_1", "linear_2")
+            }
+        )
+    if norm_op is not None:  # the final AdaLN row reads ``norm_out.linear``'s weight and bias
+        linears["norm_out.linear"] = model.norm_out.linear
+    for name, module in linears.items():
+        if type(module) is not torch.nn.Linear:
+            raise ValueError(
+                f"strict {name} binding needs a plain nn.Linear, got {type(module).__name__}"
+            )
     for name in row_ops:
         project(name)
 
@@ -334,7 +351,7 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         )
 
     if "token_refiner" not in native:
-        originals.append((refiner, refiner.forward))
+        originals.append((refiner, refiner.__dict__.get("forward")))
         refiner.forward = refine
 
     if "time_embedder" not in native:
@@ -358,7 +375,7 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
                 embedder.linear_2.bias,
             )
 
-        originals.append((embedder, embedder.forward))
+        originals.append((embedder, embedder.__dict__.get("forward")))
         embedder.forward = embed
 
     if "norm_out" not in native:
@@ -375,7 +392,7 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
                 final.norm.eps,
             )
 
-        originals.append((final, final.forward))
+        originals.append((final, final.__dict__.get("forward")))
         final.forward = final_norm
 
     trace.boundary_bindings = {
@@ -386,8 +403,11 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         with _canonical_session(any(n in row_ops for n in KEYED_BOUNDARIES)):
             yield
     finally:
-        for module, _original in originals:
-            module.__dict__.pop("forward", None)  # back to the class method
+        for module, original in originals:
+            if original is None:
+                module.__dict__.pop("forward", None)  # back to the class method
+            else:
+                module.forward = original  # the instance ``forward`` it had before
 
 
 @contextmanager

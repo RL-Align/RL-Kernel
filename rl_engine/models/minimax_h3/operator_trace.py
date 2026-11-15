@@ -37,7 +37,9 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from rl_engine.models.minimax_h3 import fingerprint as fp
 
-SCHEMA_VERSION = "rlkernel.h3.operator_trace.v1"
+# v2: ``OperatorCall.fallback`` defaults to ``None`` (not observed). A v1 trace may carry the
+# old default ``fallback: false`` for calls that never reported one: v1 is refused, not reread.
+SCHEMA_VERSION = "rlkernel.h3.operator_trace.v2"
 
 # How a node is bound today (``h3_block.Binding.status``).
 STATUS_ROW = "row"  # the owning RFC row's operator

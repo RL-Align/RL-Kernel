@@ -150,6 +150,19 @@ def test_audit_does_not_turn_a_model_error_into_a_fallback(monkeypatch, error):
     assert entered == [] and adapter.fell_back is None
 
 
+def test_a_fallback_does_not_carry_over_to_the_next_activation(monkeypatch):
+    """After an audit activation that could not bind, a later one that binds reports ``R/R``."""
+    adapter, entered = _bindable(monkeypatch, "audit", binding_fails=True)
+    with adapter.active():
+        pass
+    assert adapter.fell_back is not None and adapter.report()["case_id"] == "P/P"
+    _bindable(monkeypatch, "audit", binding_fails=False)  # the binding succeeds from now on
+    with adapter.active():
+        pass
+    assert adapter.fell_back is None
+    assert adapter.report()["case_id"] == "R/R" and adapter.report()["bound"]
+
+
 def test_strict_raises_when_the_graph_cannot_bind(monkeypatch):
     """Strict mode raises when the graph cannot bind and records no fallback."""
     adapter, entered = _bindable(monkeypatch, "strict", binding_fails=True)

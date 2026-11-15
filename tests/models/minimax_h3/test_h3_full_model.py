@@ -643,6 +643,57 @@ def test_the_required_cuda_ops_are_the_registered_cuda_backends():
     }
 
 
+def test_an_instance_forward_from_before_the_binding_is_restored(monkeypatch):
+    """A module that already had its own instance ``forward`` gets that one back on exit."""
+    _fake_rows(monkeypatch, [])
+    model = _boundary_model()
+
+    def wrapper(x):
+        """A pre-existing instance forward (e.g. another tool's wrapper)."""
+        return torch.zeros(x.shape[:-1] + (3,))
+
+    model.proj_out.forward = wrapper
+    model.norm_out.forward = wrapper
+    with full_model_execution(
+        model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+    ):
+        assert model.proj_out.forward is not wrapper and model.norm_out.forward is not wrapper
+    assert model.proj_out.forward is wrapper and model.norm_out.forward is wrapper
+    assert "forward" not in model.proj_in.__dict__
+    assert "forward" not in model.time_embedder.__dict__
+
+
+def test_a_wrapped_boundary_linear_is_refused_before_binding(monkeypatch):
+    """A boundary projection that is not a plain ``nn.Linear`` (e.g. a PEFT adapter) is refused:
+    its row would compute from ``weight`` / ``bias`` alone and drop the adapter."""
+    from rl_engine.validation.models.h3_full_model import CandidateBindingError
+
+    class Adapted(torch.nn.Linear):
+        """A linear with extra trainable parameters of its own."""
+
+    _fake_rows(monkeypatch, [])
+    for target, attr in (
+        ("context_embedder", None),
+        ("time_embedder.linear_2", "linear_2"),
+        ("norm_out.linear", "linear"),
+    ):
+        model = _boundary_model()
+        if attr is None:
+            model.context_embedder = Adapted(4, 3)
+        elif target.startswith("time_embedder"):
+            model.time_embedder.linear_2 = Adapted(6, 3)
+        else:
+            model.norm_out.linear = Adapted(3, 8)
+        with pytest.raises(ValueError, match=f"strict {target} binding needs a plain") as raised:
+            with full_model_execution(
+                model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+            ):
+                pass
+        assert not isinstance(raised.value, CandidateBindingError)
+        for name in ("proj_in", "proj_out", "time_embedder", "norm_out"):
+            assert "forward" not in getattr(model, name).__dict__
+
+
 def test_an_error_inside_the_strict_context_is_not_replaced_by_the_session_check(monkeypatch):
     """A body error after backward started propagates as it is, not as an incomplete session."""
     from rl_engine.ops.autograd.canonical_backward import active_session

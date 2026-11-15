@@ -164,7 +164,9 @@ def test_roundtrip_and_tamper_detection() -> None:
     assert call.fallback is None
     assert ot.OperatorTrace.loads(_run(ot.OperatorTrace()).dumps()).calls[0].fallback is False
     raw = unobserved.to_dict()
-    del raw["calls"][0]["fallback"]  # a trace written without the field reads as not observed
+    # one call (``OperatorCall.from_dict``) without the field reads as not observed; a whole trace
+    # without it fails its digest instead
+    del raw["calls"][0]["fallback"]
     assert ot.OperatorCall.from_dict(raw["calls"][0]).fallback is None
     raw = trace.to_dict()
     raw["calls"][5]["backend"] = "edited"
@@ -177,6 +179,11 @@ def test_roundtrip_and_tamper_detection() -> None:
     raw = trace.to_dict()
     raw["schema_version"] = "v0"
     with pytest.raises(ValueError, match="schema"):
+        ot.OperatorTrace.from_dict(raw)
+    # a v1 trace may carry the old ``fallback: false`` default for unobserved calls: refused
+    raw = trace.to_dict()
+    raw["schema_version"] = "rlkernel.h3.operator_trace.v1"
+    with pytest.raises(ValueError, match="unsupported trace schema"):
         ot.OperatorTrace.from_dict(raw)
 
 
