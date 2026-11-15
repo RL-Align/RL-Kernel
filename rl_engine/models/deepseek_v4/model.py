@@ -234,35 +234,74 @@ def attach_lora(
     ``fc1`` / ``fc2`` shared by all experts, and the shared expert's ``fc1`` / ``fc2``.
     ``zero_b`` starts every adapter at zero (the base model's bytes).
     """
+    adapters = build_lora_adapters(
+        model.config,
+        [layer.index for layer in model.layers],
+        rank,
+        alpha,
+        device=model.embed.device,
+        attention=attention,
+        moe=moe,
+        shared_expert=shared_expert,
+        seed=seed,
+        zero_b=zero_b,
+    )
+    for layer, (attn_lora, moe_lora) in zip(model.layers, adapters):
+        if attn_lora:
+            layer.attn.w.lora = attn_lora
+        if moe_lora is not None:
+            layer.moe.lora = moe_lora
+    params = model.lora_parameters()
+    for p in params:
+        p.requires_grad_(True)
+    return params
+
+
+def build_lora_adapters(
+    config: Dsv4Config,
+    layers: list[int],
+    rank: int,
+    alpha: float,
+    *,
+    device,
+    attention: bool = True,
+    moe: bool = True,
+    shared_expert: bool = True,
+    seed: int = 0,
+    zero_b: bool = True,
+) -> list[tuple[dict, object]]:
+    """Per layer ``(attention adapters by target, MoeLora or None)``, the adapters
+    :func:`attach_lora` creates (same seeds, same order), so another runtime (the vLLM
+    rollout) can build identical ones."""
     from rl_engine.models.deepseek_v4.lora import LoraAdapter, MoeLora
 
-    c = model.config
-    h, f = c.hidden_size, c.moe_intermediate_size
-    fs = f * c.n_shared_experts
+    h, f = config.hidden_size, config.moe_intermediate_size
+    fs = f * config.n_shared_experts
     k = seed
 
     def make(i, o):
         nonlocal k
         k += 1
-        ad = LoraAdapter.init(i, o, rank, alpha, device=model.embed.device, seed=k, zero_b=zero_b)
-        ad.a.requires_grad_(True)
-        ad.b.requires_grad_(True)
-        return ad
+        return LoraAdapter.init(i, o, rank, alpha, device=device, seed=k, zero_b=zero_b)
 
-    for layer in model.layers:
-        a = layer.attn.c
+    out = []
+    for i in layers:
+        a = config.attention_config(i, 1)
+        attn = {}
         if attention:
-            layer.attn.w.lora = {
+            attn = {
                 "wq_a": make(h, a.q_lora_rank),
                 "wkv": make(h, a.head_dim),
                 "wq_b": make(a.q_lora_rank, a.heads * a.head_dim),
                 "wo_b": make(a.o_groups * a.o_lora_rank, h),
             }
+        moe_lora = None
         if moe or shared_expert:
-            layer.moe.lora = MoeLora(
+            moe_lora = MoeLora(
                 fc1=make(h, 2 * f) if moe else None,
                 fc2=make(f, h) if moe else None,
                 shared_fc1=make(h, 2 * fs) if shared_expert else None,
                 shared_fc2=make(fs, h) if shared_expert else None,
             )
-    return model.lora_parameters()
+        out.append((attn, moe_lora))
+    return out

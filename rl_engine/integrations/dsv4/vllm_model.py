@@ -1,0 +1,655 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+"""DeepSeek-V4 on vLLM with the RL-Kernel batch-invariant profile (rollout side of verl).
+
+The rollout must give every token the bytes of the actor's ``Dsv4Model``. vLLM's fork
+(``ISEEKYAN/vllm@1a6542c``, ``VLLM_BATCH_INVARIANT=1``) already matches it in the
+indexer, the compressors, FlashMLA sparse attention and the FP8 projections; this module
+keeps those, and vLLM's scheduler, paged KV cache and sampler, and replaces the rest
+(design doc section 10):
+
+- mHC: ``mhc_pre`` / ``mhc_post`` / ``hc_head`` (profile ``dsv4-mhc-v1``); the first layer
+  reads four identical embedding streams.
+- MoE: the whole block (router, SM90 MXFP4 experts, FP8 shared expert, expert parallelism
+  over vLLM's EP group) is ``Dsv4MoE``, loaded from the checkpoint by RL-Kernel's loader;
+  vLLM never allocates its own experts.
+- RoPE: sliding-window-only layers use plain RoPE (vLLM applies YaRN to every layer).
+- Logits and log-probs (profile ``dsv4-logprob-v1``): FP32 logits from the BF16 head on
+  DeepGEMM; the reported log-prob of each sampled token is recomputed with the 64-tile
+  fixed-order log-sum-exp (:class:`RlkSampler`). vLLM's sampling itself is unchanged.
+- ``q_norm`` / ``kv_norm``: RL-Kernel's RMSNorm (vLLM's fused pair rounds a rare row
+  differently, which then sits in the KV cache for a whole window).
+- Indexer query RoPE + FP8 quant: RL-Kernel's ``indexer_q_rope_fp8_cuda``.
+- Query norm / RoPE / KV insert: RL-Kernel's ``q_norm_rope_kv_insert`` writes vLLM's paged
+  ``fp8_ds_mla`` cache (same layout); vLLM's fused kernel rounds differently in about one
+  query row in ten (``scripts/probe_dsv4_vllm_attention_ops.py``).
+- Sparse attention: vLLM's DSv4 FlashMLA layer (gathers, indices, sink) on RL-Kernel's
+  pinned FlashMLA build (:func:`_use_pinned_flashmla`); ``VLLM_DS4_DECODE_KERNEL=sparse``
+  makes decode use the same kernel as prefill.
+- Output projection: ``wo_a`` + ``wo_b`` run as RL-Kernel's ``OutputProjection`` (inverse
+  RoPE, FP8 quant, ``fp8_einsum``, ``wo_b``), loaded from the checkpoint. vLLM's
+  batch-invariant mode on Hopper replaces ``fp8_einsum`` with a Triton block-scaled GEMM per
+  group, which rounds differently.
+- LoRA (unmerged, profile ``dsv4-lora-v1``): ``wq_a`` / ``wkv`` / ``wq_b`` wrap vLLM's
+  projections (the base output is untouched, the delta is added the actor's way); ``wo_b``
+  is applied inside the output projection; the MoE adapters live in ``Dsv4MoE``.
+
+No vLLM source changes: :func:`register` (called by RL-Kernel's ``vllm.general_plugins``
+entry point when ``RL_KERNEL_DSV4_ROLLOUT=1``) registers :class:`RlkDeepseekV4ForCausalLM`
+under vLLM's ``DeepseekV4ForCausalLM`` architecture name.
+
+Supported layout: tensor parallel 1, pipeline parallel 1, no sequence parallel, no MTP, no
+EPLB; data parallel attention with expert parallel MoE (``--enable-expert-parallel``).
+
+Debug: ``RL_KERNEL_DSV4_DUMP=<dir>`` saves each forward's tokens, request boundaries,
+per-layer streams and final hidden state (``scripts/check_dsv4_vllm_gate.py``).
+``RL_KERNEL_DSV4_TEST_LORA=rank,alpha,seed`` attaches the random adapters
+``build_lora_adapters(..., zero_b=False)`` makes, for the gate.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import dataclasses
+import functools
+import os
+import pathlib
+import sys
+import types
+from itertools import islice
+
+import torch
+from torch import nn
+
+
+def _use_pinned_flashmla() -> None:
+    """Serve vLLM's vendored FlashMLA interface from RL-Kernel's pinned FlashMLA build.
+
+    Both builds register the ``torch.ops._flashmla_C`` namespace, so only one can be loaded
+    per process, and vLLM's (same commit, other build flags) rounds some sparse-attention
+    rows differently from the actor's. Loading ours first and aliasing ``vllm._flashmla_C``
+    makes vLLM's interface call our kernels. Must run before vLLM imports its attention ops.
+    """
+    alias = sys.modules.get("vllm._flashmla_C")
+    if alias is not None:
+        if getattr(alias, "rlk_alias", False):
+            return
+        raise RuntimeError(
+            "vLLM's FlashMLA library is already loaded; import "
+            "rl_engine.integrations.dsv4.vllm_model before vLLM's attention ops "
+            "(the RL_KERNEL_DSV4_ROLLOUT=1 plugin does)"
+        )
+    from rl_engine.kernels.ops.cuda.flashmla import _import_interface
+
+    _import_interface()  # loads flash_mla/_flashmla_C.abi3.so
+    alias = types.ModuleType("vllm._flashmla_C")
+    alias.rlk_alias = True
+    sys.modules["vllm._flashmla_C"] = alias
+
+
+_use_pinned_flashmla()
+
+import vllm.models.deepseek_v4.nvidia.model as vm  # noqa: E402
+from vllm.v1.sample.sampler import Sampler  # noqa: E402
+
+ENV_ENABLE = "RL_KERNEL_DSV4_ROLLOUT"
+ENV_DUMP = "RL_KERNEL_DSV4_DUMP"
+ENV_TEST_LORA = "RL_KERNEL_DSV4_TEST_LORA"
+
+
+def register() -> None:
+    """Make vLLM build :class:`RlkDeepseekV4ForCausalLM` for DeepSeek-V4 checkpoints."""
+    from vllm import ModelRegistry
+
+    import vllm.v1.worker.gpu_model_runner as runner
+
+    ModelRegistry.register_model(
+        "DeepseekV4ForCausalLM", "rl_engine.integrations.dsv4.vllm_model:RlkDeepseekV4ForCausalLM"
+    )
+    import vllm.models.deepseek_v4.attention as vattention
+
+    import vllm.v1.worker.gpu.model_runner as runner_v2
+
+    runner.Sampler = RlkSampler
+    runner_v2.Sampler = _rlk_sampler_v2()
+    vattention.fused_q_kv_rmsnorm = _rlk_q_kv_rmsnorm
+    vattention.fused_indexer_q_rope_quant = _rlk_indexer_q
+    _accept_pinned_deepgemm()
+    # Decode through FlashMLA's sparse kernel, as prefill: the paged FP8 decode kernel
+    # rounds differently (checked in RlkDeepseekV4Model).
+    os.environ.setdefault("VLLM_DS4_DECODE_KERNEL", "sparse")
+
+
+def _rlk_q_kv_rmsnorm(qr, kv, q_weight, kv_weight, eps):
+    """vLLM's ``fused_q_kv_rmsnorm`` on RL-Kernel's RMSNorm (the actor's q / kv norms)."""
+    from rl_engine.backends.cuda.norm.rmsnorm import rmsnorm_cuda
+
+    return (
+        rmsnorm_cuda(qr.contiguous(), q_weight, eps),
+        rmsnorm_cuda(kv.contiguous(), kv_weight, eps),
+    )
+
+
+def _rlk_indexer_q(
+    positions, index_q, cos_sin, weights, softmax_scale, head_scale, use_fp4=False,
+    output_buffers=None,
+):
+    """vLLM's DSv4 ``fused_indexer_q_rope_quant`` (FP8 path) on RL-Kernel's kernel."""
+    if use_fp4:
+        raise NotImplementedError("RL-Kernel DSv4 rollout: MXFP4 indexer keys")
+    from rl_engine.kernels.ops.cuda.indexer.indexer_q import indexer_q_rope_fp8_cuda
+
+    return indexer_q_rope_fp8_cuda(
+        index_q, positions, cos_sin, weights, softmax_scale, head_scale
+    )
+
+
+def _accept_pinned_deepgemm() -> None:
+    """Let ``VLLM_BATCH_INVARIANT=1`` start on RL-Kernel's pinned DeepGEMM.
+
+    vLLM fails closed unless DeepGEMM exposes ``set_batch_invariant`` (a fork whose flag makes
+    its grouped MoE GEMMs invariant). This model runs no vLLM MoE kernel, and RL-Kernel's
+    pinned DeepGEMM (``rl_engine.kernels.ops.cuda.deepgemm``) is batch-invariant at the DSv4
+    shapes as built (``scripts/probe_dsv4_deepgemm_bi.py``), so the check becomes the pin
+    check. A DeepGEMM with the flag is left to vLLM."""
+    import vllm.utils.deep_gemm as vdg
+
+    if vdg.supports_deep_gemm_batch_invariance():
+        return
+
+    def enable() -> None:
+        from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+
+        require_deepgemm()
+
+    vdg.enable_deep_gemm_batch_invariance = enable
+
+
+_WARNED: set = set()
+
+
+def _warn_once(msg: str) -> None:
+    if msg not in _WARNED:
+        _WARNED.add(msg)
+        import logging
+
+        logging.getLogger(__name__).warning("RL-Kernel DSv4: %s", msg)
+
+
+def _rlk_logprobs(z, ids, temps) -> torch.Tensor:
+    """FP32 log-prob of ``ids`` under ``softmax(z / T)``; ``temps`` FP32 per row (``None`` =
+    1). The kernel scales by ``T`` itself, as the actor's does: one call per distinct ``T``."""
+    from rl_engine.kernels.ops.cuda.logprob_dsv4 import logprob_from_logits_cuda
+
+    if temps is None:
+        return logprob_from_logits_cuda(z, ids, 1.0)[0]
+    t = torch.where(temps < 1e-5, 1.0, temps).float()  # greedy rows: T = 1, as vLLM does
+    logp = torch.empty(ids.shape[0], dtype=torch.float32, device=z.device)
+    for tv in torch.unique(t).tolist():
+        rows = (t == tv).nonzero().flatten()
+        logp[rows] = logprob_from_logits_cuda(z[rows], ids[rows], tv)[0]
+    return logp
+
+
+def _rlk_sampler_v2():
+    """:class:`RlkSampler` for vLLM's V2 model runner (DeepSeek-V4's default)."""
+    from vllm.v1.worker.gpu.sample.sampler import Sampler as SamplerV2
+
+    class RlkSamplerV2(SamplerV2):
+        def __call__(self, logits, input_batch):
+            mode = self.logprobs_mode
+            z = logits.float().clone() if mode in ("processed_logprobs", "raw_logprobs") else None
+            out = super().__call__(logits, input_batch)
+            lt = out.logprobs_tensors
+            if z is None or lt is None or lt.logprobs.dim() != 2 or lt.logprobs.shape[0] == 0:
+                return out
+            if z.shape[0] != input_batch.idx_mapping_np.shape[0]:
+                raise NotImplementedError("RL-Kernel DSv4 log-probs: speculative decoding")
+            temps = None
+            if mode == "processed_logprobs":
+                top_k, top_p = self.sampling_states.get_top_k_top_p(
+                    input_batch.expanded_idx_mapping, input_batch.idx_mapping_np
+                )
+                k_on = top_k is not None and bool((top_k < z.shape[1]).any())
+                p_on = top_p is not None and bool((top_p < 1.0).any())
+                if k_on or p_on:
+                    # vLLM's warmup samples with top-k / top-p; real RL rollouts must not
+                    # (verl: top_k=-1, top_p=1). vLLM's own log-probs are kept.
+                    _warn_once("top-k / top-p active: log-probs are vLLM's, not RL-Kernel's")
+                    return out
+                temps = self.sampling_states.temperature.gpu[input_batch.expanded_idx_mapping]
+            ids = out.sampled_token_ids[:, 0].long()
+            lt.logprobs[:, 0] = _rlk_logprobs(z, ids, temps)
+            return out
+
+    return RlkSamplerV2
+
+
+class RlkSampler(Sampler):
+    """vLLM's (V1 model runner) sampler; the sampled token's reported log-prob is RL-Kernel's.
+
+    ``processed_logprobs`` (verl's mode): ``log softmax(z / T)`` of the sampled token, with
+    ``T`` vLLM's per-request temperature (1 for greedy requests, as vLLM does), computed as
+    ``logprob_from_logits_cuda(z, token, T)`` per distinct ``T``: the same bytes as the
+    actor's ``Dsv4Model.selected_logprob(hidden, token, T)``. ``raw_logprobs``: ``T = 1``.
+    The top-k alternatives (if requested) stay vLLM's. Penalties, top-k / top-p and token
+    masks change vLLM's processed distribution; they are refused in that mode."""
+
+    def forward(
+        self, logits, sampling_metadata, predict_bonus_token=False, logprobs_mode_override=None
+    ):
+        md = sampling_metadata
+        mode = logprobs_mode_override or self.logprobs_mode
+        want = md.max_num_logprobs is not None and mode in ("processed_logprobs", "raw_logprobs")
+        z = logits.float().clone() if want else None
+        out = super().forward(logits, md, predict_bonus_token, logprobs_mode_override)
+        lt = out.logprobs_tensors
+        if not want or lt is None or lt.logprobs.dim() != 2 or lt.logprobs.shape[0] == 0:
+            return out
+        ids = out.sampled_token_ids[:, 0].long()
+        if mode == "processed_logprobs" and md.temperature is not None:
+            if not md.no_penalties or md.top_k is not None or md.top_p is not None or (
+                md.allowed_token_ids_mask is not None or md.bad_words_token_ids
+            ):
+                raise NotImplementedError(
+                    "RL-Kernel DSv4 log-probs: penalties, top-k / top-p and token masks are "
+                    "not supported with processed_logprobs"
+                )
+            logp = _rlk_logprobs(z, ids, md.temperature)
+        else:
+            logp = _rlk_logprobs(z, ids, None)
+        lt.logprobs[:, 0] = logp
+        return out
+
+
+def add_lora(module: nn.Module, slices: list[tuple[str, int, int]]) -> None:
+    """Give a vLLM linear unmerged LoRA adapters on column slices of its output.
+
+    ``slices``: ``(target, start, end)``; the adapter for ``target`` (``module.rlk_adapters``)
+    adds its delta to output columns ``[start, end)``, computed from the layer's input
+    (``lora.lora_apply``). The module keeps its parameter names (weight loading and
+    vLLM's post-load processing see the same module); only its ``forward`` is wrapped."""
+    base = module.forward
+    module.rlk_adapters = {}
+
+    def forward(x, *args, **kwargs):
+        out = base(x, *args, **kwargs)
+        if not module.rlk_adapters:
+            return out
+        from rl_engine.models.deepseek_v4.lora import lora_apply
+
+        y = out[0] if isinstance(out, tuple) else out
+        parts, last = [], 0
+        for target, lo, hi in slices:
+            ad = module.rlk_adapters.get(target)
+            if ad is None:
+                continue
+            parts += [y[:, last:lo], lora_apply(y[:, lo:hi], x, ad)]
+            last = hi
+        if last == 0:
+            return out
+        parts.append(y[:, last:])
+        y = torch.cat([p for p in parts if p.shape[1]], dim=1)
+        return (y, *out[1:]) if isinstance(out, tuple) else y
+
+    module.forward = forward
+
+
+def model_dir(name: str) -> pathlib.Path:
+    """The local checkpoint directory of a vLLM ``model`` argument."""
+    path = pathlib.Path(name)
+    if path.is_dir():
+        return path
+    from huggingface_hub import snapshot_download
+
+    return pathlib.Path(snapshot_download(name, local_files_only=True))
+
+
+class _PlainRope(nn.Module):
+    """Holds the ``cos_sin_cache`` the DSv4 attention ops read (window-only layers)."""
+
+    def __init__(self, cache: torch.Tensor):
+        super().__init__()
+        self.register_buffer("cos_sin_cache", cache, persistent=False)
+
+
+class RlkMoE(nn.Module):
+    """Stands in for vLLM's ``DeepseekV4MoE``: ``Dsv4MoE`` is attached after load."""
+
+    def __init__(self, vllm_config, prefix: str = "", use_sequence_parallel: bool = False):
+        super().__init__()
+        if use_sequence_parallel:
+            raise NotImplementedError("RL-Kernel DSv4 rollout: sequence parallel MoE")
+        self.layer = vm.extract_layer_index(prefix)
+        self.hash_routing = self.layer < vllm_config.model_config.hf_config.num_hash_layers
+        self.moe = None  # rl_engine.models.deepseek_v4.moe.Dsv4MoE
+        self.use_mega_moe = False
+
+    def finalize_mega_moe_weights(self) -> None:
+        pass
+
+    def forward(self, x: torch.Tensor, input_ids: torch.Tensor | None = None) -> torch.Tensor:
+        if self.moe is None:
+            raise RuntimeError(f"layer {self.layer}: the RL-Kernel MoE is not loaded")
+        return self.moe.forward(x, None, input_ids.long() if self.hash_routing else None)
+
+
+@contextlib.contextmanager
+def _rlk_moe_blocks():
+    """Build :class:`RlkMoE` where ``DeepseekV4DecoderLayer`` builds ``DeepseekV4MoE``."""
+    saved = vm.DeepseekV4MoE
+    vm.DeepseekV4MoE = RlkMoE
+    try:
+        yield
+    finally:
+        vm.DeepseekV4MoE = saved
+
+
+def _rlk_o_proj(attn, o: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
+    """``DeepseekV4Attention._o_proj`` on RL-Kernel's output projection (and ``wo_b`` LoRA)."""
+    if attn.rlk_o_proj is None:
+        raise RuntimeError("the RL-Kernel output projection is not loaded")
+    if not getattr(attn, "rlk_released", False):  # vLLM's copies (never loaded) are unused
+        for mod in (attn.wo_a, attn.wo_b):
+            for prm in mod.parameters(recurse=False):
+                prm.data = prm.data.new_empty(0)
+        attn.rlk_released = True
+    y = attn.rlk_o_proj(o, positions, attn.rotary_emb.cos_sin_cache, lora=attn.rlk_wo_b_lora)
+    rec = getattr(attn, "rlk_record", None)
+    if rec is not None:
+        rec["o"], rec["y"] = o.clone(), y.clone()
+    return y
+
+
+def _rlk_qnorm_rope_insert(attn, q, kv, positions, attn_metadata):
+    """``DeepseekV4Attention._fused_qnorm_rope_kv_insert`` on RL-Kernel's kernel."""
+    if not isinstance(attn_metadata, dict):  # profile run: vLLM pads Q, no cache write
+        return attn.rlk_vllm_insert(q, kv, positions, attn_metadata)
+    from rl_engine.kernels.ops.cuda import dsv4_attention as core
+
+    md = attn_metadata.get(attn.swa_cache_layer.prefix)
+    cache = attn.swa_cache_layer.kv_cache
+    if cache.dtype != torch.uint8:
+        raise NotImplementedError("RL-Kernel DSv4 rollout needs the fp8_ds_mla KV cache")
+    return core.q_norm_rope_kv_insert(
+        q,
+        kv,
+        positions,
+        attn.rotary_emb.cos_sin_cache,
+        cache.view(cache.shape[0], -1),
+        md.block_size,
+        md.slot_mapping,
+        attn.padded_heads,
+        attn.eps,
+    )
+
+
+@contextlib.contextmanager
+def _float32_default():
+    """vLLM loads weights under its model dtype as the default; RL-Kernel code assumes FP32."""
+    saved = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    try:
+        yield
+    finally:
+        torch.set_default_dtype(saved)
+
+
+def _record_outputs(attn, rec: dict) -> None:
+    """Debug: record ``fused_wqa_wkv`` and ``wq_b`` outputs into ``rec`` (hooks set once)."""
+    if getattr(attn, "rlk_hooks", False):
+        return
+
+    def hook(name):
+        def fn(_mod, _inp, out):
+            r = getattr(attn, "rlk_record", None)
+            if r is not None:
+                r[name] = (out[0] if isinstance(out, tuple) else out).clone()
+
+        return fn
+
+    attn.fused_wqa_wkv.register_forward_hook(hook("qr_kv"))
+    attn.wq_b.register_forward_hook(hook("q"))
+    attn.rlk_hooks = True
+
+
+class RlkDecoderLayer(vm.DeepseekV4DecoderLayer):
+    """``DeepseekV4DecoderLayer`` on RL-Kernel's mHC (instances are re-classed)."""
+
+    def forward(self, x, positions, input_ids, post_mix=None, res_mix=None, residual=None):
+        from rl_engine.kernels.ops.cuda.mhc_dsv4 import mhc_post_cuda, mhc_pre_cuda
+
+        streams = x
+        h, post, comb = mhc_pre_cuda(
+            streams, self.hc_attn_fn, self.hc_attn_scale, self.hc_attn_base, self.attn_norm.weight
+        )[:3]
+        a = self.attn(positions, h, None)
+        streams = mhc_post_cuda(a, streams, post, comb)
+        h2, post, comb = mhc_pre_cuda(
+            streams, self.hc_ffn_fn, self.hc_ffn_scale, self.hc_ffn_base, self.ffn_norm.weight
+        )[:3]
+        m = self.ffn(h2, input_ids)
+        streams = mhc_post_cuda(m, streams, post, comb)
+        detail = getattr(self, "rlk_detail", None)
+        if detail is not None:
+            detail.append([t.clone() for t in (h, a, h2, m)])
+        return streams, None, None, None
+
+
+class RlkDeepseekV4Model(vm.DeepseekV4Model):
+    def __init__(self, *, vllm_config, prefix: str = ""):
+        with _rlk_moe_blocks():
+            super().__init__(vllm_config=vllm_config, prefix=prefix)
+        pc = vllm_config.parallel_config
+        problems = []
+        if self.use_sequence_parallel:
+            problems.append("sequence parallel")
+        if self.use_mega_moe:
+            problems.append("moe_backend deep_gemm_mega_moe")
+        if pc.tensor_parallel_size != 1:
+            problems.append(f"tensor_parallel_size={pc.tensor_parallel_size}")
+        if pc.pipeline_parallel_size != 1:
+            problems.append(f"pipeline_parallel_size={pc.pipeline_parallel_size}")
+        if pc.enable_eplb:
+            problems.append("EPLB")
+        if self._mtp_hidden_buffer is not None:
+            problems.append("MTP / speculative decoding")
+        if vm.envs.VLLM_DS4_DECODE_KERNEL.lower() != "sparse":
+            problems.append("VLLM_DS4_DECODE_KERNEL != sparse")
+        if not vm.envs.VLLM_BATCH_INVARIANT:
+            problems.append("VLLM_BATCH_INVARIANT=0 (the attention path must be the BI one)")
+        if problems:
+            raise NotImplementedError("RL-Kernel DSv4 rollout: " + ", ".join(problems))
+
+        from rl_engine.models.deepseek_v4.config import Dsv4Config
+        from rl_engine.models.deepseek_v4.rope import rope_cos_sin
+
+        self.rlk_dir = model_dir(vllm_config.model_config.model)
+        cfg = Dsv4Config.from_pretrained(self.rlk_dir)
+        if cfg.num_hidden_layers != self.config.num_hidden_layers:  # hf_overrides
+            cfg = dataclasses.replace(cfg, num_hidden_layers=self.config.num_hidden_layers)
+        cfg.check_supported()
+        self.rlk_config = cfg
+        self.rlk_max_len = vllm_config.model_config.max_model_len
+        plain = None
+        for layer in islice(self.layers, self.start_layer, self.end_layer):
+            layer.__class__ = RlkDecoderLayer
+            attn = layer.attn
+            q, d = attn.q_lora_rank, attn.head_dim
+            add_lora(attn.fused_wqa_wkv, [("wq_a", 0, q), ("wkv", q, q + d)])
+            add_lora(attn.wq_b, [("wq_b", 0, attn.n_local_heads * d)])
+            attn.rlk_o_proj = None
+            attn.rlk_wo_b_lora = None
+            attn._o_proj = functools.partial(_rlk_o_proj, attn)
+            attn.rlk_vllm_insert = attn._fused_qnorm_rope_kv_insert
+            # One stream: vLLM overlaps the compressor / indexer on aux streams with the
+            # query path, and RL-Kernel's ops there allocate on the current stream only.
+            attn.aux_stream_list = None
+            if attn.indexer is not None:
+                attn.indexer.aux_stream = None
+            attn._fused_qnorm_rope_kv_insert = functools.partial(_rlk_qnorm_rope_insert, attn)
+            if attn.compress_ratio == 1:
+                old = attn.rotary_emb.cos_sin_cache
+                if old.dtype != torch.float32:
+                    raise TypeError(f"vLLM RoPE cache is {old.dtype}; expected float32")
+                if plain is None:
+                    cache = rope_cos_sin(self.rlk_config, 1, self.rlk_max_len, old.device)
+                    plain = _PlainRope(cache)
+                attn.rotary_emb = plain
+                attn.indexer_rotary_emb = plain
+        self.rlk_dump_step = 0
+
+    def finalize_mhc_broadcast_weights(self) -> None:
+        pass  # the first layer reads four streams; no broadcast weights
+
+    def get_expert_mapping(self) -> list:
+        return []  # the MoE blocks are not vLLM's (rlk_load_moe)
+
+    def rlk_layers(self):
+        return list(islice(self.layers, self.start_layer, self.end_layer))
+
+    def rlk_load(self) -> None:
+        """Load what RL-Kernel runs itself from the checkpoint: every layer's ``Dsv4MoE``
+        (this EP rank's experts) and output projection. vLLM's ``wo_a`` / ``wo_b`` storage is
+        released at the first forward (vLLM post-processes it after loading)."""
+        from vllm.distributed import get_ep_group
+
+        from rl_engine.models.deepseek_v4.loader import (
+            SafetensorsDir,
+            _moe,
+            load_output_projection,
+        )
+
+        ep = None
+        if self.parallel_config.enable_expert_parallel and get_ep_group().world_size > 1:
+            ep = get_ep_group().device_group
+        src = SafetensorsDir(self.rlk_dir)
+        dev = self.hc_head_fn.device
+        for layer in self.rlk_layers():
+            i = layer.ffn.layer
+            layer.ffn.moe = _moe(src, self.rlk_config, i, dev, ep)
+            layer.ffn.moe.check_finite = "defer"
+            attn = layer.attn
+            attn.rlk_o_proj = load_output_projection(src, self.rlk_config, i, dev)
+
+    def rlk_set_lora(self, adapters: list[tuple[dict, object]]) -> None:
+        """Install adapters, one ``(attention dict, MoeLora | None)`` per local layer."""
+        for layer, (attn_lora, moe_lora) in zip(self.rlk_layers(), adapters):
+            attn = layer.attn
+            for mod, targets in ((attn.fused_wqa_wkv, ("wq_a", "wkv")), (attn.wq_b, ("wq_b",))):
+                mod.rlk_adapters = {k: attn_lora[k] for k in targets if k in attn_lora}
+            attn.rlk_wo_b_lora = attn_lora.get("wo_b")
+            layer.ffn.moe.lora = moe_lora
+
+    def forward(self, input_ids, positions, intermediate_tensors=None, inputs_embeds=None):
+        from rl_engine.kernels.ops.cuda.mhc_dsv4 import hc_head_cuda
+
+        h = inputs_embeds if inputs_embeds is not None else self.embed_input_ids(input_ids)
+        streams = h.unsqueeze(1).expand(-1, self.hc_mult, -1).contiguous()
+        dump = os.environ.get(ENV_DUMP)
+        per_layer = [] if dump else None
+        detail = [] if dump else None
+        inner = [] if dump else None
+        for layer in self.rlk_layers():
+            layer.rlk_detail = detail
+            if dump:
+                rec = {}
+                inner.append(rec)
+                layer.attn.rlk_record = rec
+                _record_outputs(layer.attn, rec)
+            else:
+                layer.attn.rlk_record = None
+            streams = layer(streams, positions, input_ids)[0]
+            if dump:
+                per_layer.append(streams.clone())
+        out = hc_head_cuda(
+            streams, self.hc_head_fn, self.hc_head_scale, self.hc_head_base, self.norm.weight
+        )[0]
+        if dump:
+            self._rlk_dump(dump, input_ids, positions, per_layer, out, detail, inner)
+        return out
+
+    def _rlk_dump(self, root, input_ids, positions, per_layer, out, detail, inner) -> None:
+        from vllm.forward_context import get_forward_context
+
+        qsl = seq = None
+        meta = get_forward_context().attn_metadata
+        for m in (meta.values() if isinstance(meta, dict) else [meta]):
+            if getattr(m, "query_start_loc_cpu", None) is not None and getattr(
+                m, "seq_lens_cpu", None
+            ) is not None:
+                qsl, seq = m.query_start_loc_cpu.clone(), m.seq_lens_cpu.clone()
+                break
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+        path = pathlib.Path(root) / f"rank{rank}"
+        path.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "input_ids": input_ids.cpu(),
+                "positions": positions.cpu(),
+                "query_start_loc": qsl,
+                "seq_lens": seq,
+                "streams": [s.cpu() for s in per_layer],
+                "hidden": out.cpu(),
+                # per layer: attention input, attention output, MoE input, MoE output
+                "detail": [[t.cpu() for t in d] for d in detail],
+                # per layer: qr_kv, q (wq_b out), o (attention core), y (o-proj out)
+                "inner": [{k: v.cpu() for k, v in r.items()} for r in inner],
+            },
+            path / f"step{self.rlk_dump_step:05d}.pt",
+        )
+        self.rlk_dump_step += 1
+
+
+class RlkDeepseekV4ForCausalLM(vm.DeepseekV4ForCausalLM):
+    model_cls = RlkDeepseekV4Model
+
+    def set_moe_parameters(self) -> None:
+        c = self.config
+        self.num_expert_groups = getattr(c, "n_group", 1)
+        self.moe_layers = []
+        self.moe_mlp_layers = []
+        self.num_moe_layers = 0
+        self.num_logical_experts = self.num_physical_experts = c.n_routed_experts
+        self.num_routed_experts = c.n_routed_experts
+        self.num_local_physical_experts = c.n_routed_experts  # unused without EPLB
+        self.num_shared_experts = c.n_shared_experts or 0
+        self.num_redundant_experts = 0
+
+    def compute_logits(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """FP32 ``[T, vocab]`` logits ``hidden @ head.T`` (DeepGEMM; ``dsv4-logprob-v1``)."""
+        from rl_engine.kernels.ops.cuda.logprob_dsv4 import head_logits
+
+        w = self.lm_head.weight[: self.config.vocab_size]
+        return head_logits(hidden_states, w)
+
+    def load_weights(self, weights):
+        """vLLM loads everything but the MoE blocks; RL-Kernel then loads those from the
+        checkpoint directory (this rank's experts) and installs the test adapters, if any."""
+        skip = (".ffn.", ".attn.wo_a.", ".attn.wo_b.")
+        loaded = super().load_weights(
+            (n, w) for n, w in weights if not any(k in n for k in skip)
+        )
+        with _float32_default():
+            self.model.rlk_load()
+            self._rlk_test_lora()
+        return loaded
+
+    def _rlk_test_lora(self) -> None:
+        spec = os.environ.get(ENV_TEST_LORA)
+        if spec:
+            from rl_engine.models.deepseek_v4.model import build_lora_adapters
+
+            rank, alpha, seed = spec.split(",")
+            layers = [layer.ffn.layer for layer in self.model.rlk_layers()]
+            self.model.rlk_set_lora(
+                build_lora_adapters(
+                    self.model.rlk_config,
+                    layers,
+                    int(rank),
+                    float(alpha),
+                    device=self.model.hc_head_fn.device,
+                    seed=int(seed),
+                    zero_b=False,
+                )
+            )

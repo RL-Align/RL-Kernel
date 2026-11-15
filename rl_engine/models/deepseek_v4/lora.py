@@ -84,15 +84,14 @@ class LoraAdapter:
     def init(cls, in_features, out_features, rank, alpha, device="cuda", seed=0, zero_b=True):
         """Kaiming-style ``A``, zero ``B`` (the usual start: the adapter adds nothing)."""
         g = torch.Generator(device=device).manual_seed(seed)
-        a = (torch.randn(rank, in_features, generator=g, device=device) / in_features**0.5).to(
-            torch.bfloat16
-        )
+        f32 = torch.float32  # explicit: callers may run under another default dtype (vLLM)
+        a = torch.randn(rank, in_features, generator=g, device=device, dtype=f32)
+        a = (a / in_features**0.5).to(torch.bfloat16)
         if zero_b:
             b = torch.zeros(out_features, rank, dtype=torch.bfloat16, device=device)
         else:
-            b = (torch.randn(out_features, rank, generator=g, device=device) / rank**0.5).to(
-                torch.bfloat16
-            )
+            b = torch.randn(out_features, rank, generator=g, device=device, dtype=f32)
+            b = (b / rank**0.5).to(torch.bfloat16)
         return cls(a, b, alpha)
 
 

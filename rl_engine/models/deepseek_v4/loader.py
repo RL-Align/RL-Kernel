@@ -155,8 +155,7 @@ def _mx(codes: list[Tensor], scales: list[Tensor], n: int, k: int):
 
 
 def _attention(src, c: Dsv4Config, i: int, max_model_len: int, device):
-    from rl_engine.kernels.ops.cuda import dsv4_attention as core
-    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8BlockWeight, Fp8Linear
+    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8Linear
     from rl_engine.models.deepseek_v4.attention import Dsv4Attention, Dsv4AttentionWeights
     from rl_engine.models.deepseek_v4.rope import rope_cos_sin
 
@@ -182,11 +181,7 @@ def _attention(src, c: Dsv4Config, i: int, max_model_len: int, device):
         kv_norm=t("kv_norm.weight"),
         wq_b=fp8("wq_b"),
         attn_sink=sink,
-        o_proj=core.OutputProjection(
-            Fp8BlockWeight(t("wo_a.weight").contiguous(), _scale(t("wo_a.scale"))),
-            fp8("wo_b"),
-            cfg.o_groups,
-        ),
+        o_proj=load_output_projection(src, c, i, device),
     )
     if cfg.compress_ratio > 1:
         w.wkv_wgate = cat("compressor.wkv.weight", "compressor.wgate.weight")
@@ -200,6 +195,23 @@ def _attention(src, c: Dsv4Config, i: int, max_model_len: int, device):
         w.idx_norm = t("indexer.compressor.norm.weight")
     cos_sin = rope_cos_sin(c, cfg.compress_ratio, max_model_len, device)
     return Dsv4Attention(cfg, w, cos_sin)
+
+
+def load_output_projection(src, c: Dsv4Config, i: int, device):
+    """Layer ``i``'s ``wo_a`` + ``wo_b`` (``dsv4_attention.OutputProjection``)."""
+    from rl_engine.kernels.ops.cuda import dsv4_attention as core
+    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8BlockWeight, Fp8Linear
+
+    a = f"layers.{i}.attn."
+
+    def t(name):
+        return src[a + name].to(device)
+
+    return core.OutputProjection(
+        Fp8BlockWeight(t("wo_a.weight").contiguous(), _scale(t("wo_a.scale"))),
+        Fp8Linear.from_fp8(t("wo_b.weight"), _scale(t("wo_b.scale"))),
+        c.o_groups,
+    )
 
 
 def _moe(src, c: Dsv4Config, i: int, device, ep_group):
