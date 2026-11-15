@@ -310,6 +310,29 @@ def test_a_failure_to_bind_is_a_candidate_binding_error_and_a_model_error_is_not
         assert not isinstance(raised.value, CandidateBindingError), raised.value
 
 
+def test_candidate_ops_that_cannot_be_built_bind_nothing_but_an_out_of_memory_propagates(
+    monkeypatch,
+):
+    """A ``RuntimeError`` while building the candidate ops (e.g. missing kernels) is a failure to
+    bind; a CUDA out-of-memory error there is an error of the run and propagates as it is."""
+    from rl_engine.validation.models import h3_block
+    from rl_engine.validation.models.h3_full_model import CandidateBindingError
+
+    for error, expected in (
+        (RuntimeError("H3 kernels missing from _C"), CandidateBindingError),
+        (torch.cuda.OutOfMemoryError("CUDA out of memory"), torch.cuda.OutOfMemoryError),
+    ):
+
+        def build(error=error):
+            raise error
+
+        monkeypatch.setattr(h3_block, "CandidateOps", build)
+        with pytest.raises(RuntimeError) as raised:
+            with full_model_execution(Model(), candidate=True, trace=FullModelTrace()):
+                pass
+        assert type(raised.value) is expected
+
+
 def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
     from tools.validation.models.h3_full_compare import drift_order
 
