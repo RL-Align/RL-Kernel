@@ -1034,13 +1034,17 @@ void run_grouped(const nv_bf16* a_ptr, uint64_t a_height, uint64_t a_width,
                  const nv_bf16* b_ptr, uint64_t b_height, uint64_t b_width, output_t* c_ptr,
                  nv_bf16* z_ptr, const nv_bf16* aux_ptr, const int64_t* offsets, int nseg, int M,
                  int N, int K, int rows, cudaStream_t stream) {
-  // A weight gradient reconciles one leaf per 32 rows of an expert segment, and
-  // the merge stack holds one slot per level: fail closed rather than write past
-  // `tree_stk` when a segment is longer than the tree can cover. The check uses
-  // the row count, not `offsets`, so the host still never reads the routing table.
-  TORCH_CHECK(cdiv(rows, K_TREE_LEAF) <= (1 << TREE_DEPTH),
-              "nemotron experts: reduction depth exceeds the merge tree (",
-              cdiv(rows, K_TREE_LEAF), " > ", (1 << TREE_DEPTH), " leaves)");
+  // The merge stack holds one slot per level, so fail closed rather than write
+  // past `tree_stk` when the reduction is deeper than the tree can cover. A
+  // weight gradient reconciles one leaf per 32 rows of an expert segment; every
+  // other mode reduces over K, which is independent of the row count (a wide
+  // hand-built call with a tiny batch must fail here, not overflow the stack).
+  // The weight-gradient bound uses the row count, not `offsets`, so the host
+  // still never reads the routing table.
+  const int64_t kd = MODE == MODE_WGRAD ? cdiv(rows, K_TREE_LEAF) : cdiv(K, K_TREE_LEAF);
+  TORCH_CHECK(kd <= (1 << TREE_DEPTH),
+              "nemotron experts: reduction depth exceeds the merge tree (", kd, " > ",
+              (1 << TREE_DEPTH), " leaves)");
   // v2 handles every geometry the operator accepts (its weight-gradient K is
   // padded); the width check below only guards a hand-built call.
   const bool v2_shape = N % 64 == 0 && M > 0 && (MODE == MODE_WGRAD || K % K_TREE_LEAF == 0);
@@ -1338,7 +1342,10 @@ std::vector<torch::Tensor> nemotron_experts_backward(
     auto shared_w1 = aligned16(*w_sh1);
     auto shared_w2 = aligned16(*w_sh2);
     const int shared_width = shared_w1.size(0);
-    const nv_bf16* shared_grad = bf16_ptr(grad_out);
+    // `grad_out` becomes a TMA base for the shared dX/dW projections, so it
+    // needs the same 16-byte alignment `aligned16` guarantees everywhere else.
+    auto shared_grad_t = aligned16(grad_out);
+    const nv_bf16* shared_grad = bf16_ptr(shared_grad_t);
     const nv_bf16* saved_shared_up = bf16_ptr(*shared_up);
     torch::Tensor d_shared_up;
     if (need_x || need_shared_weight_grad) {

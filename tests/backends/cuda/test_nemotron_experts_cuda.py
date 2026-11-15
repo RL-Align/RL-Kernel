@@ -317,8 +317,9 @@ def test_provider_selection_prefers_native(monkeypatch):
 
 
 @_SM90
-def test_native_provider_rejects_pre_sm90_payload_device(monkeypatch):
-    """The SM90 gate follows the payload device, not the current CUDA device."""
+@pytest.mark.parametrize("capability", [(8, 0), (10, 0)], ids=["pre-sm90", "blackwell"])
+def test_native_provider_rejects_non_sm90_payload_device(monkeypatch, capability):
+    """The SM90 gate follows the payload device and admits exactly sm_90."""
     if not _native_compiled():
         pytest.skip("native SM90 experts extension is not built")
     provider = _provider("native")
@@ -334,7 +335,7 @@ def test_native_provider_rejects_pre_sm90_payload_device(monkeypatch):
         case["w_sh1"],
         case["w_sh2"],
     )
-    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *args, **kwargs: (8, 0))
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *args, **kwargs: capability)
     with pytest.raises(RuntimeError, match="requires NVIDIA SM90"):
         provider(*arguments)
 

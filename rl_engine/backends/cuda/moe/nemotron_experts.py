@@ -20,7 +20,10 @@ PROVIDER_ID = "rlkernel.nemotron_experts.sm90.v1"
 
 def _require_sm90(device: torch.device) -> None:
     major, minor = torch.cuda.get_device_capability(device)
-    if major < 9:
+    # Exactly SM90, not ">= 9": the build emits `sm_90a` (wgmma/TMA) code and
+    # architecture-specific `a` images are not forward compatible, so Blackwell
+    # must not be admitted by this gate.
+    if major != 9:
         raise RuntimeError(
             f"nemotron experts native kernel requires NVIDIA SM90, got sm_{major}{minor} "
             f"on {device}"
@@ -142,8 +145,10 @@ class _ExpertsCombine(torch.autograd.Function):
         )
         if not need_any:
             return (None,) * 9
+        # Autograd does not guarantee a contiguous incoming gradient (a narrowed
+        # or transposed output produces a strided one); the kernel requires it.
         d_packed, d_x, d_weights, d_w_up, d_w_down, d_w_sh1, d_w_sh2 = _C.nemotron_experts_backward(
-            grad_out,
+            grad_out.contiguous(),
             packed,
             x,
             weights,
