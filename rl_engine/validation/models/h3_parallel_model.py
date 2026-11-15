@@ -209,20 +209,39 @@ def parallel_model_execution(model, grid: h3_tp.Grid, *, sp: bool, trace, ops=No
 # --- Evidence helpers ----------------------------------------------------------------------------
 
 
-def exact_digest(t: torch.Tensor) -> list[int]:
+DIGEST_CHUNK = 1 << 24  # int16 words per step: bounds the int64 temporaries to ~384 MiB
+
+
+def exact_digest(t: torch.Tensor, *, chunk: int = DIGEST_CHUNK) -> list[int]:
     """Two wrap-around int64 checksums of a tensor's bytes (on the tensor's device).
 
+    The bytes are read as int16 words ``w_i``; the checksums are ``sum(w_i)`` and
+    ``sum(w_i * (i mod 2147483629 + 1))``, both modulo 2**64. They are accumulated ``chunk``
+    words at a time, which gives the same values as one pass (integer addition modulo 2**64 does
+    not depend on the order) while the temporaries stay a bounded size, not a multiple of the
+    tensor's.
+
     Equal tensors give equal digests; this is for comparing large gradients without copying them
-    to the host, not a cryptographic hash.
+    to the host, not a cryptographic hash. It is not injective: a change goes unseen only if its
+    word differences cancel in both sums. A change of one word is always seen, and so is a change
+    of two words in a tensor of fewer than 2147483629 words (two different weights); a change
+    needs at least three words in a fixed relation to go unseen. The H3 grids compare the
+    velocities, input gradients and block snapshots with ``torch.equal`` and only the weight-shard
+    gradients by digest.
     """
 
     flat = t.detach().contiguous().view(torch.uint8).reshape(-1)
     pad = (-flat.numel()) % 2
     if pad:
         flat = torch.cat([flat, flat.new_zeros(pad)])
-    words = flat.view(torch.int16).to(torch.int64)
-    weights = (torch.arange(words.numel(), device=words.device, dtype=torch.int64) % 2147483629) + 1
-    return [int(words.sum()), int((words * weights).sum())]
+    words = flat.view(torch.int16)
+    total = torch.zeros(2, dtype=torch.int64, device=words.device)
+    for lo in range(0, words.numel(), chunk):
+        part = words[lo : lo + chunk].to(torch.int64)
+        positions = torch.arange(lo, lo + part.numel(), device=words.device, dtype=torch.int64)
+        total[0] += part.sum()
+        total[1] += (part * ((positions % 2147483629) + 1)).sum()
+    return [int(total[0]), int(total[1])]
 
 
 def shard_of(grad: torch.Tensor, name: str, tp: int, tp_rank: int) -> torch.Tensor:
@@ -247,13 +266,22 @@ def first_drift(
     contains the row (all TP ranks of a CP rank when sequence parallelism is off).
 
     The spans, the tags and every compared snapshot must describe the same packed length:
-    otherwise the owners and the modality would be read from the wrong rows, so it raises.
+    otherwise the owners and the modality would be read from the wrong rows, so it raises. The
+    two runs must hold the same nodes, and every node of ``order`` (by default all of them) must
+    be among them: a node missing from either run is refused, never counted as no drift.
     """
 
     length = max(hi for _, hi in spans)
     if token_tags is not None and token_tags.numel() != length:
         raise ValueError(f"{token_tags.numel()} token tags for a packed length of {length}")
-    for name in order or list(reference):
+    if set(reference) != set(observed):
+        only = sorted(set(reference) ^ set(observed))
+        raise ValueError(f"the two runs hold different nodes: {only}")
+    names = list(reference) if order is None else list(order)
+    unknown = sorted(set(names) - set(reference))
+    if unknown:
+        raise ValueError(f"order names nodes neither run holds: {unknown}")
+    for name in names:
         a, b = reference[name], observed[name]
         if a.shape != b.shape:
             return {"node": name, "reason": f"shape {tuple(a.shape)} vs {tuple(b.shape)}"}
@@ -279,7 +307,14 @@ def first_drift(
 
 
 def grid_readback(grid: h3_tp.Grid, *, sp: bool, ops) -> dict[str, Any]:
-    """Runtime identity of this rank's layout: topology, rank order, collectives, kernels."""
+    """Runtime identity of this rank's layout: topology, rank order, collectives, kernels.
+
+    It has no fallback field, because nothing here measures one. What the grid itself runs
+    cannot fall back: the candidate ops are checked to be CUDA (``require_candidate_cuda``; their
+    classes are ``kernels``), and the attention path is fixed by ``grid.attention``, whose
+    kernels raise if missing. The boundary rows are those of strict ``full_model_execution``,
+    the same in the canonical run and on the grid; which op each resolves to is checked there.
+    """
 
     coll = grid.tp_collective
     rank = dist.get_rank() if dist.is_initialized() else 0
@@ -316,5 +351,4 @@ def grid_readback(grid: h3_tp.Grid, *, sp: bool, ops) -> dict[str, Any]:
         ),
         "attention": grid.attention,
         "kernels": ops.backends(),
-        "fallback": None,
     }

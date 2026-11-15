@@ -95,7 +95,10 @@ rank loads the whole checkpoint and runs the canonical model first, so it is a v
 not a memory-sharded implementation. Weight-shard gradients are reduced to their digest the moment
 they are accumulated and freed (`ParallelState.digest_leaf`), so a run holds one block's shard
 gradients at a time: without that, the canonical run's unsharded leaves and gradients need about
-twice the 33B weights on top of the weights themselves, which does not fit a 94 GB H100.
+twice the 33B weights on top of the weights themselves, which does not fit a 94 GB H100. The digest
+(`exact_digest`) is two wrap-around int64 checksums of the bytes, accumulated 2^24 words at a time
+so its temporaries stay bounded. It is not a hash, but it always sees a change of one or two 16-bit
+words.
 
 ## Tests and evidence
 

@@ -169,6 +169,41 @@ class TestFirstDrift:
         order = ["block.3", "block.1"]  # backward order
         assert pm.first_drift(ref, seen, spans, tags, order)["node"] == "block.3"
 
+    def test_a_node_missing_from_either_run_is_refused(self):
+        """Runs holding different nodes, or an order naming a node neither holds, are refused,
+        never reported as no drift."""
+        ref, spans, tags = self._case()
+        seen = {k: v.clone() for k, v in ref.items()}
+        seen["block.9"] = torch.ones(1, 8, 4)  # only the observed run has it
+        with pytest.raises(ValueError, match=r"different nodes: \['block.9'\]"):
+            pm.first_drift(ref, seen, spans, tags)
+        del seen["block.9"], seen["block.0"]
+        with pytest.raises(ValueError, match=r"different nodes: \['block.0'\]"):
+            pm.first_drift(ref, seen, spans, tags, ["block.1"])
+        seen = {k: v.clone() for k, v in ref.items()}
+        with pytest.raises(ValueError, match=r"neither run holds: \['block.7'\]"):
+            pm.first_drift(ref, seen, spans, tags, ["block.1", "block.7"])
+        # an order may name a subset (the runner orders the forward and the backward nodes apart)
+        assert pm.first_drift(ref, seen, spans, tags, ["block.1"]) is None
+
+
+class TestDigestChunks:
+    def test_chunks_give_the_values_of_one_pass(self):
+        """Any chunk size gives the closed-form checksums of the whole tensor."""
+        gen = torch.Generator().manual_seed(2)
+        x = torch.randn(301, 7, generator=gen).bfloat16()
+        words = x.view(torch.int16).reshape(-1).to(torch.int64)
+        weights = torch.arange(words.numel(), dtype=torch.int64) % 2147483629 + 1
+        expected = [int(words.sum()), int((words * weights).sum())]
+        for chunk in (1, 7, 300, words.numel(), 1 << 24):
+            assert pm.exact_digest(x, chunk=chunk) == expected
+
+    def test_an_odd_byte_count_is_padded(self):
+        """A tensor with an odd number of bytes is read with one zero byte appended."""
+        x = torch.arange(5, dtype=torch.uint8)
+        padded = torch.cat([x, x.new_zeros(1)])
+        assert pm.exact_digest(x, chunk=2) == pm.exact_digest(padded)
+
 
 @needs_gpu
 class TestDigest:

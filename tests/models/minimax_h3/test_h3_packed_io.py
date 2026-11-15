@@ -155,6 +155,33 @@ class TestSingleRank:
             )
 
 
+def test_a_group_of_another_size_than_the_shard_is_refused(monkeypatch):
+    """A process group that does not have ``shard.cp`` ranks (e.g. the default world group of a
+    TP x CP grid) is refused before any collective."""
+    monkeypatch.setattr(par.dist, "get_world_size", lambda group=None: 8)
+    shard = par.SeqShard(20, 2, 0)
+    local = torch.zeros(1, shard.sizes[0], 4)
+    with pytest.raises(ValueError, match="group has 8 ranks, but the rows are split over 2"):
+        par.gather_selected(local, shard, torch.tensor([0, 1]), dim=1)
+    with pytest.raises(ValueError, match="group has 8 ranks"):
+        par.check_row_identity(torch.arange(shard.sizes[0]), shard)
+    monkeypatch.setattr(par.torch.cuda, "current_device", lambda: 0)
+    with pytest.raises(ValueError, match="group has 8 ranks"):
+        par.scatter_from_root(
+            None, par.SeqShard(20, 2, 1), tail_shape=(4,), dtype=torch.float32, root=0
+        )
+
+
+def test_the_root_tensor_must_be_on_the_current_device(monkeypatch):
+    """The root sends from its packed tensor, the receivers receive on their current device: a
+    root tensor on another device is refused."""
+    monkeypatch.setattr(par.torch.cuda, "current_device", lambda: 0)
+    with pytest.raises(ValueError, match="packed tensor is on cpu, not on cuda:0"):
+        par.scatter_from_root(
+            torch.zeros(20, 4), par.SeqShard(20, 2, 0), tail_shape=(4,), dtype=torch.float32
+        )
+
+
 @needs_gpu
 @pytest.mark.parametrize("cp", [2, 3, 4])
 @pytest.mark.parametrize("length", [1, 5, 261])

@@ -331,6 +331,18 @@ def group_peer(group, index: int) -> int:
     return index if group is None else dist.get_global_rank(group, index)
 
 
+def _check_group(shard: SeqShard, group) -> None:
+    """Refuse a process group whose size is not the shard's CP size (``None`` is the world group).
+
+    The shard splits the rows over ``shard.cp`` ranks; a collective over another number of ranks
+    would fail on mismatched buffers or hang, e.g. the default world group of a TP x CP grid.
+    """
+
+    size = dist.get_world_size(group)
+    if size != shard.cp:
+        raise ValueError(f"the group has {size} ranks, but the rows are split over {shard.cp}")
+
+
 def scatter_from_root(
     packed: torch.Tensor | None,
     shard: SeqShard,
@@ -346,7 +358,8 @@ def scatter_from_root(
     ``packed`` has ``shard.length`` rows along ``dim`` on the root and is ``None`` elsewhere;
     ``tail_shape`` are the sizes of the other axes (with ``dim`` moved to the front) so the
     receivers can allocate. Point-to-point copies of contiguous row ranges: exact, any length,
-    ranks that own no rows send and receive nothing.
+    ranks that own no rows send and receive nothing. ``group`` is the CP group (``shard.cp``
+    ranks) and ``packed`` lives on the root's current CUDA device; anything else is refused.
     """
 
     cp, rank, sizes = shard.cp, shard.rank, shard.sizes
@@ -356,6 +369,11 @@ def scatter_from_root(
     if rank == root:
         if packed is None or packed.shape[dim] != shard.length:
             raise ValueError("the root must hold the full packed tensor")
+        if cp > 1 and packed.device != device:
+            # the receivers allocate on their current device; NCCL sends from the root's own
+            raise ValueError(f"the root's packed tensor is on {packed.device}, not on {device}")
+        if cp > 1:
+            _check_group(shard, group)
         full = packed.movedim(dim, 0).contiguous()
         ops = []
         for peer in range(cp):
@@ -376,6 +394,7 @@ def scatter_from_root(
         return full[lo : lo + sizes[rank]].contiguous().movedim(0, dim)
     if packed is not None:
         raise ValueError("only the root holds the packed tensor")
+    _check_group(shard, group)  # a non-root rank exists only if cp > 1
     mine = torch.empty((sizes[rank], *tail_shape), device=device, dtype=dtype)
     if sizes[rank]:
         for work in dist.batch_isend_irecv(
@@ -446,6 +465,7 @@ def gather_selected(local, shard: SeqShard, selected, group=None, dim: int = 0) 
     ``full.index_select(dim, selected)`` bit for bit for any shard sizes and any (unique) order;
     only the selected rows travel. The backward gives each rank the rows of the (replicated)
     output gradient that it owns and zero elsewhere, so no collective and no summation.
+    ``group`` is the CP group (``shard.cp`` ranks); another size is refused.
     """
 
     _check_selection(selected, shard)
@@ -455,6 +475,7 @@ def gather_selected(local, shard: SeqShard, selected, group=None, dim: int = 0) 
         )
     if shard.cp == 1:
         return local.index_select(dim, selected.to(local.device).to(torch.long))
+    _check_group(shard, group)
     return _GatherSelected.apply(local, shard, selected.to(local.device), group, dim)
 
 
@@ -463,9 +484,12 @@ def check_row_identity(local_ids: torch.Tensor, shard: SeqShard, group=None) -> 
 
     ``local_ids`` are the global ids that travel with this rank's rows (any tensor that was
     sliced with the rows). It catches a rank that received the wrong rows or metadata sliced
-    with a different ``SeqShard``.
+    with a different ``SeqShard``. ``group`` is the CP group (``shard.cp`` ranks); another size
+    is refused.
     """
 
+    if shard.cp > 1:
+        _check_group(shard, group)
     ids = gather_packed(local_ids.to(torch.long), shard, group)
     expected = torch.arange(shard.length, device=ids.device)
     if ids.shape != expected.shape or not torch.equal(ids, expected):
