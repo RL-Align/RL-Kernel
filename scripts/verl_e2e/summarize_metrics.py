@@ -26,6 +26,7 @@ SHOW = [
     "rollout_corr/k3_kl",
     "actor/ppo_kl",
     "actor/pg_clipfrac",
+    "actor/grad_norm",
     "response_length/mean",
     "critic/score/mean",
 ]
@@ -72,6 +73,8 @@ def main() -> int:
                 "mean": statistics.mean(vals), "min": min(vals), "max": max(vals), "n": len(vals)
             }
     ok = bool(rows) and all(v == "BITWISE" for v in verdicts)
+    grads = [r.get("actor/grad_norm") for r in rows if isinstance(r.get("actor/grad_norm"), float)]
+    updated = sum(g > 0 for g in grads)
     total = sum(int(r.get(TOKENS, 0)) for r in rows)
     bad = sum(int(r.get(BITWISE, 0)) for r in rows)
     result = {
@@ -80,6 +83,7 @@ def main() -> int:
         "bitwise_all_steps": ok,
         "tokens_compared": total,
         "tokens_mismatched": bad,
+        "steps_with_nonzero_grad_norm": updated,
         "per_step": [
             {"step": r["_step"], "verdict": v, **{k: r.get(k) for k in SHOW}}
             for r, v in zip(rows, verdicts)
@@ -92,12 +96,20 @@ def main() -> int:
         f"# {a.jsonl}",
         "",
         f"**Bitwise on every step: {'YES' if ok else 'NO'}** "
-        f"({total} response tokens compared, {bad} mismatched, {len(rows)} steps)",
+        f"({total} response tokens compared, {bad} mismatched, {len(rows)} steps, "
+        f"{updated} with a nonzero grad norm)",
         "",
         "| step | verdict | " + " | ".join(k.replace("training/", "") for k in SHOW) + " |",
         "|---|---|" + "---|" * len(SHOW),
     ]
-    for p in result["per_step"]:
+    per_step = result["per_step"]
+    if len(per_step) > 30:  # long runs: first steps, every 20th, the last, and any mismatch
+        keep = {0, 1, 2, len(per_step) - 1}
+        keep |= {
+            i for i, p in enumerate(per_step) if (i + 1) % 20 == 0 or p["verdict"] != "BITWISE"
+        }
+        per_step = [p for i, p in enumerate(per_step) if i in keep]
+    for p in per_step:
         cells = []
         for k in SHOW:
             v = p.get(k)

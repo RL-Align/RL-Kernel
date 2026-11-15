@@ -6,12 +6,13 @@
 #   bash /e2e/tools/run_e2e.sh T1      # upstream quick_alignment_test: 4 GPUs, 4 layers, 2 steps
 #   bash /e2e/tools/run_e2e.sh T2      # 8 GPUs (EP8, rollout DP8/EP8), 4 layers, 5 steps
 #   LAYERS=8 bash /e2e/tools/run_e2e.sh T3   # 8 GPUs, LAYERS layers, longer responses
+#   bash /e2e/tools/run_e2e.sh T4      # 200 training steps, 8 layers, synthetic dense reward
 #
 # Any variable the upstream script reads (TRAIN_BATCH_SIZE, ROLLOUT_N, MAX_RESPONSE_LENGTH,
 # TOTAL_TRAINING_STEPS, ROLLOUT_GPU_MEMORY_UTILIZATION, ...) can be exported to override.
 # Extra arguments after the test name are passed through as Hydra overrides.
 set -euo pipefail
-TEST="${1:?usage: run_e2e.sh T1|T2|T3 [hydra overrides...]}"
+TEST="${1:?usage: run_e2e.sh T1|T2|T3|T4 [hydra overrides...]}"
 shift
 source /e2e/tools/env.sh
 
@@ -46,23 +47,39 @@ case "${TEST}" in
     MODE=quick_alignment_test
     export MODEL_PATH="${C_MODEL}"     # upstream makes its own 4-layer view
     ;;
-  T2|T3)
+  T2|T3|T4)
     MODE=aligned
-    if [[ "${TEST}" == T2 ]]; then LAYERS="${LAYERS:-4}"; else LAYERS="${LAYERS:-8}"; fi
+    case "${TEST}" in
+      T2) LAYERS="${LAYERS:-4}" ;;
+      *) LAYERS="${LAYERS:-8}" ;;
+    esac
     MODEL_PATH="$(make_layers_dir "${LAYERS}")"
     export MODEL_PATH
     export NNODES=1 NGPUS_PER_NODE=8 ACTOR_PP=1 ACTOR_CP=1 ACTOR_EP=8
     export ROLLOUT_DP=8 ROLLOUT_EP=8 ROLLOUT_AGENT_WORKERS="${ROLLOUT_AGENT_WORKERS:-8}"
+    if [[ "${TEST}" == T4 ]]; then
+      # Long run: 200 optimizer updates. GRPO needs several samples per prompt; the
+      # synthetic reward (custom_reward.py) gives nonzero advantages on a truncated model,
+      # and a larger LR makes the BF16 / FP8 deployment weights change visibly every step.
+      export TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-200}"
+      export TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-32}"
+      export ROLLOUT_N="${ROLLOUT_N:-8}"
+      export ACTOR_LR="${ACTOR_LR:-1e-5}"
+      export MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-2048}"
+      export OVERLONG_BUFFER_LEN="${OVERLONG_BUFFER_LEN:-1024}"
+      set -- "reward.custom_reward_function.path=/e2e/tools/custom_reward.py" \
+             "reward.custom_reward_function.name=compute_score" "$@"
+    fi
     export TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-5}"
     export TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-16}"
     # One optimizer update per step: the first actor forward must also equal the rollout
     # (actor/ppo_kl == 0 exactly), a third, grad-enabled copy of the log-probs.
     export PPO_MINI_BATCH_SIZE="${PPO_MINI_BATCH_SIZE:-${TRAIN_BATCH_SIZE}}"
     export ROLLOUT_N="${ROLLOUT_N:-4}"
-    if [[ "${TEST}" == T2 ]]; then
-      export MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-2048}"
-    else
+    if [[ "${TEST}" == T3 ]]; then
       export MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-8192}"
+    else
+      export MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-2048}"
     fi
     export OVERLONG_BUFFER_LEN="${OVERLONG_BUFFER_LEN:-512}"
     export ROLLOUT_MAX_NUM_SEQS="${ROLLOUT_MAX_NUM_SEQS:-64}"
