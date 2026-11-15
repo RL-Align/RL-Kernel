@@ -120,3 +120,28 @@ def test_stage_selection_requires_a_predecessor_exactly_after_preflight(
     )
     with pytest.raises(SystemExit, match=message):
         run.main()
+
+
+@pytest.mark.parametrize(
+    "names, accepted",
+    [
+        (["NVIDIA B200"] * 4, True),
+        (["NVIDIA H100 80GB HBM3"] * 4, True),
+        (["NVIDIA H200"] * 4, True),
+        (["NVIDIA H100 80GB HBM3"] * 3, False),
+        (["NVIDIA H100 80GB HBM3"] * 8, False),
+        (["NVIDIA H100 80GB HBM3"] * 3 + ["NVIDIA A100-SXM4-80GB"], False),
+        (["NVIDIA GeForce RTX 5090"] * 4, False),
+    ],
+)
+def test_four_gpu_guard_accepts_b200_and_hopper_only(monkeypatch, names, accepted):
+    import torch
+    from qwen3_next_runtime import require_four_supported_gpus
+
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: len(names))
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda index: names[index])
+    if accepted:
+        require_four_supported_gpus()
+    else:
+        with pytest.raises(RuntimeError, match="topology_mismatch"):
+            require_four_supported_gpus()
