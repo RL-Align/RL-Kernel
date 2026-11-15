@@ -204,10 +204,29 @@ STRICT_BOUNDARY_ROWS = {
 }
 # Bound by a dedicated binding, not by the linear-projection ``project`` below.
 _NON_LINEAR_BOUNDARIES = frozenset({"token_refiner", "time_embedder", "norm_out"})
-# The CUDA op each of these rows must resolve to. Their CUDA priority lists keep the PyTorch
-# reference after the CUDA op (#484, #489), which the registry picks when the CUDA op cannot
-# be constructed (e.g. an ``_C`` without the H3 kernels); strict mode refuses that.
+# The CUDA op each boundary row must resolve to. ``timestep_mlp_fp32`` / ``final_adaln_out``
+# keep the PyTorch reference after the CUDA op in their CUDA priority lists (#484, #489), which the
+# registry picks when the CUDA op cannot be constructed (e.g. an ``_C`` without the H3 kernels);
+# the projection rows' lists hold their CUDA op alone. Strict mode checks every row, so a
+# reference added to a list later is refused too.
 _CUDA_ROW_OPS = {
+    "video_input_projection_fp32": (
+        "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
+        "TritonVideoInputProjectionFP32Op"
+    ),
+    "video_output_projection_fp32": (
+        "rl_engine.backends.shared.triton.gemm.video_output_projection_fp32."
+        "TritonVideoOutputProjectionFP32Op"
+    ),
+    "audio_input_projection_fp32": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioInputProjectionCudaOp"
+    ),
+    "audio_output_projection_fp32": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioOutputProjectionCudaOp"
+    ),
+    "text_context_projection": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3TextContextProjectionCudaOp"
+    ),
     "timestep_mlp_fp32": (
         "rl_engine.backends.cuda.model_specific.minimax_h3.timestep_mlp.H3TimestepMLPCudaOp"
     ),
@@ -276,7 +295,7 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
     registry = KernelRegistry()
     try:
         row_ops = {
-            name: registry.get_op(row, device="cuda")
+            name: _cuda_row(registry, row)
             for name, row in STRICT_BOUNDARY_ROWS.items()
             if name not in _NON_LINEAR_BOUNDARIES and name not in native
         }
