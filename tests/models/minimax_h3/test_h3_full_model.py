@@ -273,8 +273,41 @@ def test_cuda_guard_rejects_one_fallback_among_native_bindings():
     ops = SimpleNamespace(
         backends=lambda: {"projection": native, "norm": "torch.nn.RMSNorm", "gate": native}
     )
-    with pytest.raises(ValueError, match="candidate norm fell back"):
+    with pytest.raises(ValueError, match="candidate norm fell back") as raised:
         require_candidate_cuda(ops)
+    assert type(raised.value).__name__ == "CandidateBindingError"
+
+
+def test_a_failure_to_bind_is_a_candidate_binding_error_and_a_model_error_is_not(monkeypatch):
+    """Only a missing CUDA op is a ``CandidateBindingError`` (a fallback for audit mode); a
+    structural error of the model, or of the call, stays a plain ``ValueError``."""
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models.h3_full_model import CandidateBindingError
+
+    def no_backend(self, row, device=None):
+        raise RuntimeError(f"No functional backend for {row}")
+
+    monkeypatch.setattr(KernelRegistry, "get_op", no_backend)
+    with pytest.raises(CandidateBindingError, match="No functional backend") as raised:
+        with full_model_execution(
+            Model(), candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            pass
+    assert isinstance(raised.value.__cause__, RuntimeError)
+
+    model = Model()
+    model.transformer_blocks[49] = model.transformer_blocks[0]
+    for kwargs in (
+        dict(model=model),
+        dict(model=Model(), provider_nodes=("no_such_node",)),
+        dict(model=Model(), strict_boundaries=True, native_boundaries=("proj_up",)),
+    ):
+        with pytest.raises(ValueError) as raised:
+            with full_model_execution(
+                **kwargs, candidate=True, trace=FullModelTrace(), ops=object()
+            ):
+                pass
+        assert not isinstance(raised.value, CandidateBindingError), raised.value
 
 
 def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
@@ -586,11 +619,13 @@ def test_strict_refuses_the_reference_op_of_time_embedder_and_norm_out(monkeypat
 
     monkeypatch.setattr(KernelRegistry, "get_op", get_op)
     model = _boundary_model()
-    with pytest.raises(RuntimeError, match=f"strict {row} resolved to .*Reference"):
+    with pytest.raises(RuntimeError, match=f"strict {row} resolved to .*Reference") as raised:
         with full_model_execution(
             model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
         ):
             pass
+    # a failure to bind: audit mode may run the provider, strict raises
+    assert type(raised.value).__name__ == "CandidateBindingError"
     # nothing stays bound after the refusal
     assert "forward" not in model.time_embedder.__dict__
     assert "forward" not in model.norm_out.__dict__

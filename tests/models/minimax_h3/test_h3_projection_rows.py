@@ -590,6 +590,40 @@ def test_reference_rows_take_the_cuda_signature_and_key_contract():
     assert torch.equal(qkv(xb, wq, wq, wq, logical_keys=keys[:3])[1], F.linear(xb, wq))
 
 
+def test_reference_golden_gives_padding_rows_no_parameter_gradient():
+    """``forward_fp32`` (the FP64 golden) keeps the ``logical_keys`` contract of ``forward``:
+    the output is unchanged and only the active rows reach the weight and bias gradients."""
+
+    torch.manual_seed(1)
+    keys = torch.stack([torch.arange(6), torch.zeros(6, dtype=torch.int64)], dim=1)
+    keys[[1, 4], 0] = -1  # padding
+    active = keys[:, 0] >= 0
+    op = ref.NativeH3AudioInputProjectionOp()
+    x = torch.randn(6, 32)
+    w = (torch.randn(5376, 32) / 8).requires_grad_(True)
+    b = torch.randn(5376).requires_grad_(True)
+    out = op.forward_fp32(x, w, b, logical_keys=keys)
+    assert torch.equal(out, op.forward_fp32(x, w, b))
+    gw, gb = torch.autograd.grad(out.sum(), (w, b))
+    rw, rb = torch.autograd.grad(op.forward_fp32(x[active], w, b).sum(), (w, b))
+    assert torch.equal(gw, rw) and torch.equal(gb, rb)
+
+    qkv = ref.NativeH3QKVGemmOp()
+    xb = torch.randn(6, 5376).bfloat16()
+    ws = [(torch.randn(128, 5376) / 70).bfloat16().requires_grad_(True) for _ in range(3)]
+    outs = qkv.forward_fp32(xb, *ws, logical_keys=keys)
+    for o, plain in zip(outs, qkv.forward_fp32(xb, *ws), strict=True):
+        assert torch.equal(o, plain)
+    grads = torch.autograd.grad(sum(o.float().sum() for o in outs), ws)
+    golden = torch.autograd.grad(
+        sum(o.float().sum() for o in qkv.forward_fp32(xb[active], *ws)), ws
+    )
+    for g, r in zip(grads, golden, strict=True):
+        assert torch.equal(g, r)
+    with pytest.raises(ValueError, match="unique"):
+        qkv.forward_fp32(xb, *ws, logical_keys=torch.zeros(6, 2, dtype=torch.int64))
+
+
 @requires_cuda
 def test_an_all_padding_call_gives_zero_parameter_gradients():
     """A call whose rows are all padding gives zero weight and bias gradients."""

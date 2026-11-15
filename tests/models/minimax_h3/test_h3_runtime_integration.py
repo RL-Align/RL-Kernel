@@ -80,9 +80,10 @@ def test_adapter_audit_reports_the_fallback():
     assert adapter.report()["label"] == "P/P"
 
 
-def _bindable(monkeypatch, mode, *, binding_fails):
+def _bindable(monkeypatch, mode, *, binding_fails, error=None):
     """An adapter whose model counts as CUDA-resident, with a stand-in for the full-model
-    binding that records each ``candidate`` request and can refuse the candidate graph."""
+    binding that records each ``candidate`` request and can refuse the candidate graph
+    (``binding_fails``) or raise ``error`` while entering it."""
 
     from contextlib import contextmanager
 
@@ -94,7 +95,11 @@ def _bindable(monkeypatch, mode, *, binding_fails):
     def execution(model, *, candidate, trace, **_):
         """Stand-in for ``full_model_execution``: fails to bind the candidate when asked to."""
         if candidate and binding_fails:
-            raise ValueError("candidate projection fell back from its CUDA implementation")
+            raise h3_full_model.CandidateBindingError(
+                "candidate projection fell back from its CUDA implementation"
+            )
+        if candidate and error is not None:
+            raise error
         entered.append(candidate)
         yield trace
 
@@ -124,6 +129,25 @@ def test_audit_runs_the_provider_when_the_graph_cannot_bind(monkeypatch):
     assert "fell back from its CUDA implementation" in adapter.fell_back
     rep = adapter.report()
     assert (rep["bound"], rep["case_id"], rep["label"]) == (False, "P/P", "P/P")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ValueError("50 distinct transformer blocks are required"),
+        ValueError("unknown boundary modules: ['proj_up']"),
+        RuntimeError("an error that is not a failure to bind"),
+    ],
+)
+def test_audit_does_not_turn_a_model_error_into_a_fallback(monkeypatch, error):
+    """A structural or configuration error while binding propagates in audit mode too: only a
+    ``CandidateBindingError`` makes audit run the provider."""
+    adapter, entered = _bindable(monkeypatch, "audit", binding_fails=False, error=error)
+    with pytest.raises(type(error)) as raised:
+        with adapter.active():
+            pass
+    assert raised.value is error
+    assert entered == [] and adapter.fell_back is None
 
 
 def test_strict_raises_when_the_graph_cannot_bind(monkeypatch):

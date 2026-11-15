@@ -145,19 +145,21 @@ class H3DiffusersAdapter:
     def active(self):
         """Operators bound until the block exits; keep ``backward()`` inside it.
 
-        A fallback is a failure to bind the RL-Kernel graph (e.g. a candidate op without its
-        CUDA implementation): strict raises it; audit reports it in ``fell_back`` and runs the
-        provider instead, like a model without CUDA parameters. An error raised by the caller's
-        own forward or backward inside the block is never a fallback and propagates unchanged.
+        A fallback is a failure to bind the RL-Kernel graph (``CandidateBindingError``: a
+        candidate or boundary row without its CUDA op): strict raises it; audit reports it in
+        ``fell_back`` and runs the provider instead, like a model without CUDA parameters. A
+        structural or configuration error of the model (wrong block count, missing boundary
+        modules, unknown node names) and an error raised by the caller's own forward or backward
+        inside the block are never a fallback and propagate unchanged.
         """
 
-        from rl_engine.validation.models.h3_full_model import FullModelTrace
+        from rl_engine.validation.models.h3_full_model import CandidateBindingError, FullModelTrace
 
         bind = self._bind()
         with ExitStack() as stack:
             try:
                 stack.enter_context(self._execution(bind))
-            except (RuntimeError, ValueError) as exc:
+            except CandidateBindingError as exc:
                 if self.policy.fail_on_fallback or not bind:
                     raise
                 self.fell_back = f"{type(exc).__name__}: {exc}"
