@@ -1,6 +1,13 @@
 # Partial RoPE and Indexer Q preprocessing (items 11, 15)
 
-Two operators, no new GPU kernel. Runtime wiring is a separate PR.
+Two operators, no new GPU kernel.
+
+Wired callers (bytes match the earlier inline code):
+
+- `IndexerAuxiliary.transform_queries`: item 15 for MXFP4; item 11 then
+  Hadamard for FP8. `preprocess_queries` also returns `packed`/`scales`.
+- `AiterOProjectionBackend.inverse_rope` / `inverse_rope_gradient`: item 11
+  backend `rotate_vjp` / `rotate`.
 
 ```text
 item 11: x[T,H,D] BF16, pos[T] int64 -> y[T,H,D] BF16      D in {128, 512}, rope_dim 64
@@ -89,7 +96,8 @@ CUDA Graph capture. Only gfx942 is admitted.
 
 ```bash
 python -m pytest tests/models/deepseek_v4/test_rope_mxfp4.py \
-  tests/models/deepseek_v4/test_rope_mxfp4_rocm.py -q
+  tests/models/deepseek_v4/test_rope_mxfp4_rocm.py \
+  tests/models/deepseek_v4/test_indexer_operator_wiring_rocm.py -q
 python benchmarks/benchmark_rope_mxfp4.py --repeats 30 --output benchmark.json
 ```
 
@@ -99,8 +107,9 @@ codes, scales and dQ), a torch MXFP4 oracle, row splits, shuffles, CP 2/4
 shards and two fresh processes. Results: `reports/rope-mxfp4-mi300x-20261110.md`.
 
 Not covered: the aiter fused `rope_rotate_activation_fp4quant_inplace` (gfx950
-only), the ceil rule, runtime wiring of main-branch Q/K RoPE, CUDA Graph and
-multi-GPU CP.
+only), the ceil rule, CUDA Graph, multi-GPU CP, and FP32 RoPE inside fused
+VJPs (`native_compressor`, `qkv_preprocess`, `inverse_rope`): those keep FP32
+and need a separate contract.
 
 References: [#624](https://github.com/RL-Align/RL-Kernel/pull/624),
 [#627](https://github.com/RL-Align/RL-Kernel/pull/627),

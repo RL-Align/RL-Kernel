@@ -81,11 +81,16 @@ Training uses `contract_from_transformer_config` from the Megatron adapter.
 Inputs must be FP32, finite, on the backend device and outside CUDA Graph
 capture. The backward accepts at most 4096 keys per call (`max_backward_keys`).
 
+Wired callers: the item 26 sparse auxiliary loss
+(`AiterIndexerAuxBackend.forward_sparse` / `backward_parts`) calls this
+operator; bytes match the earlier inline composition.
+
 ## Verification
 
 ```bash
 python -m pytest tests/models/deepseek_v4/test_indexer_score.py \
-  tests/models/deepseek_v4/test_indexer_score_rocm.py -q
+  tests/models/deepseek_v4/test_indexer_score_rocm.py \
+  tests/models/deepseek_v4/test_indexer_operator_wiring_rocm.py -q
 python benchmarks/benchmark_indexer_score.py --repeats 30 --output benchmark.json
 ```
 
@@ -96,7 +101,7 @@ Results are in `reports/indexer-score-mi308x-20261115.md`.
 Not covered: gfx950, real #599 ICV, aiter
 [`pa_mqa_logits_fp4`](https://github.com/ROCm/aiter/blob/326cffa38c9eda16bef19375ba55334e4d3acd59/aiter/ops/flydsl/kernels/mqa_logits/pa_mqa_logits_fp4.py)
 (different scale order, not evaluated), causal mask, Top-K, cross-TP merge,
-CUDA Graph, multi-GPU and the full rollout/training chain.
+CUDA Graph, multi-GPU, Megatron `CSAIndexer` and vLLM rollout scoring.
 
 References: [#599](https://github.com/RL-Align/RL-Kernel/pull/599),
 [#631](https://github.com/RL-Align/RL-Kernel/pull/631),

@@ -206,34 +206,39 @@ class AiterIndexerAuxBackend(AiterIndexerTrainingMath):
         self.provenance["codec"] = self.codec.provenance
         self.provenance["icv"] = self.icv.provenance
         self.provenance["aux_contract"] = contract.fingerprint
-        rope = importlib.import_module("aiter.ops.rope")
-        self._rope_forward, self._rope_backward = rope.rope_cached_fwd, rope.rope_cached_bwd
-        self.provenance["q_rope_sources"] = {
-            name: hashlib.sha256(
-                Path(importlib.import_module(name).__file__).read_bytes()
-            ).hexdigest()
-            for name in (
-                "aiter.ops.rope",
-                "aiter.jit.module_rope_1c_cached_fwd",
-                "aiter.jit.module_rope_1c_cached_bwd",
+        from rl_engine.backends.rocm.attention.indexer_score import AiterIndexerScoreBackend
+        from rl_engine.backends.rocm.attention.partial_rope import (
+            AiterIndexerQBackend,
+            AiterPartialRoPEBackend,
+        )
+        from rl_engine.contracts.operators.indexer_q_preprocess import (
+            IndexerQPreprocessContract,
+        )
+        from rl_engine.contracts.operators.indexer_score import IndexerScoreContract
+        from rl_engine.contracts.operators.partial_rope import PartialRoPEContract
+        from rl_engine.models.deepseek_v4.indexer_q_preprocess import IndexerQPreprocess
+        from rl_engine.models.deepseek_v4.indexer_score import IndexerScore
+        from rl_engine.models.deepseek_v4.partial_rope import PartialRoPE
+
+        with torch.cuda.device(self.device):
+            self.score = IndexerScore(
+                IndexerScoreContract(num_heads=contract.num_heads, head_dim=contract.head_dim),
+                backend=AiterIndexerScoreBackend(),
             )
-        }
-
-    def query_transform(self, q, cos, sin):
-        self._check(q, cos, sin)
-        if not q.shape[0]:
-            return torch.empty_like(q)
-        with torch.cuda.device(self.device):
-            rotated = self._rope_forward(q[:, None], cos, sin, 1, True, True).squeeze(1)
-            return self.codec._rotate(rotated.reshape(-1, 128)).reshape_as(q)
-
-    def query_transform_vjp(self, grad, cos, sin):
-        self._check(grad, cos, sin)
-        if not grad.shape[0]:
-            return torch.empty_like(grad)
-        with torch.cuda.device(self.device):
-            unrotated = self.codec._rotate(grad.bfloat16().reshape(-1, 128)).reshape_as(grad)
-            return self._rope_backward(unrotated[:, None], cos, sin, 1, True, True).squeeze(1)
+            if contract.precision == "mxfp4":
+                self.query_preprocess = IndexerQPreprocess(
+                    IndexerQPreprocessContract(num_heads=contract.num_heads),
+                    backend=AiterIndexerQBackend(codec=self.codec),
+                )
+                query = self.query_preprocess.implementation_fingerprint
+            else:
+                self.query_rope = PartialRoPE(
+                    PartialRoPEContract(head_dim=contract.head_dim, rope_dim=64),
+                    backend=AiterPartialRoPEBackend(),
+                )
+                query = self.query_rope.implementation_fingerprint
+        self.provenance["score"] = self.score.implementation_fingerprint
+        self.provenance["query"] = query
 
     def enable_backward(self):
         """Reuse item 25's verified CSR gather, not a scatter-add gradient."""
@@ -355,11 +360,8 @@ class AiterIndexerAuxBackend(AiterIndexerTrainingMath):
         raw = self.raw_sparse_icv(q_prepared, k_prepared, q_scale, k_scale, indices)
         raw = torch.where(valid[:, None, :], raw, 0.0)
         require(bool(torch.isfinite(raw).all()), "non-finite active ICV")
-        relu = torch.relu(raw * (128**-0.5))
-        weighted = torch.where(metadata.valid_rows[:, None], weights, 0.0) * (c.num_heads**-0.5)
-        scores = self.row_dot(
-            relu.transpose(1, 2).contiguous(), weighted[:, None, :].expand(-1, indices.shape[1], -1)
-        )
+        score = self.score.forward(raw, torch.where(metadata.valid_rows[:, None], weights, 0.0))
+        scores, relu = score.scores, score.relu
         require(bool(torch.isfinite(scores).all()), "non-finite active Indexer score")
         teacher_selected = self.gather_rows(teacher_k, indices)
         target_logits = self.bmm_fp32_output(teacher_q, teacher_selected.transpose(1, 2))
@@ -376,7 +378,7 @@ class AiterIndexerAuxBackend(AiterIndexerTrainingMath):
         terms = target * (torch.log(target + 1e-10) - torch.log(predicted + 1e-10))
         losses = self.row_sum(terms[:, None, :]).squeeze(1)
         losses = losses * (c.loss_coeff / c.global_query_count)
-        return losses, raw, relu, predicted, target
+        return losses, raw, relu, predicted, target, score
 
     @torch.no_grad()
     def backward_parts(self, record, grad_loss):
@@ -398,11 +400,7 @@ class AiterIndexerAuxBackend(AiterIndexerTrainingMath):
             indices = record.metadata.selected_indices
             valid = (indices >= 0) & record.metadata.valid_rows[:, None]
             ds = torch.where(valid, ds, 0.0)
-            dw = self.row_dot(record.relu, ds[:, None, :].expand_as(record.relu))
-            dw = dw * (c.num_heads**-0.5)
-            weights = torch.where(record.metadata.valid_rows[:, None], record.weights, 0.0)
-            ddot = ds[:, None, :] * (weights * (c.num_heads**-0.5))[:, :, None]
-            ddot = torch.where(record.raw_icv > 0, ddot * (128**-0.5), 0.0)
+            ddot, dw = self.score.backward(record.score, ds)
             selected_k = self.gather_rows(record.k.real, indices)
             dq = self.bmm_fp32_output(ddot, selected_k)
             dk_selected = self.bmm_fp32_output(ddot.transpose(1, 2), record.q.real)
