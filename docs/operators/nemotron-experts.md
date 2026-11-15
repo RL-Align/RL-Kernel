@@ -184,7 +184,9 @@ that is not `experts + 1` long, unpaired shared weights and a reduction depth
 beyond the merge tree all raise. `permutation`/`offsets` *values* are trusted as
 the router's contract rather than validated on device - a device-side check would
 force a host synchronization and break graph capture - so a hand-built dispatch
-must supply a bijection and its exclusive prefix sums.
+must supply a bijection and its exclusive prefix sums. The inverse table is
+zero-initialized and its scatter ignores out-of-range route ids, so a violated
+permutation produces a wrong result rather than an out-of-bounds device access.
 
 ## Qualification boundary
 

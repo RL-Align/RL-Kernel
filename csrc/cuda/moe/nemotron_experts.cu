@@ -107,8 +107,16 @@ __global__ void nemotron_experts_invert_kernel(int64_t* __restrict__ inverse,
                                                const int64_t* __restrict__ permutation,
                                                int routes) {
   const int index = blockIdx.x * blockDim.x + threadIdx.x;
-  // `permutation` is a bijection (router contract), so this scatter is race-free.
-  if (index < routes) inverse[permutation[index]] = index;
+  // `permutation` is a bijection (router contract), so with a valid table this
+  // scatter is race-free. `inverse` is zero-initialized by the caller and an
+  // out-of-range route id is ignored: a contract-violating permutation then
+  // yields a wrong result instead of an out-of-bounds write, and a duplicate
+  // leaves its slot at row 0 instead of exposing uninitialized memory. Neither
+  // check costs a host sync, so graph capture stays legal.
+  if (index < routes) {
+    const int64_t route = permutation[index];
+    if (route >= 0 && route < routes) inverse[route] = index;
+  }
 }
 
 // routed[t, j] = sum over slots ascending of weights[t, s] * Y[route_row(t, s), j].
@@ -1202,7 +1210,9 @@ nemotron_experts_forward(torch::Tensor packed, c10::optional<torch::Tensor> x,
   auto up = torch::empty({rows, intermediate}, options);
   auto z = torch::empty({rows, intermediate}, options);
   auto down = torch::empty({rows, width}, float_options);
-  auto inverse = torch::empty({rows}, options.dtype(torch::kInt64));
+  // Scatter-filled from `permutation`; zero so a non-bijective table cannot
+  // leave uninitialized row ids for the combine kernel to dereference.
+  auto inverse = torch::zeros({rows}, options.dtype(torch::kInt64));
   const c10::optional<torch::Tensor> none;
   if (tokens == 0) return {out, up, z, down, inverse, none, none, none};
 

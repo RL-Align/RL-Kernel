@@ -9,11 +9,15 @@ expert.  This module fixes the *semantics*; it does not reproduce the kernels'
 mid-split BF16 arithmetic.
 
 FP64 inputs stay FP64 end to end, so `gradcheck` and the scalar oracle see the
-idealized composition.  BF16/FP32 inputs follow the operator cast table: the
-up-projection leaf rounds to BF16, the relu-square gate rounds to BF16, the
-down-projection and the combine stay FP32, and the operator has exactly one
-exit cast.  Accumulation is whatever `torch.matmul` chooses, so this is a
-numerical baseline, not a bitwise contract.  The operator's own pairing - a BF16
+idealized composition.  BF16/FP32 inputs model the two cast points that dominate
+the error: the up-projection result and the relu-square gate round to BF16, the
+down projection and the combine accumulate in FP32, and there is exactly one
+exit cast.  The kernels' `det_gemm` contract additionally rounds every 32-wide
+reduction leaf to BF16 before merging the leaves - in the down projection and
+the backward GEMMs too - which this baseline does not reproduce, because
+`torch.matmul` computes the whole reduction in FP32.  It is therefore a
+numerical baseline, not a bitwise contract; the kernels' arithmetic is pinned
+separately against `_C.det_gemm_*`.  The operator's own pairing - a BF16
 payload with FP32 route weights - is accepted; other combinations must share the
 payload dtype, so the oracle's precision is unambiguous.
 
