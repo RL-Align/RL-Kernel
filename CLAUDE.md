@@ -81,11 +81,13 @@ Design doc 10.1 has the pieces. Things that cost time:
   - The `rlkernel` verl engine (W3) and adapter sync (W4).
   - Toy GRPO on 2 x H200 (W5): mismatch 0 at every step; the negative control is nonzero
     from step 2.
+  - The rollout's BI-off switch (`RL_KERNEL_DSV4_NON_BI=1`, launcher `BI=0`).
+    - On the toy run (1 GPU), `timing_s/gen` is 0.79x of the BI run.
+    - It changes the rollout only: the actor's kernels have no non-invariant variant.
 - Ready, not run: `scripts/verl_e2e_lora/` (W6), the 8-GPU guide against verl #7483 on the
-  real checkpoint (first `LAYERS` layers). It needs a machine with 8 GPUs per job.
+  real checkpoint (first `LAYERS` layers). It includes the ablation run and needs a machine
+  with 8 GPUs per job.
 - Open, roughly in order:
-  - the BI-off switch for the ablation: the plugin refuses `VLLM_BATCH_INVARIANT=0` and
-    the paged FP8 decode today;
   - `rlkernel` engine at EP > 1 and the rollout plugin at EP > 1, so the full 43-layer
     model can run;
   - CUDA graphs in the rollout (eager today);

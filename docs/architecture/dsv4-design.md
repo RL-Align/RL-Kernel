@@ -496,6 +496,21 @@ Gate, toy checkpoint (4 layers: window, window, C4, C128; 256 experts), 6 reques
 and sampled-token log-prob byte-identical to one packed `Dsv4Model` prefill, without and
 with rank-16 LoRA. Not yet: EP > 1, CUDA graphs, the real checkpoint.
 
+Ablation (`RL_KERNEL_DSV4_NON_BI=1` with `VLLM_BATCH_INVARIANT=0`; the launcher's `BI=0`):
+the rollout without batch invariance, to price it.
+- vLLM's own paths come back: non-invariant attention planning, FlashMLA's paged FP8 decode,
+  the fused q / kv RMSNorm, query norm / RoPE / KV insert, indexer query and compressor store
+  kernels, and the aux-stream overlap.
+- RL-Kernel's mHC, MoE, output projection, LoRA, RoPE tables and FP32 head stay, so the
+  model is the one the actor trains. There is no actor-side counterpart.
+
+On the toy gate with LoRA (`--non-bi`), 302 of 2102 tokens differ after layer 0 (the decode
+tokens and some prefill chunks); the rest are byte-identical, so it is the same model. The
+differences then grow through the random-weight layers (sampled-token log-probs: max 0.55).
+The toy GRPO on 1 x H200 (8 prompts x 4 x 128 tokens, eager) took `timing_s/gen` 2.39 s
+against 3.04 s with BI (0.79x) and 0.85x per step. Every response token mismatched (mean
+|diff| 0.14 on random weights).
+
 ### 10.1 verl
 
 verl and vLLM run unmodified; RL-Kernel plugs in through their extension points
@@ -566,8 +581,8 @@ Open, needs the multi-GPU machine:
 - [ ] 8-GPU run against verl #7483 (Hopper, non-BI, LoRA) on the real checkpoint's first
       layers: the guide is `scripts/verl_e2e_lora/README.md` (gate, RL-Kernel + verl,
       negative control, the #7483 launcher on the same workload, `compare.py`); not run yet.
-- [ ] A BI-off switch for the ablation that separates engine and kernel effects on speed
-      (the plugin refuses `VLLM_BATCH_INVARIANT=0` and the paged FP8 decode today).
+- [x] The rollout's BI-off switch for the ablation (section 10; rollout side only, the
+      actor's kernels have no non-invariant variant). In the 8-GPU guide as `run.sh ablation`.
 - [ ] `rlkernel` engine at EP > 1 (MoE LoRA across EP ranks), parameter offload, CUDA
       graphs in the rollout; persisted W8 expert weights cost E x N x K bytes per weight in
       both the actor and the rollout (check the memory budget on the real checkpoint).

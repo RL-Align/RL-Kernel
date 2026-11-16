@@ -6,6 +6,7 @@
 #   bash run.sh gate         # 1-2 GPUs: RL-Kernel's bitwise checks on the real checkpoint
 #   bash run.sh rlkernel     # RL-Kernel + verl (Hopper, BI, LoRA)
 #   bash run.sh control      # rlkernel with the adapter sync off (negative control, 3 steps)
+#   bash run.sh ablation     # rlkernel with the rollout's batch invariance off (BI=0)
 #   bash run.sh baseline     # verl #7483 (Megatron + vLLM LoRA, not batch-invariant)
 #
 # The shared workload below can be changed by exporting the variable; keep it the same for
@@ -13,7 +14,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$HERE/env.sh"
-VARIANT=${1:?usage: run.sh gate|rlkernel|control|baseline [hydra overrides]}
+VARIANT=${1:?usage: run.sh gate|rlkernel|control|ablation|baseline [hydra overrides]}
 shift
 
 # --- shared workload ---
@@ -98,6 +99,10 @@ case $VARIANT in
     CUDA_VISIBLE_DEVICES=0 python scripts/check_dsv4_vllm_gate.py --ckpt "$MODEL_CUT" \
       --lora 16,32,7 --dump "$RUN/dump" --out "$RUN/vllm_gate_lora.json" 2>&1 |
       tee "$RUN/vllm_gate_lora.log"
+    # The ablation's rollout (report only: its bytes differ by design).
+    CUDA_VISIBLE_DEVICES=0 python scripts/check_dsv4_vllm_gate.py --ckpt "$MODEL_CUT" \
+      --non-bi --lora 16,32,7 --dump "$RUN/dump" --out "$RUN/vllm_ablation.json" 2>&1 |
+      tee "$RUN/vllm_ablation.log"
     CUDA_VISIBLE_DEVICES=0 python scripts/check_dsv4_layerwise_gate.py --ckpt "$MODEL_CUT" \
       --out "$RUN/layerwise_gate.json" 2>&1 | tee "$RUN/layerwise_gate.log"
     CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc-per-node 2 scripts/check_dsv4_verl_engine.py \
@@ -111,6 +116,13 @@ case $VARIANT in
     # The rollout receives the adapters but keeps its old ones: the mismatch count must turn
     # nonzero from step 2 (step 1 runs the zero-B adapters, equal to the base model).
     export RL_KERNEL_DSV4_SKIP_ADAPTER_SYNC=1 STEPS=${CONTROL_STEPS:-3}
+    rlkernel "$@"
+    ;;
+  ablation)
+    # The same run with the rollout plugin's non-invariant mode: vLLM's own attention paths
+    # and paged FP8 decode, RL-Kernel's model otherwise. Mismatches are expected; the run
+    # measures what batch invariance costs the rollout.
+    export BI=0
     rlkernel "$@"
     ;;
   baseline)

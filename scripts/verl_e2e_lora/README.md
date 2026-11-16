@@ -38,8 +38,8 @@ view, data, reward, batch and LoRA rank. verl, vLLM and Megatron are not modifie
 
 Read the speed numbers as stack against stack. The LoRA target sets and the rollout
 parallelism differ (each run uses its own recipe's choices). The rollout without CUDA graphs
-is a known cost on our side. The learning rate does not change the step time. An ablation
-that switches batch invariance off in our stack does not exist yet (see "Not covered").
+is a known cost on our side. The learning rate does not change the step time. The ablation
+run (section 5) splits our time into what batch invariance costs the rollout and the rest.
 
 ## 0. Requirements
 
@@ -101,6 +101,8 @@ bash run.sh gate
 Success: both `vllm_gate*.log` and `layerwise_gate.log` end in a pass with zero differing
 tokens, and `verl_engine.log` ends in `VERL ENGINE PASS`. If anything fails, stop here and
 send the four logs and JSON reports; the training runs would only repeat the failure.
+`vllm_ablation.log` is the ablation's rollout (section 5) on the same check: it must run to
+the end, and its differences are expected (report its log-prob line).
 
 ## 3. RL-Kernel + verl (8 GPUs, 20 steps, ~1 h)
 
@@ -141,7 +143,39 @@ The rollout receives the adapters but keeps the old ones
 
 This shows the metric sees a stale rollout.
 
-## 5. Baseline: verl #7483 (8 GPUs, 20 steps, ~1-2 h)
+## 5. Ablation: our stack with the rollout's batch invariance off (8 GPUs, 20 steps, ~1 h)
+
+```bash
+bash run.sh ablation
+```
+
+The `rlkernel` run with `BI=0`. The rollout plugin then drops what it does only for batch
+invariance and byte equality with the actor:
+- vLLM's non-invariant attention planning (batched prefill chunks, workspaces sized by the
+  batch);
+- FlashMLA's paged FP8 decode instead of decode on the sparse prefill kernel;
+- vLLM's fused q / kv RMSNorm, query norm / RoPE / KV insert, indexer query and compressor
+  store kernels;
+- the aux-stream overlap of the indexer and compressor.
+
+It keeps what defines the model the actor trains: RL-Kernel's mHC, MoE, output projection,
+LoRA adapters, RoPE tables and FP32 log-prob head. The actor is unchanged; RL-Kernel's
+kernels have no non-invariant variant, and their cost per operator against a non-invariant
+kernel is in the design doc, section 9.
+
+Expected:
+- a nonzero mismatch count: rounding differences, not a different model;
+- a shorter `timing_s/gen`.
+
+On the toy checkpoint (random weights, 1 GPU), every token mismatched and the generation
+took 0.79x of the BI run's time.
+
+- Against the `rlkernel` run, the difference in `timing_s/gen` is the price of batch
+  invariance in the rollout.
+- Against the baseline, the remaining gap is the stacks themselves: the engine, the
+  parallelism and the missing CUDA graphs.
+
+## 6. Baseline: verl #7483 (8 GPUs, 20 steps, ~1-2 h)
 
 ```bash
 bash run.sh baseline
@@ -154,11 +188,12 @@ expected, since this stack is not batch-invariant; report it anyway.
 
 Out of memory: try `ROLLOUT_GPU_MEM_UTIL=0.4 bash run.sh baseline`, then report.
 
-## 6. Compare and report
+## 7. Compare and report
 
 ```bash
 cd $LORA_E2E_ROOT/outputs
-python3 <checkout>/scripts/verl_e2e_lora/compare.py rlkernel_<stamp> baseline_<stamp> > compare.md
+python3 <checkout>/scripts/verl_e2e_lora/compare.py rlkernel_<stamp> ablation_<stamp> \
+  baseline_<stamp> > compare.md
 tar czf ~/dsv4-lora-e2e-report.tgz compare.md */summary.md */summary.json */run_info.txt \
   */metrics.jsonl gate_*/*.log gate_*/*.json
 ```
@@ -173,15 +208,14 @@ Send the archive plus a short note:
 | Gate | pass / fail of each of the four checks |
 | rlkernel | steps completed; bitwise every step (yes / no), mismatched tokens and the first such step; `actor/old_logprobs_mismatch_count`; steps with nonzero grad norm; mean `timing_s/step`, `gen`, `old_log_prob`, `update_actor`, `update_weights`; peak memory; settings changed after OOM |
 | control | mismatch count per step |
+| ablation | the same as rlkernel |
 | baseline | the same as rlkernel |
 | Failures | exact command, last 50 lines of `train.log`, what was tried |
 
 ## Not covered (open work in the design doc, section 12)
 
-- **Batch invariance off in our stack** (an ablation that would separate the engine's
-  speed from the batch-invariant kernels' cost). The rollout plugin refuses
-  `VLLM_BATCH_INVARIANT=0` and FlashMLA's paged FP8 decode today, and RL-Kernel's kernels
-  have no non-invariant variant. It needs a non-BI switch first.
+- **Batch invariance off in the actor:** RL-Kernel's kernels have no non-invariant
+  variant; the ablation turns it off in the rollout only.
 - **The full 43-layer model:** needs the `rlkernel` engine at EP > 1 and the rollout plugin
   at EP > 1.
 - **CUDA graphs in our rollout:** it runs eager today, which mostly costs decode time.
@@ -194,7 +228,7 @@ Send the archive plus a short note:
 | `setup.sh` | Environments, checkpoint, data, the layer view |
 | `rlkernel-env.lock.txt` | The RL-Kernel env's packages (from the tested 2-GPU env) |
 | `deepgemm-sm90-paged-mqa-empty.patch` | The local DeepGEMM fix |
-| `run.sh` | `gate`, `rlkernel`, `control`, `baseline` |
+| `run.sh` | `gate`, `rlkernel`, `control`, `ablation`, `baseline` |
 | `compare.py` | Per-run summary and the comparison table |
 | `../verl_e2e/run_dsv4_rlkernel_grpo.sh` | The RL-Kernel + verl launcher (also the 2-GPU run) |
 | `../verl_e2e/custom_reward.py` | The synthetic dense reward both runs use |
