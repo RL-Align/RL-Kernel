@@ -80,7 +80,8 @@ jobs:
       - name: Run Linear-Attention Reference Tests (CPU-only)
         run: |
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
-            tests/ops/linear_attn/ tests/reference/linear_attn/
+            tests/ops/linear_attn/ tests/reference/linear_attn/ \
+            tests/ops/activation/test_sigmoid_gate.py
 
       - name: Run GDN Batch-Invariance Regression Tests (AVX2)
         env:
