@@ -563,8 +563,11 @@ Open, needs the multi-GPU machine:
 - [x] verl integration (user decision 2026-11-15: the actor is a verl engine backend on
       `Dsv4Model`, not Megatron; verl and Megatron stay unmodified): engine backend,
       adapter sync into the rollout, toy GRPO on 2 GPUs bitwise (section 10.1).
-- [ ] 8-GPU guide against verl #7483 (Hopper, non-BI, LoRA), with an ablation (the
-      `rlkernel` engine with BI off) to separate engine and kernel effects on speed.
+- [ ] 8-GPU run against verl #7483 (Hopper, non-BI, LoRA) on the real checkpoint's first
+      layers: the guide is `scripts/verl_e2e_lora/README.md` (gate, RL-Kernel + verl,
+      negative control, the #7483 launcher on the same workload, `compare.py`); not run yet.
+- [ ] A BI-off switch for the ablation that separates engine and kernel effects on speed
+      (the plugin refuses `VLLM_BATCH_INVARIANT=0` and the paged FP8 decode today).
 - [ ] `rlkernel` engine at EP > 1 (MoE LoRA across EP ranks), parameter offload, CUDA
       graphs in the rollout; persisted W8 expert weights cost E x N x K bytes per weight in
       both the actor and the rollout (check the memory budget on the real checkpoint).
