@@ -197,6 +197,7 @@ class IndexerAuxForwardRecord:
     metadata: IndexerAuxMetadata
     implementation: str
     stamps: tuple = field(repr=False)
+    score: object = field(repr=False)
 
     def validate_saved(self):
         tensors = (
@@ -211,6 +212,7 @@ class IndexerAuxForwardRecord:
             tuple(tensor_stamp(t) for t in tensors) == self.stamps,
             "saved Indexer forward state was mutated",
         )
+        self.score.validate()
         self.metadata.queries.validate(self.per_query_loss.shape[0], self.q.master.device)
         meta_tensors = (
             self.metadata.key_ids,
@@ -297,60 +299,19 @@ class IndexerAuxiliary:
             losses, predicted, target = saved.per_query_loss, saved.predicted, saved.target
         return IndexerAuxResult(losses, predicted, target, metadata, self.implementation)
 
-    def transform_queries(self, q, positions, cos_cache, sin_cache):
-        """Explicit Q RoPE -> normalized native Hadamard; no implicit RMSNorm.
-
-        Reuses the task-20 tail-safe Hadamard adapter and native cached RoPE.
-        This is training composition, not a claim to finish another owner's
-        fused-query-preprocessing task.
-        """
-        require(
-            q.ndim == 3
-            and q.shape[1:] == (self.contract.num_heads, 128)
-            and q.dtype == torch.bfloat16
-            and q.is_contiguous()
-            and q.device == self.backend.device,
-            "Q transform ABI mismatch",
-        )
-        require(
-            positions.shape == (q.shape[0],)
-            and positions.dtype == torch.int64
-            and positions.device == q.device,
-            "global Q positions required",
-        )
+    def preprocess_queries(self, q, positions, cos_cache, sin_cache):
+        require(self.contract.precision == "mxfp4", "item 15 preprocessing is MXFP4 only")
         eager_only(q.device)
-        require(
-            cos_cache.ndim == 2
-            and cos_cache.shape == sin_cache.shape
-            and cos_cache.shape[1] == 32
-            and cos_cache.shape[0] > 0,
-            "Q RoPE64 requires [positions,32] cos/sin tables",
-        )
-        require(
-            all(
-                t.device == q.device and t.dtype == torch.bfloat16 and not t.requires_grad
-                for t in (cos_cache, sin_cache)
-            ),
-            "read-only BF16 RoPE tables required",
-        )
-        require(
-            bool(((positions >= -1) & (positions < cos_cache.shape[0])).all()),
-            "Q RoPE position outside cache",
-        )
-        with torch.inference_mode(False), torch.no_grad():
-            selected = positions.clamp_min(0)
-            cos = cos_cache.index_select(0, selected).float().reshape(-1, 1, 1, 32)
-            sin = sin_cache.index_select(0, selected).float().reshape(-1, 1, 1, 32)
-        require(
-            bool(
-                (
-                    torch.isfinite(cos) & torch.isfinite(sin) & (cos.abs() <= 1) & (sin.abs() <= 1)
-                ).all()
-            ),
-            "invalid Q RoPE angles",
-        )
-        masked = torch.where((positions >= 0)[:, None, None], q, 0)
-        return _IndexerQueryTransform.apply(masked, cos, sin, self.backend)
+        return self.backend.query_preprocess(q, positions, cos_cache, sin_cache)
+
+    def transform_queries(self, q, positions, cos_cache, sin_cache):
+        """Q RoPE -> normalized native Hadamard; no implicit RMSNorm."""
+        if self.contract.precision == "mxfp4":
+            return self.preprocess_queries(q, positions, cos_cache, sin_cache).values
+        from rl_engine.backends.rocm.attention.rotation import native_hadamard128
+
+        eager_only(q.device)
+        return native_hadamard128(self.backend.query_rope(q, positions, cos_cache, sin_cache))
 
     def prepare_operand(self, master, *, role, version, packed=None):
         require(isinstance(master, torch.Tensor), "training master tensor required")
@@ -449,9 +410,16 @@ class IndexerAuxiliary:
                 teacher_k.detach(),
                 metadata,
             )
+        *values, score = values
         tensors = (*values, owned_weights)
         return IndexerAuxForwardRecord(
-            *tensors, q, k, metadata, self.implementation, tuple(tensor_stamp(t) for t in tensors)
+            *tensors,
+            q,
+            k,
+            metadata,
+            self.implementation,
+            tuple(tensor_stamp(t) for t in tensors),
+            score,
         )
 
 
@@ -462,20 +430,6 @@ class IndexerAuxResult:
     target: torch.Tensor
     metadata: IndexerAuxMetadata
     implementation: str
-
-
-class _IndexerQueryTransform(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, q, cos, sin, backend):
-        ctx.save_for_backward(cos, sin)
-        ctx.backend = backend
-        return backend.query_transform(q, cos, sin)
-
-    @staticmethod
-    def backward(ctx, grad):
-        require(not torch.is_grad_enabled(), "higher-order Q-transform gradients are not supported")
-        cos, sin = ctx.saved_tensors
-        return ctx.backend.query_transform_vjp(grad.contiguous(), cos, sin), None, None, None
 
 
 @dataclass
