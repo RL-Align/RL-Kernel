@@ -43,6 +43,17 @@ under vLLM's ``DeepseekV4ForCausalLM`` architecture name.
 Supported layout: tensor parallel 1, pipeline parallel 1, no sequence parallel, no MTP, no
 EPLB; data parallel attention with expert parallel MoE (``--enable-expert-parallel``).
 
+Ablation (``RL_KERNEL_DSV4_NON_BI=1`` with ``VLLM_BATCH_INVARIANT=0``): the rollout drops
+what it does only for batch invariance and byte equality with the actor, and keeps what
+defines the model. vLLM's own paths come back: its non-invariant attention planning
+(batched prefill chunks, workspaces sized by the batch), FlashMLA's paged FP8 decode
+(``VLLM_DS4_DECODE_KERNEL=paged``), its fused q / kv RMSNorm, query norm / RoPE / KV insert,
+indexer query and compressor store kernels, and the aux-stream overlap of the indexer and
+compressor. RL-Kernel's mHC, MoE, output projection, LoRA adapters, RoPE tables, FP32 head
+and log-prob stay (vLLM has no LoRA path for these layers; the RoPE tables keep the model
+the actor trains). The log-probs then differ from the actor's; the point is the rollout's
+speed without batch invariance. The actor side has no such switch.
+
 Debug: ``RL_KERNEL_DSV4_DUMP=<dir>`` saves each forward's tokens, request boundaries,
 per-layer streams and final hidden state (``scripts/check_dsv4_vllm_gate.py``).
 ``RL_KERNEL_DSV4_TEST_LORA=rank,alpha,seed`` attaches the random adapters
@@ -98,6 +109,12 @@ from vllm.v1.sample.sampler import Sampler  # noqa: E402
 ENV_ENABLE = "RL_KERNEL_DSV4_ROLLOUT"
 ENV_DUMP = "RL_KERNEL_DSV4_DUMP"
 ENV_TEST_LORA = "RL_KERNEL_DSV4_TEST_LORA"
+ENV_NON_BI = "RL_KERNEL_DSV4_NON_BI"
+
+
+def batch_invariant() -> bool:
+    """False under the ``RL_KERNEL_DSV4_NON_BI=1`` ablation (module docstring)."""
+    return os.environ.get(ENV_NON_BI, "0") != "1"
 
 
 class RlkDeepseekV4FP8Config(DeepseekV4FP8Config):
@@ -126,12 +143,14 @@ def register() -> None:
 
     runner.Sampler = RlkSampler
     runner_v2.Sampler = _rlk_sampler_v2()
+    register_quantization_config(DeepseekV4FP8Config.get_name())(RlkDeepseekV4FP8Config)
+    if not batch_invariant():
+        return  # the ablation keeps vLLM's attention ops (module docstring)
     vattention.fused_q_kv_rmsnorm = _rlk_q_kv_rmsnorm
     vattention.fused_indexer_q_rope_quant = _rlk_indexer_q
     vcompressor.compress_norm_rope_store_triton = _rlk_compress_store
     vcompressor.compress_norm_rope_store_two_stage_triton = _rlk_compress_store
     vcutedsl.compress_norm_rope_store_cutedsl = _rlk_compress_store
-    register_quantization_config(DeepseekV4FP8Config.get_name())(RlkDeepseekV4FP8Config)
     _accept_pinned_deepgemm()
     # Decode through FlashMLA's sparse kernel, as prefill: the paged FP8 decode kernel
     # rounds differently (checked in RlkDeepseekV4Model).
@@ -529,10 +548,18 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
             problems.append("EPLB")
         if self._mtp_hidden_buffer is not None:
             problems.append("MTP / speculative decoding")
-        if vm.envs.VLLM_DS4_DECODE_KERNEL.lower() != "sparse":
-            problems.append("VLLM_DS4_DECODE_KERNEL != sparse")
-        if not vm.envs.VLLM_BATCH_INVARIANT:
-            problems.append("VLLM_BATCH_INVARIANT=0 (the attention path must be the BI one)")
+        self.rlk_bi = batch_invariant()
+        if not self.rlk_bi:
+            if vm.envs.VLLM_BATCH_INVARIANT:
+                problems.append(f"{ENV_NON_BI}=1 with VLLM_BATCH_INVARIANT=1 (set it to 0)")
+        else:
+            if vm.envs.VLLM_DS4_DECODE_KERNEL.lower() != "sparse":
+                problems.append("VLLM_DS4_DECODE_KERNEL != sparse")
+            if not vm.envs.VLLM_BATCH_INVARIANT:
+                problems.append(
+                    "VLLM_BATCH_INVARIANT=0 (the attention path must be the BI one; "
+                    f"{ENV_NON_BI}=1 is the non-invariant ablation)"
+                )
         if "dummy" in str(vllm_config.load_config.load_format):
             # The base weights (and RL-Kernel's MoE / output projection) load from the
             # checkpoint once; a trainer syncs only LoRA adapters (vllm_worker.py).
@@ -561,12 +588,14 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
             attn.rlk_wo_b_lora = None
             attn._o_proj = functools.partial(_rlk_o_proj, attn)
             attn.rlk_vllm_insert = attn._fused_qnorm_rope_kv_insert
-            # One stream: vLLM overlaps the compressor / indexer on aux streams with the
-            # query path, and RL-Kernel's ops there allocate on the current stream only.
-            attn.aux_stream_list = None
-            if attn.indexer is not None:
-                attn.indexer.aux_stream = None
-            attn._fused_qnorm_rope_kv_insert = functools.partial(_rlk_qnorm_rope_insert, attn)
+            if self.rlk_bi:
+                # One stream: vLLM overlaps the compressor / indexer on aux streams with the
+                # query path, and RL-Kernel's ops there allocate on the current stream only.
+                # (The ablation keeps vLLM's ops there, and its streams.)
+                attn.aux_stream_list = None
+                if attn.indexer is not None:
+                    attn.indexer.aux_stream = None
+                attn._fused_qnorm_rope_kv_insert = functools.partial(_rlk_qnorm_rope_insert, attn)
             if attn.compress_ratio == 1:
                 old = attn.rotary_emb.cos_sin_cache
                 if old.dtype != torch.float32:

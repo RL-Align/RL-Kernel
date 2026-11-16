@@ -14,6 +14,10 @@ byte-identical.
 
     PYTHONPATH=. python scripts/check_dsv4_vllm_gate.py --ckpt ~/dsv4-work/dsv4-toy256
     PYTHONPATH=. python scripts/check_dsv4_vllm_gate.py --ckpt DIR --lora 16,32,7
+
+``--non-bi`` runs the plugin's non-invariant ablation (``RL_KERNEL_DSV4_NON_BI=1``,
+``VLLM_BATCH_INVARIANT=0``, paged FP8 decode): the bytes then differ by design, and the
+report shows by how much (with ``--lora``, a small difference also shows the adapters ran).
 """
 
 from __future__ import annotations
@@ -31,7 +35,12 @@ import torch
 
 def run_vllm(args, dump: pathlib.Path) -> None:
     os.environ["RL_KERNEL_DSV4_ROLLOUT"] = "1"
-    os.environ["VLLM_BATCH_INVARIANT"] = "1"
+    if args.non_bi:
+        os.environ["RL_KERNEL_DSV4_NON_BI"] = "1"
+        os.environ["VLLM_BATCH_INVARIANT"] = "0"
+        os.environ["VLLM_DS4_DECODE_KERNEL"] = "paged"
+    else:
+        os.environ["VLLM_BATCH_INVARIANT"] = "1"
     os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"  # register() reaches the engine
     if args.lora:
         os.environ["RL_KERNEL_DSV4_TEST_LORA"] = args.lora
@@ -254,6 +263,7 @@ def main() -> int:
     ap.add_argument("--dump", default="dsv4_vllm_gate_dump")
     ap.add_argument("--phase", choices=["all", "vllm", "compare"], default="all")
     ap.add_argument("--out", help="write the JSON report here")
+    ap.add_argument("--non-bi", action="store_true", help="the plugin's non-invariant ablation")
     args = ap.parse_args()
     dump = pathlib.Path(args.dump).resolve()
 
@@ -267,6 +277,8 @@ def main() -> int:
     report = compare(args, dump)
     report["config"] = {k: v for k, v in vars(args).items() if k not in ("phase", "out")}
     verdict = "PASS" if report["passed"] else "FAIL"
+    if args.non_bi:
+        verdict = f"non-invariant ablation, byte-identical: {report['passed']}"
     print(f"rollout (vLLM + RL-Kernel) vs actor (Dsv4Model): {verdict}")
     print(
         f"  tokens compared {report['tokens_compared']} / {report['tokens_expected']}, "
@@ -287,7 +299,7 @@ def main() -> int:
     if args.out:
         with open(args.out, "w") as f:
             json.dump(report, f, indent=2)
-    return 0 if report["passed"] else 1
+    return 0 if report["passed"] or args.non_bi else 1
 
 
 if __name__ == "__main__":

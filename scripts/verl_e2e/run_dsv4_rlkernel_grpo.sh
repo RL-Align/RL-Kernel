@@ -14,6 +14,10 @@
 # rollout (vLLM) and recomputed (actor) FP32 log-probs differ. 0 at every step means bitwise.
 # The synthetic reward (custom_reward.py) gives nonzero advantages on a model that cannot
 # solve the task, so the adapters move every step and every step re-tests the weight sync.
+#
+# BI=0 is the ablation: the rollout without batch invariance (vLLM's own attention paths,
+# paged FP8 decode; rl_engine/integrations/dsv4/vllm_model.py). The mismatch count is then
+# nonzero by design; the run measures the rollout's speed without the invariance.
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 RLK_ROOT=${RLK_ROOT:-$(cd "$HERE/../.." && pwd)}
@@ -36,12 +40,18 @@ MAX_NUM_SEQS=${MAX_NUM_SEQS:-32}
 GPU_UTIL=${GPU_UTIL:-0.35}
 ACTOR_LR=${ACTOR_LR:-1e-4}
 LOGGER=${LOGGER:-'["console"]'}
-EXPERIMENT_NAME=${EXPERIMENT_NAME:-grpo_lora_bi}
+BI=${BI:-1}
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-grpo_lora_bi$BI}
 VLLM_KW=+actor_rollout_ref.rollout.engine_kwargs.vllm
 RLK_WORKER=rl_engine.integrations.dsv4.vllm_worker
 
 export PYTHONPATH=$RLK_ROOT${PYTHONPATH:+:$PYTHONPATH}
-export VLLM_BATCH_INVARIANT=1 RL_KERNEL_DSV4_ROLLOUT=1 VLLM_DS4_DECODE_KERNEL=sparse
+export RL_KERNEL_DSV4_ROLLOUT=1
+if [[ $BI == 1 ]]; then
+    export VLLM_BATCH_INVARIANT=1 VLLM_DS4_DECODE_KERNEL=sparse RL_KERNEL_DSV4_NON_BI=0
+else
+    export VLLM_BATCH_INVARIANT=0 VLLM_DS4_DECODE_KERNEL=paged RL_KERNEL_DSV4_NON_BI=1
+fi
 export VLLM_USE_V1=1 NCCL_NVLS_ENABLE=0 TORCH_NCCL_AVOID_RECORD_STREAMS=1
 export RAY_TMPDIR=${RAY_TMPDIR:-/tmp/ray-$USER}
 # Slurm also sets ROCR_VISIBLE_DEVICES, which verl refuses next to CUDA_VISIBLE_DEVICES.
