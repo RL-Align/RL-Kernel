@@ -103,8 +103,10 @@ execution or skipped accelerator tests do not establish hardware acceptance.
 
 Shared source is included in the gradient audit inventory. Runtime fingerprints
 also include the defining module of cross-module runtime entrypoints, so moving
-the VJP cannot hide later shared-helper source changes. Same-module fingerprint
-payloads and stable public operator identifiers are preserved.
+the VJP cannot hide later shared-helper source changes. SM90 and deterministic
+wrappers explicitly declare the shared source dependency because their local
+entrypoints delegate to shared code. Unrelated same-module fingerprint payloads
+and stable public operator identifiers are preserved.
 
 ## Implementation Files
 

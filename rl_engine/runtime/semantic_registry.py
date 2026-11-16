@@ -487,6 +487,8 @@ def implementation_fingerprint(
     concrete class, the defining modules, and explicitly named runtime entry
     points. Module content covers helper functions called by an entry point;
     callable identities additionally make in-process replacements observable.
+    Instances may declare ``_implementation_source_modules`` for shared helpers
+    reached through delegation rather than cross-module entry points.
     """
 
     factory = _load_factory(implementation)
@@ -494,6 +496,7 @@ def implementation_fingerprint(
     runtime_entrypoints = {}
     entrypoint_modules: set[str] = set()
     if instance is not None:
+        entrypoint_modules.update(getattr(instance, "_implementation_source_modules", ()))
         for name in sorted(set(entrypoints)):
             value = getattr(instance, name, None)
             if callable(value):
@@ -508,7 +511,7 @@ def implementation_fingerprint(
         ),
         "runtime_entrypoints": runtime_entrypoints,
     }
-    # A backend wrapper can inherit entrypoints whose helpers live in a shared file.
+    # Include shared helpers reached through inherited entrypoints or declared delegation.
     entrypoint_modules.difference_update(
         {None, getattr(factory, "__module__", None), getattr(concrete_type, "__module__", None)}
     )
