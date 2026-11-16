@@ -8,7 +8,7 @@ attest producer identity, or promote a CPU check to Ascend qualification.
 """
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Sequence
 
 import torch
 
@@ -118,7 +118,7 @@ def compare_moe_phases(
                 metadata_errors.append("shape_mismatch")
             if actual.dtype != fixed.dtype:
                 metadata_errors.append("dtype_mismatch")
-        result = {
+        result: dict[str, Any] = {
             "actual_backend": record.actual_backend,
             "implementation_fingerprint": record.implementation_fingerprint,
             "output_device": actual_device,

@@ -35,12 +35,18 @@ def _count(name: str, value: int, *, allow_zero: bool = False) -> None:
         )
 
 
-def _tensor(name: str, value: torch.Tensor, shape: tuple[int, ...], device: torch.device) -> None:
+def _tensor(
+    name: str,
+    value: torch.Tensor,
+    shape: tuple[int, ...] | None = None,
+    device: torch.device | None = None,
+) -> None:
     if not isinstance(value, torch.Tensor) or value.layout != torch.strided:
         raise MoEContractError(f"{name} must be a strided tensor")
-    if value.device.type == "meta" or value.device != device:
-        raise MoEContractError(f"{name} must be materialized on {device}")
-    if tuple(value.shape) != shape:
+    if value.device.type == "meta" or (device is not None and value.device != device):
+        expected = f" on {device}" if device is not None else ""
+        raise MoEContractError(f"{name} must be materialized{expected}")
+    if shape is not None and tuple(value.shape) != shape:
         raise MoEContractError(f"{name} must have shape {shape}")
 
 
@@ -136,7 +142,11 @@ class MoENumericalContract:
     def validate_logits(self, logits: torch.Tensor) -> None:
         if not isinstance(logits, torch.Tensor) or logits.ndim != 2:
             raise MoEContractError("logits must be [num_tokens, num_experts]")
-        _tensor("logits", logits, (logits.shape[0], self.num_experts), logits.device)
+        _tensor("logits", logits)
+        if logits.shape[1] != self.num_experts:
+            raise MoEContractError(
+                f"logits must have shape [num_tokens, {self.num_experts}]"
+            )
         if logits.dtype != _DTYPES[self.input_dtype]:
             raise MoEContractError("logits dtype must match input_dtype")
         _finite("logits", logits)
