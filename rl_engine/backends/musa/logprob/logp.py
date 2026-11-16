@@ -6,11 +6,7 @@
 import torch
 
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
-from rl_engine.ops.logprob.fused_logp import (
-    FusedLogpAutogradForward,
-    FusedLogpOp,
-    fused_logp_vjp,
-)
+from rl_engine.ops.logprob.fused_logp import FusedLogpAutogradForward, FusedLogpOp, fused_logp_vjp
 from rl_engine.utils.logger import logger
 
 
