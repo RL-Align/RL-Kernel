@@ -202,6 +202,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
+    # Nemotron-H strict embedding + LM-head selected-token logprob (fail-closed, no fallback)
+    CUDA_NEMOTRON_H_LM_HEAD_LOGPROB_SM90 = (
+        "rl_engine.kernels.ops.cuda.loss.nemotron_h_lm_head_logp.NemotronHLMHeadLogprobSM90Op"
+    )
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -595,6 +599,7 @@ class KernelRegistry:
                 ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
+                "nemotron_h_lm_head_logprob": [],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [
                     OpBackend.CUDA_SILU,
@@ -650,6 +655,7 @@ class KernelRegistry:
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
+                "nemotron_h_lm_head_logprob": [],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
@@ -695,6 +701,7 @@ class KernelRegistry:
                     OpBackend.PYTORCH_NATIVE_RMS_NORM,
                 ],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
+                "nemotron_h_lm_head_logprob": [],
                 "embedding": [
                     OpBackend.TRITON_EMBEDDING,
                     OpBackend.PYTORCH_NATIVE_EMBEDDING,
@@ -723,6 +730,7 @@ class KernelRegistry:
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
+                "nemotron_h_lm_head_logprob": [],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
@@ -1035,6 +1043,15 @@ class KernelRegistry:
                 lm_head_list = self._priority_map["cuda"]["lm_head"]
                 if OpBackend.CUDA_SM90_LM_HEAD not in lm_head_list:
                     lm_head_list.insert(0, OpBackend.CUDA_SM90_LM_HEAD)
+
+            nemotron_h_compiled = _EXT_AVAILABLE and all(
+                hasattr(_C, name)
+                for name in ("fused_linear_logp_sm90", "fused_linear_logp_sm90_strict_dlogits")
+            )
+            if nemotron_h_compiled and cc_major == 9:
+                nemotron_list = self._priority_map["cuda"]["nemotron_h_lm_head_logprob"]
+                if OpBackend.CUDA_NEMOTRON_H_LM_HEAD_LOGPROB_SM90 not in nemotron_list:
+                    nemotron_list.insert(0, OpBackend.CUDA_NEMOTRON_H_LM_HEAD_LOGPROB_SM90)
         except Exception as exc:
             logger.warning(f"Failed to probe device capability: {exc}")
 

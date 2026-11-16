@@ -136,3 +136,36 @@ def test_constant_lm_head_inputs_match_operator_contract():
     assert torch.equal(inputs["weight"], torch.full((17, 128), 0.51))
     assert inputs["bias"] is None
     assert operator_shape_name("lm_head", args) == "1x2x128x17"
+
+
+def test_nemotron_h_lm_head_logprob_inputs_use_pinned_geometry():
+    # Generic --vocab/--normalized-dim/--dtype defaults must not leak into the pinned row.
+    args = _args(vocab=257, normalized_dim=4096)
+    inputs = make_operator_inputs(
+        "nemotron_h_lm_head_logprob", args, torch.float32, torch.device("meta")
+    )
+
+    assert inputs["hidden"].shape == (1, 2, 2688)
+    assert inputs["lm_head_weight"].shape == (131072, 2688)
+    assert inputs["hidden"].dtype == torch.bfloat16
+    assert inputs["lm_head_weight"].dtype == torch.bfloat16
+    assert inputs["target_ids"].shape == (1, 2)
+    assert inputs["bias"] is None
+    assert operator_shape_name("nemotron_h_lm_head_logprob", args) == "1x2x2688x131072"
+
+
+def test_nemotron_h_lm_head_logprob_case_pins_bf16(monkeypatch):
+    import rl_engine.validation.operators.operator_specs as specs
+
+    monkeypatch.setattr(specs, "_load_object", lambda path: (lambda: _GoldStub()))
+    args = _args(op="nemotron_h_lm_head_logprob")
+    case = make_operator_case(args, torch.float32, torch.device("meta"))
+
+    assert case.dtype == torch.bfloat16
+    assert case.inputs["lm_head_weight"].dtype == torch.bfloat16
+    assert case.name == "nemotron_h_lm_head_logprob-torch.bfloat16-1x2x2688x131072"
+
+
+class _GoldStub:
+    def apply(self, *args, **kwargs):  # pragma: no cover - never invoked
+        raise AssertionError("gold path must not run in an input-construction test")

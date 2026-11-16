@@ -8,6 +8,8 @@ from typing import Any
 
 import torch
 
+from rl_engine.models.nemotron_h.lm_head_contract import NEMOTRON_H_LM_HEAD_SPEC
+
 DEFAULT_HIDDEN = 4096
 DEFAULT_N_HEADS = 32
 DEFAULT_N_KV_HEADS = 8
@@ -35,6 +37,7 @@ def make_operator_inputs(
         "cp_attention": _make_cp_attention_inputs,
         "logp": _make_logp_inputs,
         "linear_logp": _make_linear_logp_inputs,
+        "nemotron_h_lm_head_logprob": _make_nemotron_h_lm_head_logprob_inputs,
         "batch_invariant_logp": _make_batch_invariant_logp_inputs,
         "rope": _make_rope_inputs,
         "silu": _make_silu_inputs,
@@ -65,6 +68,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "cp_attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}xcp2",
         "logp": f"{batch}x{seq}x{vocab}",
         "linear_logp": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
+        "nemotron_h_lm_head_logprob": f"{batch}x{seq}x{NEMOTRON_H_LM_HEAD_SPEC.hidden_size}"
+        f"x{NEMOTRON_H_LM_HEAD_SPEC.vocab_size}",
         "batch_invariant_logp": f"{batch}x{seq}x{vocab}",
         "rope": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
         "silu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
@@ -238,6 +243,23 @@ def _make_linear_logp_inputs(
         "bias": None,
     }
 
+
+def _make_nemotron_h_lm_head_logprob_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Model-pinned row: geometry and dtype come from the checkpoint, not the CLI."""
+    del dtype  # the strict contract only accepts the checkpoint parameter dtype
+    spec = NEMOTRON_H_LM_HEAD_SPEC
+    batch, seq = _batch_seq(args)
+    hidden_dim, vocab, param_dtype = spec.hidden_size, spec.vocab_size, spec.param_dtype
+    return {
+        "hidden": _floating_tensor((batch, seq, hidden_dim), args, param_dtype, device, offset=0),
+        "lm_head_weight": _floating_tensor(
+            (vocab, hidden_dim), args, param_dtype, device, offset=1
+        ),
+        "target_ids": _token_ids((batch, seq), vocab, args, device),
+        "bias": None,
+    }
 
 def _make_batch_invariant_logp_inputs(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
