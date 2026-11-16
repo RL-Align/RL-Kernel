@@ -36,8 +36,11 @@ def run_vllm(args, dump: pathlib.Path) -> None:
     if args.lora:
         os.environ["RL_KERNEL_DSV4_TEST_LORA"] = args.lora
     # Before vLLM: the plugin must load RL-Kernel's FlashMLA ahead of vLLM's attention ops.
+    # isort: off
     from rl_engine.integrations.dsv4.vllm_model import register
     from vllm import LLM, SamplingParams
+
+    # isort: on
 
     register()
     llm = LLM(
@@ -265,13 +268,19 @@ def main() -> int:
     report["config"] = {k: v for k, v in vars(args).items() if k not in ("phase", "out")}
     verdict = "PASS" if report["passed"] else "FAIL"
     print(f"rollout (vLLM + RL-Kernel) vs actor (Dsv4Model): {verdict}")
-    print(f"  tokens compared {report['tokens_compared']} / {report['tokens_expected']}, "
-          f"{report['steps']} steps")
-    print(f"  sampled-token log-probs differ {report['logprobs_differ']} / "
-          f"{report['logprobs_compared']}, max |diff| {report['logprob_max_abs_diff']:.3e}")
+    print(
+        f"  tokens compared {report['tokens_compared']} / {report['tokens_expected']}, "
+        f"{report['steps']} steps"
+    )
+    print(
+        f"  sampled-token log-probs differ {report['logprobs_differ']} / "
+        f"{report['logprobs_compared']}, max |diff| {report['logprob_max_abs_diff']:.3e}"
+    )
     for row in report["layers"]:
-        print(f"  layer {row['layer']!s:>5}  tokens differ {row['tokens_differ']:6d}  "
-              f"max |diff| {row['max_abs_diff']:.3e}")
+        print(
+            f"  layer {row['layer']!s:>5}  tokens differ {row['tokens_differ']:6d}  "
+            f"max |diff| {row['max_abs_diff']:.3e}"
+        )
     print("  tokens differing per site (attention / MoE in, out; inside attention qr_kv, q, o, y):")
     for row in report["sub_layers"]:
         print("   ", row)

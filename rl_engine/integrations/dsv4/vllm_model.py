@@ -112,10 +112,9 @@ class RlkDeepseekV4FP8Config(DeepseekV4FP8Config):
 
 def register() -> None:
     """Make vLLM build :class:`RlkDeepseekV4ForCausalLM` for DeepSeek-V4 checkpoints."""
+    import vllm.v1.worker.gpu_model_runner as runner
     from vllm import ModelRegistry
     from vllm.model_executor.layers.quantization import register_quantization_config
-
-    import vllm.v1.worker.gpu_model_runner as runner
 
     ModelRegistry.register_model(
         "DeepseekV4ForCausalLM", "rl_engine.integrations.dsv4.vllm_model:RlkDeepseekV4ForCausalLM"
@@ -123,7 +122,6 @@ def register() -> None:
     import vllm.models.deepseek_v4.attention as vattention
     import vllm.models.deepseek_v4.compressor as vcompressor
     import vllm.models.deepseek_v4.nvidia.ops.sparse_attn_compress_cutedsl as vcutedsl
-
     import vllm.v1.worker.gpu.model_runner as runner_v2
 
     runner.Sampler = RlkSampler
@@ -201,7 +199,13 @@ def _rlk_compress_store(
 
 
 def _rlk_indexer_q(
-    positions, index_q, cos_sin, weights, softmax_scale, head_scale, use_fp4=False,
+    positions,
+    index_q,
+    cos_sin,
+    weights,
+    softmax_scale,
+    head_scale,
+    use_fp4=False,
     output_buffers=None,
 ):
     """vLLM's DSv4 ``fused_indexer_q_rope_quant`` (FP8 path) on RL-Kernel's kernel."""
@@ -209,9 +213,7 @@ def _rlk_indexer_q(
         raise NotImplementedError("RL-Kernel DSv4 rollout: MXFP4 indexer keys")
     from rl_engine.kernels.ops.cuda.indexer.indexer_q import indexer_q_rope_fp8_cuda
 
-    return indexer_q_rope_fp8_cuda(
-        index_q, positions, cos_sin, weights, softmax_scale, head_scale
-    )
+    return indexer_q_rope_fp8_cuda(index_q, positions, cos_sin, weights, softmax_scale, head_scale)
 
 
 def _accept_pinned_deepgemm() -> None:
@@ -318,8 +320,11 @@ class RlkSampler(Sampler):
             return out
         ids = out.sampled_token_ids[:, 0].long()
         if mode == "processed_logprobs" and md.temperature is not None:
-            if not md.no_penalties or md.top_k is not None or md.top_p is not None or (
-                md.allowed_token_ids_mask is not None or md.bad_words_token_ids
+            if (
+                not md.no_penalties
+                or md.top_k is not None
+                or md.top_p is not None
+                or (md.allowed_token_ids_mask is not None or md.bad_words_token_ids)
             ):
                 raise NotImplementedError(
                     "RL-Kernel DSv4 log-probs: penalties, top-k / top-p and token masks are "
@@ -588,11 +593,7 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
         released at the first forward (vLLM post-processes it after loading)."""
         from vllm.distributed import get_ep_group
 
-        from rl_engine.models.deepseek_v4.loader import (
-            SafetensorsDir,
-            _moe,
-            load_output_projection,
-        )
+        from rl_engine.models.deepseek_v4.loader import SafetensorsDir, _moe, load_output_projection
 
         ep = None
         if self.parallel_config.enable_expert_parallel and get_ep_group().world_size > 1:
@@ -648,10 +649,11 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
 
         qsl = seq = None
         meta = get_forward_context().attn_metadata
-        for m in (meta.values() if isinstance(meta, dict) else [meta]):
-            if getattr(m, "query_start_loc_cpu", None) is not None and getattr(
-                m, "seq_lens_cpu", None
-            ) is not None:
+        for m in meta.values() if isinstance(meta, dict) else [meta]:
+            if (
+                getattr(m, "query_start_loc_cpu", None) is not None
+                and getattr(m, "seq_lens_cpu", None) is not None
+            ):
                 qsl, seq = m.query_start_loc_cpu.clone(), m.seq_lens_cpu.clone()
                 break
         rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
@@ -701,9 +703,7 @@ class RlkDeepseekV4ForCausalLM(vm.DeepseekV4ForCausalLM):
         """vLLM loads everything but the MoE blocks; RL-Kernel then loads those from the
         checkpoint directory (this rank's experts) and installs the test adapters, if any."""
         skip = (".ffn.", ".attn.wo_a.", ".attn.wo_b.")
-        loaded = super().load_weights(
-            (n, w) for n, w in weights if not any(k in n for k in skip)
-        )
+        loaded = super().load_weights((n, w) for n, w in weights if not any(k in n for k in skip))
         with _float32_default():
             self.model.rlk_load()
             self._rlk_test_lora()
