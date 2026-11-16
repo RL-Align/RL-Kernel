@@ -427,7 +427,32 @@ def test_shared_source_inventory():
         assert path.is_file()
 
 
-def test_shared_helper_source_changes_runtime_fingerprint(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "cls",
+    [
+        cuda.FusedLogpGenericOp,
+        cuda.FusedLogpSM90Op,
+        cuda.DeterministicLogpCUDAOp,
+        musa.MusaFusedLogpOp,
+    ],
+)
+@pytest.mark.parametrize(
+    "original,replacement",
+    [
+        (
+            "probs = torch.softmax(logits.float(), dim=-1)",
+            "probs = torch.zeros_like(logits.float())",
+        ),
+        (
+            "dtype=torch.long).contiguous()",
+            "dtype=torch.int32).contiguous()",
+        ),
+    ],
+    ids=["vjp", "input_preparation"],
+)
+def test_shared_helper_source_changes_runtime_fingerprint(
+    monkeypatch, tmp_path, cls, original, replacement
+):
     from rl_engine.runtime.semantic_registry import operator_implementation_fingerprint
 
     # Alter a temporary copy, leaving the running implementation and checkout intact.
@@ -435,15 +460,12 @@ def test_shared_helper_source_changes_runtime_fingerprint(monkeypatch, tmp_path)
     path = tmp_path / "fused_logp.py"
     path.write_text(source)
     monkeypatch.setattr(shared, "__file__", str(path))
-    op = object.__new__(cuda.FusedLogpGenericOp)
-    before_hash = operator_implementation_fingerprint(cuda.FusedLogpGenericOp, op)
-    path.write_text(
-        source.replace(
-            "probs = torch.softmax(logits.float(), dim=-1)",
-            "probs = torch.zeros_like(logits.float())",
-        )
-    )
-    after_hash = operator_implementation_fingerprint(cuda.FusedLogpGenericOp, op)
+    op = object.__new__(cls)
+    before_hash = operator_implementation_fingerprint(cls, op)
+    changed_source = source.replace(original, replacement)
+    assert changed_source != source
+    path.write_text(changed_source)
+    after_hash = operator_implementation_fingerprint(cls, op)
     assert before_hash != after_hash
 
 

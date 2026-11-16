@@ -36,6 +36,7 @@ class FusedLogpSM90Op:
     """TMA-accelerated Fused LogP for SM90+ cards."""
 
     is_fused_logp = True
+    _implementation_source_modules = (FusedLogpOp.__module__,)
 
     def __init__(self):
         if not _EXT_AVAILABLE or not hasattr(_C, "fused_logp_sm90"):
@@ -136,6 +137,7 @@ class DeterministicLogpCUDAOp(FusedLogpGenericOp):
     """
 
     is_batch_invariant = True
+    _implementation_source_modules = (FusedLogpOp.__module__,)
 
     def __init__(self):
         if not _EXT_AVAILABLE or not hasattr(_C, "deterministic_logp_forward_fp32"):
