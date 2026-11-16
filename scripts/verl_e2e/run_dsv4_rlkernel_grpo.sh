@@ -6,6 +6,10 @@
 #
 #   MODEL_PATH=... DATA=... N_GPUS=2 bash scripts/verl_e2e/run_dsv4_rlkernel_grpo.sh [overrides]
 #
+# The defaults are the 2-GPU toy run (design doc 10.1); every workload knob below can be
+# exported to change it (scripts/verl_e2e_lora/run.sh sets them for the 8-GPU comparison).
+# Extra arguments are Hydra overrides for keys this script does not set.
+#
 # The verdict is verl's training/rollout_logprobs_mismatch_count: response tokens whose
 # rollout (vLLM) and recomputed (actor) FP32 log-probs differ. 0 at every step means bitwise.
 # The synthetic reward (custom_reward.py) gives nonzero advantages on a model that cannot
@@ -17,7 +21,22 @@ MODEL_PATH=${MODEL_PATH:?checkpoint directory}
 DATA=${DATA:?directory with train.parquet / test.parquet}
 N_GPUS=${N_GPUS:-2}
 LORA_RANK=${LORA_RANK:-16}
+LORA_ALPHA=${LORA_ALPHA:-$((2 * LORA_RANK))}
 STEPS=${STEPS:-4}
+TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-8}
+PPO_MINI_BATCH_SIZE=${PPO_MINI_BATCH_SIZE:-$TRAIN_BATCH_SIZE}
+ROLLOUT_N=${ROLLOUT_N:-4}
+MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH:-256}
+MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-128}
+MAX_MODEL_LEN=${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH))}
+# Dynamic batching needs room for one whole prompt + response per micro-batch.
+MAX_TOKEN_LEN_PER_GPU=${MAX_TOKEN_LEN_PER_GPU:-$((MAX_MODEL_LEN > 4096 ? MAX_MODEL_LEN : 4096))}
+MAX_NUM_BATCHED_TOKENS=${MAX_NUM_BATCHED_TOKENS:-2048}
+MAX_NUM_SEQS=${MAX_NUM_SEQS:-32}
+GPU_UTIL=${GPU_UTIL:-0.35}
+ACTOR_LR=${ACTOR_LR:-1e-4}
+LOGGER=${LOGGER:-'["console"]'}
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-grpo_lora_bi}
 VLLM_KW=+actor_rollout_ref.rollout.engine_kwargs.vllm
 RLK_WORKER=rl_engine.integrations.dsv4.vllm_worker
 
@@ -35,9 +54,9 @@ python3 -m verl.trainer.main_ppo \
     algorithm.use_kl_in_reward=False \
     data.train_files=$DATA/train.parquet \
     data.val_files=$DATA/test.parquet \
-    data.train_batch_size=8 \
-    data.max_prompt_length=256 \
-    data.max_response_length=128 \
+    data.train_batch_size=$TRAIN_BATCH_SIZE \
+    data.max_prompt_length=$MAX_PROMPT_LENGTH \
+    data.max_response_length=$MAX_RESPONSE_LENGTH \
     data.filter_overlong_prompts=False \
     data.truncation=left \
     data.dataloader_num_workers=0 \
@@ -48,33 +67,33 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.rlkernel.lora_rank=$LORA_RANK \
-    actor_rollout_ref.actor.rlkernel.lora_alpha=$((2 * LORA_RANK)) \
-    actor_rollout_ref.actor.optim.lr=1e-4 \
+    actor_rollout_ref.actor.rlkernel.lora_alpha=$LORA_ALPHA \
+    actor_rollout_ref.actor.optim.lr=$ACTOR_LR \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.entropy_coeff=0 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=$PPO_MINI_BATCH_SIZE \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
-    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=4096 \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$MAX_TOKEN_LEN_PER_GPU \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
-    actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=4096 \
+    actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$MAX_TOKEN_LEN_PER_GPU \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.35 \
-    actor_rollout_ref.rollout.n=4 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=$GPU_UTIL \
+    actor_rollout_ref.rollout.n=$ROLLOUT_N \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.rollout.calculate_log_probs=True \
-    actor_rollout_ref.rollout.max_num_seqs=32 \
-    actor_rollout_ref.rollout.max_model_len=512 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=2048 \
+    actor_rollout_ref.rollout.max_num_seqs=$MAX_NUM_SEQS \
+    actor_rollout_ref.rollout.max_model_len=$MAX_MODEL_LEN \
+    actor_rollout_ref.rollout.max_num_batched_tokens=$MAX_NUM_BATCHED_TOKENS \
     actor_rollout_ref.rollout.enforce_eager=True \
     actor_rollout_ref.rollout.load_format=auto \
     $VLLM_KW.kv_cache_dtype=fp8 \
     $VLLM_KW.worker_cls=$RLK_WORKER.RlkWorker \
     $VLLM_KW.worker_extension_cls=$RLK_WORKER.RlkWorkerExtension \
     $VLLM_KW.enable_flashinfer_autotune=False \
-    trainer.logger='["console"]' \
+    trainer.logger="$LOGGER" \
     trainer.project_name=dsv4_rlkernel \
-    trainer.experiment_name=grpo_lora_bi \
+    trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.n_gpus_per_node=$N_GPUS \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
