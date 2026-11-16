@@ -36,7 +36,7 @@ Scale and ReLU are PyTorch FP32 elementwise operations. The head sum reuses
 aiter `mha_fused_bwd._bwd_preprocess` as a fixed per-row dot product, one
 program per `(query, key)` with a fixed launch (`ROW_DOT_LAUNCH`); M, N and
 neighbouring rows do not change the reduction. There is no new GPU kernel and
-no fallback. Only gfx950 is validated. The implementation fingerprint covers the
+no fallback. Only gfx942 (MI308X) is validated. The implementation fingerprint covers the
 contract, launch plan, aiter and adapter source hashes and Torch/HIP/Triton
 versions; pass `expected_implementation` to reject a mismatch.
 
@@ -91,9 +91,9 @@ python benchmarks/benchmark_indexer_score.py --repeats 30 --output benchmark.jso
 
 GPU tests check FP64 accuracy, byte equality with #631, batch, key-count,
 layout, repeat and fresh-process invariance, TP shards and input rejection.
-Results are in `reports/indexer-score-mi355x-20261101.md`.
+Results are in `reports/indexer-score-mi308x-20261115.md`.
 
-Not covered: gfx942, aiter
+Not covered: gfx950, real #599 ICV, aiter
 [`pa_mqa_logits_fp4`](https://github.com/ROCm/aiter/blob/326cffa38c9eda16bef19375ba55334e4d3acd59/aiter/ops/flydsl/kernels/mqa_logits/pa_mqa_logits_fp4.py)
 (different scale order, not evaluated), causal mask, Top-K, cross-TP merge,
 CUDA Graph, multi-GPU and the full rollout/training chain.
