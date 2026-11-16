@@ -10,7 +10,10 @@ Forward (``csrc/cuda/moe/sm90_fused_moe_mlp.cu``): fc1 with SwiGLU * p_s and MX
 re-quantization fused into the epilogue (h_q written to global memory), then fc3 on
 the same GEMM core. With many rows per expert the folded FP8 weights are expanded once
 per call (``sm90_moe_expand_w8``, the bytes the kernel would build in shared memory)
-and every operand arrives by TMA; same bytes, so the choice may follow M. (A
+and every operand arrives by TMA; same bytes, so the choice may follow M. With
+``persist_w8`` (the default) every expert is expanded once, on first use, and the
+scratch is kept with the prepared weight: E x N x K bytes of E4M3 per weight, twice
+the MXFP4 footprint, and the per-call expansion disappears at every M. (A
 single-launch variant with h_q resident in shared memory was 3x slower and was
 removed.)
 
@@ -91,11 +94,14 @@ class Sm90FusedMoeMlp:
     name = "sm90-fused-moe-mlp"
     numeric_profile = PROFILE
 
-    def __init__(self, preexpand: bool | None = None) -> None:
+    def __init__(self, preexpand: bool | None = None, persist_w8: bool = True) -> None:
         """``preexpand``: None picks per call; True / False force the weight
-        pre-expansion (forward and backward) on / off. Same bytes either way."""
+        pre-expansion (forward and backward) on / off. ``persist_w8``: keep the forward's
+        E4M3 expansion of every expert across calls (unless ``preexpand`` is False).
+        Same bytes in every case."""
         self._ext = _extension()
         self._preexpand = preexpand
+        self._persist_w8 = persist_w8
         self._cache: dict[tuple, Any] = {}  # (weights id, kind) -> PreparedWeight or a flag
 
     # ------------------------------------------------------------ metadata
@@ -228,6 +234,15 @@ class Sm90FusedMoeMlp:
         num_experts, n, k_half = w.codes.shape
         if not hasattr(self._ext, _EXPAND_SYMBOL):
             return None
+        if self._persist_w8 and self._preexpand is not False:
+            key = (w.codes.data_ptr(), w.res.data_ptr(), "w8")
+            hit = self._cache.get(key)
+            if hit is None or hit[0] is not w.codes:
+                # Every expert (one row each), indexed by expert like the per-call scratch.
+                every = torch.arange(num_experts + 1, dtype=torch.int32, device=offsets.device)
+                hit = (w.codes, self._ext.sm90_moe_expand_w8(w.codes, w.res, every))
+                self._cache[key] = hit
+            return hit[1]
         if not self._use_preexpand((num_experts, n, 2 * k_half), rows, 1):
             return None
         return self._ext.sm90_moe_expand_w8(w.codes, w.res, offsets)
