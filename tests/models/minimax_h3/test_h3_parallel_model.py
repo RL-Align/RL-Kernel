@@ -187,6 +187,44 @@ class TestFirstDrift:
         assert pm.first_drift(ref, seen, spans, tags, ["block.1"]) is None
 
 
+class TestInjection:
+    """The negative control must perturb a copy of the row that reaches the assembled output."""
+
+    def test_without_sp_only_the_last_tp_holder_may_inject(self):
+        """TP2 x CP1 without SP: both ranks hold every row, the assembly keeps rank 1's copy."""
+        spans = pm.rank_spans(2, 1, 10, False)
+        pm.check_injection(spans, 0, 1)
+        with pytest.raises(ValueError, match=r"keeps the copy of rank 1 \(holders \[0, 1\]\)"):
+            pm.check_injection(spans, 0, 0)
+
+    def test_with_sp_the_one_holder_injects_and_no_other_rank(self):
+        """TP2 x CP1 with SP: row 7 is rank 1's alone, so rank 0 cannot perturb it."""
+        spans = pm.rank_spans(2, 1, 10, True)
+        pm.check_injection(spans, 7, 1)
+        with pytest.raises(ValueError, match="rank 0 cannot perturb row 7"):
+            pm.check_injection(spans, 7, 0)
+        with pytest.raises(ValueError, match="not in the packed sequence"):
+            pm.check_injection(spans, 10, 1)
+
+    def test_the_recorded_controls_are_accepted(self):
+        """The two H100 controls on TP4 x CP2 (40 rows): ``17:5:3`` without SP, ``17:16:3`` with."""
+        pm.check_injection(pm.rank_spans(4, 2, 40, False), 5, 3)
+        pm.check_injection(pm.rank_spans(4, 2, 40, True), 16, 3)
+
+
+def test_ulysses_refuses_a_head_split_the_h3_kernels_cannot_run():
+    """TP1 x CP7 gives 8 heads per rank: refused when the grid is made, the ring still allowed."""
+    from rl_engine.validation.models import h3_tp
+
+    with pytest.raises(ValueError, match="splits 56 heads over cp=7.*use cp_mode='ring'"):
+        h3_tp.make_grid(1, 7, attention="h3_full", cp_mode="ulysses")
+    with pytest.raises(ValueError, match="cannot split 14 heads over cp=3"):
+        h3_tp.check_ulysses_heads(4, 3, attention="interim", cp_mode="ulysses")
+    for tp, cp in ((1, 2), (1, 4), (1, 8), (2, 2), (2, 4), (4, 2), (8, 1)):
+        h3_tp.check_ulysses_heads(tp, cp, attention="h3_full", cp_mode="ulysses")
+    h3_tp.check_ulysses_heads(1, 7, attention="h3_full", cp_mode="ring")
+
+
 class TestDigestChunks:
     def test_chunks_give_the_values_of_one_pass(self):
         """Any chunk size gives the closed-form checksums of the whole tensor."""
@@ -343,8 +381,13 @@ def _chain_target(collective, dummy, *, tp, cp, sp, cp_mode, depth):
         pytest.param(4, 2, True, "ring", marks=gpus(8)),
     ],
 )
-def test_chained_blocks_equal_the_canonical_chain_bitwise(tp, cp, sp, mode):
-    """Chained blocks on a grid equal the canonical chain bitwise, weight gradients included."""
+def test_chained_blocks_equal_the_canonical_chain_bitwise(tp, cp, sp, mode, h3_block_weights_cuda):
+    """Chained blocks on a grid equal the canonical chain bitwise, weight gradients included.
+
+    ``h3_block_weights_cuda`` skips the case before any worker starts when the pinned block
+    weights are missing; each worker loads its own copy.
+    """
+    del h3_block_weights_cuda
     pytest.importorskip("triton")
     from rl_engine.backends.cuda.attention import h3_full_attention as fa
 

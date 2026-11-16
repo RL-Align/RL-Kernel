@@ -74,6 +74,25 @@ def rank_spans(tp: int, cp: int, length: int, sp: bool) -> list[tuple[int, int]]
     return spans
 
 
+def check_injection(spans: list[tuple[int, int]], row: int, rank: int) -> None:
+    """Refuse a negative control whose perturbed row would not reach the assembled output.
+
+    Without sequence parallelism the TP ranks of one CP rank hold the same rows, and
+    ``_assemble`` keeps the copy of the last of them. A perturbation on another holder, or on a
+    rank that does not hold the row, would leave the output unchanged and the control would
+    report no drift. Every rank evaluates the same spans, so every rank raises alike.
+    """
+
+    holders = [r for r, (lo, hi) in enumerate(spans) if lo <= row < hi]
+    if not holders:
+        raise ValueError(f"row {row} is not in the packed sequence")
+    if rank != holders[-1]:
+        raise ValueError(
+            f"rank {rank} cannot perturb row {row}: the assembled output keeps the copy of rank "
+            f"{holders[-1]} (holders {holders})"
+        )
+
+
 def _assemble(rows: torch.Tensor, spans: list[tuple[int, int]], length: int) -> torch.Tensor:
     """All-gather every rank's rows and place them at their spans (copies only)."""
 
@@ -163,6 +182,8 @@ def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelS
         spans = rank_spans(grid.tp, grid.cp, length, sp)
         shard = grid.seq_shard(length)
         lo, hi = spans[rank]
+        if state.inject is not None and state.inject[0] == index:
+            check_injection(spans, state.inject[1], state.inject[2])  # before any collective
         h_res = _RowsSlice.apply(hidden_states, spans, rank)
         cos, sin = par.coshard(shard, rotary_emb[0], rotary_emb[1], dim=0)
         idx = par.coshard(shard, adaln_indices, dim=0)[0]
@@ -173,11 +194,10 @@ def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelS
             weights, h_res, idx_res, cos, sin, temb, ops, grid, sp=sp, shard=shard, leaves=leaves
         )
         if state.inject is not None and state.inject[0] == index and state.inject[2] == rank:
-            row = state.inject[1]
-            if lo <= row < hi:
-                scale = torch.ones_like(out)
-                scale[:, row - lo] = 1.0078125  # one bf16 step on that row
-                out = out * scale
+            row = state.inject[1]  # this rank holds it (check_injection)
+            scale = torch.ones_like(out)
+            scale[:, row - lo] = 1.0078125  # one bf16 step on that row
+            out = out * scale
         if leaves is not None and state.digest_leaf is not None:
             for name, leaf in leaves.items():  # a recomputation registers the live ones
                 _digest_on_grad(state, f"{index}.{name}", name, leaf)

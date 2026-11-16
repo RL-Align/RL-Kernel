@@ -86,6 +86,13 @@ def _io_target(collective, dummy, *, length, root):
         flags["identity_drift_detected"] = 0
     except ValueError:
         flags["identity_drift_detected"] = 1
+    # negative control: rank 0 declares no rows where it holds some. The gather pads a missing
+    # row with zero, so only the count check, run on every rank, can see it (length 1: [0]).
+    try:
+        par.check_row_identity(local_ids[:0] if rank == 0 else local_ids, shard)
+        flags["missing_rows_detected"] = 0
+    except ValueError:
+        flags["missing_rows_detected"] = 1
 
     # final gathers (video, audio, a shuffled order, nothing)
     local = packed[:, shard.lo : shard.hi]
@@ -170,6 +177,47 @@ def test_a_group_of_another_size_than_the_shard_is_refused(monkeypatch):
         par.scatter_from_root(
             None, par.SeqShard(20, 2, 1), tail_shape=(4,), dtype=torch.float32, root=0
         )
+
+
+def _one_rank_of(monkeypatch, cp):
+    """Run this process as one rank of a ``cp``-rank group whose ranks all send what it sends."""
+    monkeypatch.setattr(par.dist, "get_world_size", lambda group=None: cp)
+
+    def all_gather(out, tensor, group=None):
+        for o in out:
+            o.copy_(tensor)
+
+    monkeypatch.setattr(par.dist, "all_gather", all_gather)
+
+
+def test_a_missing_row_is_not_read_as_row_zero(monkeypatch):
+    """One row over two ranks, and rank 0 declares none: the gather would pad it to ``[0]``, the
+    one valid identity. The row counts are compared first, so the drift is reported."""
+    _one_rank_of(monkeypatch, 2)
+    with pytest.raises(
+        ValueError, match=r"the ranks hold \[0, 0\] rows, the shard splits \[1, 0\]"
+    ):
+        par.check_row_identity(torch.empty(0, dtype=torch.long), par.SeqShard(1, 2, 0))
+
+
+def test_a_negative_dim_gives_the_gradient_of_its_axis(monkeypatch):
+    """``dim=-1`` selects along the last axis and its backward returns the local gradient, like
+    the same call with the axis as a non-negative index."""
+    _one_rank_of(monkeypatch, 2)
+    shard = par.SeqShard(4, 2, 0)  # rank 0 holds rows 0 and 1: the selection is all its own
+    selected = torch.tensor([1, 0])
+    weight = torch.randn(3, 2, generator=torch.Generator().manual_seed(1))
+    grads = []
+    for dim in (-1, 1):
+        leaf = torch.randn(3, 2, generator=torch.Generator().manual_seed(0)).requires_grad_(True)
+        out = par.gather_selected(leaf, shard, selected, dim=dim)
+        assert torch.equal(out, leaf.detach()[:, [1, 0]])
+        (out * weight).sum().backward()
+        grads.append(leaf.grad)
+    assert torch.equal(grads[0], grads[1])
+    assert torch.equal(grads[0], weight[:, [1, 0]])
+    with pytest.raises(ValueError, match="out of range"):
+        par.gather_selected(torch.zeros(3, 2), shard, selected, dim=2)
 
 
 def test_the_root_tensor_must_be_on_the_current_device(monkeypatch):

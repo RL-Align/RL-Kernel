@@ -43,6 +43,29 @@ class Grid:
         return par.SeqShard(length, self.cp, self.cp_rank)
 
 
+def check_ulysses_heads(tp: int, cp: int, *, attention: str, cp_mode: str) -> None:
+    """Refuse, before any group exists, a Ulysses split the H3 attention kernels cannot run.
+
+    Ulysses gives each rank ``56 / tp / cp`` heads. The H3 kernels take the head counts of a TP
+    rank (``ring_attention.LEGAL_HEADS``), so e.g. CP7 (8 heads) is refused here instead of
+    inside the first block; the ring keeps all local heads and covers those CP sizes.
+    """
+
+    if cp == 1 or cp_mode != "ulysses":
+        return
+    local = par.HEADS // tp
+    if attention == "h3_full":
+        from rl_engine.backends.cuda.model_specific.minimax_h3.ring_attention import LEGAL_HEADS
+
+        if local % cp or local // cp not in LEGAL_HEADS:
+            raise ValueError(
+                f"Ulysses splits {local} heads over cp={cp}, the H3 attention kernels take "
+                f"{LEGAL_HEADS} heads: use cp_mode='ring'"
+            )
+    elif local % cp:
+        raise ValueError(f"Ulysses cannot split {local} heads over cp={cp}")
+
+
 def make_grid(
     tp: int,
     cp: int,
@@ -64,6 +87,7 @@ def make_grid(
         raise ValueError(f"unknown attention {attention!r} or cp_mode {cp_mode!r}")
     if cp_mode == "ring" and attention != "h3_full":
         raise ValueError("the ring continues the H3 kernels' dK/dV chain: use attention='h3_full'")
+    check_ulysses_heads(tp, cp, attention=attention, cp_mode=cp_mode)
     world, rank = dist.get_world_size(), dist.get_rank()
     if world != tp * cp:
         raise ValueError(f"world {world} != tp {tp} x cp {cp}")

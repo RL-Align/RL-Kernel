@@ -14,7 +14,9 @@ and compares, bit for bit: the video / audio velocity, the gradients of the thre
 block's output and output gradient (first drift with owning rank and logical row, if any), and
 this rank's weight-shard gradients of all 350 sharded projections (device checksums). With
 ``--inject BLOCK:ROW:RANK`` that rank perturbs one row of the block's output: a negative control
-that must be reported at exactly that block and row with that owner.
+that must be reported at exactly that block and row with that owner. The rank must hold the row;
+without SP, where the TP ranks of a CP rank hold the same rows, it must be the last of them, whose
+copy the assembled output keeps (anything else is refused).
 """
 
 from __future__ import annotations

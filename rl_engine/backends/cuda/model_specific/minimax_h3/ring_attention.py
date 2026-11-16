@@ -194,7 +194,10 @@ def ring_attention(q, k, v, shard: SeqShard, group=None, chunk_rows: int = 128) 
     """Attention of a sequence-sharded ``q, k, v (B, S_local, H, D)``; bitwise the unsharded op.
 
     Works for any head count and any ``cp`` (no ``heads % cp`` requirement) and any length,
-    including ranks that hold no rows.
+    including ranks that hold no rows. Such ranks skip ring steps, so the CP group's communicator
+    must already be connected on every member: binding ``device_id`` in ``init_process_group``,
+    as ``run_world`` and the H3 runners do, connects every ``new_group`` eagerly (see
+    ``parallel.scatter_from_root``).
     """
 
     if chunk_rows <= 0:

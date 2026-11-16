@@ -360,6 +360,11 @@ def scatter_from_root(
     receivers can allocate. Point-to-point copies of contiguous row ranges: exact, any length,
     ranks that own no rows send and receive nothing. ``group`` is the CP group (``shard.cp``
     ranks) and ``packed`` lives on the root's current CUDA device; anything else is refused.
+
+    Precondition: the group's communicator is already connected on every member. Ranks without
+    rows skip the batched point-to-point call, and NCCL requires every member to take part when
+    that call is a group's first collective. Binding ``device_id`` in ``init_process_group``, as
+    ``run_world`` and the H3 runners do, connects the world group and every ``new_group`` eagerly.
     """
 
     cp, rank, sizes = shard.cp, shard.rank, shard.sizes
@@ -469,6 +474,9 @@ def gather_selected(local, shard: SeqShard, selected, group=None, dim: int = 0) 
     """
 
     _check_selection(selected, shard)
+    if not -local.dim() <= dim < local.dim():
+        raise ValueError(f"dim {dim} is out of range for a {local.dim()}-D tensor")
+    dim %= local.dim()  # the backward rebuilds the shape by axis index
     if local.shape[dim] != shard.sizes[shard.rank]:
         raise ValueError(
             f"expected {shard.sizes[shard.rank]} local rows, got {local.shape[dim]} along dim {dim}"
@@ -484,12 +492,22 @@ def check_row_identity(local_ids: torch.Tensor, shard: SeqShard, group=None) -> 
 
     ``local_ids`` are the global ids that travel with this rank's rows (any tensor that was
     sliced with the rows). It catches a rank that received the wrong rows or metadata sliced
-    with a different ``SeqShard``. ``group`` is the CP group (``shard.cp`` ranks); another size
-    is refused.
+    with a different ``SeqShard``, and a rank that holds another number of rows than its share:
+    the counts are compared on every rank before the gather, whose padding would otherwise
+    stand in for a missing row. ``group`` is the CP group (``shard.cp`` ranks); another size is
+    refused.
     """
 
     if shard.cp > 1:
         _check_group(shard, group)
+        count = torch.tensor([local_ids.numel()], dtype=torch.long, device=local_ids.device)
+        counts = [torch.empty_like(count) for _ in range(shard.cp)]
+        dist.all_gather(counts, count, group=group)
+        held = [int(c) for c in counts]
+        if held != shard.sizes:
+            raise ValueError(
+                f"row identity drift: the ranks hold {held} rows, the shard splits {shard.sizes}"
+            )
     ids = gather_packed(local_ids.to(torch.long), shard, group)
     expected = torch.arange(shard.length, device=ids.device)
     if ids.shape != expected.shape or not torch.equal(ids, expected):

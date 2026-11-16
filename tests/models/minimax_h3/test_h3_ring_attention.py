@@ -194,7 +194,7 @@ def test_ring_and_ulysses_agree_where_ulysses_applies():
 @gpus(3)
 def test_ulysses_cannot_express_cp3_but_the_ring_can():
     """56 heads (and 7 per TP8 rank) do not split over 3: only the ring covers CP3."""
-
+    _strict_extension()  # the unsharded reference runs the H3 kernels before Ulysses refuses
     with pytest.raises(Exception, match="heads"):
         _world(
             3,
