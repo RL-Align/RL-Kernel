@@ -141,12 +141,13 @@ def bind_native_training_stage(model, worker):
     worker.check_config(cfg.layernorm_epsilon, 1e-6)
     layers = list(stack.layers)
     norms = []
-    for layer_index, layer in enumerate(layers):
+    for layer in layers:
         if not isinstance(layer, HyperConnectionHybridLayer):
             raise ValueError("native DSV4 requires HyperConnectionHybridLayer boundaries")
         hc = layer.hyper_connection
+        global_index = layer.layer_number - 1
         hc._rlk_parameter_id = (
-            f"model.layers.{layer_index // 2}.hc_{'attn' if layer_index % 2 == 0 else 'ffn'}"
+            f"model.layers.{global_index // 2}.hc_{'attn' if global_index % 2 == 0 else 'ffn'}"
         )
         if hc.n != 4 or hc.mapping_proj.weight.shape != (24, 4 * cfg.hidden_size):
             raise ValueError("unsupported native HyperConnectionModule ABI")
@@ -234,7 +235,8 @@ def normalize_native_causal_mask(attention_mask, input_shape=None):
 def original_mhc_parameters(model):
     """Return actual native FP32 controller Parameters, without replacing them."""
     result = {}
-    for index, layer in enumerate(model.decoder.layers):
+    for layer in model.decoder.layers:
+        index = layer.layer_number - 1
         hc = layer.hyper_connection
         prefix = f"layers.{index // 2}.hc_{'attn' if index % 2 == 0 else 'ffn'}"
         for name, parameter in (
@@ -245,8 +247,9 @@ def original_mhc_parameters(model):
             ("alpha_res", hc.alpha_res),
         ):
             result[prefix + "." + name] = parameter
-    for name in ("hc_head_fn", "hc_head_base", "hc_head_scale"):
-        result[name] = getattr(model.decoder, name)
+    if model.decoder.post_process:
+        for name in ("hc_head_fn", "hc_head_base", "hc_head_scale"):
+            result[name] = getattr(model.decoder, name)
     for name, parameter in result.items():
         if (
             not isinstance(parameter, torch.nn.Parameter)

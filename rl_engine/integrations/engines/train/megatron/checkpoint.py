@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Explicit TP/PP/EP/CP=1 original DSV4 checkpoint importer for native MCore.
+"""Original DSV4 checkpoint importer for native MCore TP=EP=CP=1 stages.
 
 Frozen quantized bases remain FP4/FP8 plus original scales. BF16/FP32 native
 parameters (head, norms, mHC, router, compressors) retain their source dtype.
@@ -17,6 +17,7 @@ from rl_engine.backends.rocm.moe.packed_mx import RocmPackedMXBackend
 from rl_engine.backends.rocm.moe.route_weight_grad import RocmRouteWeightGradient
 from rl_engine.backends.rocm.norm.qnorm_fp8 import FusedQNorm
 from rl_engine.contracts.operators.expert_training import ExpertTrainingConfig, PackedExpertWeight
+from rl_engine.integrations.engines.train.megatron.checkpoint_state import checkpoint_export_value
 from rl_engine.integrations.engines.train.megatron.native_group_projection import (
     bind_grouped_projection,
 )
@@ -88,16 +89,8 @@ class NativePackedExperts(torch.nn.Module):
 
 def load_native_checkpoint(model, directory):
     cfg = model.config
-    if any(
-        getattr(cfg, n) != 1
-        for n in (
-            "tensor_model_parallel_size",
-            "pipeline_model_parallel_size",
-            "expert_model_parallel_size",
-            "context_parallel_size",
-        )
-    ):
-        raise ValueError("initial packed checkpoint importer requires TP=PP=EP=CP=1")
+    from .native_pipeline import local_checkpoint_keys
+
     hf_config = None
     if getattr(model, "_rlk_original_qkv_codec", False):
         from transformers import AutoConfig
@@ -108,8 +101,22 @@ def load_native_checkpoint(model, directory):
         raise ValueError("initial packed importer requires a single four-layer safetensors file")
     source = safe_open(str(files[0]), framework="pt")
     keys = set(source.keys())
+    stage, expected_keys = local_checkpoint_keys(model, keys)
+    model._rlk_checkpoint_stage = stage
     loaded = set()
-    device = next(model.parameters()).device
+    # Native PP final stages can register their CPU-created FP32 contraction
+    # before device-created layers. Packed kernels must load on this worker
+    # rank, independent of parameter registration order; Bridge moves the
+    # remaining original Parameters during wrapping without replacing them.
+    device = torch.device("cuda", torch.cuda.current_device())
+    print(
+        "RLK_NATIVE_CHECKPOINT_LOAD_DEVICE",
+        stage.layer_ids,
+        str(device),
+        "first_parameter_device",
+        str(next(model.parameters()).device),
+        flush=True,
+    )
     export = []
     model._rlk_checkpoint_export = export
     model._rlk_checkpoint_export_parameters = {}
@@ -126,7 +133,7 @@ def load_native_checkpoint(model, directory):
             raise ValueError(f"shape mismatch: {key}: {value.shape} -> {dest.shape}")
         with torch.no_grad():
             dest.copy_(value)
-        export.append((key, dest))
+        export.append((key, checkpoint_export_value(model, dest)))
         if isinstance(dest, torch.nn.Parameter):
             model._rlk_checkpoint_export_parameters[key] = (dest,)
 
@@ -160,14 +167,16 @@ def load_native_checkpoint(model, directory):
         copy(target.ape, prefix + ".ape")
         copy(target.norm.weight, prefix + ".norm.weight")
 
-    copy(model.embedding.word_embeddings.weight, "embed.weight")
-    copy(model.output_layer.weight, "head.weight")
-    for n in ("hc_head_fn", "hc_head_base", "hc_head_scale"):
-        copy(getattr(model.decoder, n), n)
-    copy(model.decoder.final_norm.weight, "norm.weight")
-    for i in range(len(model.decoder.layers) // 2):
+    if stage.pre_process:
+        copy(model.embedding.word_embeddings.weight, "embed.weight")
+    if stage.post_process:
+        copy(model.output_layer.weight, "head.weight")
+        for n in ("hc_head_fn", "hc_head_base", "hc_head_scale"):
+            copy(getattr(model.decoder, n), n)
+        copy(model.decoder.final_norm.weight, "norm.weight")
+    for local_index, i in enumerate(stage.layer_ids):
         prefix = f"layers.{i}"
-        attn_layer, moe_layer = model.decoder.layers[2 * i : 2 * i + 2]
+        attn_layer, moe_layer = model.decoder.layers[2 * local_index : 2 * local_index + 2]
         hc(attn_layer.hyper_connection, prefix + ".hc_attn")
         hc(moe_layer.hyper_connection, prefix + ".hc_ffn")
         attn = attn_layer.inner_layer.self_attention
@@ -250,11 +259,18 @@ def load_native_checkpoint(model, directory):
         )
         moe.experts = NativePackedExperts(fused, down, cfg)
         print("RLK_ORIGINAL_PACKED_LAYER_LOADED", i, len(loaded), flush=True)
-    if loaded != keys:
-        raise ValueError(f"unconsumed checkpoint tensors: {sorted(keys - loaded)}")
+    if loaded != expected_keys:
+        raise ValueError(
+            f"pipeline checkpoint ownership mismatch: missing={sorted(expected_keys - loaded)}, "
+            f"unexpected={sorted(loaded - expected_keys)}"
+        )
     print("RLK_ORIGINAL_PACKED_CHECKPOINT_LOADED", len(loaded), flush=True)
     return {
         "loaded_tensors": len(loaded),
+        "checkpoint_tensors": len(keys),
+        "original_layer_ids": list(stage.layer_ids),
+        "pre_process": stage.pre_process,
+        "post_process": stage.post_process,
         "fp4_profile": RocmPackedMXBackend.profile,
         "fp8_profile": CheckpointFP8Linear.profile,
     }

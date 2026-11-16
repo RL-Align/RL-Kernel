@@ -63,3 +63,12 @@ finite raw FP32 scores. The independent real rollout remains numerically
 different (2 compared / 2 mismatched); this is integration evidence, not parity.
 CPU ABI/unwrap and analytic norm VJP checks: 3 passed, 0 skipped. Unsupported
 parallel, recomputation, padding/document masks, PEFT and FSDP paths fail closed.
+
+
+The optional packed four-layer engine also selects PP2 with the native Bridge
+3+1 logical-layer layout. Checkpoint ownership, global mHC controller IDs and
+versioned PP state export are implemented in RLK; native MCore retains pipeline
+activation/gradient transport and DDP reduction. TP=EP=CP=1 remains enforced.
+See [the selected pipeline acceptance procedure](dsv4-four-layer-cycle.md#selected-single-node-pipeline-acceptance)
+for the exact actor PP2/DP2 and rollout PP2 configuration and its evidence gate.
+Code availability does not qualify unexecuted configurations.

@@ -31,11 +31,18 @@ jobs:
             tests/ops/mhc tests/ops/norm/test_rmsnorm_residual.py \
             tests/integrations/common/test_mhc_worker.py \
             tests/integrations/common/test_dsv4_canonical_keys.py \
+            tests/integrations/common/test_checkpoint_state_exports.py \
+            tests/integrations/common/test_native_pipeline_partition.py \
+            tests/integrations/common/test_native_pipeline_export.py \
+            tests/integrations/common/test_pipeline_rollout_sync.py \
+            tests/integrations/common/test_pipeline_rollout_config.py \
             tests/integrations/common/test_native_megatron_mhc.py \
             tests/backends/rocm/test_qnorm_vjp_on_cpu.py \
             tests/examples/test_dsv4_step_evidence.py \
             tests/examples/test_dsv4_strict_comparison.py \
             tests/examples/test_dsv4_cycle_guards.py \
+            tests/examples/test_dsv4_result_exit.py \
+            tests/examples/test_dsv4_pipeline_evidence.py \
             tests/models/deepseek_v4/test_layer_end.py \
             tests/contracts/operators/test_mhc_contract.py \
             tests/runtime/test_dispatch.py \

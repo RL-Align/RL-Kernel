@@ -56,12 +56,18 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
             getattr(cfg, key) != 1
             for key in (
                 "tensor_model_parallel_size",
-                "pipeline_model_parallel_size",
                 "expert_model_parallel_size",
                 "context_parallel_size",
             )
         ):
-            raise ValueError("native packed DSV4 engine initially requires TP=PP=EP=CP=1")
+            raise ValueError("native packed DSV4 engine requires TP=EP=CP=1")
+        if cfg.pipeline_model_parallel_size not in (1, 2):
+            raise ValueError("native packed DSV4 engine supports PP=1 or the four-layer PP2 layout")
+        from rl_engine.integrations.engines.train.megatron.native_pipeline import (
+            configure_native_pipeline,
+        )
+
+        configure_native_pipeline(self.provider)
         if self.peft_cls is not None or cfg.use_megatron_fsdp or self.is_value_model:
             raise ValueError("native packed DSV4 engine supports the ordinary actor/DDP path")
         self._rlk_models = []
@@ -215,4 +221,21 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
             export_native_checkpoint_parameters,
         )
 
-        return export_native_checkpoint_parameters(self._rlk_models[0]), None
+        model = self._rlk_models[0]
+        if self.engine_config.pipeline_model_parallel_size == 1:
+            return export_native_checkpoint_parameters(model), None
+        from megatron.core import parallel_state
+
+        from rl_engine.integrations.engines.train.megatron.pipeline_export import (
+            export_pipeline_state,
+        )
+
+        return (
+            export_pipeline_state(
+                dict(export_native_checkpoint_parameters(model)),
+                pp_group=parallel_state.get_pipeline_model_parallel_group(),
+                dp_group=parallel_state.get_data_parallel_group(),
+                weight_version=self.rlk_weight_version,
+            ),
+            None,
+        )

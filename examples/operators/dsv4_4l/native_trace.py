@@ -63,8 +63,10 @@ def install(model, root):
         def after_embedding(m, args, result):
             dump("embedding.output", result)
 
-        handles.append(model.embedding.register_forward_hook(after_embedding))
-        for index, layer in enumerate(model.decoder.layers):
+        if getattr(model, "pre_process", True):
+            handles.append(model.embedding.register_forward_hook(after_embedding))
+        for layer in model.decoder.layers:
+            index = layer.layer_number - 1
 
             def entering(m, args, index=index):
                 context["layer"] = index // 2

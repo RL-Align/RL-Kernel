@@ -83,7 +83,10 @@ bash examples/operators/dsv4_4l/run_cycle.sh \
 
 The launcher rejects an occupied GPU, requires a new output directory, records
 the image inspect result, mounts the model read-only and leaves all previous
-outputs intact. The image must already include the pinned dependencies and
+outputs intact. After the engine process exits successfully, it also checks
+`results.json` and exits nonzero for incomplete stages, empty/nonfinite
+comparisons, missing response tokens or any original-FP32 word mismatch. Engine
+exit status alone is not numerical acceptance. The image must already include the pinned dependencies and
 assembled RLK changes. Use another new output directory for the independent
 repeat. `results.json` is authoritative per configuration; a passing operator
 regression alone does not count as actor/rollout acceptance. Original GPU
@@ -93,3 +96,81 @@ captures and checkpoint weights stay on the data disk and are not committed.
 self-repeat test: actual identical inputs trigger differences in the original
 shared-down kernel, while the fixed production kernel repeats exactly. It is
 not an actor-versus-rollout score result.
+
+Checkpoint exports resolve registered buffers from their current module path.
+Model placement can replace a buffer object before MCore updates it; retaining
+its pre-placement tensor would silently synchronize stale router bias despite
+a correct version and a matching payload/readback digest. The updated-router
+capture regression verifies this state with the original checkpoint bias and
+actual post-update gate logits. Quantized bases remain frozen.
+
+## Selected single-node pipeline acceptance
+
+`run_pipeline_cycle.sh` adds an opt-in native model-parallel path; its code and
+CPU checks alone are not MI300X acceptance. The final selected topology uses
+four actor GPUs (TP=1, PP=2, EP=1, CP=1, DP=2) and two disjoint rollout GPUs
+(TP=1, PP=2, EP=1, CP=1, DP=1). A four-GPU PP2/DP1 actor + PP2 rollout run is a
+bring-up step only. No TP>1, EP>1, CP>1, VPP or multi-node coverage is implied.
+
+Both engines retain checkpoint layers 0–2 on PP0 and layer 3 on PP1. MCore
+requires its hash-MoE layers on the embedding stage; an even 2+2 partition
+violates this pinned model's constraints. The RLK engine uses the existing
+Bridge layout API and MCore's native pipeline scheduler with four-stream
+residual width 16384. It loads only each stage's owned original checkpoint
+keys and binds controllers using global original layer IDs. The first stage
+owns the embedding; only the last owns the final mHC contraction, norm,
+vocabulary projection and selected raw-logprob boundary. Megatron-Lite and
+the original single-GPU path remain available.
+
+The model's packed FP4/FP8 bases and scales stay frozen and retain their
+original layouts. Nonquantized Parameters remain trainable, including original
+FP32 mHC controllers, BF16 embedding/head/norm and other nonquantized model
+Parameters. Each rank records its actual trainable/export coverage and missing
+backward entries. This is not training of packed expert base weights.
+
+The DP2 update uses different actual responses on the two actor replicas.
+Instance-local observers record native forward/backward pipeline boundary
+bytes, real `finish_grad_sync` calls, local backward gradients and optimizer
+input gradients. Acceptance requires identical finite reduced gradients across
+DP copies and different local gradients. Export verifies actual live per-stage
+DP tensor contents and version before broadcasting disjoint original-dtype
+state across each PP group. Every original updated tensor must be loaded and
+read back byte-for-byte on exactly one of the same live rollout stages.
+
+Run on unused physical GPUs only, with a newly built image containing this
+source revision and the same pinned dependencies/checkpoint. Example IDs below
+are placeholders for an allocation confirmed idle at launch:
+
+```bash
+# Bring-up, not the final DP2 gate:
+DSV4_MHC_BACKEND=rocm bash examples/operators/dsv4_4l/run_pipeline_cycle.sh \
+  "$IMAGE" "$TWO_ACTOR_GPU_IDS" "$TWO_ROLLOUT_GPU_IDS" \
+  "$FOUR_LAYER_CHECKPOINT" "$NEW_BRINGUP_OUTPUT" "$DATA_DISK_CACHE_DIRECTORY"
+# Final selected six-GPU topology; repeat with a new output/new container:
+DSV4_MHC_BACKEND=rocm bash examples/operators/dsv4_4l/run_pipeline_cycle.sh \
+  "$IMAGE" "$FOUR_ACTOR_GPU_IDS" "$TWO_ROLLOUT_GPU_IDS" \
+  "$FOUR_LAYER_CHECKPOINT" "$NEW_MULTIGPU_OUTPUT" "$DATA_DISK_CACHE_DIRECTORY"
+# Run rocm_triton independently, then repeat in another new container.
+```
+
+The selected actor and rollout lists must be disjoint. Actual HIP PCI bus IDs,
+global stage layer IDs and native PP/DP group memberships are recorded and
+verified, so several single-GPU replicas cannot satisfy this gate. The launcher
+checks each card twice but cannot reserve shared-machine GPUs; an external
+scheduler or operator must keep the selected allocation available throughout.
+
+`verify_pipeline.py OUTPUT --dp-size 2` additionally rejects single-card
+results, absent pre/post-update batch/order matrix cells, missing newly
+generated responses, replaced rollout PIDs, incomplete communication evidence
+and missing or incorrect shard updates. Each FP32 response comparison still
+requires all expected tokens, finite values and zero original-word mismatches.
+The independent container repeat and both backend runs must be assessed
+separately before declaring this selected single-node configuration complete.
+
+The pinned generic verl `RolloutConfig` rejects PP>1 and its server does not
+derive vLLM's pipeline argument. The selected harness therefore uses RLK's
+`RLKPipelineRolloutConfig` and `RLKPipelineVLLMHttpServer`. They retain the
+other upstream validations and real server, require eager TP1/PP2/EP1/DP1
+standalone workers on two local GPUs, and pass `pipeline_parallel_size=2` to
+the native multiprocess executor. Hybrid IPC, disaggregation, sleep and MTP
+remain rejected. This does not enable generic PP rollout configurations.

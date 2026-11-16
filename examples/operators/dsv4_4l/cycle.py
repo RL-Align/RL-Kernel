@@ -144,19 +144,32 @@ async def main():
     from vllm import SamplingParams
     from vllm.inputs import TokensPrompt
 
+    actor_pp = int(os.environ.get("DSV4_ACTOR_PP", "1"))
+    actor_dp = int(os.environ.get("DSV4_ACTOR_DP", "1"))
+    if actor_pp not in (1, 2) or actor_dp not in (1, 2) or (actor_pp == 1 and actor_dp != 1):
+        raise ValueError("cycle supports single-card or selected PP2 DP1/2 configurations")
+    rollout_pp = actor_pp
     ray.init(
         num_cpus=8,
-        num_gpus=1,
+        num_gpus=rollout_pp,
         include_dashboard=False,
         object_store_memory=256 * 1024**2,
         _memory=4 * 1024**3,
         _temp_dir="/outputs/tmp/ray-parity",
         log_to_driver=True,
     )
-    cfg = RolloutConfig(
+    config_type, server_type = RolloutConfig, vLLMHttpServer
+    if rollout_pp == 2:
+        from rl_engine.integrations.orchestrators.verl.pipeline_rollout import (
+            RLKPipelineRolloutConfig,
+            RLKPipelineVLLMHttpServer,
+        )
+
+        config_type, server_type = RLKPipelineRolloutConfig, RLKPipelineVLLMHttpServer
+    cfg = config_type(
         name="vllm",
         tensor_model_parallel_size=1,
-        pipeline_model_parallel_size=1,
+        pipeline_model_parallel_size=rollout_pp,
         data_parallel_size=1,
         expert_parallel_size=1,
         seed=42,
@@ -178,21 +191,21 @@ async def main():
                 "worker_cls": (
                     "rl_engine.integrations.engines.rollout.vllm.dsv4_worker." "RLKDeepSeekV4Worker"
                 ),
-                "distributed_executor_backend": "uni",
+                "distributed_executor_backend": "uni" if rollout_pp == 1 else "mp",
                 "compilation_config": {"cudagraph_mode": "NONE"},
             }
         },
     )
-    server = vLLMHttpServer(
+    server = server_type(
         cfg,
         HFModelConfig(path="/models/4l", trust_remote_code=False, use_remove_padding=True),
         RolloutMode.STANDALONE,
         workers=[],
         replica_rank=0,
         node_rank=0,
-        gpus_per_node=1,
+        gpus_per_node=rollout_pp,
         nnodes=1,
-        cuda_visible_devices="0",
+        cuda_visible_devices=",".join(str(i) for i in range(rollout_pp)),
     )
     process = None
     results = []
@@ -218,10 +231,24 @@ async def main():
         env = dict(os.environ)
         env.pop("ROCR_VISIBLE_DEVICES", None)
         env.pop("CUDA_VISIBLE_DEVICES", None)
-        env["HIP_VISIBLE_DEVICES"] = os.environ["DSV4_PHYSICAL_GPU"]
+        env["HIP_VISIBLE_DEVICES"] = os.environ.get(
+            "DSV4_ACTOR_PHYSICAL_GPUS", os.environ.get("DSV4_PHYSICAL_GPU", "")
+        )
+        if actor_pp == 2:
+            actor_args = [
+                sys.executable,
+                "-m",
+                "torch.distributed.run",
+                "--standalone",
+                f"--nproc-per-node={actor_pp * actor_dp}",
+                "--module",
+                "examples.operators.dsv4_4l.distributed_actor_service",
+            ]
+        else:
+            actor_args = [sys.executable, "-m", "examples.operators.dsv4_4l.actor_service"]
         (ROOT / "actor-commands").mkdir()
         process = subprocess.Popen(
-            [sys.executable, "-m", "examples.operators.dsv4_4l.actor_service"],
+            actor_args,
             env=env,
             stdout=(ROOT / "actor-service.log").open("w"),
             stderr=subprocess.STDOUT,
@@ -254,7 +281,7 @@ async def main():
                 sampling = SamplingParams(
                     max_tokens=1, temperature=0, prompt_logprobs=1, ignore_eos=True
                 )
-                async for item in server.engine.generate(
+                async for _item in server.engine.generate(
                     TokensPrompt(prompt_token_ids=tokens), sampling, f"{name}-{case['id']}"
                 ):
                     pass
@@ -390,11 +417,35 @@ async def main():
         if not before_passed:
             raise RuntimeError("expanded pre-update comparison mismatched; update not attempted")
         update_attempted = True
-        update = await command(process, "step", "step", [case])
+        if actor_pp == 2 and actor_dp == 2:
+            temp = ROOT / "actor-commands/.step.tmp"
+            save_json(
+                temp,
+                dict(id="step", action="step", cases=[case], cases_by_dp={"0": [case], "1": [b]}),
+            )
+            temp.rename(temp.with_name("step.json"))
+            update = await wait_file(ROOT / "actor-step.json", process)
+        else:
+            update = await command(process, "step", "step", [case])
+        if actor_pp == 2:
+            from examples.operators.dsv4_4l.verify_pipeline import verify_pipeline_step
+
+            evidence = json.loads((ROOT / "actor-distributed-step.json").read_text())
+            transfers = verify_pipeline_step(evidence, dp_size=actor_dp)
+            save_json(ROOT / "pipeline-transfer-verification.json", transfers)
         update_executed = True
         assert update["weight_version"] == 1 and update["before"] != update["after"]
         ack = await server.collective_rpc("load_actor_update", args=("/outputs/actor-update.pt",))
         save_json(ROOT / "rollout-sync-ack.json", ack)
+        if rollout_pp == 2:
+            from examples.operators.dsv4_4l.verify_pipeline import verify_rollout_shards
+
+            manifest = json.loads((ROOT / "actor-update-manifest.json").read_text())
+            verify_rollout_shards(ack, manifest)
+            save_json(
+                ROOT / "rollout-shards-verified.json",
+                dict(verified_tensors=len(manifest), actual_pp_workers=len(ack), weight_version=1),
+            )
         after_ack = await server.collective_rpc("set_case", args=("v1-A-fixed",))
         save_json(ROOT / "rollout-after-ack.json", after_ack)
         assert [r["pid"] for r in first_ack] == [r["pid"] for r in after_ack]
@@ -421,6 +472,9 @@ async def main():
                 rows=results,
                 expanded_coverage_passed=post,
                 limitation="independent container repeat must be evaluated separately",
+                actor_parallelism=dict(TP=1, PP=actor_pp, EP=1, CP=1, DP=actor_dp),
+                rollout_parallelism=dict(TP=1, PP=rollout_pp, EP=1, CP=1, DP=1),
+                multi_gpu_verified=(actor_pp == 2 and actor_dp == 2 and post),
             ),
         )
     except Exception as error:
