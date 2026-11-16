@@ -24,6 +24,21 @@ ROOT = Path(__file__).resolve().parents[2]
     ("legacy", "canonical", "shared_object"),
     [
         ("rl_engine.kernels.registry", "rl_engine.runtime.registry", "kernel_registry"),
+        (
+            "rl_engine.kernels.ops.pytorch.activation.sigmoid_gate",
+            "rl_engine.reference.activation.sigmoid_gate",
+            "NativeSigmoidGateOp",
+        ),
+        (
+            "rl_engine.kernels.ops.pytorch.linear_attention.gated_deltanet",
+            "rl_engine.reference.linear_attn.gated_deltanet",
+            "NativeGatedDeltaNetOp",
+        ),
+        (
+            "rl_engine.kernels.ops.pytorch.linear_attention.causal_conv1d",
+            "rl_engine.reference.linear_attn.causal_conv1d_sequence",
+            "NativeCausalConv1dOp",
+        ),
         ("rl_engine.runtime_mode", "rl_engine.runtime.policy", "strict_contract_enabled"),
         ("rl_engine.integrations.state", "rl_engine.integrations.common.state", "_ACTIVE"),
         ("rl_engine.kernels.ops.vjp_fp32", "rl_engine.ops.autograd.vjp_fp32", "reduce_rows_fp32"),
@@ -80,11 +95,11 @@ def test_stable_operator_id_does_not_hide_an_unknown_implementation():
 def test_recorded_algorithm_sources_resolve_to_real_implementations():
     from rl_engine.config.workload import load_manifest
 
-    moves = json.loads((ROOT / "tools/migration/layout.json").read_text())["moves"]
+    moves = json.loads((ROOT / "tools/migration/layout.json").read_text(encoding="utf-8"))["moves"]
     for case in load_manifest().representative_cases:
         source, symbol = case["provenance_evidence"]["algorithm_source"].rsplit(":", 1)
         implementation = ROOT / moves.get(source, source)
-        text = implementation.read_text()
+        text = implementation.read_text(encoding="utf-8")
         assert "Compatibility import" not in text
         assert symbol in text
 

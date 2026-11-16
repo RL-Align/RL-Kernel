@@ -171,6 +171,11 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    PYTORCH_SIGMOID_GATE = "rl_engine.reference.activation.sigmoid_gate.NativeSigmoidGateOp"
+    PYTORCH_CAUSAL_CONV1D = (
+        "rl_engine.reference.linear_attn.causal_conv1d_sequence.NativeCausalConv1dOp"
+    )
+    PYTORCH_GATED_DELTANET = "rl_engine.reference.linear_attn.gated_deltanet.NativeGatedDeltaNetOp"
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
     CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
     ASCEND_SWIGLU = "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp"
@@ -802,6 +807,11 @@ class KernelRegistry:
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,
         ]
+        # Reference-only Qwen3-Next primitives; vendor kernels may prepend later.
+        for platform_ops in self._priority_map.values():
+            platform_ops["sigmoid_gate"] = [OpBackend.PYTORCH_SIGMOID_GATE]
+            platform_ops["causal_conv1d"] = [OpBackend.PYTORCH_CAUSAL_CONV1D]
+            platform_ops["gated_deltanet"] = [OpBackend.PYTORCH_GATED_DELTANET]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
