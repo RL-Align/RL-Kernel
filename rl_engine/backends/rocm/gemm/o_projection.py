@@ -28,20 +28,19 @@ class AiterOProjectionBackend(AiterIndexerProjectionBackend):
 
     def __init__(self):
         super().__init__()
+        from rl_engine.backends.rocm.attention.partial_rope import AiterPartialRoPEBackend
+
         names = (
-            "aiter.ops.rope",
             "aiter.ops.triton.gemm.batched.batched_gemm_bf16",
             "aiter.ops.triton._triton_kernels.gemm.batched.batched_gemm_bf16",
-            "aiter.jit.module_rope_1c_cached_bwd",
-            "aiter.jit.module_rope_1c_cached_fwd",
         )
         try:
             modules = [importlib.import_module(name) for name in names]
-            self._inverse = modules[0].rope_cached_bwd
-            self._adjoint = modules[0].rope_cached_fwd
-            self._grouped = modules[1].batched_gemm_bf16
+            self._grouped = modules[0].batched_gemm_bf16
         except (ImportError, AttributeError) as exc:
-            raise OProjectionError("required grouped GEMM/RoPE ABI missing; no fallback") from exc
+            raise OProjectionError("required grouped GEMM ABI missing; no fallback") from exc
+        self.rope = AiterPartialRoPEBackend()
+        self.provenance["rope"] = self.rope.provenance
         self.provenance["sources"].update(
             {
                 name: hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest()
@@ -54,14 +53,10 @@ class AiterOProjectionBackend(AiterIndexerProjectionBackend):
         ).hexdigest()
 
     def inverse_rope(self, x, cos, sin):
-        if not x.shape[0]:
-            return x.clone()
-        return self._inverse(x[:, None], cos, sin, 1, True, True).squeeze(1)
+        return self.rope.rotate_vjp(x.contiguous(), cos, sin)
 
     def inverse_rope_gradient(self, grad, cos, sin):
-        if not grad.shape[0]:
-            return grad.clone()
-        return self._adjoint(grad[:, None].contiguous(), cos, sin, 1, True, True).squeeze(1)
+        return self.rope.rotate(grad.contiguous(), cos, sin)
 
     def grouped(self, x, weight):
         if not x.shape[1]:
