@@ -380,3 +380,60 @@ def test_production_route_rejects_rlkernel_provider_configuration(monkeypatch):
         clear_active_integration("megatron")
 
     assert "logp" not in integration.readback()["operators"]
+
+
+def test_installed_megatron_route_receives_shared_inputs(monkeypatch):
+    from rl_engine.integrations.common.training_logp import (
+        TrainingLogpInputs,
+        compute_training_logp,
+    )
+    from rl_engine.integrations.engines.train.megatron import runtime
+
+    monkeypatch.setenv("VIME_RL_KERNEL_STRICT", "1")
+    monkeypatch.setattr(torch.version, "hip", None)
+    monkeypatch.setattr(framework_operators, "_require_nvidia_cuda", lambda *_args: None)
+    observed = []
+
+    class Scorer:
+        backend_id = "test.cpu"
+        provenance = {"actual_backend": backend_id}
+
+        def __call__(self, hidden, weight, targets, bias, **kwargs):
+            values = torch.nn.functional.linear(hidden, weight, bias)[:, :7]
+            return values.log_softmax(-1)[torch.arange(len(targets)), targets]
+
+    scorer = Scorer()
+
+    def score(inputs, *, linear_logp=None):
+        assert isinstance(inputs, TrainingLogpInputs)
+        observed.append(inputs)
+        return compute_training_logp(inputs, linear_logp=linear_logp)
+
+    monkeypatch.setattr(runtime, "compute_training_logp", score)
+    monkeypatch.setattr(runtime, "LinearLogpWrapper", lambda: scorer)
+    monkeypatch.setattr(runtime, "_patch_layer_alignment_diagnostics", lambda: None)
+    monkeypatch.setattr(runtime, "_patch_strict_logp_output_layer", lambda: None)
+    clear_active_integration("megatron")
+    try:
+        runtime.install_megatron_integration(
+            IntegrationPlan.from_case_ids(logp="R/R"), attention_classes=(), ffn_classes=()
+        )
+        request = _structural_request()
+        result = provider(request)
+        assert observed[0].hidden is request.context.hidden
+        assert observed[0].weight is request.context.projection.weight
+        assert observed[0].target_ids is request.target_ids
+        result.logp.sum().backward()
+        assert request.context.hidden.grad is not None
+        assert result.provenance["execution"]["role"] == "vime_training_linear_logp"
+    finally:
+        clear_active_integration("megatron")
+
+
+def test_legacy_provider_exports_shared_result_and_exception():
+    from rl_engine.integrations.common import training_logp
+    from rl_engine.integrations.vime import linear_logp_provider as legacy
+
+    assert legacy.LinearLogpResult is training_logp.LinearLogpResult
+    assert legacy.LinearLogpProviderUnavailable is training_logp.LinearLogpProviderUnavailable
+    assert legacy.provider is provider
