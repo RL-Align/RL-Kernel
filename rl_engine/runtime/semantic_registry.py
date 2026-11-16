@@ -487,25 +487,39 @@ def implementation_fingerprint(
     concrete class, the defining modules, and explicitly named runtime entry
     points. Module content covers helper functions called by an entry point;
     callable identities additionally make in-process replacements observable.
+    Instances may declare ``_implementation_source_modules`` for shared helpers
+    reached through delegation rather than cross-module entry points.
     """
 
     factory = _load_factory(implementation)
     concrete_type = type(instance) if instance is not None else None
     runtime_entrypoints = {}
+    entrypoint_modules: set[str] = set()
     if instance is not None:
+        entrypoint_modules.update(getattr(instance, "_implementation_source_modules", ()))
         for name in sorted(set(entrypoints)):
             value = getattr(instance, name, None)
             if callable(value):
                 runtime_entrypoints[name] = _callable_identity(value)
-    return _fingerprint(
-        {
-            "factory": _implementation_identity(factory),
-            "concrete_type": (
-                _implementation_identity(concrete_type) if concrete_type is not None else None
-            ),
-            "runtime_entrypoints": runtime_entrypoints,
-        }
+                module_name = getattr(value, "__module__", None)
+                if isinstance(module_name, str):
+                    entrypoint_modules.add(module_name)
+    identity: dict[str, Any] = {
+        "factory": _implementation_identity(factory),
+        "concrete_type": (
+            _implementation_identity(concrete_type) if concrete_type is not None else None
+        ),
+        "runtime_entrypoints": runtime_entrypoints,
+    }
+    # Include shared helpers reached through inherited entrypoints or declared delegation.
+    entrypoint_modules.difference_update(
+        {None, getattr(factory, "__module__", None), getattr(concrete_type, "__module__", None)}
     )
+    if entrypoint_modules:
+        identity["entrypoint_modules"] = {
+            name: _module_identity(name) for name in sorted(entrypoint_modules)
+        }
+    return _fingerprint(identity)
 
 
 def operator_instance_fingerprint(**identity: str) -> str:
