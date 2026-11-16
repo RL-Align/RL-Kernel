@@ -3,7 +3,7 @@
 Notes for an assistant (or developer) continuing the DSv4 SM90 batch-invariant work. The
 design of record is `docs/architecture/dsv4-design.md`: goal, environment, how to build
 and test, module map, decisions, the reduction order of every module, status and open
-work. Read it first and keep its status section current. Last updated 2026-11-15.
+work. Read it first and keep its status section current. Last updated 2026-11-16.
 
 ## Working rules
 

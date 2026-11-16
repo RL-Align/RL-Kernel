@@ -9,7 +9,7 @@ table; this page links to them.
 - Hardware: NVIDIA H100 / H200 (SM90). ROCm and SM100 are out of scope.
 - Reference architecture: vLLM #54955 (`ISEEKYAN/vllm@1a6542c`, batch-invariant mode)
 - Integration target: verl. Rollout and actor recompute must run this kernel set.
-- Last updated: 2026-11-15
+- Last updated: 2026-11-16
 
 Contents:
 1. Goal and guarantees
@@ -496,6 +496,43 @@ Gate, toy checkpoint (4 layers: window, window, C4, C128; 256 experts), 6 reques
 and sampled-token log-prob byte-identical to one packed `Dsv4Model` prefill, without and
 with rank-16 LoRA. Not yet: EP > 1, CUDA graphs, the real checkpoint.
 
+### 10.1 verl
+
+verl and vLLM run unmodified; RL-Kernel plugs in through their extension points
+(`scripts/verl_e2e/run_dsv4_rlkernel_grpo.sh` sets all of them):
+
+| Piece | Where | Selected by |
+|---|---|---|
+| Actor engine `rlkernel` (`Dsv4Model`, LoRA only, data parallel) | `integrations/dsv4/verl_engine.py` | `model.external_lib`, `model_engine=rlkernel`, `hydra.searchpath=[pkg://rl_engine.integrations.dsv4.verl_config]` |
+| Rollout model | `integrations/dsv4/vllm_model.py` | RL-Kernel's `vllm.general_plugins` entry point with `RL_KERNEL_DSV4_ROLLOUT=1` |
+| Adapter sync, level-1 sleep | `integrations/dsv4/vllm_worker.py` | `rollout.engine_kwargs.vllm.worker_cls` / `worker_extension_cls` |
+
+- The engine computes next-token log-probs for packed full-prefill micro-batches with the
+  rollout's kernels; `scripts/check_dsv4_verl_engine.py` (2 ranks) checks them byte for
+  byte across micro-batch layouts, against each sequence alone, with per-sample
+  temperatures, before and after training steps.
+- The LoRA rank is the engine's (`actor.rlkernel.lora_rank`), and verl's `model.lora_rank`
+  stays 0: verl would otherwise turn on vLLM's own LoRA in the rollout. So verl sees no
+  LoRA: the reference policy (only with a KL term) is a separate `rlkernel` engine without
+  adapters, and its level-2 sleep would discard the rollout's base weights, which are never
+  re-sent; `RlkWorker.sleep` keeps level 1.
+- Only the BF16 adapters are synced (`get_per_tensor_param`); the rollout loads the base
+  weights from the checkpoint (`load_format=auto`; `dummy` is refused). verl's trainer-side
+  rollout quantizer (offered for the FP8 / FP4 checkpoint) is accepted and unused.
+- Process start: vLLM pickles the engine config into the processes it spawns, and
+  unpickling the DeepSeek-V4 quantization config imports vLLM's DeepSeek-V4 package, which
+  loads vLLM's FlashMLA build, before any plugin runs. The plugin registers a subclass of
+  that config defined in `vllm_model.py`, so those processes import the plugin first.
+- The verdict is verl's own `training/rollout_logprobs_mismatch_count` (FP32 `!=` per
+  response token; the `probs_diff` metrics miss 1-ulp differences).
+
+Toy GRPO, 2 x H200, toy checkpoint, rank-16 LoRA on every target, 8 prompts x 4 samples x
+128 tokens, synthetic reward (the adapters move every step): `rollout_logprobs_mismatch_count`
+0 at each of 4 steps. Negative control (`RL_KERNEL_DSV4_SKIP_ADAPTER_SYNC=1`: the rollout
+keeps its adapters): 0 at step 1 (zero-B adapters equal the base model), 4096 of 4096 tokens
+from step 2. The vLLM plugin is installed in the dev env as an entry-point-only package
+(`~/dsv4-work/rlk-plugin`); `pip install` of RL-Kernel provides the same entry point.
+
 ## 11. Legacy code not used by DSv4
 
 Kept in the tree, not on the DSv4 path, and without DSv4 tests:
@@ -523,10 +560,14 @@ Open, needs the multi-GPU machine:
 - [ ] EP = 4 / 8 with real collectives; DeepEP (`zhuzilin/DeepEP@align_fp8_quantization`)
       transport with the same bytes, fixed-capacity staging, route-metadata capture.
 - [x] vLLM rollout plugin (section 10): bitwise equal to `Dsv4Model` on one GPU, with LoRA.
-- [ ] verl integration (user decision 2026-11-15: the actor is a verl engine backend on
+- [x] verl integration (user decision 2026-11-15: the actor is a verl engine backend on
       `Dsv4Model`, not Megatron; verl and Megatron stay unmodified): engine backend,
-      adapter sync into the rollout (`worker_extension_cls`), toy GRPO on 2 GPUs, then an
-      8-GPU guide against verl #7483 (Hopper, non-BI, LoRA).
+      adapter sync into the rollout, toy GRPO on 2 GPUs bitwise (section 10.1).
+- [ ] 8-GPU guide against verl #7483 (Hopper, non-BI, LoRA), with an ablation (the
+      `rlkernel` engine with BI off) to separate engine and kernel effects on speed.
+- [ ] `rlkernel` engine at EP > 1 (MoE LoRA across EP ranks), parameter offload, CUDA
+      graphs in the rollout; persisted W8 expert weights cost E x N x K bytes per weight in
+      both the actor and the rollout (check the memory budget on the real checkpoint).
 - [ ] Rollout plugin at EP = 2 (vLLM DP attention + EP MoE), with CUDA graphs, and on the
       real checkpoint.
 - [ ] Baseline first: verl + vLLM batch-invariant (verl #7688) end to end on 8 Hopper GPUs,
