@@ -49,8 +49,8 @@ def test_aux_contract_rejects(changes):
 def test_canonical_slots_duplicates_and_owner_snapshots():
     c, q, k, ids, owners = fixture()
     meta = IndexerAuxMetadata.bind(c, q, k, ids, version="v1", key_owners=owners)
-    assert meta.selected_group_ids.tolist() == [[0, 1, 2, 2], [0, -1, -1, -1], [-1] * 4]
-    assert meta.selected_indices.tolist() == [[1, 3, 0, 0], [2, -1, -1, -1], [-1] * 4]
+    assert meta.selected_group_ids.tolist() == [[2, 2, 1, 0], [0, -1, -1, -1], [-1] * 4]
+    assert meta.selected_indices.tolist() == [[0, 0, 3, 1], [2, -1, -1, -1], [-1] * 4]
     assert meta.valid_rows.tolist() == [True, True, False]
     q.fill_(-1)
     k.fill_(999)

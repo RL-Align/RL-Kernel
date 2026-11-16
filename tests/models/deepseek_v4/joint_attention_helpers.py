@@ -35,7 +35,9 @@ def reference_from_keys(q, kv, sink, query_keys, kv_keys, compressed, window_siz
         if request < 0:
             rows.append([])
             continue
-        selected = sorted((row for row in topk if row >= 0), key=lambda row: tuple(keys[row]))
+        selected = sorted(
+            (row for row in topk if row >= 0), key=lambda row: tuple(keys[row]), reverse=True
+        )
         recent = [
             windows[request, p] for p in range(max(0, position - window_size + 1), position + 1)
         ]

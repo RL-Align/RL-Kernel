@@ -116,7 +116,7 @@ class JointMetadata:
                     ),
                     "cross-request, future or noncompressed Top-K row",
                 )
-                valid.sort(key=lambda i: kh[i])
+                valid.sort(key=lambda i: kh[i], reverse=True)
                 recent = range(max(0, position - contract.window_size + 1), position + 1)
                 require(all((request, p) in window for p in recent), "recent window is incomplete")
                 result = [inverse[i] for i in valid] + [inverse[window[request, p]] for p in recent]

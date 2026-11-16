@@ -34,7 +34,7 @@ class IndexerAuxMetadata:
     def bind(cls, contract, query_ids, key_ids, topk_group_ids, *, version, key_owners=None):
         """Top-K IDs are frozen logical group IDs, never differentiable indices.
 
-        Canonical slot order is increasing logical key ID, preserving duplicate
+        Canonical slot order is decreasing logical key ID, preserving duplicate
         occurrences. Invalid slots follow the active entries. The caller owns
         alignment of all query/key-aligned numerical inputs with these IDs.
         """
@@ -103,7 +103,7 @@ class IndexerAuxMetadata:
         selections, canonical_ids, active = [], [], []
         for (request, position), ids in zip(q_host, topk, strict=True):
             require(all(g >= -1 for g in ids), "only -1 may mark an invalid Top-K slot")
-            chosen = sorted(g for g in ids if g >= 0)
+            chosen = sorted((g for g in ids if g >= 0), reverse=True)
             require(request >= 0 or not chosen, "padding query cannot select KV")
             for group in chosen:
                 require(
