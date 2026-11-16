@@ -418,6 +418,12 @@ class RlkernelEngine(BaseEngine):
 
         return gen(), self.peft_config()
 
+    def set_rollout_weight_quantizer(self, quantizer) -> None:
+        """Accepted and unused: verl offers it for a quantized checkpoint (DSv4's FP8 / FP4),
+        to quantize base weights before the sync; this engine syncs only the BF16 adapters,
+        which the rollout runs unquantized, as the actor does."""
+        self._rollout_quantizer = quantizer
+
     @contextlib.contextmanager
     def disable_adapter(self):
         saved = [(layer.attn.w.lora, layer.moe.lora) for layer in self.model.layers]

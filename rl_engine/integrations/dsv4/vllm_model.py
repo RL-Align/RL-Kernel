@@ -92,6 +92,7 @@ def _use_pinned_flashmla() -> None:
 _use_pinned_flashmla()
 
 import vllm.models.deepseek_v4.nvidia.model as vm  # noqa: E402
+from vllm.models.deepseek_v4.quant_config import DeepseekV4FP8Config  # noqa: E402
 from vllm.v1.sample.sampler import Sampler  # noqa: E402
 
 ENV_ENABLE = "RL_KERNEL_DSV4_ROLLOUT"
@@ -99,9 +100,20 @@ ENV_DUMP = "RL_KERNEL_DSV4_DUMP"
 ENV_TEST_LORA = "RL_KERNEL_DSV4_TEST_LORA"
 
 
+class RlkDeepseekV4FP8Config(DeepseekV4FP8Config):
+    """vLLM's DeepSeek-V4 FP8 quantization config, unchanged, but defined here.
+
+    vLLM pickles the engine config into each spawned engine-core / worker process, and
+    unpickling the quantization config imports its module there before any plugin runs.
+    vLLM's own module sits in the DeepSeek-V4 package, whose ``__init__`` loads vLLM's
+    FlashMLA build; this one imports this module first, which installs RL-Kernel's build
+    (:func:`_use_pinned_flashmla`)."""
+
+
 def register() -> None:
     """Make vLLM build :class:`RlkDeepseekV4ForCausalLM` for DeepSeek-V4 checkpoints."""
     from vllm import ModelRegistry
+    from vllm.model_executor.layers.quantization import register_quantization_config
 
     import vllm.v1.worker.gpu_model_runner as runner
 
@@ -121,6 +133,7 @@ def register() -> None:
     vcompressor.compress_norm_rope_store_triton = _rlk_compress_store
     vcompressor.compress_norm_rope_store_two_stage_triton = _rlk_compress_store
     vcutedsl.compress_norm_rope_store_cutedsl = _rlk_compress_store
+    register_quantization_config(DeepseekV4FP8Config.get_name())(RlkDeepseekV4FP8Config)
     _accept_pinned_deepgemm()
     # Decode through FlashMLA's sparse kernel, as prefill: the paged FP8 decode kernel
     # rounds differently (checked in RlkDeepseekV4Model).
@@ -515,6 +528,10 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
             problems.append("VLLM_DS4_DECODE_KERNEL != sparse")
         if not vm.envs.VLLM_BATCH_INVARIANT:
             problems.append("VLLM_BATCH_INVARIANT=0 (the attention path must be the BI one)")
+        if "dummy" in str(vllm_config.load_config.load_format):
+            # The base weights (and RL-Kernel's MoE / output projection) load from the
+            # checkpoint once; a trainer syncs only LoRA adapters (vllm_worker.py).
+            problems.append("load_format=dummy (load the checkpoint: load_format=auto)")
         if problems:
             raise NotImplementedError("RL-Kernel DSv4 rollout: " + ", ".join(problems))
 
