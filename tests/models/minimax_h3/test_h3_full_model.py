@@ -273,8 +273,41 @@ def test_cuda_guard_rejects_one_fallback_among_native_bindings():
     ops = SimpleNamespace(
         backends=lambda: {"projection": native, "norm": "torch.nn.RMSNorm", "gate": native}
     )
-    with pytest.raises(ValueError, match="candidate norm fell back"):
+    with pytest.raises(ValueError, match="candidate norm fell back") as raised:
         require_candidate_cuda(ops)
+    assert type(raised.value).__name__ == "CandidateBindingError"
+
+
+def test_a_failure_to_bind_is_a_candidate_binding_error_and_a_model_error_is_not(monkeypatch):
+    """Only a missing CUDA op is a ``CandidateBindingError`` (a fallback for audit mode); a
+    structural error of the model, or of the call, stays a plain ``ValueError``."""
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models.h3_full_model import CandidateBindingError
+
+    def no_backend(self, row, device=None):
+        raise RuntimeError(f"No functional backend for {row}")
+
+    monkeypatch.setattr(KernelRegistry, "get_op", no_backend)
+    with pytest.raises(CandidateBindingError, match="No functional backend") as raised:
+        with full_model_execution(
+            Model(), candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            pass
+    assert isinstance(raised.value.__cause__, RuntimeError)
+
+    model = Model()
+    model.transformer_blocks[49] = model.transformer_blocks[0]
+    for kwargs in (
+        dict(model=model),
+        dict(model=Model(), provider_nodes=("no_such_node",)),
+        dict(model=Model(), strict_boundaries=True, native_boundaries=("proj_up",)),
+    ):
+        with pytest.raises(ValueError) as raised:
+            with full_model_execution(
+                **kwargs, candidate=True, trace=FullModelTrace(), ops=object()
+            ):
+                pass
+        assert not isinstance(raised.value, CandidateBindingError), raised.value
 
 
 def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
@@ -318,10 +351,12 @@ def test_strict_boundaries_apply_to_candidate_execution_only():
 
 
 def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
+    """Strict mode routes each boundary module through its row; video rows get keys, a session."""
     from rl_engine.runtime.registry import KernelRegistry
     from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
 
     called = []
+    keyed_calls = []
 
     class Row:
         def __init__(self, row, method):
@@ -329,8 +364,11 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
             if method:
                 self.forward = self._run
 
-        def _run(self, x, weight, bias):
+        def _run(self, x, weight, bias, **keyed):
+            from rl_engine.ops.autograd.canonical_backward import active_session
+
             called.append((self.row, tuple(x.shape)))
+            keyed_calls.append((self.row, keyed, active_session() is not None))
             return torch.nn.functional.linear(x, weight, bias)
 
         __call__ = _run
@@ -359,5 +397,144 @@ def test_strict_boundaries_route_every_projection_through_its_row(monkeypatch):
         assert trace.boundary_bindings["proj_out"]["status"] == "row"
         assert trace.boundary_bindings["time_embedder"]["status"] == "provider"
         assert trace.boundary_bindings["norm_out"]["status"] == "provider"
-    # leaving the context restores the provider forward
+        # the video rows get the logical rows' identities, a parameter id and an open canonical
+        # backward session (a trainable weight is refused without one); the others get no keys
+        by_row = {row: (keyed, session) for row, keyed, session in keyed_calls}
+        for name in ("proj_in", "proj_out"):
+            keyed, session = by_row[STRICT_BOUNDARY_ROWS[name]]
+            assert session and keyed["parameter_id"] == name
+            assert keyed["logical_keys"].tolist() == [[b, s] for b in range(2) for s in range(5)]
+        for name in ("audio_proj_in", "audio_proj_out", "context_embedder"):
+            assert by_row[STRICT_BOUNDARY_ROWS[name]][0] == {}
+    # leaving the context restores the provider forward and closes the session
     assert "forward" not in model.proj_in.__dict__
+    from rl_engine.ops.autograd.canonical_backward import active_session
+
+    assert active_session() is None
+
+
+def _stand_in_rows(monkeypatch):
+    """Every boundary row resolves to the provider's linear."""
+    from rl_engine.runtime.registry import KernelRegistry
+
+    class Row:
+        def forward(self, x, weight, bias, **_):
+            """A stand-in row: the provider's linear."""
+            return torch.nn.functional.linear(x, weight, bias)
+
+        __call__ = forward
+
+    monkeypatch.setattr(KernelRegistry, "get_op", lambda self, row, device=None: Row())
+
+
+def _projection_model():
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+
+    model = Model()
+    for name in STRICT_BOUNDARY_ROWS:
+        if name != "token_refiner":
+            setattr(model, name, torch.nn.Linear(4, 3))
+    return model
+
+
+def test_a_boundary_context_that_failed_to_enter_is_not_exited(monkeypatch):
+    """If the strict boundary context raises while entering, its error propagates as it is and
+    the context is not exited (it never reached its body)."""
+    from rl_engine.validation.models import h3_full_model as fm
+
+    exits = []
+
+    class Failing:
+        def __enter__(self):
+            raise fm.CandidateBindingError("no CUDA op for proj_in")
+
+        def __exit__(self, *exc):
+            exits.append(exc)
+            return False
+
+    monkeypatch.setattr(fm, "_strict_boundaries", lambda *args, **kwargs: Failing())
+    with pytest.raises(fm.CandidateBindingError, match="no CUDA op for proj_in"):
+        with full_model_execution(
+            Model(), candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            pass
+    assert exits == []
+
+
+def test_an_instance_forward_from_before_the_binding_is_restored(monkeypatch):
+    """A module that already had its own instance ``forward`` gets that one back on exit."""
+    _stand_in_rows(monkeypatch)
+    model = _projection_model()
+
+    def wrapper(x):
+        """A pre-existing instance forward (e.g. another tool's wrapper)."""
+        return torch.zeros(x.shape[:-1] + (3,))
+
+    model.proj_out.forward = wrapper
+    with full_model_execution(
+        model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+    ):
+        assert model.proj_out.forward is not wrapper
+    assert model.proj_out.forward is wrapper
+    assert "forward" not in model.proj_in.__dict__
+
+
+def test_a_wrapped_boundary_linear_is_refused_before_binding(monkeypatch):
+    """A boundary projection that is not a plain ``nn.Linear`` (e.g. a PEFT adapter) is refused:
+    its row would compute from ``weight`` / ``bias`` alone and drop the adapter."""
+    from rl_engine.validation.models.h3_full_model import CandidateBindingError
+
+    class Adapted(torch.nn.Linear):
+        """A linear with extra trainable parameters of its own."""
+
+    _stand_in_rows(monkeypatch)
+    model = _projection_model()
+    model.context_embedder = Adapted(4, 3)
+    with pytest.raises(ValueError, match="strict context_embedder binding needs a plain") as raised:
+        with full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        ):
+            pass
+    assert not isinstance(raised.value, CandidateBindingError)
+    assert all("forward" not in getattr(model, n).__dict__ for n in ("proj_in", "proj_out"))
+
+
+def test_an_error_inside_the_strict_context_is_not_replaced_by_the_session_check(monkeypatch):
+    """A body error after backward started propagates as it is, not as an incomplete session."""
+    from rl_engine.ops.autograd.canonical_backward import active_session
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models.h3_full_model import STRICT_BOUNDARY_ROWS
+
+    class Row:
+        def forward(self, x, weight, bias, **_):
+            """A stand-in row: the provider's linear."""
+            return torch.nn.functional.linear(x, weight, bias)
+
+        __call__ = forward
+
+    monkeypatch.setattr(KernelRegistry, "get_op", lambda self, row, device=None: Row())
+    model = Model()
+    for name in STRICT_BOUNDARY_ROWS:
+        if name != "token_refiner":
+            setattr(model, name, torch.nn.Linear(4, 3))
+
+    def open_step():
+        return full_model_execution(
+            model, candidate=True, trace=FullModelTrace(), ops=object(), strict_boundaries=True
+        )
+
+    with pytest.raises(ValueError, match="non-finite gradient"):
+        with open_step():
+            session = active_session()
+            # one keyed use is registered and backward has started, but its gradient never
+            # arrives: the step fails part-way through backward
+            session.register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            session.backward_started = True
+            raise ValueError("non-finite gradient in block 7")
+    assert active_session() is None
+    # a body that completes with a missing submission is still refused
+    with pytest.raises(RuntimeError, match="incomplete canonical submissions"):
+        with open_step():
+            active_session().register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
+            active_session().backward_started = True
+    assert active_session() is None
