@@ -10,6 +10,7 @@ not qualification of the reference/interim bindings as final RFC kernels.
 
 from __future__ import annotations
 
+import sys
 from collections import Counter
 from contextlib import contextmanager
 from types import MethodType
@@ -169,11 +170,23 @@ class FullModelTrace:
         )
 
 
+class CandidateBindingError(RuntimeError, ValueError):
+    """The RL-Kernel graph could not be bound: a candidate or boundary row has no CUDA op.
+
+    This is the only error a caller may treat as a fallback (audit mode runs the provider
+    instead). A structural or configuration error of the model or of the call is a plain
+    ``ValueError`` and must propagate. It subclasses both ``RuntimeError`` (what the registry
+    raises for a missing backend) and ``ValueError`` (what ``require_candidate_cuda`` raised).
+    """
+
+
 def require_candidate_cuda(ops):
+    """The candidate ops' backends; raises ``CandidateBindingError`` if one is not CUDA."""
+
     backends = ops.backends()
     for name in ("projection", "norm", "gate"):
         if ".cuda." not in backends[name]:
-            raise ValueError(f"candidate {name} fell back from its CUDA implementation")
+            raise CandidateBindingError(f"candidate {name} fell back from its CUDA implementation")
     return backends
 
 
@@ -189,6 +202,40 @@ STRICT_BOUNDARY_ROWS = {
     "token_refiner": "token_refiner_block",
 }
 PROVIDER_BOUNDARIES = ("time_embedder", "norm_out")
+# Boundary projections whose rows take ``logical_keys`` / ``parameter_id`` and reduce their
+# parameter gradients in a ``canonical_backward_session`` (#562, #646).
+KEYED_BOUNDARIES = frozenset({"proj_in", "proj_out"})
+
+
+def _flat_keys(x: torch.Tensor) -> torch.Tensor:
+    """Logical ``(batch row, token position)`` of every row of ``[B, S, C]`` (or ``[M, C]``)."""
+
+    if x.dim() == 2:
+        positions = torch.arange(x.shape[0], device=x.device)
+        return torch.stack([torch.zeros_like(positions), positions], dim=1)
+    return h3_block._row_keys(x)
+
+
+@contextmanager
+def _canonical_session(needed: bool):
+    """The canonical backward session the keyed rows need, unless the caller already opened one.
+
+    One session holds one forward and one backward of the keyed rows: a second forward of a
+    trainable ``proj_in`` / ``proj_out`` registers the same logical rows again (refused as
+    duplicate keys), and a forward after backward started is refused by the session. Run each
+    step in its own context. If the body raises, the error propagates as it is; the session is
+    validated only when the body completed.
+    """
+
+    from rl_engine.ops.autograd.canonical_backward import active_session, canonical_backward_session
+
+    if not needed or active_session() is not None:
+        yield
+        return
+    with canonical_backward_session() as session:
+        yield
+        if session.backward_started:
+            session.validate_complete()
 
 
 @contextmanager
@@ -199,26 +246,47 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
     from rl_engine.validation.models import h3_refiner
 
     registry = KernelRegistry()
-    row_ops = {
-        name: registry.get_op(row, device="cuda")
-        for name, row in STRICT_BOUNDARY_ROWS.items()
-        if name != "token_refiner" and name not in native
-    }
+    try:
+        row_ops = {
+            name: registry.get_op(row, device="cuda")
+            for name, row in STRICT_BOUNDARY_ROWS.items()
+            if name != "token_refiner" and name not in native
+        }
+    except RuntimeError as exc:  # no functional CUDA backend for a row
+        raise CandidateBindingError(str(exc)) from exc
     originals = []
 
     def project(name):
         module, op = getattr(model, name), row_ops[name]
         # the projection-row ops expose ``forward``; the video rows are callables
         call = getattr(op, "forward", op)
+        keyed = name in KEYED_BOUNDARIES
 
         def forward(x):
+            """Run the bound row on ``x`` as rows; keyed rows also get row keys and a name."""
             flat = x.reshape(-1, x.shape[-1])
-            out = call(flat, module.weight, module.bias)
+            if keyed:
+                # the video rows reduce a trainable weight's gradient over logical rows, in a
+                # canonical backward session (opened by the caller of ``project``), and need
+                # the rows' identities
+                out = call(
+                    flat, module.weight, module.bias, logical_keys=_flat_keys(x), parameter_id=name
+                )
+            else:
+                out = call(flat, module.weight, module.bias)
             return out.view(*x.shape[:-1], out.shape[-1])
 
-        originals.append((module, module.forward))
+        originals.append((module, module.__dict__.get("forward")))
         module.forward = forward
 
+    # the rows compute from ``weight`` / ``bias`` alone: a wrapped module (e.g. a PEFT adapter)
+    # would lose its own parameters, so it is refused before anything is bound
+    for name in row_ops:
+        module = getattr(model, name)
+        if type(module) is not torch.nn.Linear:
+            raise ValueError(
+                f"strict {name} binding needs a plain nn.Linear, got {type(module).__name__}"
+            )
     for name in row_ops:
         project(name)
 
@@ -241,7 +309,7 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         )
 
     if "token_refiner" not in native:
-        originals.append((refiner, refiner.forward))
+        originals.append((refiner, refiner.__dict__.get("forward")))
         refiner.forward = refine
     trace.boundary_bindings = {
         **{
@@ -251,10 +319,14 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         **{n: dict(row=None, status="provider") for n in PROVIDER_BOUNDARIES},
     }
     try:
-        yield
+        with _canonical_session(any(n in row_ops for n in KEYED_BOUNDARIES)):
+            yield
     finally:
-        for module, _original in originals:
-            module.__dict__.pop("forward", None)  # back to the class method
+        for module, original in originals:
+            if original is None:
+                module.__dict__.pop("forward", None)  # back to the class method
+            else:
+                module.forward = original  # the instance ``forward`` it had before
 
 
 @contextmanager
@@ -287,7 +359,11 @@ def full_model_execution(
     if unknown_boundaries:
         raise ValueError(f"unknown boundary modules: {sorted(unknown_boundaries)}")
     if candidate:
-        ops = ops or h3_block.CandidateOps()
+        if ops is None:
+            try:
+                ops = h3_block.CandidateOps()
+            except RuntimeError as exc:  # e.g. the candidate ops' CUDA kernels are missing
+                raise CandidateBindingError(str(exc)) from exc
         if hasattr(ops, "backends"):
             trace.actual_backends = require_candidate_cuda(ops)
     boundary_context = (
@@ -295,9 +371,12 @@ def full_model_execution(
         if strict_boundaries
         else None
     )
+    exc_info: tuple = (None, None, None)
+    boundary_entered = False  # exit the boundary context only if its ``__enter__`` returned
     try:
         if boundary_context is not None:
             boundary_context.__enter__()
+            boundary_entered = True
         for i, block in enumerate(model.transformer_blocks):
             if candidate:
                 original = block.forward
@@ -349,13 +428,18 @@ def full_model_execution(
 
             handles.append(getattr(model, name).register_forward_hook(hook))
         yield trace
+    except BaseException:
+        # the boundary context must see the error: it skips its end-of-step checks then, so
+        # the caller gets this error and not a follow-on one
+        exc_info = sys.exc_info()
+        raise
     finally:
         for handle in handles:
             handle.remove()
         for block, original in originals:
             block.forward = original
-        if boundary_context is not None:
-            boundary_context.__exit__(None, None, None)
+        if boundary_context is not None and boundary_entered:
+            boundary_context.__exit__(*exc_info)
 
 
 # --- Numerics shared with the generation runner --------------------------------------------------
