@@ -488,8 +488,12 @@ __global__ void fused_linear_logp_logits_tile_bf16_mma_kernel(
                     float z = logit;
                     if (temperature != nullptr)
                         z = __fmul_rn(z, inv_t);
-                    dz = (col < real_vocab_end) ? -expf(z - lse[global_row]) : 0.0f;
-                    if (target[global_row] == global_col)
+                    // Padded columns [real_vocab_end, V) are masked out of the
+                    // forward (logp = -inf for such targets), so their gradient is
+                    // identically zero -- including the one-hot term.
+                    const bool in_real_vocab = col < real_vocab_end;
+                    dz = in_real_vocab ? -expf(z - lse[global_row]) : 0.0f;
+                    if (in_real_vocab && target[global_row] == global_col)
                         dz += 1.0f;
                     dz *= grad_logp[global_row];
                     if (temperature != nullptr)

@@ -288,3 +288,47 @@ def test_strict_dlogits_entry_rejects_non_positive_temperature(lm_head_weight, b
         _C.fused_linear_logp_sm90_strict_dlogits(
             hidden, lm_head_weight[:4096], target, grad_logp, lse, temperature, 0, -1
         )
+
+
+def test_strict_dlogits_zeroes_padded_vocab_including_target(strict_op, lm_head_weight):
+    """Padded columns get zero gradient even when the target id lands in the padding.
+
+    The forward masks ``[real_vocab_size, V)`` (logp = -inf for such a target), so
+    the backward must not add the one-hot term there either.
+    """
+    from rl_engine.backends.extension import _C
+
+    rows = 48
+    hidden = make_hidden(rows, seed=110)
+    grad_logp = _grad_logp(rows, seed=112)
+    temperature = torch.linspace(0.7, 1.3, rows, device="cuda", dtype=torch.float32)
+    start, stop = 8192, 8192 + 4096
+    # Not a multiple of any tile width: the real/padded boundary falls mid-tile.
+    real_local = 1000
+    real_vocab_size = start + real_local
+    target = make_targets(rows, seed=111)
+    target[0::3] = start + real_local + 7  # in the padded tail of this slice
+    target[1::3] = start + 5  # inside the real part of this slice
+    with torch.no_grad():
+        _logp, lse, logits = strict_op.logprob_with_logits(
+            hidden, lm_head_weight, target, temperature=temperature
+        )
+
+    dlogits = _C.fused_linear_logp_sm90_strict_dlogits(
+        hidden,
+        lm_head_weight[start:stop],
+        target,
+        grad_logp,
+        lse,
+        temperature,
+        start,
+        real_vocab_size,
+    )
+
+    assert torch.all(dlogits[:, real_local:] == 0)
+    inv_t = (1.0 / temperature)[:, None]
+    expected = -torch.exp(logits[:, start : start + real_local] * inv_t - lse[:, None])
+    hit = (target >= start) & (target < real_vocab_size)
+    expected[hit.nonzero().squeeze(1), (target[hit] - start)] += 1.0
+    expected = (expected * grad_logp[:, None] * inv_t).to(torch.bfloat16)
+    assert torch.equal(dlogits[:, :real_local], expected)
