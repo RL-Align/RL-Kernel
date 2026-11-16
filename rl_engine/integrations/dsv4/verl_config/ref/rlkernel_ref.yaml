@@ -1,0 +1,13 @@
+# rlkernel reference config, inheriting from verl's trainer/config/ref/ref.yaml.
+# With LoRA the reference policy is the actor without adapters, and this config is unused.
+defaults:
+  - ref
+
+  - ../engine@rlkernel: rlkernel
+
+  - _self_
+
+_target_: rl_engine.integrations.dsv4.verl_engine.RlkActorConfig
+
+rlkernel:
+  forward_only: True
