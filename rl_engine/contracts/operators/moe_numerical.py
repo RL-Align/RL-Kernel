@@ -144,9 +144,7 @@ class MoENumericalContract:
             raise MoEContractError("logits must be [num_tokens, num_experts]")
         _tensor("logits", logits)
         if logits.shape[1] != self.num_experts:
-            raise MoEContractError(
-                f"logits must have shape [num_tokens, {self.num_experts}]"
-            )
+            raise MoEContractError(f"logits must have shape [num_tokens, {self.num_experts}]")
         if logits.dtype != _DTYPES[self.input_dtype]:
             raise MoEContractError("logits dtype must match input_dtype")
         _finite("logits", logits)
