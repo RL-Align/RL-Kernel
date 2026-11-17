@@ -60,6 +60,41 @@ def _checked(code, operation):
         raise RuntimeError(f"{operation} failed with status {code}")
 
 
+def _nvrtc_candidates(site=None, cuda_version=None):
+    """NVRTC libraries to try, best match for torch's CUDA build first.
+
+    CUDA 12 wheels ship ``nvidia/cuda_nvrtc/lib/libnvrtc.so.12``; CUDA 13
+    wheels ship ``nvidia/cu13/lib/libnvrtc.so.13``. After the wheel copies
+    come the system sonames for torch's CUDA major, then the unversioned name.
+    """
+    if site is None:
+        site = Path(torch.__file__).parent.parent / "nvidia"
+    if cuda_version is None:
+        cuda_version = torch.version.cuda
+    major = (cuda_version or "").split(".")[0]
+    wheel_dirs = [site / "cuda_nvrtc" / "lib"]
+    if major:
+        wheel_dirs.insert(0, site / f"cu{major}" / "lib")
+    wheel_dirs += sorted(Path(p) for p in glob.glob(str(site / "cu[0-9]*" / "lib")))
+    candidates = []
+    for directory in wheel_dirs:
+        candidates += sorted(glob.glob(str(directory / "libnvrtc.so*")), key=len)
+    if major:
+        candidates.append(f"libnvrtc.so.{major}")
+    candidates += ["libnvrtc.so.13", "libnvrtc.so.12", "libnvrtc.so"]
+    return list(dict.fromkeys(candidates))
+
+
+def _load_nvrtc():
+    errors = []
+    for name in _nvrtc_candidates():
+        try:
+            return C.CDLL(name)
+        except OSError as error:
+            errors.append(f"{name}: {error}")
+    raise OSError("could not load NVRTC; tried:\n  " + "\n  ".join(errors))
+
+
 def _kernel(device):
     device = torch.device(device)
     key = device.index
@@ -74,10 +109,7 @@ def _kernel(device):
         arch = torch.cuda.get_device_properties(device).gcnArchName.split(":")[0]
         source = "#include <hip/hip_runtime.h>\n" + _SOURCE
     else:
-        libs = glob.glob(
-            str(Path(torch.__file__).parent.parent / "nvidia/cuda_nvrtc/lib/libnvrtc.so*")
-        )
-        rtc = C.CDLL(sorted(libs, key=len)[0] if libs else "libnvrtc.so.12")
+        rtc = _load_nvrtc()
         driver = C.CDLL("libcuda.so.1")
         prefix = "nvrtc"
         module_prefix = "cu"

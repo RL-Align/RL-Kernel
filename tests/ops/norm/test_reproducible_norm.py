@@ -81,3 +81,38 @@ def test_accelerator_warp_bins_with_mixed_exponents_and_nonfinite(length):
         )
     actual = integer_square_bins([values]).cpu().tolist()
     assert actual == reference_bins(values.cpu().tolist())
+
+
+def _touch(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"")
+    return str(path)
+
+
+def test_nvrtc_candidates_find_cuda13_wheel_layout(tmp_path):
+    from rl_engine.ops.norm.reproducible import _nvrtc_candidates
+
+    wheel = _touch(tmp_path / "cu13" / "lib" / "libnvrtc.so.13")
+    _touch(tmp_path / "cu13" / "lib" / "libnvrtc.alt.so.13")
+    candidates = _nvrtc_candidates(tmp_path, "13.0")
+    assert candidates[0] == wheel
+    assert not any(".alt." in name for name in candidates)
+    assert candidates.index("libnvrtc.so.13") < candidates.index("libnvrtc.so.12")
+
+
+def test_nvrtc_candidates_find_cuda12_wheel_layout(tmp_path):
+    from rl_engine.ops.norm.reproducible import _nvrtc_candidates
+
+    wheel = _touch(tmp_path / "cuda_nvrtc" / "lib" / "libnvrtc.so.12")
+    candidates = _nvrtc_candidates(tmp_path, "12.8")
+    assert candidates[0] == wheel
+    assert candidates.index("libnvrtc.so.12") < candidates.index("libnvrtc.so.13")
+    assert len(candidates) == len(set(candidates))
+
+
+def test_load_nvrtc_reports_every_attempt(monkeypatch):
+    from rl_engine.ops.norm import reproducible
+
+    monkeypatch.setattr(reproducible, "_nvrtc_candidates", lambda: ["a.so", "b.so"])
+    with pytest.raises(OSError, match="(?s)a.so.*b.so"):
+        reproducible._load_nvrtc()
