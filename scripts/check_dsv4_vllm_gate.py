@@ -15,6 +15,14 @@ byte-identical.
     PYTHONPATH=. python scripts/check_dsv4_vllm_gate.py --ckpt ~/dsv4-work/dsv4-toy256
     PYTHONPATH=. python scripts/check_dsv4_vllm_gate.py --ckpt DIR --lora 16,32,7
 
+``--dp N`` runs vLLM with N data-parallel attention ranks and the MoE expert-parallel over
+them (``enable_expert_parallel``; one process per rank, one GPU each). Rank r gets its own
+prompts (rotated lengths, its own seed), so the ranks finish at different steps and an idle
+rank runs vLLM's dummy forwards, which take part in the expert exchange. Every rank's
+tokens are compared with the same single-GPU ``Dsv4Model`` (EP 1).
+
+    PYTHONPATH=. python scripts/check_dsv4_vllm_gate.py --ckpt DIR --dp 2 --lora 16,32,7
+
 ``--non-bi`` runs the plugin's non-invariant ablation (``RL_KERNEL_DSV4_NON_BI=1``,
 ``VLLM_BATCH_INVARIANT=0``, paged FP8 decode): the bytes then differ by design, and the
 report shows by how much (with ``--lora``, a small difference also shows the adapters ran).
@@ -31,6 +39,14 @@ import subprocess
 import sys
 
 import torch
+
+
+def rank_inputs(args, r: int):
+    """Data-parallel rank r's prompt lengths, generation lengths and seed."""
+    prompts_n = [int(v) for v in args.prompts.split(",")]
+    generate = [int(v) for v in args.generate.split(",")]
+    k = r % len(prompts_n)
+    return prompts_n[k:] + prompts_n[:k], generate[k:] + generate[:k], args.seed + 1000 * r
 
 
 def run_vllm(args, dump: pathlib.Path) -> None:
@@ -52,7 +68,19 @@ def run_vllm(args, dump: pathlib.Path) -> None:
     # isort: on
 
     register()
+    # Set before the engine starts (its worker processes inherit it, as with --dp); the
+    # plugin writes only once the directory exists, which is after the warmup forwards.
+    root = dump
+    if args.dp == 1:  # with --dp, run_dp clears it before any rank starts
+        shutil.rmtree(root, ignore_errors=True)
+    os.environ["RL_KERNEL_DSV4_DUMP"] = str(root)
+    dp = {}
+    if args.dp > 1:
+        # The data-parallel size and rank come from VLLM_DP_* (run_dp); LLM() refuses
+        # data_parallel_size itself (that is the in-process launcher).
+        dp = {"enable_expert_parallel": True}
     llm = LLM(
+        **dp,
         model=args.ckpt,
         tensor_parallel_size=1,
         max_model_len=args.max_len,
@@ -68,11 +96,12 @@ def run_vllm(args, dump: pathlib.Path) -> None:
         skip_tokenizer_init=True,
         seed=args.seed,
     )
-    shutil.rmtree(dump, ignore_errors=True)  # drop the profiling / warmup forwards
-    os.environ["RL_KERNEL_DSV4_DUMP"] = str(dump)
-    prompts_n = [int(v) for v in args.prompts.split(",")]
-    generate = [int(v) for v in args.generate.split(",")]
-    g = torch.Generator().manual_seed(args.seed + 1)
+    prompts_n, generate, seed = rank_inputs(args, args.dp_rank)
+    if args.dp > 1:
+        dump = dump / f"dp{args.dp_rank}"  # the plugin writes under <root>/dp<r>/
+    shutil.rmtree(dump, ignore_errors=True)  # a rank still warming up may have written
+    root.mkdir(parents=True, exist_ok=True)
+    g = torch.Generator().manual_seed(seed + 1)
     vocab = llm.llm_engine.model_config.hf_config.vocab_size
     prompts = [torch.randint(vocab, (n,), generator=g).tolist() for n in prompts_n]
     params = [
@@ -84,7 +113,7 @@ def run_vllm(args, dump: pathlib.Path) -> None:
             ignore_eos=True,
             detokenize=False,
             logprobs=0,
-            seed=args.seed + i,
+            seed=seed + i,
         )
         for i, n in enumerate(generate)
     ]
@@ -94,6 +123,7 @@ def run_vllm(args, dump: pathlib.Path) -> None:
         [lp[t].logprob for t, lp in zip(o.outputs[0].token_ids, o.outputs[0].logprobs)]
         for o in outs
     ]
+    dump.mkdir(parents=True, exist_ok=True)
     torch.save({"prompts": prompts, "seqs": seqs, "logprobs": logps}, dump / "seqs.pt")
     print(f"vLLM done: {len(seqs)} requests, {sum(map(len, seqs))} tokens")
 
@@ -248,6 +278,56 @@ def compare(args, dump: pathlib.Path) -> dict:
     }
 
 
+def run_dp(args, base: list[str]) -> None:
+    """One vLLM process per data-parallel rank (vLLM's offline data-parallel launch)."""
+    import socket
+
+    shutil.rmtree(pathlib.Path(args.dump).resolve(), ignore_errors=True)
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    procs = []
+    for r in range(args.dp):
+        env = dict(
+            os.environ,
+            VLLM_DP_RANK=str(r),
+            VLLM_DP_RANK_LOCAL=str(r),
+            VLLM_DP_SIZE=str(args.dp),
+            VLLM_DP_MASTER_IP="127.0.0.1",
+            VLLM_DP_MASTER_PORT=str(port),
+        )
+        cmd = base + ["--phase", "vllm", "--dp-rank", str(r)]
+        procs.append(subprocess.Popen(cmd, env=env))
+    codes = [p.wait() for p in procs]
+    if any(codes):
+        raise RuntimeError(f"vLLM data-parallel ranks exited with {codes}")
+
+
+def merge_reports(reports: list[dict]) -> dict:
+    """Sum the data-parallel ranks' counts; per-layer rows add up, maxima take the max."""
+    out = dict(reports[0])
+    out["passed"] = all(r["passed"] for r in reports)
+    for k in ("logprobs_compared", "logprobs_differ", "tokens_compared", "tokens_expected"):
+        out[k] = sum(r[k] for r in reports)
+    out["steps"] = sum(r["steps"] for r in reports)
+    out["logprob_max_abs_diff"] = max(r["logprob_max_abs_diff"] for r in reports)
+    out["layers"] = [
+        {
+            **rows[0],
+            "tokens_differ": sum(x["tokens_differ"] for x in rows),
+            "max_abs_diff": max(x["max_abs_diff"] for x in rows),
+        }
+        for rows in zip(*(r["layers"] for r in reports))
+    ]
+    out["sub_layers"] = [
+        {k: (v if k == "layer" else sum(x[k] for x in rows)) for k, v in rows[0].items()}
+        for rows in zip(*(r["sub_layers"] for r in reports))
+    ]
+    out["per_rank"] = [{k: r[k] for k in ("passed", "logprobs_differ")} for r in reports]
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ckpt", required=True)
@@ -264,6 +344,8 @@ def main() -> int:
     ap.add_argument("--phase", choices=["all", "vllm", "compare"], default="all")
     ap.add_argument("--out", help="write the JSON report here")
     ap.add_argument("--non-bi", action="store_true", help="the plugin's non-invariant ablation")
+    ap.add_argument("--dp", type=int, default=1, help="data-parallel ranks (EP over them)")
+    ap.add_argument("--dp-rank", type=int, default=0, help=argparse.SUPPRESS)
     args = ap.parse_args()
     dump = pathlib.Path(args.dump).resolve()
 
@@ -273,8 +355,15 @@ def main() -> int:
     if args.phase == "all":
         # Each phase in its own process: vLLM's engine and its memory are gone before phase 2.
         base = [sys.executable, __file__] + [a for a in sys.argv[1:] if not a.startswith("--phase")]
-        subprocess.run(base + ["--phase", "vllm"], check=True)
-    report = compare(args, dump)
+        if args.dp == 1:
+            subprocess.run(base + ["--phase", "vllm"], check=True)
+        else:
+            run_dp(args, base)
+    if args.dp == 1:
+        report = compare(args, dump)
+    else:
+        reports = [compare(args, dump / f"dp{r}") for r in range(args.dp)]
+        report = merge_reports(reports)
     report["config"] = {k: v for k, v in vars(args).items() if k not in ("phase", "out")}
     verdict = "PASS" if report["passed"] else "FAIL"
     if args.non_bi:

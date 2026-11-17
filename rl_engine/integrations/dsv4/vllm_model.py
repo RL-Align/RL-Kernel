@@ -54,7 +54,9 @@ and log-prob stay (vLLM has no LoRA path for these layers; the RoPE tables keep 
 the actor trains). The log-probs then differ from the actor's; the point is the rollout's
 speed without batch invariance. The actor side has no such switch.
 
-Debug: ``RL_KERNEL_DSV4_DUMP=<dir>`` saves each forward's tokens, request boundaries,
+Debug: ``RL_KERNEL_DSV4_DUMP=<dir>`` (once ``<dir>`` exists, so a caller can set it before
+the engine's worker processes start and skip their warmup) saves each forward's tokens,
+request boundaries,
 per-layer streams and final hidden state (``scripts/check_dsv4_vllm_gate.py``).
 ``RL_KERNEL_DSV4_TEST_LORA=rank,alpha,seed`` attaches the random adapters
 ``build_lora_adapters(..., zero_b=False)`` makes, for the gate.
@@ -144,6 +146,9 @@ def register() -> None:
 
     runner.Sampler = RlkSampler
     runner_v2.Sampler = _rlk_sampler_v2()
+    if os.environ.get(ENV_DUMP):
+        for cls in (runner.GPUModelRunner, runner_v2.GPUModelRunner):
+            _mark_dummy_runs(cls)
     register_quantization_config(DeepseekV4FP8Config.get_name())(RlkDeepseekV4FP8Config)
     if not batch_invariant():
         return  # the ablation keeps vLLM's attention ops (module docstring)
@@ -156,6 +161,28 @@ def register() -> None:
     # Decode through FlashMLA's sparse kernel, as prefill: the paged FP8 decode kernel
     # rounds differently (checked in RlkDeepseekV4Model).
     os.environ.setdefault("VLLM_DS4_DECODE_KERNEL", "sparse")
+
+
+_IN_DUMMY_RUN = [False]
+
+
+def _mark_dummy_runs(cls) -> None:
+    """Flag the runner's dummy forwards (memory profiling, and a data-parallel rank with no
+    requests that joins its peers' collectives), so the debug dump skips them."""
+    if getattr(cls._dummy_run, "_rlk_marked", False):
+        return
+    orig = cls._dummy_run
+
+    @functools.wraps(orig)
+    def run(self, *a, **kw):
+        _IN_DUMMY_RUN[0] = True
+        try:
+            return orig(self, *a, **kw)
+        finally:
+            _IN_DUMMY_RUN[0] = False
+
+    run._rlk_marked = True
+    cls._dummy_run = run
 
 
 def _rlk_q_kv_rmsnorm(qr, kv, q_weight, kv_weight, eps):
@@ -652,6 +679,8 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
         h = inputs_embeds if inputs_embeds is not None else self.embed_input_ids(input_ids)
         streams = h.unsqueeze(1).expand(-1, self.hc_mult, -1).contiguous()
         dump = os.environ.get(ENV_DUMP)
+        if dump and not os.path.isdir(dump):
+            dump = None  # set before the engine starts; on once the directory exists
         per_layer = [] if dump else None
         detail = [] if dump else None
         inner = [] if dump else None
@@ -686,8 +715,17 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
             ):
                 qsl, seq = m.query_start_loc_cpu.clone(), m.seq_lens_cpu.clone()
                 break
-        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
-        path = pathlib.Path(root) / f"rank{rank}"
+        if qsl is None or _IN_DUMMY_RUN[0]:
+            return  # a dummy forward (profiling, or an idle data-parallel rank): no requests
+        from vllm.distributed import get_tensor_model_parallel_rank
+
+        # The rank inside this replica: with data parallelism the global rank counts the
+        # other replicas too, and each replica has its own dp<r>/ directory.
+        rank = get_tensor_model_parallel_rank()
+        path = pathlib.Path(root)
+        if self.parallel_config.data_parallel_size > 1:
+            path = path / f"dp{self.parallel_config.data_parallel_rank}"
+        path = path / f"rank{rank}"
         path.mkdir(parents=True, exist_ok=True)
         torch.save(
             {
