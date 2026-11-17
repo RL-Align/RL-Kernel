@@ -35,6 +35,7 @@ class RLKNativeMcoreEngineConfig(McoreEngineConfig):
     strategy: str = "rlk_megatron"
     rlk_weight_version: int = 0
     rlk_mhc_backend: str = "rocm"
+    rlk_allow_right_padding: bool = False
 
     def __post_init__(self):
         if self.strategy != "rlk_megatron":
@@ -97,9 +98,24 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
                 original = model.forward
 
                 def forward(*args, _forward=original, _worker=worker, **kwargs):
+                    valid_lengths = None
+                    if cfg.rlk_allow_right_padding:
+                        from rl_engine.integrations.engines.train.megatron.logical_keys import (
+                            right_padded_lengths,
+                        )
+
+                        valid_lengths = right_padded_lengths(
+                            kwargs["input_ids"], self.rlk_logical_cases
+                        )
+                        if kwargs.get("attention_mask") is None:
+                            raise ValueError(
+                                "declared right padding requires the original BSHD mask"
+                            )
                     if "attention_mask" in kwargs:
                         kwargs["attention_mask"] = normalize_native_causal_mask(
-                            kwargs["attention_mask"], kwargs["input_ids"].shape
+                            kwargs["attention_mask"],
+                            kwargs["input_ids"].shape,
+                            valid_lengths=valid_lengths,
                         )
                     with ExitStack() as scopes:
                         if _worker.backend == "rocm_triton":
@@ -108,7 +124,9 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
                             )
 
                             keys = logical_keys_for_input(
-                                kwargs["input_ids"], self.rlk_logical_cases
+                                kwargs["input_ids"],
+                                self.rlk_logical_cases,
+                                valid_lengths=valid_lengths,
                             )
                             scopes.enter_context(_worker.logical_rows(keys))
                         scopes.enter_context(_worker.request(self.rlk_weight_version))

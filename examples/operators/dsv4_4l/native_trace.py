@@ -1,6 +1,7 @@
 """Capture original tensors from the real native actor; no arithmetic replacements."""
 
 import json
+import os
 import types
 from pathlib import Path
 
@@ -39,8 +40,22 @@ def install(model, root):
             return
         index = len(events)
         file = f"{index:04d}.pt"
-        torch.save(clone(value), root / file)
-        events.append(dict(index=index, layer=context["layer"], name=name, file=file))
+        from examples.operators.dsv4_4l.trace_store import save_trace
+
+        file = save_trace(
+            value if os.environ.get("DSV4_TRACE_FORMAT") == "cas-v1" else clone(value), root / file
+        )
+        events.append(
+            dict(
+                index=index,
+                layer=context["layer"],
+                name=name,
+                file=file,
+                weight_version=model._rlk_p1.version,
+                pid=os.getpid(),
+                rank=os.environ.get("RANK"),
+            )
+        )
         (root / "manifest.json").write_text(json.dumps(events, indent=2))
 
     def stop():

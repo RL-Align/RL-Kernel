@@ -2,14 +2,14 @@
 """Reject missing communication, reduction or per-shard weight synchronization."""
 
 
-def verify_pipeline_step(records, *, dp_size, residual_width=16384):
+def verify_pipeline_step(records, *, dp_size, residual_width=16384, version=1):
     if len(records) != 2 * dp_size or {r["rank"] for r in records} != set(range(2 * dp_size)):
         raise ValueError("missing actual actor ranks")
-    if {r["weight_version"] for r in records} != {1}:
+    if {r["weight_version"] for r in records} != {version}:
         raise ValueError("actor ranks do not share the updated version")
     for r in records:
         if (
-            not r["dp_gradient_reduction_verified"]
+            (dp_size > 1 and not r["dp_gradient_reduction_verified"])
             or r["dp_replicas"] != dp_size
             or (dp_size > 1 and not r["different_local_gradients"])
             or r["before"] == r["after"]
@@ -117,7 +117,16 @@ def verify_worker_topology(actor, rollout, *, dp_size):
     return buses
 
 
-def verify_pipeline_run(root, *, dp_size):
+def verify_pipeline_run(root, *, dp_size, steps=1):
+    if steps == 3:
+        if __package__:
+            from .verify_continuous import verify_continuous_run
+        else:
+            from verify_continuous import verify_continuous_run
+
+        return verify_continuous_run(root, dp_size=dp_size)
+    if steps != 1:
+        raise ValueError("unsupported update count")
     import json
     from pathlib import Path
 
@@ -208,8 +217,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output")
     parser.add_argument("--dp-size", type=int, choices=(1, 2), required=True)
+    parser.add_argument("--steps", type=int, choices=(1, 3), default=1)
     args = parser.parse_args()
     print(
         "PIPELINE_CYCLE_ACCEPTANCE_PASS",
-        json.dumps(verify_pipeline_run(args.output, dp_size=args.dp_size)),
+        json.dumps(verify_pipeline_run(args.output, dp_size=args.dp_size, steps=args.steps)),
     )

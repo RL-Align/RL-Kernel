@@ -35,9 +35,11 @@ async def wait_file(path, process, timeout=600):
         await asyncio.sleep(0.2)
 
 
-async def command(process, name, action, cases=()):
+async def command(process, name, action, cases=(), **metadata):
     temp = ROOT / "actor-commands" / f".{name}.tmp"
-    save_json(temp, {"id": name, "action": action, "cases": cases})
+    if temp.with_name(f"{name}.json").exists() or (ROOT / f"actor-{name}.json").exists():
+        raise RuntimeError(f"command output already exists: {name}")
+    save_json(temp, {"id": name, "action": action, "cases": cases, **metadata})
     temp.rename(temp.with_name(f"{name}.json"))
     if action == "quit":
         return
@@ -134,9 +136,10 @@ def teacher_scores(name, cases, version):
 async def main():
     if not __debug__:
         raise RuntimeError("strict comparison cannot run with Python assertions disabled")
-    from examples.operators.dsv4_4l.audit_dependencies import audit
+    from examples.operators.dsv4_4l.audit_dependencies import audit, runtime_versions
 
     save_json(ROOT / "dependency-audit.json", audit())
+    save_json(ROOT / "runtime-versions.json", runtime_versions())
     import ray
     from verl.workers.config import HFModelConfig, RolloutConfig
     from verl.workers.rollout.replica import RolloutMode
@@ -146,6 +149,9 @@ async def main():
 
     actor_pp = int(os.environ.get("DSV4_ACTOR_PP", "1"))
     actor_dp = int(os.environ.get("DSV4_ACTOR_DP", "1"))
+    train_steps = int(os.environ.get("DSV4_TRAIN_STEPS", "1"))
+    if train_steps not in (1, 3) or (train_steps == 3 and actor_pp != 2):
+        raise ValueError("continuous three-step acceptance requires the selected native PP2 actor")
     if actor_pp not in (1, 2) or actor_dp not in (1, 2) or (actor_pp == 1 and actor_dp != 1):
         raise ValueError("cycle supports single-card or selected PP2 DP1/2 configurations")
     rollout_pp = actor_pp
@@ -231,9 +237,14 @@ async def main():
         env = dict(os.environ)
         env.pop("ROCR_VISIBLE_DEVICES", None)
         env.pop("CUDA_VISIBLE_DEVICES", None)
-        env["HIP_VISIBLE_DEVICES"] = os.environ.get(
-            "DSV4_ACTOR_PHYSICAL_GPUS", os.environ.get("DSV4_PHYSICAL_GPU", "")
-        )
+        if (ROOT / "device-allocation.json").exists():
+            allocation = json.loads((ROOT / "device-allocation.json").read_text())
+            selected = [r for r in allocation if r["role"] == "actor"]
+            env["HIP_VISIBLE_DEVICES"] = ",".join(str(r["container_gpu"]) for r in selected)
+        else:
+            env["HIP_VISIBLE_DEVICES"] = os.environ.get(
+                "DSV4_ACTOR_PHYSICAL_GPUS", os.environ.get("DSV4_PHYSICAL_GPU", "")
+            )
         if actor_pp == 2:
             actor_args = [
                 sys.executable,
@@ -274,7 +285,9 @@ async def main():
         references = {}
 
         async def score_fixed(name, cases, version):
-            await server.collective_rpc("set_case", args=(name,))
+            await server.collective_rpc(
+                "set_case", args=(name, [f"{name}-{c['id']}" for c in cases])
+            )
 
             async def run(case):
                 tokens = case["prompt_token_ids"] + case["response_token_ids"]
@@ -287,7 +300,7 @@ async def main():
                     pass
 
             if len(cases) == 1:
-                await run(cases[0])
+                await asyncio.wait_for(run(cases[0]), timeout=180)
             else:
                 # Stage every actual request while the real scheduler is paused.
                 # Concurrent generators alone may be scheduled as serial B=1.
@@ -318,7 +331,7 @@ async def main():
                     finally:
                         queue.close()
 
-                await asyncio.gather(*(drain(q) for q in queues))
+                await asyncio.wait_for(asyncio.gather(*(drain(q) for q in queues)), timeout=180)
             metadata = await server.collective_rpc("case_batches")
             save_json(ROOT / f"rollout-batches-{name}.json", metadata)
             if len(cases) > 1:
@@ -390,7 +403,9 @@ async def main():
                 raise RuntimeError(f"{name} generated token comparison mismatched")
             return case
 
-        async def matrix(version, cases):
+        async def matrix(version, cases, prefix=""):
+            if prefix not in ("", "generated-"):
+                raise ValueError("invalid matrix kind")
             a, b, c = cases
             ok = True
             for label, group in (
@@ -400,22 +415,41 @@ async def main():
                 ("AB", [a, b]),
                 ("BA", [b, a]),
                 ("A-repeat", [a]),
+                ("B-repeat", [b]),
+                ("C-repeat", [c]),
                 ("AB-repeat", [a, b]),
+                ("BA-repeat", [b, a]),
             ):
-                passed = await score_fixed(f"v{version}-{label}-matrix", group, version)
+                passed = await score_fixed(f"v{version}-{prefix}{label}-matrix", group, version)
                 ok = ok and passed
             return ok
 
         # First prove a fixed-sequence independent replay before updating anything.
         if not await score_fixed("v0-A-repeat", [case], 0):
             raise RuntimeError("pre-update fixed-sequence replay mismatched")
-        b = await generate_case("B", [0] + [101] * 127, 3, 0)
+        b = await generate_case("B", [0] + [101] * (126 if train_steps == 3 else 127), 3, 0)
         c = await generate_case("C", [0, 104, 105, 106, 107, 108, 109, 110, 111], 1, 0)
         cases = [case, b, c]
         save_json(ROOT / "cases-v0.json", cases)
         before_passed = await matrix(0, cases)
         if not before_passed:
             raise RuntimeError("expanded pre-update comparison mismatched; update not attempted")
+        if train_steps == 3:
+            from examples.operators.dsv4_4l.continuous_cycle import run_continuous
+
+            await run_continuous(
+                ROOT,
+                server,
+                process,
+                cases,
+                results,
+                first_ack,
+                score_fixed=score_fixed,
+                generate_case=generate_case,
+                matrix=matrix,
+                dp_size=actor_dp,
+            )
+            return
         update_attempted = True
         if actor_pp == 2 and actor_dp == 2:
             temp = ROOT / "actor-commands/.step.tmp"

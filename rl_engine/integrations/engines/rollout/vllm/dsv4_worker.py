@@ -14,10 +14,12 @@ from rl_engine.integrations.orchestrators.verl.mhc import bind_mhc_worker
 
 
 class RLKDeepSeekV4Worker(Worker):
-    def set_case(self, case_id):
+    def set_case(self, case_id, request_order=()):
         if not case_id or not all(c.isalnum() or c in "-_" for c in case_id):
             raise ValueError("invalid case ID")
         self._rlk_case_id = case_id
+        self._rlk_case_request_order = list(request_order)
+        self.model_runner._rlk_prefill_order_evidence = []
         self._rlk_case_batches = []
         os.environ["DSV4_PHASE"] = "generation"
         return dict(
@@ -39,6 +41,7 @@ class RLKDeepSeekV4Worker(Worker):
             case_id=self._rlk_case_id,
             weight_version=self._dsv4_diagnostic_p1.version,
             batches=self._rlk_case_batches,
+            request_order_evidence=self.model_runner._rlk_prefill_order_evidence,
         )
 
     def begin_generation_trace(self):
@@ -53,6 +56,7 @@ class RLKDeepSeekV4Worker(Worker):
         payload = pipeline_stage_payload(wrapper, payload)
         p1 = self._dsv4_diagnostic_p1
         version = payload["weight_version"]
+        generation_before = p1._generation
         if version != p1.version + 1:
             raise ValueError("actor update must advance exactly one version")
 
@@ -80,6 +84,12 @@ class RLKDeepSeekV4Worker(Worker):
             loaded_names=sorted(loaded),
             verified_original_tensors=verified,
             parameter_load_completed=True,
+            prior_weight_version=version - 1,
+            cache_generation_before=generation_before,
+            cache_generation_after=p1._generation,
+            prefix_caching_enabled=False,
+            input_update_path=path,
+            cache_policy="prefix caching disabled; fresh requests and reset per-request state",
             pid=os.getpid(),
             norm_before=before.get("norm.weight"),
             norm_after=actual,
@@ -87,6 +97,9 @@ class RLKDeepSeekV4Worker(Worker):
             weight_changed=any(before[name] != value["sha256"] for name, value in verified.items()),
             pipeline_stage=self._rlk_pp_rank,
             original_layer_ids=list(range(wrapper.model.start_layer, wrapper.model.end_layer)),
+        )
+        (self._rlk_output_root / f"rollout-update-v{version}-ack.json").write_text(
+            json.dumps(record, indent=2)
         )
         (self._rlk_output_root / "rollout-update-ack.json").write_text(json.dumps(record, indent=2))
         return record
@@ -99,13 +112,27 @@ class RLKDeepSeekV4Worker(Worker):
             hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             flush=True,
         )
-        super().load_model(**kwargs)
-        wrapper = self.model_runner.get_model()
-        model = wrapper.model
         from vllm.distributed import get_pp_group
 
+        from examples.operators.dsv4_4l.device_allocation import check_selected_identity
         from rl_engine.integrations.common.device_identity import hip_device_identity
 
+        if Path("/outputs/device-allocation.json").exists():
+            physical = os.environ["DSV4_ROLLOUT_PHYSICAL_GPUS"].split(",")[
+                get_pp_group().rank_in_group
+            ]
+            check_selected_identity(
+                hip_device_identity(),
+                physical,
+                json.loads(Path("/outputs/device-allocation.json").read_text()),
+            )
+        super().load_model(**kwargs)
+        from .batch_order import bind_prefill_order
+
+        self._rlk_case_request_order = []
+        bind_prefill_order(self.model_runner, lambda: self._rlk_case_request_order)
+        wrapper = self.model_runner.get_model()
+        model = wrapper.model
         self._rlk_device_identity = hip_device_identity()
         pp = get_pp_group()
         self._rlk_pp_rank = pp.rank_in_group
@@ -154,12 +181,21 @@ class RLKDeepSeekV4Worker(Worker):
             index = trace_index[0]
             trace_index[0] += 1
             filename = f"{index:04d}.pt"
-            torch.save(snapshot(value), trace_root / filename)
+            from examples.operators.dsv4_4l.trace_store import save_trace
+
+            filename = save_trace(
+                value if os.environ.get("DSV4_TRACE_FORMAT") == "cas-v1" else snapshot(value),
+                trace_root / filename,
+            )
             with (trace_root / "manifest.jsonl").open("a") as f:
                 f.write(
                     json.dumps(
                         dict(
                             index=index,
+                            case_id=getattr(self, "_rlk_case_id", None),
+                            weight_version=self._dsv4_diagnostic_p1.version,
+                            pipeline_rank=self._rlk_pp_rank,
+                            pid=os.getpid(),
                             forward=forward_index[0],
                             layer=context["layer"],
                             name=name,

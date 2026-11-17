@@ -13,6 +13,8 @@ output=$(realpath -m "$5")
 cache=$(realpath -m "$6")
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 backend=${DSV4_MHC_BACKEND:-rocm}
+steps=${DSV4_TRAIN_STEPS:-1}
+[[ "$steps" == 1 || "$steps" == 3 ]] || exit 2
 [[ "$backend" == rocm || "$backend" == rocm_triton ]] || exit 2
 actor_count=$(python3 - "$actors" "$rollouts" <<'PY'
 import sys
@@ -45,21 +47,31 @@ print(json.dumps(dict(actor_physical_gpus=actors.split(','), rollout_physical_gp
     rollout=dict(TP=1, PP=2, EP=1, CP=1, DP=1), backend=backend,
     original_layers_by_pp=[[0,1,2],[3]], eager=True), indent=2))
 PY
+python3 "$script_dir/device_allocation.py" "$actors" "$rollouts" > "$output/device-allocation.json"
+devices=()
+while IFS= read -r render; do
+  [[ -c "$render" ]] || { echo "missing render node: $render" >&2; exit 2; }
+  devices+=(--device="$render")
+done < <(python3 -c 'import json,sys; print("\n".join(r["render_node"] for r in json.load(open(sys.argv[1]))))' "$output/device-allocation.json")
+rollout_uuids=$(python3 -c 'import json,sys; print(",".join(r["gpu_uuid"] for r in json.load(open(sys.argv[1])) if r["role"] == "rollout"))' "$output/device-allocation.json")
+kfd_ids=$(python3 -c 'import json,sys; print(",".join(str(r["kfd_gpu_id"]) for r in json.load(open(sys.argv[1]))))' "$output/device-allocation.json")
 docker run --pull=never --rm --init --name "rlk-dsv4-pipeline-$$" \
-  --device=/dev/kfd --device=/dev/dri \
-  --group-add "$(stat -c %g /dev/kfd)" --group-add "$(stat -c %g /dev/dri/renderD128)" \
+  --device=/dev/kfd "${devices[@]}" \
+  --group-add "$(stat -c %g /dev/kfd)" --group-add "$(stat -c %g "${devices[0]#--device=}")" \
   --shm-size=16g --ipc=private \
-  -e ROCR_VISIBLE_DEVICES="$rollouts" -e HIP_VISIBLE_DEVICES=0,1 \
+  -e ROCR_VISIBLE_DEVICES="$rollout_uuids" -e HIP_VISIBLE_DEVICES=0,1 \
+  -e LD_PRELOAD=/opt/dsv4/lib/rlk-isolated-kfd.so -e RLK_ALLOWED_KFD_GPU_IDS="$kfd_ids" \
   -e DSV4_ACTOR_PHYSICAL_GPUS="$actors" -e DSV4_ROLLOUT_PHYSICAL_GPUS="$rollouts" \
   -e DSV4_ACTOR_PP=2 -e DSV4_ACTOR_DP="$((actor_count / 2))" \
   -e VLLM_PP_LAYER_PARTITION=3,1 \
   -e OMP_NUM_THREADS=4 -e VLLM_ROCM_USE_AITER=1 -e VLLM_ENABLE_V1_MULTIPROCESSING=1 \
   -e DSV4_FIXED_SHARED_DOWN=1 -e DSV4_CHECKPOINT_SHA256="$checkpoint_sha" \
-  -e DSV4_MHC_BACKEND="$backend" \
+  -e DSV4_MHC_BACKEND="$backend" -e DSV4_TRAIN_STEPS="$steps" \
+  -e DSV4_TRACE_FORMAT="${DSV4_TRACE_FORMAT:-torch}" \
   -e HF_HOME=/cache/huggingface -e TRITON_CACHE_DIR=/cache/triton \
   -e XDG_CACHE_HOME=/cache/xdg -e TORCH_EXTENSIONS_DIR=/cache/torch_extensions \
   -e TMPDIR=/outputs/tmp \
   -v "$cache:/cache" -v "$output:/outputs" -v "$model:/models/4l:ro" \
   "$image" bash -c 'mkdir /outputs/tmp; cd /opt/dsv4/RL-Kernel; exec /opt/dsv4-venv/bin/python -m examples.operators.dsv4_4l.cycle' \
   > "$output/container.log" 2>&1
-python3 "$script_dir/verify_pipeline.py" "$output" --dp-size "$((actor_count / 2))"
+python3 "$script_dir/verify_pipeline.py" "$output" --dp-size "$((actor_count / 2))" --steps "$steps"

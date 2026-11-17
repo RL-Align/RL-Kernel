@@ -15,7 +15,9 @@ for line in p.splitlines():
     if current and current[1] and re.fullmatch(r"[\d\s]+", line) and str(gpu) in line.split():
         used.append(current[0])
 mem = json.loads(
-    subprocess.check_output(["rocm-smi", "--showmeminfo", "vram", "--json"], text=True)
+    subprocess.check_output(
+        ["rocm-smi", "-d", str(gpu), "--showmeminfo", "vram", "--json"], text=True
+    )
 )
 amount = int(mem[f"card{gpu}"]["VRAM Total Used Memory (B)"])
 assert not used, f"physical GPU{gpu} occupied by {used}"

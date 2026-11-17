@@ -8,6 +8,8 @@ from pathlib import Path
 
 import torch
 
+from examples.operators.dsv4_4l.trace_store import load_capture
+
 
 def leaves(value, path=""):
     if isinstance(value, torch.Tensor):
@@ -41,8 +43,8 @@ def main():
         if index >= len(occurrences):
             continue
         other = occurrences[index]
-        x = torch.load(args.left / event["file"], weights_only=True, map_location="cpu")
-        y = torch.load(args.right / other["file"], weights_only=True, map_location="cpu")
+        x = load_capture(args.left / event["file"])
+        y = load_capture(args.right / other["file"])
         xl, yl = dict(leaves(x)), dict(leaves(y))
         for path in xl.keys() & yl.keys():
             a, b = xl[path], yl[path]

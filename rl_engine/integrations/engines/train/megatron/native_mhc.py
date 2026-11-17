@@ -206,15 +206,28 @@ def bind_native_training_stage(model, worker):
     return worker
 
 
-def normalize_native_causal_mask(attention_mask, input_shape=None):
+def normalize_native_causal_mask(attention_mask, input_shape=None, *, valid_lengths=None):
     """Translate verl's explicit full causal mask to MCore CSA's implicit mask.
 
-    Reject padding/document masks rather than silently dropping their semantics.
+    Reject undeclared padding/document masks. Explicit right padding can only lie
+    after each complete original sequence, so every scored query already masks
+    every padding key by causality. verl retains the original mask to remove
+    unscored padded outputs and to construct the original response loss mask.
     This eager adapter deliberately validates tensor contents before execution.
     """
     if attention_mask is None or attention_mask.numel() == 1:
         return attention_mask
     if input_shape is not None and tuple(attention_mask.shape) == tuple(input_shape):
+        if valid_lengths is not None:
+            if len(valid_lengths) != input_shape[0] or any(
+                type(n) is not int or n <= 0 or n > input_shape[1] for n in valid_lengths
+            ):
+                raise ValueError("invalid original right-padding lengths")
+            positions = torch.arange(input_shape[1], device=attention_mask.device)[None, :]
+            lengths = torch.tensor(valid_lengths, device=attention_mask.device)[:, None]
+            if not bool((attention_mask == (positions < lengths)).all()):
+                raise ValueError("only declared complete-prefix right padding is supported")
+            return None
         if not bool((attention_mask == 1).all()):
             raise ValueError("native DSV4 adapter cannot discard padding tokens")
         return None

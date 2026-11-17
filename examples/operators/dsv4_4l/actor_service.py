@@ -30,9 +30,6 @@ def digest(value):
 
 
 def batch(cases):
-    lengths = [len(c["prompt_token_ids"]) + len(c["response_token_ids"]) for c in cases]
-    if len(set(lengths)) != 1:
-        raise ValueError("initial padded-free native batch requires equal full lengths")
     inputs = [
         torch.tensor(c["prompt_token_ids"] + c["response_token_ids"], dtype=torch.int64)
         for c in cases
@@ -71,6 +68,7 @@ def build_actor_worker():
         model_config=HFModelConfig(path="/models/4l", use_remove_padding=False),
         engine_config=RLKNativeMcoreEngineConfig(
             rlk_mhc_backend=os.environ.get("DSV4_MHC_BACKEND", "rocm"),
+            rlk_allow_right_padding=int(os.environ.get("DSV4_TRAIN_STEPS", "1")) == 3,
             tensor_model_parallel_size=1,
             pipeline_model_parallel_size=int(os.environ.get("DSV4_ACTOR_PP", "1")),
             expert_model_parallel_size=1,
@@ -92,7 +90,10 @@ def build_actor_worker():
             },
         ),
         optimizer_config=McoreOptimizerConfig(
-            lr=1e-4, total_training_steps=2, weight_decay=0.0, clip_grad=1.0
+            lr=1e-4,
+            total_training_steps=max(2, int(os.environ.get("DSV4_TRAIN_STEPS", "1")) + 1),
+            weight_decay=0.0,
+            clip_grad=1.0,
         ),
         checkpoint_config=CheckpointConfig(),
         profiler_config=ProfilerConfig(tool=None, save_path="/outputs", tool_config={}),
