@@ -3,7 +3,7 @@
 Notes for an assistant (or developer) continuing the DSv4 SM90 batch-invariant work. The
 design of record is `docs/architecture/dsv4-design.md`: goal, environment, how to build
 and test, module map, decisions, the reduction order of every module, status and open
-work. Read it first and keep its status section current. Last updated 2026-11-16.
+work. Read it first and keep its status section current. Last updated 2026-11-17.
 
 ## Working rules
 
@@ -84,14 +84,16 @@ Design doc 10.1 has the pieces. Things that cost time:
   - The rollout's BI-off switch (`RL_KERNEL_DSV4_NON_BI=1`, launcher `BI=0`).
     - On the toy run (1 GPU), `timing_s/gen` is 0.79x of the BI run.
     - It changes the rollout only: the actor's kernels have no non-invariant variant.
-- Ready, not run: `scripts/verl_e2e_lora/` (W6), the 8-GPU guide against verl #7483 on the
-  real checkpoint (first `LAYERS` layers). It includes the ablation run and needs a machine
-  with 8 GPUs per job.
+- W6 gate (`run.sh gate`) passed on the real checkpoint's first 4 layers (2 x H100,
+  2026-11-17, cluster u4478697; the rlkernel / control / ablation / baseline runs are next).
+- Ready, not run: the rest of `scripts/verl_e2e_lora/` (W6), the 8-GPU guide against verl
+  #7483 on the real checkpoint (first `LAYERS` layers). It includes the ablation run and
+  needs a machine with 8 GPUs per job.
 - Open, roughly in order:
   - `rlkernel` engine at EP > 1 and the rollout plugin at EP > 1, so the full 43-layer
     model can run;
   - CUDA graphs in the rollout (eager today);
-  - the layerwise gate on the real checkpoint;
+  - the layerwise gate on the real checkpoint beyond the first 4 layers;
   - the older `scripts/verl_e2e/README.md` guide (verl #7688 baseline, full-parameter).
 
 ## This cluster (pinghsieh-rsv1)

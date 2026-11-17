@@ -494,7 +494,10 @@ PP 1, no sequence parallel, MTP or EPLB; DP attention with EP MoE.
 Gate, toy checkpoint (4 layers: window, window, C4, C128; 256 experts), 6 requests under a
 256-token budget (chunked prefill, decode next to prefill), T = 0.8: every layer, sub-layer
 and sampled-token log-prob byte-identical to one packed `Dsv4Model` prefill, without and
-with rank-16 LoRA. Not yet: EP > 1, CUDA graphs, the real checkpoint.
+with rank-16 LoRA. Real checkpoint (DeepSeek-V4-Flash, first 4 layers, 2 x H100, 2026-11-17,
+`run.sh gate` of `scripts/verl_e2e_lora`): 0 of 54 sampled-token log-probs and 0 tokens per
+layer differ, without and with rank-16 LoRA; the layerwise gate 0 of 2108 tokens; the verl
+engine check passes. Not yet: EP > 1, CUDA graphs.
 
 Ablation (`RL_KERNEL_DSV4_NON_BI=1` with `VLLM_BATCH_INVARIANT=0`; the launcher's `BI=0`):
 the rollout without batch invariance, to price it.
@@ -591,7 +594,8 @@ Open, needs the multi-GPU machine:
 - [ ] Baseline first: verl + vLLM batch-invariant (verl #7688) end to end on 8 Hopper GPUs,
       bitwise and speed (`scripts/verl_e2e/README.md`, a guide for another machine; not run yet).
 - [ ] Layerwise gate on the real checkpoint
-      (`scripts/check_dsv4_layerwise_gate.py --ckpt DIR --layers N`, advancing N).
+      (`scripts/check_dsv4_layerwise_gate.py --ckpt DIR --layers N`, advancing N). First 4
+      layers: 0 differing tokens, with the vLLM gate and the verl engine check (section 10).
 - [ ] #230 cross-config M0-M10 selected-token logprob bitwise; a logprob threshold in CI
       (target 0).
 - [ ] vLLM golden (development only): `ISEEKYAN/vllm:ds4-v9-rc1` with
