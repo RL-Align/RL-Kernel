@@ -38,8 +38,11 @@ ROLLOUT_DP=${ROLLOUT_DP:-1}
 # prestarts a worker per CPU), no prestart, no dashboard, fewer gRPC threads (GCS and raylet
 # size theirs by the node's CPUs: about 220 threads for the GCS alone on a 224-CPU node), and
 # AUX_WORKERS (not 8) reward workers, agent-loop workers and transfer-queue storage units.
-# None of it changes a byte.
+# OMP_NUM_THREADS too: unset, every process that runs a torch CPU op starts about 2 x nproc
+# threads (OpenMP and torch's pools; nproc is 96 in an 8-GPU allocation). The actor's CPU work
+# is small (no offload), so 4 is enough. None of it changes a byte.
 RAY_NUM_CPUS=${RAY_NUM_CPUS:-$(nproc)}
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
 AUX_WORKERS=${AUX_WORKERS:-2}
 for kv in prestart_worker_first_driver=0 worker_num_grpc_internal_threads=2 \
   num_server_call_thread=2 num_grpc_internal_threads=2 gcs_server_rpc_server_thread_num=2 \
