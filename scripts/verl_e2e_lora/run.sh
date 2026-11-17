@@ -89,7 +89,7 @@ for p in ("torch","vllm","verl","deep_gemm","flash_mla","megatron-core","megatro
 rlkernel() { # extra env / overrides for the RL-Kernel run
   use_rlk_env
   info "$@"
-  MODEL_PATH=$MODEL_CUT DATA=$DATA_DIR N_GPUS=8 STEPS=$STEPS \
+  MODEL_PATH=$MODEL_CUT DATA=$DATA_DIR N_GPUS=${N_GPUS:-8} STEPS=$STEPS \
   LORA_RANK=$LORA_RANK LORA_ALPHA=$LORA_ALPHA \
   MAX_TOKEN_LEN_PER_GPU=$TOKENS_PER_GPU MAX_NUM_BATCHED_TOKENS=${MAX_NUM_BATCHED_TOKENS:-4096} \
   MAX_NUM_SEQS=${MAX_NUM_SEQS:-64} GPU_UTIL=${GPU_UTIL:-0.35} ACTOR_LR=${ACTOR_LR:-1e-4} \
@@ -161,7 +161,8 @@ case $VARIANT in
     EXPERIMENT_NAME=$VARIANT CKPTS_DIR=$RUN/ckpt \
       bash "$RUN/launcher.sh" \
         reward.custom_reward_function.path="$RLK_ROOT/scripts/verl_e2e/custom_reward.py" \
-        reward.custom_reward_function.name=compute_score "$@" 2>&1 | tee "$RUN/train.log"
+        reward.custom_reward_function.name=compute_score \
+        ray_kwargs.ray_init.num_cpus="${RAY_NUM_CPUS:-$(nproc)}" "$@" 2>&1 | tee "$RUN/train.log"
     ;;
   *) echo "unknown variant $VARIANT"; return 64 ;;
 esac

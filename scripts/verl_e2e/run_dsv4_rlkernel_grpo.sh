@@ -15,6 +15,11 @@
 # The synthetic reward (custom_reward.py) gives nonzero advantages on a model that cannot
 # solve the task, so the adapters move every step and every step re-tests the weight sync.
 #
+# Parallelism: the actor is data parallel over N_GPUS with its routed experts split over
+# groups of ACTOR_EP ranks (rlkernel.expert_parallel_size); the rollout runs N_GPUS / ROLLOUT_DP
+# vLLM replicas, each data parallel attention over ROLLOUT_DP GPUs with its experts split over
+# them (expert_parallel_size = ROLLOUT_DP, tensor parallel 1). Neither changes a byte.
+#
 # BI=0 is the ablation: the rollout without batch invariance (vLLM's own attention paths,
 # paged FP8 decode; rl_engine/integrations/dsv4/vllm_model.py). The mismatch count is then
 # nonzero by design; the run measures the rollout's speed without the invariance.
@@ -24,6 +29,26 @@ RLK_ROOT=${RLK_ROOT:-$(cd "$HERE/../.." && pwd)}
 MODEL_PATH=${MODEL_PATH:?checkpoint directory}
 DATA=${DATA:?directory with train.parquet / test.parquet}
 N_GPUS=${N_GPUS:-2}
+ACTOR_EP=${ACTOR_EP:-1}
+ROLLOUT_DP=${ROLLOUT_DP:-1}
+# Thread budget. Every Ray process starts gRPC threads by the node's CPU count, and a cluster's
+# per-user limit (ulimit -u; 2048 on some Slurm sites) counts every thread on the node. Past it,
+# workers abort with "Resource temporarily unavailable" and the run hangs or fails at start.
+# So: Ray's CPU count is the CPUs this process may use (its default counts the whole node and
+# prestarts a worker per CPU), no prestart, no dashboard, fewer gRPC threads (GCS and raylet
+# size theirs by the node's CPUs: about 220 threads for the GCS alone on a 224-CPU node), and
+# AUX_WORKERS (not 8) reward workers, agent-loop workers and transfer-queue storage units.
+# None of it changes a byte.
+RAY_NUM_CPUS=${RAY_NUM_CPUS:-$(nproc)}
+AUX_WORKERS=${AUX_WORKERS:-2}
+for kv in prestart_worker_first_driver=0 worker_num_grpc_internal_threads=2 \
+  num_server_call_thread=2 num_grpc_internal_threads=2 gcs_server_rpc_server_thread_num=2 \
+  gcs_server_rpc_client_thread_num=2; do
+  k=RAY_${kv%%=*}
+  export "$k=${!k:-${kv#*=}}"
+done
+RECOMPUTE=${RECOMPUTE:-0}  # 1: the actor's per-layer activation recompute (same bytes)
+[[ $RECOMPUTE == 1 ]] && ACT_RECOMPUTE=True || ACT_RECOMPUTE=False
 LORA_RANK=${LORA_RANK:-16}
 LORA_ALPHA=${LORA_ALPHA:-$((2 * LORA_RANK))}
 STEPS=${STEPS:-4}
@@ -78,6 +103,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.trust_remote_code=True \
     actor_rollout_ref.actor.rlkernel.lora_rank=$LORA_RANK \
     actor_rollout_ref.actor.rlkernel.lora_alpha=$LORA_ALPHA \
+    actor_rollout_ref.actor.rlkernel.expert_parallel_size=$ACTOR_EP \
+    actor_rollout_ref.actor.rlkernel.activation_recompute=$ACT_RECOMPUTE \
     actor_rollout_ref.actor.optim.lr=$ACTOR_LR \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.entropy_coeff=0 \
@@ -88,6 +115,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$MAX_TOKEN_LEN_PER_GPU \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.data_parallel_size=$ROLLOUT_DP \
+    actor_rollout_ref.rollout.expert_parallel_size=$ROLLOUT_DP \
     actor_rollout_ref.rollout.gpu_memory_utilization=$GPU_UTIL \
     actor_rollout_ref.rollout.n=$ROLLOUT_N \
     actor_rollout_ref.rollout.temperature=1.0 \
@@ -106,6 +135,11 @@ python3 -m verl.trainer.main_ppo \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.n_gpus_per_node=$N_GPUS \
     trainer.nnodes=1 \
+    ray_kwargs.ray_init.num_cpus=$RAY_NUM_CPUS \
+    +ray_kwargs.ray_init.include_dashboard=False \
+    actor_rollout_ref.rollout.agent.num_workers=$AUX_WORKERS \
+    reward.num_workers=$AUX_WORKERS \
+    transfer_queue.backend.SimpleStorage.num_data_storage_units=$AUX_WORKERS \
     trainer.save_freq=-1 \
     trainer.test_freq=-1 \
     trainer.val_before_train=False \

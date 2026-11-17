@@ -140,6 +140,11 @@ Out of memory: retry in this order and note what worked.
 
 Pass them as `GPU_UTIL=0.3 bash run.sh rlkernel`.
 
+Ray gets `num_cpus` = `nproc` (override with `RAY_NUM_CPUS`). Its default counts every
+CPU of the node; inside a Slurm allocation it then prestarts that many workers, which can
+exceed the per-user thread limit (`ulimit -u`): the workers abort with "Resource
+temporarily unavailable" and the run hangs right after `ray.init`, without an error.
+
 ## 4. Negative control (8 GPUs, 3 steps, ~15 min)
 
 ```bash
