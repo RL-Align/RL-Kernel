@@ -157,6 +157,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
     # RMSNorm(pre-norm / QK-Norm) - pure Pytorch reference(ws1 ground-truth)
     TRITON_RMS_NORM = "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp"
+    CUDA_RMS_NORM = "rl_engine.kernels.ops.cuda.norm.rmsnorm.RMSNormCudaOp"
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
 
     # Generic fallback
@@ -1048,6 +1049,17 @@ class KernelRegistry:
                 lm_head_list = self._priority_map["cuda"]["lm_head"]
                 if OpBackend.CUDA_SM90_LM_HEAD not in lm_head_list:
                     lm_head_list.insert(0, OpBackend.CUDA_SM90_LM_HEAD)
+
+            # RMSNormCudaOp checks for the extension only when called, so add it
+            # only when every rmsnorm symbol is compiled in; otherwise keep native.
+            rmsnorm_compiled = _EXT_AVAILABLE and all(
+                hasattr(_C, name)
+                for name in ("rmsnorm_forward", "rmsnorm_backward_dx", "rmsnorm_backward_dw")
+            )
+            if rmsnorm_compiled:
+                rms_norm_list = self._priority_map["cuda"]["rms_norm"]
+                if OpBackend.CUDA_RMS_NORM not in rms_norm_list:
+                    rms_norm_list.insert(0, OpBackend.CUDA_RMS_NORM)
         except Exception as exc:
             logger.warning(f"Failed to probe device capability: {exc}")
 
