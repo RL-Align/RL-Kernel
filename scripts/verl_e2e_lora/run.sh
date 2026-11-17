@@ -14,6 +14,15 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$HERE/env.sh"
+# A host with glibc < 2.38 (RHEL 8 / 9) cannot load the flash-attn / TransformerEngine wheels
+# of either env: with CONTAINER set to an Ubuntu 24.04 CUDA 13 image, rerun inside it.
+if [[ -n ${CONTAINER:-} && -z ${SINGULARITY_CONTAINER:-} ]]; then
+  libs=${CUDA_COMPAT_DIR:+$CUDA_COMPAT_DIR:}/.singularity.d/libs  # before --nv's host libcuda
+  # CC / CXX may name a host toolchain (an Lmod module) that is not in the image; Triton's JIT
+  # would call it. Unset, the image's gcc is used.
+  exec env -u CC -u CXX "SINGULARITYENV_LD_LIBRARY_PATH=$libs" \
+    singularity exec --nv -B "$LORA_E2E_ROOT" -B "$RLK_ROOT" "$CONTAINER" bash "$0" "$@"
+fi
 VARIANT=${1:?usage: run.sh gate|rlkernel|control|ablation|baseline [hydra overrides]}
 shift
 
@@ -92,20 +101,22 @@ rlkernel() { # extra env / overrides for the RL-Kernel run
 main() {
 case $VARIANT in
   gate)
+    # vLLM's share of the GPU in the vLLM gates: 0.4 of an H200 holds the 4-layer view; an
+    # H100 80 GB needs about 0.8.
+    GATE_GPU_UTIL=${GATE_GPU_UTIL:-0.4}
+    vgate=(python scripts/check_dsv4_vllm_gate.py --ckpt "$MODEL_CUT" --gpu-util "$GATE_GPU_UTIL")
     use_rlk_env
     info
     cd "$RLK_ROOT"
     export PYTHONPATH=$RLK_ROOT
     set -x
-    CUDA_VISIBLE_DEVICES=0 python scripts/check_dsv4_vllm_gate.py --ckpt "$MODEL_CUT" \
-      --dump "$RUN/dump" --out "$RUN/vllm_gate.json" 2>&1 | tee "$RUN/vllm_gate.log"
-    CUDA_VISIBLE_DEVICES=0 python scripts/check_dsv4_vllm_gate.py --ckpt "$MODEL_CUT" \
-      --lora 16,32,7 --dump "$RUN/dump" --out "$RUN/vllm_gate_lora.json" 2>&1 |
-      tee "$RUN/vllm_gate_lora.log"
+    CUDA_VISIBLE_DEVICES=0 "${vgate[@]}" --dump "$RUN/dump" --out "$RUN/vllm_gate.json" \
+      2>&1 | tee "$RUN/vllm_gate.log"
+    CUDA_VISIBLE_DEVICES=0 "${vgate[@]}" --lora 16,32,7 --dump "$RUN/dump" \
+      --out "$RUN/vllm_gate_lora.json" 2>&1 | tee "$RUN/vllm_gate_lora.log"
     # The ablation's rollout (report only: its bytes differ by design).
-    CUDA_VISIBLE_DEVICES=0 python scripts/check_dsv4_vllm_gate.py --ckpt "$MODEL_CUT" \
-      --non-bi --lora 16,32,7 --dump "$RUN/dump" --out "$RUN/vllm_ablation.json" 2>&1 |
-      tee "$RUN/vllm_ablation.log"
+    CUDA_VISIBLE_DEVICES=0 "${vgate[@]}" --non-bi --lora 16,32,7 --dump "$RUN/dump" \
+      --out "$RUN/vllm_ablation.json" 2>&1 | tee "$RUN/vllm_ablation.log"
     CUDA_VISIBLE_DEVICES=0 python scripts/check_dsv4_layerwise_gate.py --ckpt "$MODEL_CUT" \
       --out "$RUN/layerwise_gate.json" 2>&1 | tee "$RUN/layerwise_gate.log"
     CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc-per-node 2 scripts/check_dsv4_verl_engine.py \

@@ -84,6 +84,13 @@ shards []` and the layer types `[0, 0, 4, 128]`.
 - If a locked package is not found, install that package's nearest version and report it.
 - If the vLLM build fails, the log is `src/vllm-build.log`.
 - If `uv sync` fails, report it; do not unpin.
+- A host with glibc older than 2.38 (RHEL 8 / 9) builds both envs but cannot load some of
+  their wheels (flash-attn in the RL-Kernel env; TransformerEngine, apex, DeepEP in the
+  baseline). Pull an Ubuntu 24.04 image with CUDA 13 (`singularity pull cuda13.sif
+  docker://nvidia/cuda:13.0.2-devel-ubuntu24.04`) and export `CONTAINER=<the .sif>`:
+  `setup.sh baseline` then runs its check inside it and `run.sh` re-runs itself inside it.
+  Build the baseline env with `UV_PYTHON_PREFERENCE=only-managed`: a conda Python on `PATH`
+  brings an older `libstdc++` that TransformerEngine rejects.
 
 Send back: the preflight block (GPU names, driver, topology, `free -g`) and the env lines.
 
@@ -97,6 +104,9 @@ layouts, after training steps and through a checkpoint round trip.
 ```bash
 bash run.sh gate
 ```
+
+On H100 80 GB, give vLLM more of the GPU: `GATE_GPU_UTIL=0.8 bash run.sh gate` (0.4, the
+default, holds the 4-layer view on an H200 only).
 
 Success: both `vllm_gate*.log` and `layerwise_gate.log` end in a pass with zero differing
 tokens, and `verl_engine.log` ends in `VERL ENGINE PASS`. If anything fails, stop here and

@@ -149,7 +149,29 @@ setup_baseline() {
   # Run with VERL_USE_UV=0 from now on: `uv run --frozen` would put the lock's versions back.
   uv pip install --python "$py" --no-deps "git+$BRIDGE_REPO@$BRIDGE_COMMIT"
   uv pip install --python "$py" --no-deps "git+$MEGATRON_REPO@$MEGATRON_COMMIT"
-  (cd /tmp && $py - <<'EOF'
+  # flash-attn 2.8.3's FA4 preview (flash_attn.cute) fails to import against vLLM 0.32's pinned
+  # cutlass-dsl 4.8.0 with an AttributeError, which Megatron's `except ImportError` around its
+  # FA4 import does not catch, so `import megatron.bridge` fails. DSv4 runs no FA4: set the
+  # package aside so Megatron sees FA4 as absent.
+  local fa
+  fa=$($py -c 'import importlib.util as u
+print(u.find_spec("flash_attn").submodule_search_locations[0])')
+  if [[ -d $fa/cute ]]; then mv "$fa/cute" "$fa/cute.off-cutlass-dsl-4.8"; fi
+  # This Bridge commit wants transformers < 5.9; vLLM 0.32 needs >= 5.16.1, which has its own
+  # qwen3_asr, and Bridge's registration of it (a model DSv4 does not touch) then raises.
+  local asr
+  asr=$(dirname "$fa")/megatron/bridge/models/qwen3_asr/hf_qwen3_asr/__init__.py
+  sed -i -E 's/^(Auto(Config|Model|Processor)\.register\(.*)\)$/\1, exist_ok=True)/' "$asr"
+  # On a host with glibc < 2.38 (RHEL 8 / 9), TransformerEngine, apex, DeepEP and flash-attn
+  # wheels do not load: set CONTAINER to an Ubuntu 24.04 CUDA 13 image (README 1).
+  local run=()
+  if [[ -n ${CONTAINER:-} ]]; then
+    # --nv puts the host driver's libcuda first; the compat one has to go before it.
+    local libs=${CUDA_COMPAT_DIR:+$CUDA_COMPAT_DIR:}/.singularity.d/libs
+    run=(env "SINGULARITYENV_LD_LIBRARY_PATH=$libs"
+         singularity exec --nv -B "$LORA_E2E_ROOT" -B "$RLK_ROOT" "$CONTAINER")
+  fi
+  (cd /tmp && "${run[@]}" $py - <<'EOF'
 import importlib.metadata as m
 import torch, vllm, verl, megatron.core, megatron.bridge
 print("torch", torch.__version__, "| vllm", vllm.__version__,
