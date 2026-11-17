@@ -11,6 +11,10 @@ weights, mapping IDs, checkpoint/model version and the declared probability
 rule. Raw tensors remain artifacts referenced by SHA-256; they are not expanded
 into JSON reports.
 
+Optional metadata is recursively frozen at case construction and restricted to
+finite JSON-compatible values. Reports thaw it into ordinary JSON data, so later
+caller mutation cannot change a previously captured case's provenance.
+
 Identity and value failures are separate. A changed token or expert mapping is
 reported as `invalid_identity` with `token_indices_mismatch` or
 `expert_indices_mismatch`; a changed value is reported as `bit_mismatch` or

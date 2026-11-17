@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 import torch
@@ -26,6 +28,31 @@ PROBABILITY_RULE = "log_softmax_fp32_selected"
 
 class MoELogprobError(ValueError):
     """Captured MoE logprob evidence violates the comparison contract."""
+
+
+def _freeze_metadata(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        frozen: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise MoELogprobError("metadata keys must be strings")
+            frozen[key] = _freeze_metadata(item)
+        return MappingProxyType(frozen)
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_metadata(item) for item in value)
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise MoELogprobError("metadata must contain only finite JSON-compatible values")
+
+
+def _thaw_metadata(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw_metadata(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_metadata(item) for item in value]
+    return value
 
 
 def _digest(tensor: torch.Tensor) -> str:
@@ -84,7 +111,7 @@ class MoELogprobCase:
     mapping_run_id: str
     routing_weights: torch.Tensor | None = None
     probability_rule: str = PROBABILITY_RULE
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         logits = _snapshot("logits", self.logits)
@@ -125,7 +152,7 @@ class MoELogprobCase:
             raise MoELogprobError(f"unsupported probability_rule {self.probability_rule!r}")
         object.__setattr__(self, "logits", logits)
         object.__setattr__(self, "target_ids", target_ids)
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "metadata", _freeze_metadata(self.metadata))
 
     @property
     def rows(self) -> int:
@@ -154,7 +181,7 @@ class MoELogprobCase:
             "routing_weights_sha256": (
                 _digest(self.routing_weights) if self.routing_weights is not None else None
             ),
-            "metadata": dict(self.metadata),
+            "metadata": _thaw_metadata(self.metadata),
         }
 
 
@@ -186,9 +213,14 @@ class MoELogprobObservation:
             )
         ):
             raise MoELogprobError("backend and implementation identities are required")
-        if isinstance(self.rank, bool) or self.rank < 0:
+        if isinstance(self.rank, bool) or not isinstance(self.rank, int) or self.rank < 0:
             raise MoELogprobError("rank must be non-negative")
-        if isinstance(self.world_size, bool) or self.world_size < 1 or self.rank >= self.world_size:
+        if (
+            isinstance(self.world_size, bool)
+            or not isinstance(self.world_size, int)
+            or self.world_size < 1
+            or self.rank >= self.world_size
+        ):
             raise MoELogprobError("world_size must be positive and contain rank")
         object.__setattr__(self, "values", values)
 
@@ -332,8 +364,10 @@ def compare_moe_logprobs(
     if reference_case.routing_weights is None or candidate_case.routing_weights is None:
         weights_preserved = reference_case.routing_weights is candidate_case.routing_weights
     else:
-        weights_preserved = torch.equal(
-            reference_case.routing_weights, candidate_case.routing_weights
+        weights_preserved = (
+            reference_case.routing_weights.shape == candidate_case.routing_weights.shape
+            and reference_case.routing_weights.dtype == candidate_case.routing_weights.dtype
+            and torch.equal(reference_case.routing_weights, candidate_case.routing_weights)
         )
     base = {
         "schema_version": MOE_LOGPROB_DIAGNOSTICS_VERSION,

@@ -209,6 +209,28 @@ def test_mixed_identity_dtypes_report_structured_mismatch(field):
         "input_logits_mismatch",
         "routing_weights_mismatch",
     }
+    if field == "routing_weights":
+        assert not result["routing_weights_preserved"]
+
+
+def test_metadata_is_frozen_and_returned_as_json_compatible_data():
+    metadata = {"nested": {"rank": 1}, "tags": ["moe", "logprob"]}
+    case = replace(_case(), metadata=metadata)
+    metadata["nested"]["rank"] = 9
+    metadata["tags"].append("changed")
+    assert case.provenance()["metadata"] == {
+        "nested": {"rank": 1},
+        "tags": ["moe", "logprob"],
+    }
+
+
+@pytest.mark.parametrize("field", ["rank", "world_size"])
+def test_observation_rejects_non_integer_runtime_identity(field):
+    case = _case()
+    kwargs = {"rank": 1, "world_size": 2}
+    kwargs[field] = "1"
+    with pytest.raises(MoELogprobError, match="rank|world_size"):
+        MoELogprobObservation(_fixed(case), "ascend", "ascend.npu", "impl-1", **kwargs)
 
 
 def test_rank_mapping_injection_is_localized():
