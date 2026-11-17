@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+import argparse
 import importlib
+import types
 
 import pytest
 import torch
 
-from rl_engine.integrations.common.state import (
-    clear_active_integration,
-    get_active_integration,
-)
+from rl_engine.integrations.common.state import clear_active_integration, get_active_integration
+from rl_engine.integrations.orchestrators.miles import install as install_module
 from rl_engine.integrations.orchestrators.miles.config import MilesConfig
 from rl_engine.integrations.orchestrators.miles.install import (
     CUSTOM_MEGATRON_INIT_PATH,
@@ -39,6 +39,18 @@ def _enabled_config(plan: IntegrationPlan, readback_dir: str | None = None) -> M
 
 def _disabled_config() -> MilesConfig:
     return MilesConfig(enabled=False, plan=_NATIVE_PLAN, readback_dir=None)
+
+
+def _callback_args(**overrides):
+    values = {
+        "rl_kernel_miles_enabled": None,
+        "rl_kernel_attention_case": None,
+        "rl_kernel_ffn_case": None,
+        "rl_kernel_logp_case": None,
+        "rl_kernel_readback_dir": None,
+    }
+    values.update(overrides)
+    return types.SimpleNamespace(**values)
 
 
 def test_disabled_config_keeps_process_native(tmp_path):
@@ -108,9 +120,7 @@ def test_rl_kernel_logprob_records_hook_and_readback_file(monkeypatch, tmp_path)
     monkeypatch.setenv("RL_KERNEL_READBACK_DIR", str(tmp_path))
     plan = IntegrationPlan.from_case_ids(attention="P/P", ffn="P/P", logp="R/P")
 
-    integration = install_from_config(
-        _enabled_config(plan), attention_classes=[], ffn_classes=[]
-    )
+    integration = install_from_config(_enabled_config(plan), attention_classes=[], ffn_classes=[])
 
     hooks = integration.readback()["installed_hooks"]
     assert "logp" in hooks
@@ -138,3 +148,68 @@ def test_custom_megatron_init_path_matches_miles_loader_format():
     resolved = getattr(module, attribute)
 
     assert resolved is custom_megatron_init
+
+
+def test_callback_arguments_declare_every_config_field():
+    parser = argparse.ArgumentParser()
+
+    install_module.callback_arguments(parser)
+
+    actions = [action for action in parser._actions if action.dest != "help"]
+    assert {action.dest for action in actions} == {
+        "rl_kernel_miles_enabled",
+        "rl_kernel_attention_case",
+        "rl_kernel_ffn_case",
+        "rl_kernel_logp_case",
+        "rl_kernel_readback_dir",
+    }
+    assert all(action.default is None for action in actions)
+
+
+def test_custom_megatron_init_reads_callback_config(monkeypatch):
+    seen = []
+
+    def fake_initialize(args):
+        seen.append(args)
+        return "installed"
+
+    monkeypatch.setattr(install_module, "initialize_from_environment", fake_initialize)
+    args = _callback_args(
+        rl_kernel_miles_enabled="1",
+        rl_kernel_attention_case="P/P",
+        rl_kernel_ffn_case="P/P",
+        rl_kernel_logp_case="P/P",
+    )
+
+    assert custom_megatron_init(args) == "installed"
+    assert seen == [args]
+
+
+def test_custom_megatron_init_callback_flag_overrides_environment(monkeypatch):
+    monkeypatch.setenv("RL_KERNEL_MILES_INTEGRATION", "1")
+    monkeypatch.setenv("RL_KERNEL_ATTENTION_CASE", "P/P")
+    args = _callback_args(rl_kernel_miles_enabled="0")
+
+    assert custom_megatron_init(args) is None
+    assert get_active_integration("megatron") is None
+
+
+def test_miles_validates_the_callback_config():
+    pytest.importorskip("miles")
+    from miles.utils.args.custom_function import CustomFunctionConfig
+
+    config = CustomFunctionConfig(
+        path=CUSTOM_MEGATRON_INIT_PATH,
+        config={
+            "rl_kernel_miles_enabled": "1",
+            "rl_kernel_attention_case": "P/R",
+            "rl_kernel_ffn_case": "P/P",
+            "rl_kernel_logp_case": "R/R",
+            "rl_kernel_readback_dir": "/tmp/readback",
+        },
+    )
+
+    assert config.config is not None
+    dumped = config.config.model_dump()
+    assert dumped["rl_kernel_attention_case"] == "P/R"
+    assert dumped["rl_kernel_logp_case"] == "R/R"
