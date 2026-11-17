@@ -57,6 +57,17 @@ def _index_vector(name: str, value: torch.Tensor, rows: int) -> torch.Tensor:
     return result
 
 
+def _first_row_difference(left: torch.Tensor, right: torch.Tensor) -> int | None:
+    """Return the first changed logical row for equal-shaped tensors."""
+
+    if left.shape != right.shape or left.ndim == 0:
+        return None
+    lhs = left.detach().contiguous().view(torch.uint8).reshape(left.shape[0], -1)
+    rhs = right.detach().contiguous().view(torch.uint8).reshape(right.shape[0], -1)
+    changed = torch.nonzero((lhs != rhs).any(dim=1), as_tuple=False)
+    return int(changed[0].item()) if changed.numel() else None
+
+
 @dataclass(frozen=True)
 class MoELogprobCase:
     """Captured logical inputs and routing identity for one selected-logprob run."""
@@ -164,6 +175,8 @@ class MoELogprobObservation:
             raise MoELogprobError("selected_logprobs must be a one-dimensional vector")
         if values.dtype != torch.float32:
             raise MoELogprobError("selected_logprobs must be float32")
+        if not bool(torch.isfinite(values).all()):
+            raise MoELogprobError("selected_logprobs must be finite")
         if not all(
             isinstance(value, str) and value.strip()
             for value in (
@@ -186,8 +199,8 @@ def independently_recompute_logprobs(case: MoELogprobCase) -> torch.Tensor:
     values: list[float] = []
     for row, target in zip(case.logits.double().tolist(), case.target_ids.tolist(), strict=True):
         maximum = max(row)
-        log_sum_exp = maximum + math.log(math.fsum(math.exp(value - maximum) for value in row))
-        values.append(row[target] - log_sum_exp)
+        log_sum_exp = math.log(math.fsum(math.exp(value - maximum) for value in row))
+        values.append((row[target] - maximum) - log_sum_exp)
     return torch.tensor(values, dtype=torch.float64)
 
 
@@ -223,6 +236,9 @@ def _first_record(
     absolute_error = None
     if expected is not None and actual is not None:
         absolute_error = abs(actual - expected)
+    independent_absolute_error = None
+    if independent is not None and actual is not None:
+        independent_absolute_error = abs(actual - independent)
     record = {
         **_coordinate(case, index),
         "flat_index": index,
@@ -231,6 +247,7 @@ def _first_record(
         "actual": actual,
         "independent": independent,
         "absolute_error": absolute_error,
+        "independent_absolute_error": independent_absolute_error,
     }
     return record
 
@@ -246,7 +263,14 @@ def _identity_mismatch(
         return "mapping_run_id_mismatch", 0
     if reference.probability_rule != candidate.probability_rule:
         return "probability_rule_mismatch", 0
-    for name in ("target_ids", "token_indices", "slot_indices", "expert_indices", "rank_indices"):
+    for name in (
+        "layer_indices",
+        "target_ids",
+        "token_indices",
+        "slot_indices",
+        "expert_indices",
+        "rank_indices",
+    ):
         left = getattr(reference, name)
         right = getattr(candidate, name)
         if left.shape != right.shape or not torch.equal(left, right):
@@ -261,11 +285,13 @@ def _identity_mismatch(
     elif reference.routing_weights.shape != candidate.routing_weights.shape or not torch.equal(
         reference.routing_weights, candidate.routing_weights
     ):
-        return "routing_weights_mismatch", 0
+        index = _first_row_difference(reference.routing_weights, candidate.routing_weights)
+        return "routing_weights_mismatch", 0 if index is None else index
     if reference.logits.shape != candidate.logits.shape or not torch.equal(
         reference.logits, candidate.logits
     ):
-        return "input_logits_mismatch", 0
+        index = _first_row_difference(reference.logits, candidate.logits)
+        return "input_logits_mismatch", 0 if index is None else index
     return None
 
 
@@ -294,6 +320,8 @@ def compare_moe_logprobs(
         raise MoELogprobError("reference_values must be a one-dimensional vector")
     if fixed.dtype != torch.float32:
         raise MoELogprobError("reference_values must be float32")
+    if not bool(torch.isfinite(fixed).all()):
+        raise MoELogprobError("reference_values must be finite")
     if fixed.numel() != reference_case.rows:
         raise MoELogprobError("reference_values must have one value per captured row")
     identity = _identity_mismatch(reference_case, candidate_case)
@@ -307,8 +335,14 @@ def compare_moe_logprobs(
         "schema_version": MOE_LOGPROB_DIAGNOSTICS_VERSION,
         "passed": False,
         "reference_identity_verified": identity is None,
-        "mapping_run_id_verified": identity is None,
-        "model_version_verified": identity is None,
+        "mapping_run_id_verified": (
+            reference_case.mapping_run_id
+            == candidate_case.mapping_run_id
+            == expected_mapping_run_id
+        ),
+        "model_version_verified": (
+            reference_case.model_version == candidate_case.model_version == expected_model_version
+        ),
         "inputs_preserved": identity is None,
         "routing_weights_preserved": weights_preserved,
         "device_execution_verified": False,

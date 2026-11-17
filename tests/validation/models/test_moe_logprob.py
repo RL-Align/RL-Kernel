@@ -95,6 +95,8 @@ def test_accuracy_mismatch_is_reported_when_fixed_reference_matches_bytes():
     assert result["accuracy_mismatch_count"] == 1
     assert result["first_divergence"]["reason"] == "accuracy_mismatch"
     assert result["first_divergence"]["flat_index"] == 0
+    assert result["first_divergence"]["absolute_error"] == 0.0
+    assert result["first_divergence"]["independent_absolute_error"] > 1e-5
 
 
 def test_cross_config_wrapper_preserves_case_and_attempt_identity():
@@ -111,6 +113,27 @@ def test_cross_config_wrapper_preserves_case_and_attempt_identity():
     )
     assert result["passed"]
     assert result["cross_config_identity"] == {"case_id": "case-1", "attempt_id": "attempt-1"}
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("case_id", " case-1 "), ("attempt_id", "a/b"), ("case_id", "."), ("attempt_id", "..")],
+)
+def test_cross_config_wrapper_rejects_noncanonical_artifact_ids(field, value):
+    case = _case()
+    kwargs = {
+        "case_id": "case-1",
+        "attempt_id": "attempt-1",
+        "reference_case": case,
+        "reference_values": _fixed(case),
+        "candidate_case": case,
+        "candidate": _candidate(_fixed(case)),
+        "expected_mapping_run_id": "mapping-1",
+        "expected_model_version": "weights-1",
+    }
+    kwargs[field] = value
+    with pytest.raises(ValueError, match=field):
+        compare_cross_config_moe_logprobs(**kwargs)
 
 
 def test_numeric_injection_reports_layer_token_slot_expert_and_rank():
@@ -146,6 +169,33 @@ def test_mapping_injection_is_separate_from_numeric_error(field, reason):
     assert result["first_divergence"]["reason"] == reason
     assert result["first_divergence"]["flat_index"] == 1
     assert result["fixed_mismatch_count"] == result["accuracy_mismatch_count"] == 0
+
+
+def test_layer_mapping_injection_is_separate_from_numeric_error():
+    case = _case()
+    changed = case.layer_indices.clone()
+    changed[1] += 1
+    result = _compare(case, candidate_case=replace(case, layer_indices=changed))
+    assert result["status"] == "invalid_identity"
+    assert result["first_divergence"]["reason"] == "layer_indices_mismatch"
+    assert result["first_divergence"]["flat_index"] == 1
+    assert result["mapping_run_id_verified"]
+    assert result["model_version_verified"]
+
+
+def test_routing_and_input_changes_report_the_first_changed_row():
+    case = _case()
+    weights = case.routing_weights.clone()
+    weights[2] += 0.25
+    result = _compare(case, candidate_case=replace(case, routing_weights=weights))
+    assert result["first_divergence"]["reason"] == "routing_weights_mismatch"
+    assert result["first_divergence"]["flat_index"] == 2
+
+    logits = case.logits.clone()
+    logits[2, 0] += 0.25
+    result = _compare(case, candidate_case=replace(case, logits=logits))
+    assert result["first_divergence"]["reason"] == "input_logits_mismatch"
+    assert result["first_divergence"]["flat_index"] == 2
 
 
 def test_rank_mapping_injection_is_localized():
@@ -198,6 +248,38 @@ def test_nonfinite_logits_and_unsupported_probability_rule_are_rejected():
         replace(case, logits=case.logits.clone().fill_(float("nan")))
     with pytest.raises(MoELogprobError, match="unsupported probability"):
         replace(case, probability_rule="log_softmax_npu_fast_math")
+
+
+def test_nonfinite_reference_and_candidate_logprobs_are_rejected():
+    case = _case()
+    with pytest.raises(MoELogprobError, match="selected_logprobs must be finite"):
+        _candidate(torch.tensor([float("nan")] * case.rows))
+    with pytest.raises(MoELogprobError, match="reference_values must be finite"):
+        compare_moe_logprobs(
+            case,
+            torch.tensor([float("nan")] * case.rows),
+            case,
+            _candidate(_fixed(case)),
+            expected_mapping_run_id="mapping-1",
+            expected_model_version="weights-1",
+        )
+
+
+def test_independent_reference_keeps_large_logit_offsets_shifted():
+    case = _case()
+    large = replace(
+        case,
+        logits=torch.tensor([[2**60, 2**60]], dtype=torch.float32),
+        target_ids=torch.tensor([0]),
+        layer_indices=torch.tensor([2]),
+        token_indices=torch.tensor([10]),
+        slot_indices=torch.tensor([0]),
+        expert_indices=torch.tensor([4]),
+        rank_indices=torch.tensor([0]),
+        routing_weights=torch.tensor([1.0]),
+    )
+    value = independently_recompute_logprobs(large)[0].item()
+    assert value == pytest.approx(-0.6931471805599453)
 
 
 @pytest.mark.parametrize("field", ["target_ids", "token_indices", "expert_indices"])

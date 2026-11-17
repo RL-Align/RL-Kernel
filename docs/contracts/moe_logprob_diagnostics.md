@@ -18,12 +18,20 @@ reported as `invalid_identity` with `token_indices_mismatch` or
 comparison. The candidate backend labels and rank are recorded as assertions;
 this module does not independently attest them.
 
+Cross-config case and attempt IDs use the artifact store's normalized single
+path-component rule. Whitespace-padded, dotted, or slash-containing IDs are
+rejected before they can disagree with the artifact directory identity.
+
 The fixed capture is compared byte-for-byte. The independent oracle uses Python
 `math.fsum` in FP64 and the shared WS1 logprob absolute threshold. `passed`
 requires both `fixed_tree_passed` and `accuracy_passed`, which are exposed
 separately so a report cannot hide which criterion failed. The probability rule
 is deliberately versioned as `log_softmax_fp32_selected`; no claim is made that
 CPU `torch.log_softmax` or accelerator fast-math is bit-identical across devices.
+The independent oracle remains in shifted coordinates, `(logit - max) -
+log(sum(exp(logit - max)))`, so large finite logit offsets do not erase the
+normalization correction. Reference and candidate selected logprobs must be
+finite; matching NaN/Inf bytes are never accepted.
 
 Reports also expose `inputs_preserved`, `routing_weights_preserved`,
 `mapping_run_id_verified`, `device_execution_verified`,

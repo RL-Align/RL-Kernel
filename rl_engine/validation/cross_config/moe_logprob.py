@@ -9,11 +9,18 @@ from typing import Any
 
 import torch
 
+from rl_engine.validation.cross_config.artifacts import _safe_component
 from rl_engine.validation.models.moe_logprob import (
     MoELogprobCase,
     MoELogprobObservation,
     compare_moe_logprobs,
 )
+
+
+def _validated_identity(value: str, label: str) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"{label} must be a normalized non-empty string")
+    return _safe_component(value, label)
 
 
 def compare_cross_config_moe_logprobs(
@@ -29,10 +36,8 @@ def compare_cross_config_moe_logprobs(
 ) -> dict[str, Any]:
     """Attach a MoE first-difference report to a cross-config attempt identity."""
 
-    if not isinstance(case_id, str) or not case_id.strip():
-        raise ValueError("case_id must be non-empty")
-    if not isinstance(attempt_id, str) or not attempt_id.strip():
-        raise ValueError("attempt_id must be non-empty")
+    case_id = _validated_identity(case_id, "case_id")
+    attempt_id = _validated_identity(attempt_id, "attempt_id")
     report = compare_moe_logprobs(
         reference_case,
         reference_values,
