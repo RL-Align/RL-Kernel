@@ -78,11 +78,12 @@ def _qwen3_6_partial_rope_fwd_kernel(
 
     # The rotated prefix has exactly 32 pairs, so no per-pair mask is needed.
     HALF: tl.constexpr = ROTARY_DIM // 2
-    pairs = tl.arange(0, HALF)
+    # Widen before multiplication: a valid strided view can span >2**31 elements.
+    pairs = tl.arange(0, HALF).to(tl.int64)
     cos_offsets = position * cos_stride_position + pairs * cos_stride_pair
     sin_offsets = position * sin_stride_position + pairs * sin_stride_pair
     first_offsets = x_start + pairs * x_stride_channel
-    second_offsets = first_offsets + HALF * x_stride_channel
+    second_offsets = x_start + (pairs + HALF) * x_stride_channel
     cos = tl.load(cos_ptr + cos_offsets, valid_position, other=float("nan"))
     sin = tl.load(sin_ptr + sin_offsets, valid_position, other=float("nan"))
     x_first = tl.load(x_ptr + first_offsets).to(tl.float32)
@@ -97,7 +98,7 @@ def _qwen3_6_partial_rope_fwd_kernel(
 
     # 192 passthrough channels use a 256-lane arange with the extra lanes masked.
     # Load/store in the source dtype: even NaN payloads and signed zeros survive.
-    tail = ROTARY_DIM + tl.arange(0, BLOCK_TAIL)
+    tail = ROTARY_DIM + tl.arange(0, BLOCK_TAIL).to(tl.int64)
     valid_tail = tail < HEAD_DIM
     passthrough = tl.load(x_ptr + x_start + tail * x_stride_channel, mask=valid_tail, other=0)
     tl.store(y_ptr + y_start + tail, passthrough, mask=valid_tail)
@@ -141,11 +142,11 @@ def _qwen3_6_partial_rope_bwd_kernel(
     tl.device_assert(valid_position, "RoPE position is outside the cos/sin tables")
 
     HALF: tl.constexpr = ROTARY_DIM // 2
-    pairs = tl.arange(0, HALF)
+    pairs = tl.arange(0, HALF).to(tl.int64)
     cos_offsets = position * cos_stride_position + pairs * cos_stride_pair
     sin_offsets = position * sin_stride_position + pairs * sin_stride_pair
     first_offsets = grad_y_start + pairs * grad_y_stride_channel
-    second_offsets = first_offsets + HALF * grad_y_stride_channel
+    second_offsets = grad_y_start + (pairs + HALF) * grad_y_stride_channel
     cos = tl.load(cos_ptr + cos_offsets, valid_position, other=float("nan"))
     sin = tl.load(sin_ptr + sin_offsets, valid_position, other=float("nan"))
     grad_y_first = tl.load(grad_y_ptr + first_offsets).to(tl.float32)
@@ -157,10 +158,12 @@ def _qwen3_6_partial_rope_bwd_kernel(
     tl.store(grad_x_ptr + grad_x_start + pairs, grad_x_first.to(dtype))
     tl.store(grad_x_ptr + grad_x_start + pairs + HALF, grad_x_second.to(dtype))
 
-    tail = ROTARY_DIM + tl.arange(0, BLOCK_TAIL)
+    tail = ROTARY_DIM + tl.arange(0, BLOCK_TAIL).to(tl.int64)
     valid_tail = tail < HEAD_DIM
     grad_tail = tl.load(
-        grad_y_ptr + grad_y_start + tail * grad_y_stride_channel, mask=valid_tail, other=0
+        grad_y_ptr + grad_y_start + tail * grad_y_stride_channel,
+        mask=valid_tail,
+        other=0,
     )
     tl.store(grad_x_ptr + grad_x_start + tail, grad_tail, mask=valid_tail)
 

@@ -54,8 +54,8 @@ For explicit backend selection, import `NativeQwen3_6PartialRoPEOp` from
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Shared Triton | `TritonQwen3_6PartialRoPEOp` | `_qwen3_6_partial_rope_fwd_kernel`, `_qwen3_6_partial_rope_bwd_kernel` | Validated on NVIDIA RTX 5080 (SM120), BF16/FP32. |
-| PyTorch reference/fallback | `NativeQwen3_6PartialRoPEOp` | Eager PyTorch operations | Validated on CPU and NVIDIA RTX 5080, BF16/FP32. |
+| Shared Triton | `TritonQwen3_6PartialRoPEOp` | `_qwen3_6_partial_rope_fwd_kernel`, `_qwen3_6_partial_rope_bwd_kernel` | Current review fixes validated on NVIDIA H100 (SM90), BF16/FP32; prior RTX 5080 (SM120) coverage is historical. |
+| PyTorch reference/fallback | `NativeQwen3_6PartialRoPEOp` | Eager PyTorch operations | Validated on NVIDIA H100, BF16/FP32, with CPU contract coverage in the cloud suite. |
 
 PyTorch uses the `cuda` tensor API for both NVIDIA CUDA and AMD ROCm. The same
 device guard can select either backend; this does **not** establish ROCm numerical
@@ -80,6 +80,8 @@ All tensors share a device. Noncontiguous inputs/tables/indices and zero-stride
 views are accepted; `grad_y` can have its own strides. Empty token/head axes
 return empty outputs and gradients without a Triton launch. Triton's grid is
 `(T, H)`, with `H <= 65535` to respect the second launch-axis limit.
+Channel and coefficient offsets use 64-bit multiplication before pointer addition,
+including views whose element offsets exceed `INT32_MAX`.
 
 Metadata validation never synchronizes to inspect GPU index values. Bounds are
 a caller precondition. With `TRITON_DEBUG=1`, `tl.device_assert` diagnoses invalid
@@ -131,6 +133,12 @@ BF16 gradient regardless of output dtype. No relaxed thresholds or expected
 precision failures are introduced. Both forward and gradient checks use the
 existing `elementwise` rows in the numerical contract.
 
+The Native candidate and FP32 diagnostic share the forward rotation helper, so
+that comparison alone is not an independent mathematical oracle. The separate
+FP64 2x2 rotation-matrix test validates pairing, signs, positions and the transpose
+gradient without using that helper. The production VJP is also checked against
+autograd on the FP32 expression.
+
 Unlike H3 MM-RoPE's model-defined intermediate quantization, this operator chooses
 FP32 intermediates. It does **not** claim bitwise equivalence with the unfused
 Megatron path that first converts coefficients/products to BF16, or with arbitrary
@@ -154,27 +162,39 @@ python benchmarks/operators/rope/benchmark_qwen3_6_partial_rope.py \
 The benchmark compares eager Native PyTorch and the public Triton wrapper for
 forward, backward and forward+backward. It checks output and input-gradient
 accuracy before timing. CUDA/HIP event medians and sample standard deviations are
-reported in microseconds, with extra peak allocated memory in MiB. No CUDA Graph
-or `torch.compile` is used. Small cases include host launch gaps, so these are
+reported in microseconds, with extra peak allocated memory in MiB. For each mode,
+providers alternate order every warmup and measured round (PyTorch/Triton, then
+Triton/PyTorch). JSON retains each sample's latency, round and execution position.
+No CUDA Graph or `torch.compile` is used. Small cases include host launch gaps, so these are
 public-call timings rather than isolated arithmetic instruction timings.
 
 Input/table generation, correctness checks and JIT compilation are outside
 timing. Forward runs without autograd; backward reuses a prebuilt graph;
 forward+backward builds a new graph each call without accumulating leaf `.grad`.
-Extra allocation excludes inputs and any retained backward graph. JSON records
+Memory is measured separately for each provider, after collecting retired autograd
+objects; its inputs and prebuilt backward graph are excluded from the baseline.
+The probe rejects changing live allocations or a nonpositive peak. JSON records
 the GPU/runtime/compiler versions, source hashes (including uncommitted code),
 seed, repetitions and numerical-contract fingerprint. Git metadata is optional.
 Measured JSON/Markdown belongs in `artifacts/`, not in the PR source diff.
 
-The RTX 5080 validation run used PyTorch 2.8.0+cu128 and Triton 3.4.0.
-All 20 shapes (the command above) passed output/gradient gates. A repeated run
-used 30 warmups and 100 CUDA-event samples; at `[8192,16,256]`, BF16
-forward+backward took 960.688 us / 210 MiB for eager Native and 409.264 us /
-128 MiB for Triton. FP32 took 1152.928 us / 290 MiB and 726.720 us / 256 MiB.
-These are public-call medians and extra peak allocations on one GPU. Timing
-noise was substantial: 44 of 120 provider/mode groups had sample standard
-deviation above 15% of the median. The PR evidence retains both complete runs
-and dispersion; these results do not establish end-to-end model speedup.
+The review-fix regression used one cloud NVIDIA H100 80GB HBM3 (SM90), PyTorch
+2.8.0+cu128 and Triton 3.4.0. Both full runs used 30 warmups and 100 samples per
+provider/mode; dtype order was reversed in the repeat. All 20 dtype/shape cases
+passed output/gradient gates in both runs. At `[8192,16,256]`, the repeat measured:
+
+| Dtype | Mode | Native median us | Triton median us | Native / Triton | Native extra MiB | Triton extra MiB | Triton / Native memory |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| BF16 | Forward + backward | 2293.952 | 1755.360 | 1.31x | 210 | 128 | 61.0% |
+| FP32 | Forward + backward | 1896.736 | 1604.224 | 1.18x | 290 | 256 | 88.3% |
+
+These are eager public-call medians, not isolated kernel or model-throughput
+measurements. Host launch gaps and timing noise are substantial: 74/120 groups
+in the first run and 57/120 in the repeat had sample SD above 15% of the median.
+Across matched rows, median absolute drift was 2.26%, with extremes -89.24% to
++861.02%. Both complete runs and raw sample order/latencies are retained in the
+PR evidence. Every memory row matched between runs. These data are regression
+evidence and do not establish a stable hardware-wide speedup.
 
 ## Tests
 
@@ -190,16 +210,20 @@ python tools/validation/operators/check_operator.py --op qwen3_6_partial_rope \
 Tests cover an independent FP64 rotation-matrix oracle, FP32 accuracy, both model
 head counts, repeated/offset positions, chunk/padding/head-shard invariance,
 strides, empty inputs, tail bits, metadata errors, dispatch, and two-device
-forward/backward restoration. GPU cases skip on CPU; those skips are not GPU
-passes. Benchmark tests include wrong-forward and wrong-backward negative controls.
+forward/backward restoration. A BF16 large-channel-stride regression exercises
+forward/backward offsets beyond `INT32_MAX`; it needs about 8.5 GiB of free GPU
+memory and skips explicitly on smaller devices. GPU cases skip on CPU; those
+skips are not GPU passes. Benchmark tests include wrong-forward and wrong-backward negative controls.
 
 ## Known Limitations
 
 - Text position IDs only; no multimodal t/h/w assembly or frequency generation.
 - Fixed D=256 and R=64, split-half pairing; no FP16, arbitrary rotation range,
   inplace execution, coefficient gradients or higher-order input gradients.
-- CUDA execution and two-device restoration were validated on two RTX 5080s.
-  Other NVIDIA GPUs and ROCm remain unqualified; MUSA/Ascend acceleration is
-  outside this implementation.
+- The current fixes passed a one-H100 cloud regression (227 passed, 9 skipped:
+  2 two-device cases and 7 Ascend cases). The large-stride regression executed.
+  Two-device restoration passed on two RTX 5080s before these review fixes; it
+  was not rerun on two devices for this revision. ROCm remains unqualified;
+  MUSA/Ascend acceleration is outside this implementation.
 - Megatron/SGLang adapters, full-model correctness, distributed/CP position
   alignment, and every #642 verification mode require separate integration evidence.

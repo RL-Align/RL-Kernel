@@ -10,10 +10,12 @@ it does not require Triton or a GPU and never emits fabricated measurements.
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import math
 import platform
+import statistics
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -26,8 +28,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from benchmarks.common.profiler import PerformanceProfiler  # noqa: E402
+from rl_engine.contracts.numerical import load_contract  # noqa: E402
 from rl_engine.contracts.numerical import (  # noqa: E402
-    load_contract,
     resolve_tolerance,
     tolerance_contract_fingerprint,
 )
@@ -114,22 +116,70 @@ def _check_accuracy(op, inputs, grad_y):
     return errors
 
 
-def _measure(profiler, fn):
-    """CUDA/HIP event median/std plus one warmed call's extra peak allocation."""
-    _, median_ms, std_ms = profiler._time_kernel(fn)
-    if not math.isfinite(median_ms) or median_ms <= 0:
-        raise RuntimeError(f"invalid measured latency: {median_ms}")
+def _measure_interleaved(profiler, functions):
+    """Alternate providers per round; retain each sample and its execution position."""
+    names = tuple(functions)
+    samples = {name: [] for name in names}
+    for index in range(profiler.warmup):
+        for name in names if index % 2 == 0 else names[::-1]:
+            functions[name]()
     profiler._sync()
+    torch.cuda.empty_cache()
+    for index in range(profiler.repeat):
+        order = names if index % 2 == 0 else names[::-1]
+        for position, name in enumerate(order):
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+            functions[name]()
+            end.record()
+            end.synchronize()
+            elapsed_us = start.elapsed_time(end) * 1000.0
+            if not math.isfinite(elapsed_us) or elapsed_us <= 0:
+                raise RuntimeError(f"invalid measured latency: {elapsed_us}")
+            samples[name].append(
+                {"round": index, "order_index": position, "latency_us": elapsed_us}
+            )
+    profiler._sync()
+    return {
+        name: {
+            "median_us": statistics.median(sample["latency_us"] for sample in values),
+            "std_us": (
+                statistics.stdev(sample["latency_us"] for sample in values)
+                if len(values) > 1
+                else None
+            ),
+            "samples": values,
+        }
+        for name, values in samples.items()
+    }
+
+
+def _measure_peak_memory(profiler, fn):
+    """Measure one provider separately, after reclaiming retired autograd objects."""
+    fn()  # Warm the rebuilt workload/graph; this call is outside the measurement.
+    profiler._sync()
+    gc.collect()
+    torch.cuda.empty_cache()
     baseline = torch.cuda.memory_allocated(profiler.device)
     torch.cuda.reset_peak_memory_stats(profiler.device)
-    fn()
+    gc_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        fn()
+        profiler._sync()
+        peak = torch.cuda.max_memory_allocated(profiler.device) - baseline
+    finally:
+        if gc_enabled:
+            gc.enable()
+    gc.collect()
     profiler._sync()
-    peak = max(0, torch.cuda.max_memory_allocated(profiler.device) - baseline)
-    return {
-        "median_us": median_ms * 1000,
-        "std_us": None if std_ms is None else std_ms * 1000,
-        "peak_extra_mib": peak / 1024**2,
-    }
+    after = torch.cuda.memory_allocated(profiler.device)
+    if after != baseline or peak <= 0:
+        raise RuntimeError(
+            f"unstable allocation probe: baseline={baseline}, after={after}, peak={peak}"
+        )
+    return peak / 1024**2
 
 
 def _revision():
@@ -187,11 +237,15 @@ def run_benchmark(args):
                 "warmup": args.warmup,
                 "repeat": args.repeat,
                 "seed": args.seed,
-                "timer": "CUDA/HIP events, median and sample standard deviation; no CUDA Graph",
+                "timer": "interleaved CUDA/HIP events, median and sample SD; no CUDA Graph",
+                "provider_order": "alternating forward/reverse order per warmup/sample round",
                 "baseline": "eager NativeQwen3_6PartialRoPEOp, explicit FP32 VJP; no torch.compile",
                 "scope": "public wrappers; allocations/autograd included; JIT/input setup excluded",
                 "backward": "random input-dtype dy; retained forward graph excluded from timing",
-                "memory": "extra peak allocated MiB; excludes inputs and prebuilt backward graph",
+                "memory": (
+                    "extra peak allocated MiB from a post-GC baseline; "
+                    "each provider measured separately; excludes inputs and its prebuilt graph"
+                ),
                 "tables": "FP32 [T+11,32], positions 11..T+10; generated once outside timing",
             },
             "results": [],
@@ -217,21 +271,31 @@ def run_benchmark(args):
                         device=device,
                         dtype=DTYPES[dtype_name],
                     )
-                    for name, op in (
-                        ("pytorch", NativeQwen3_6PartialRoPEOp()),
-                        ("triton", TritonQwen3_6PartialRoPEOp()),
-                    ):
-                        accuracy = _check_accuracy(op, inputs, grad_y)
-                        for mode in args.modes:
-                            fn = _make_workload(op, inputs, grad_y, mode)
-                            measurement = _measure(profiler, fn)
-                            del fn  # Release retained graphs before the next backend/mode.
+                    providers = {
+                        "pytorch": NativeQwen3_6PartialRoPEOp(),
+                        "triton": TritonQwen3_6PartialRoPEOp(),
+                    }
+                    accuracy = {
+                        name: _check_accuracy(op, inputs, grad_y) for name, op in providers.items()
+                    }
+                    for mode in args.modes:
+                        functions = {
+                            name: _make_workload(op, inputs, grad_y, mode)
+                            for name, op in providers.items()
+                        }
+                        measurements = _measure_interleaved(profiler, functions)
+                        del functions
+                        gc.collect()  # Release both timing graphs before isolated memory probes.
+                        for name, measurement in measurements.items():
+                            fn = _make_workload(providers[name], inputs, grad_y, mode)
+                            measurement["peak_extra_mib"] = _measure_peak_memory(profiler, fn)
+                            del fn
                             row = {
                                 "provider": name,
                                 "dtype": dtype_name,
                                 "shape": list(inputs["x"].shape),
                                 "mode": mode,
-                                "accuracy": accuracy,
+                                "accuracy": accuracy[name],
                                 **measurement,
                             }
                             report["results"].append(row)

@@ -12,6 +12,7 @@ from benchmarks.operators.rope.benchmark_qwen3_6_partial_rope import (
     MODES,
     _check_accuracy,
     _make_workload,
+    _measure_interleaved,
     build_arg_parser,
     main,
     run_benchmark,
@@ -35,16 +36,33 @@ def test_cpu_measurements_are_rejected():
 
 
 @pytest.mark.parametrize("dtype", (torch.bfloat16, torch.float32))
-def test_workloads_and_accuracy_gate(dtype):
-    args = argparse.Namespace(batch=1, seq=3, n_heads=2, input_mode="random", seed=642)
+@pytest.mark.parametrize("position_offset", (0, 11))
+def test_workloads_and_accuracy_gate(dtype, position_offset):
+    args = argparse.Namespace(
+        batch=1,
+        seq=3,
+        n_heads=2,
+        input_mode="random",
+        seed=642,
+        position_offset=position_offset,
+    )
     inputs = make_operator_inputs("qwen3_6_partial_rope", args, dtype, torch.device("cpu"))
     grad_y = torch.ones_like(inputs["x"])
     op = NativeQwen3_6PartialRoPEOp()
     for mode in MODES:
-        workload = _make_workload(op, inputs, grad_y, mode)
+        leaves = []
+
+        def capture_leaf(**kwargs):
+            if kwargs["x"].requires_grad:
+                leaves.append(kwargs["x"])
+            return op(**kwargs)
+
+        workload = _make_workload(capture_leaf, inputs, grad_y, mode)
         assert workload() is None
         assert workload() is None  # Retained backward graph survives repeated timing calls.
-        assert inputs["x"].grad is None
+        if mode != "forward":
+            assert leaves
+            assert all(leaf is not inputs["x"] and leaf.grad is None for leaf in leaves)
     assert set(_check_accuracy(op, inputs, grad_y)) == {"output", "gradient"}
 
     def wrong_rotation(**kwargs):
@@ -59,3 +77,40 @@ def test_workloads_and_accuracy_gate(dtype):
 
     with pytest.raises(AssertionError):
         _check_accuracy(wrong_backward, inputs, grad_y)
+
+
+def test_interleaved_samples_record_balanced_order(monkeypatch):
+    """Check scheduling/report aggregation with a fake clock, not GPU performance."""
+    calls = []
+    elapsed = iter(range(1, 9))
+
+    class FakeEvent:
+        def __init__(self, **kwargs):
+            pass
+
+        def record(self):
+            pass
+
+        def synchronize(self):
+            pass
+
+        def elapsed_time(self, end):
+            return next(elapsed)
+
+    monkeypatch.setattr(torch.cuda, "Event", FakeEvent)
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: None)
+    profiler = argparse.Namespace(warmup=2, repeat=4, device="cuda:0", _sync=lambda: None)
+    rows = _measure_interleaved(
+        profiler,
+        {
+            "pytorch": lambda: calls.append("pytorch"),
+            "triton": lambda: calls.append("triton"),
+        },
+    )
+    assert calls == ["pytorch", "triton", "triton", "pytorch"] * 3
+    for name, positions in (("pytorch", [0, 1, 0, 1]), ("triton", [1, 0, 1, 0])):
+        row = rows[name]
+        assert [sample["order_index"] for sample in row["samples"]] == positions
+        assert [sample["round"] for sample in row["samples"]] == [0, 1, 2, 3]
+        assert row["median_us"] == 4500
+        assert row["std_us"] > 0

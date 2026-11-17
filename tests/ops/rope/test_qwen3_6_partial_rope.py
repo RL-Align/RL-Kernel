@@ -9,6 +9,7 @@ skip on CPU rather than substituting a fake Triton implementation.
 from __future__ import annotations
 
 import argparse
+import sys
 
 import pytest
 import torch
@@ -38,7 +39,12 @@ def implementation(request):
 
 def _inputs(dtype, device, *, tokens=7, heads=2):
     args = argparse.Namespace(
-        batch=1, seq=tokens, n_heads=heads, input_mode="random", seed=642, position_offset=11
+        batch=1,
+        seq=tokens,
+        n_heads=heads,
+        input_mode="random",
+        seed=642,
+        position_offset=11,
     )
     return make_operator_inputs("qwen3_6_partial_rope", args, dtype, torch.device(device))
 
@@ -54,7 +60,8 @@ def _assert_bits(actual, expected):
     integer_dtype = torch.int16 if actual.dtype == torch.bfloat16 else torch.int32
     assert actual.dtype == expected.dtype
     assert torch.equal(
-        actual.contiguous().view(integer_dtype), expected.contiguous().view(integer_dtype)
+        actual.contiguous().view(integer_dtype),
+        expected.contiguous().view(integer_dtype),
     )
 
 
@@ -71,7 +78,7 @@ def test_forward_backward_accuracy(implementation, dtype, heads, tokens):
             CandidateSpec(
                 name=type(op).__name__,
                 fn=op,
-                backend="pytorch" if isinstance(op, NativeQwen3_6PartialRoPEOp) else "triton",
+                backend=("pytorch" if isinstance(op, NativeQwen3_6PartialRoPEOp) else "triton"),
             )
         ],
         cases=[
@@ -101,7 +108,11 @@ def test_prefill_decode_and_chunked_bits(implementation, dtype, chunk_size):
     whole_y, whole_dx = _evaluate(op, inputs, grad_y)
     for start in range(0, len(inputs["x"]), chunk_size):
         selection = slice(start, start + chunk_size)
-        chunk = {**inputs, "x": inputs["x"][selection], "positions": inputs["positions"][selection]}
+        chunk = {
+            **inputs,
+            "x": inputs["x"][selection],
+            "positions": inputs["positions"][selection],
+        }
         y, dx = _evaluate(op, chunk, grad_y[selection])
         _assert_bits(y, whole_y[selection])
         _assert_bits(dx, whole_dx[selection])
@@ -134,6 +145,7 @@ def test_strides_and_tail_bits(implementation, dtype, layout):
     x[..., 64] = -0.0
     x[..., 65] = float("nan")
     # A distinct NaN payload must survive a copy, even though torch.equal(NaN, NaN) is false.
+    # Equal-width dtype views preserve strides (BF16/int16 and FP32/int32).
     integer_dtype = torch.int16 if dtype == torch.bfloat16 else torch.int32
     x.view(integer_dtype)[..., 66] = 0x7FC1 if dtype == torch.bfloat16 else 0x7FC00001
     if layout == "broadcast":
@@ -229,6 +241,7 @@ def test_native_against_independent_rotation_matrix(dtype):
 def test_noncurrent_device_restored(dtype):
     if not torch.cuda.is_available() or torch.cuda.device_count() < 2:
         pytest.skip("requires two CUDA/ROCm GPUs")
+    pytest.importorskip("triton")
     from rl_engine.backends.shared.triton.rope.qwen3_6_partial_rope import (
         TritonQwen3_6PartialRoPEOp,
     )
@@ -244,3 +257,40 @@ def test_noncurrent_device_restored(dtype):
         expected = _evaluate(NativeQwen3_6PartialRoPEOp(), inputs, grad_y)
         _assert_bits(y, expected[0])
         _assert_bits(dx, expected[1])
+
+
+def test_noncurrent_device_skips_without_triton(monkeypatch):
+    """The standalone two-device case must honor the optional Triton dependency."""
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
+    monkeypatch.setitem(sys.modules, "triton", None)
+    with pytest.raises(pytest.skip.Exception, match="triton"):
+        test_noncurrent_device_restored(torch.float32)
+
+
+def test_large_channel_stride_forward_backward():
+    """Exercise real GPU offsets above INT32_MAX using one ~8 GiB BF16 allocation."""
+    if not torch.cuda.is_available():
+        pytest.skip("requires a CUDA/ROCm GPU")
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton.rope.qwen3_6_partial_rope import (
+        TritonQwen3_6PartialRoPEOp,
+    )
+
+    device = torch.device("cuda", torch.cuda.current_device())
+    channel_stride = 1 << 24
+    storage_elements = 255 * channel_stride + 1
+    torch.cuda.empty_cache()
+    free_bytes, _ = torch.cuda.mem_get_info(device)
+    if free_bytes < storage_elements * 2 + (512 << 20):
+        pytest.skip("large-stride regression needs about 8.5 GiB of free GPU memory")
+    storage = torch.empty(storage_elements, dtype=torch.bfloat16, device=device)
+    x = storage.as_strided((1, 1, 256), (0, 0, channel_stride))
+    x.copy_(torch.linspace(-2, 2, 256, device=device).reshape(1, 1, 256))
+    inputs = _inputs(torch.bfloat16, device, tokens=1, heads=1)
+    inputs["x"] = x
+    # Reuse the same backing storage as dy: both kernels must handle its large stride.
+    expected = _evaluate(NativeQwen3_6PartialRoPEOp(), {**inputs, "x": x.clone()}, x.clone())
+    y, dx = _evaluate(TritonQwen3_6PartialRoPEOp(), inputs, x)
+    _assert_bits(y, expected[0])
+    _assert_bits(dx, expected[1])
