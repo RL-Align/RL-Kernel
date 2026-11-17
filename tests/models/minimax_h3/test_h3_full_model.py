@@ -310,6 +310,29 @@ def test_a_failure_to_bind_is_a_candidate_binding_error_and_a_model_error_is_not
         assert not isinstance(raised.value, CandidateBindingError), raised.value
 
 
+def test_candidate_ops_that_cannot_be_built_bind_nothing_but_an_out_of_memory_propagates(
+    monkeypatch,
+):
+    """A ``RuntimeError`` while building the candidate ops (e.g. missing kernels) is a failure to
+    bind; a CUDA out-of-memory error there is an error of the run and propagates as it is."""
+    from rl_engine.validation.models import h3_block
+    from rl_engine.validation.models.h3_full_model import CandidateBindingError
+
+    for error, expected in (
+        (RuntimeError("H3 kernels missing from _C"), CandidateBindingError),
+        (torch.cuda.OutOfMemoryError("CUDA out of memory"), torch.cuda.OutOfMemoryError),
+    ):
+
+        def build(error=error):
+            raise error
+
+        monkeypatch.setattr(h3_block, "CandidateOps", build)
+        with pytest.raises(RuntimeError) as raised:
+            with full_model_execution(Model(), candidate=True, trace=FullModelTrace()):
+                pass
+        assert type(raised.value) is expected
+
+
 def test_drift_order_interleaves_parameter_and_activation_backward_hooks():
     from tools.validation.models.h3_full_compare import drift_order
 
@@ -425,7 +448,9 @@ def _fake_rows(monkeypatch, called, keyed_calls=None):
     # the fakes stand in for the CUDA ops strict mode requires
     from rl_engine.validation.models import h3_full_model as fm
 
-    for row, fake in (("timestep_mlp_fp32", TimestepMLP), ("final_adaln_out", FinalAdaLN)):
+    fakes = {row: Row for row in fm._CUDA_ROW_OPS}
+    fakes.update(timestep_mlp_fp32=TimestepMLP, final_adaln_out=FinalAdaLN)
+    for row, fake in fakes.items():
         monkeypatch.setitem(fm._CUDA_ROW_OPS, row, f"{fake.__module__}.{fake.__qualname__}")
 
 
@@ -597,9 +622,19 @@ def test_native_time_embedder_and_norm_out_stay_on_the_provider(monkeypatch):
             model.time_embedder(torch.ones(2, 4))
 
 
-@pytest.mark.parametrize("row", ["timestep_mlp_fp32", "final_adaln_out"])
-def test_strict_refuses_the_reference_op_of_time_embedder_and_norm_out(monkeypatch, row):
-    """If the registry falls back to the PyTorch reference, strict mode raises, binding nothing."""
+@pytest.mark.parametrize(
+    "row",
+    [
+        "video_input_projection_fp32",
+        "audio_output_projection_fp32",
+        "text_context_projection",
+        "timestep_mlp_fp32",
+        "final_adaln_out",
+    ],
+)
+def test_strict_refuses_the_reference_op_of_a_boundary_row(monkeypatch, row):
+    """If the registry resolves a boundary row to anything but its CUDA op (e.g. the PyTorch
+    reference), strict mode raises, binding nothing."""
     from rl_engine.runtime.registry import KernelRegistry
 
     called = []
@@ -633,14 +668,22 @@ def test_strict_refuses_the_reference_op_of_time_embedder_and_norm_out(monkeypat
 
 
 def test_the_required_cuda_ops_are_the_registered_cuda_backends():
-    """The class paths strict mode requires are the registry's CUDA backends of the two rows."""
+    """The class paths strict mode requires are the registry's CUDA backends of every boundary
+    row that ``_strict_boundaries`` resolves through the registry."""
     from rl_engine.runtime.registry import OpBackend
     from rl_engine.validation.models import h3_full_model as fm
 
     assert fm._CUDA_ROW_OPS == {
+        "video_input_projection_fp32": OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32.value,
+        "video_output_projection_fp32": OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32.value,
+        "audio_input_projection_fp32": OpBackend.CUDA_H3_AUDIO_INPUT_PROJECTION.value,
+        "audio_output_projection_fp32": OpBackend.CUDA_H3_AUDIO_OUTPUT_PROJECTION.value,
+        "text_context_projection": OpBackend.CUDA_H3_TEXT_CONTEXT_PROJECTION.value,
         "timestep_mlp_fp32": OpBackend.CUDA_H3_TIMESTEP_MLP.value,
         "final_adaln_out": OpBackend.CUDA_H3_FINAL_ADALN_OUT.value,
     }
+    rows = set(fm.STRICT_BOUNDARY_ROWS.values()) - {"token_refiner_block"}
+    assert set(fm._CUDA_ROW_OPS) == rows
 
 
 def test_a_boundary_context_that_failed_to_enter_is_not_exited(monkeypatch):
