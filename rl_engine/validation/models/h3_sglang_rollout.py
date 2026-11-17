@@ -3,20 +3,25 @@
 
 """Validation of ``sglang_runtime_adapter_h3`` on SGLang's own H3 modules (RFC #420).
 
-``projection_target`` is a ``run_world`` target. On each rank it builds block 0's attention and
-MLP from ``sglang.multimodal_gen`` at SGLang's TP size, loads the pinned Diffusers block-0 tensors
-through SGLang's own loader (``_diffusers_h3_checkpoint`` and each parameter's TP
-``weight_loader``), and evaluates the four projections three ways:
+``rollout_target`` is a ``run_world`` target. On each rank it builds, from ``sglang.multimodal_gen``
+at SGLang's TP size, block 0 (``MiniMaxH3DiTBlock``), the final layer, and the token refiner's
+norms, loads the pinned Diffusers tensors through SGLang's own loader (``_diffusers_h3_checkpoint``
+and each parameter's TP ``weight_loader``), and evaluates every bound operator three ways:
 
 * ``native``: SGLang's own forward;
 * ``bound``: SGLang's modules after ``install_h3_sglang_rollout``;
-* ``canonical``: the training arithmetic of ``h3-parallel-v1`` on the same rank's shards
-  (``par.column_parallel_linear`` / ``par.row_parallel_linear``, as in
-  ``h3_tp.run_tp_block_rows``).
+* ``canonical``: the training arithmetic on the Diffusers tensors. For the projections that is
+  ``h3-parallel-v1`` on the same rank's shards (``par.column_parallel_linear`` /
+  ``par.row_parallel_linear``, as in ``h3_tp.run_tp_block_rows``); for the AdaLN path and the norms
+  it is the WS1 operators (``adaln_projection_3mod``, ``h3_rmsnorm``, ``adaln_gate_residual``,
+  ``final_adaln_out``), whose TP layouts give the WS1 bytes on every rank.
 
 Column outputs are the rank's shard (``[q; k; v]`` and ``[gate; up]`` of its heads / channels),
-row outputs are the full reduced rows. Only CUDA BF16 is meaningful here; ``sglang`` must be
-importable in the worker.
+row outputs are the full reduced rows. The block runs with stand-ins for its attention and MLP
+(``ya`` / ``ym``, recording their inputs), since those are evaluated as projections above or are
+external; the final layer's FP32 output heads are replaced by the identity for the same reason.
+The refiner blocks' norm weights are not in the pinned block-0 extract and are seeded inputs.
+Only CUDA BF16 is meaningful here; ``sglang`` must be importable in the worker.
 """
 
 from __future__ import annotations
@@ -30,10 +35,23 @@ from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
 BLOCK = "transformer_blocks.0"
 FFN = 14336
 NAMES = ("qkv", "out", "fc1", "fc2")
+# Outputs of the AdaLN path and the norms; the tables do not depend on the rows.
+NORM_NAMES = (
+    "adaln_table",
+    "norm1",
+    "norm2",
+    "block_out",
+    "final_table",
+    "final_out",
+    "refiner_norm1",
+    "refiner_norm2",
+    "refiner_final_norm",
+)
+TABLES = ("adaln_table", "final_table")
 
 
-def _sglang_block(weights: dict[str, torch.Tensor]):
-    """SGLang's block-0 attention and MLP under a ``blocks.0`` root, loaded by SGLang's loader."""
+def _sglang_model(weights: dict[str, torch.Tensor], refiner_norms: tuple[torch.Tensor, ...]):
+    """SGLang's block 0, final layer and refiner norms, loaded by SGLang's loader."""
 
     from sglang.multimodal_gen.configs.models.dits.minimax_h3 import MiniMaxH3DiTArchConfig
     from sglang.multimodal_gen.runtime.models.dits import minimax_h3 as sm
@@ -43,11 +61,18 @@ def _sglang_block(weights: dict[str, torch.Tensor]):
     # swaps the fc1 halves, so SGLang's grouped-row reorder does not apply.
     arch.checkpoint_uses_diffusers_layout = True
     root = torch.nn.Module()
-    root.blocks = torch.nn.ModuleList([torch.nn.Module()])
-    block = root.blocks[0]
-    block.attn = sm.MiniMaxH3Attention(arch, None, prefix="blocks.0.attn")
-    block.mlp = sm.MiniMaxH3MLP(arch, None, prefix="blocks.0.mlp")
+    root.blocks = torch.nn.ModuleList([sm.MiniMaxH3DiTBlock(arch, None, prefix="blocks.0")])
+    root.final_layer = sm.MiniMaxH3FinalLayer(arch, None, prefix="final_layer")
+    refiner, refiner_block = torch.nn.Module(), torch.nn.Module()
+    norms = [sm._norm(arch.hidden_size, eps=arch.norm_eps) for _ in refiner_norms]
+    refiner_block.norm1, refiner_block.norm2 = norms
+    refiner.blocks = torch.nn.ModuleList([refiner_block])
+    refiner.final_norm = sm._norm(arch.hidden_size, eps=arch.final_norm_eps)
+    root.token_refiner = refiner
     root.cuda()
+    with torch.no_grad():
+        for norm, weight in zip(norms, refiner_norms, strict=True):
+            norm.weight.copy_(weight)
     params = dict(root.named_parameters())
     loaded = []
     for name, tensor in sm._diffusers_h3_checkpoint(iter(weights.items())):
@@ -55,11 +80,15 @@ def _sglang_block(weights: dict[str, torch.Tensor]):
             continue
         param = params[name]
         loader = getattr(param, "weight_loader", None)
-        if loader is None:
+        if loader is not None:
+            loader(param, tensor)
+        elif param.shape == tensor.shape:  # SGLang's plain nn.RMSNorm weights
+            with torch.no_grad():
+                param.copy_(tensor)
+        else:
             raise RuntimeError(f"{name}: SGLang parameter without a weight_loader")
-        loader(param, tensor)
         loaded.append(name)
-    return root, block, sorted(loaded)
+    return root, root.blocks[0], sorted(loaded)
 
 
 def _canonical(weights, x, a, h, collective, tp, rank):
@@ -90,6 +119,92 @@ def _canonical(weights, x, a, h, collective, tp, rank):
     }, (a_local, h_local)
 
 
+def _canonical_norms(weights, x, temb, index, final_index, ya, ym, refiner_norms):
+    """The WS1 operators of the AdaLN path and the norms on the Diffusers tensors."""
+
+    import torch.nn.functional as F
+
+    from rl_engine.backends.cuda.model_specific.minimax_h3.adaln_projection import (
+        H3AdaLNProjectionCudaOp,
+    )
+    from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import det_linear_forward
+    from rl_engine.backends.cuda.model_specific.minimax_h3.final_adaln_out import (
+        H3FinalAdaLNOutCudaOp,
+    )
+    from rl_engine.backends.cuda.model_specific.minimax_h3.gate_residual import H3GateResidualCudaOp
+    from rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm import H3RMSNormCudaOp
+
+    w = lambda name: weights[f"{BLOCK}.{name}"]  # noqa: E731
+    norm, gate = H3RMSNormCudaOp(), H3GateResidualCudaOp()
+    t = H3AdaLNProjectionCudaOp()(temb, w("adaln_proj.linear.weight"), w("adaln_proj.linear.bias"))
+    norm1 = norm.forward_modulated(x, w("norm1.weight"), t[0], t[1], index)
+    x1 = gate(x, ya, t[2], index)
+    norm2 = norm.forward_modulated(x1, w("norm2.weight"), t[3], t[4], index)
+    final_w, final_b = weights["norm_out.linear.weight"], weights["norm_out.linear.bias"]
+    (final_table,) = det_linear_forward(F.silu(temb).to(final_w.dtype), final_w, final_b)
+    final_out = H3FinalAdaLNOutCudaOp()(
+        x, weights["norm_out.norm.weight"], temb, final_w, final_b, final_index
+    )
+    return {
+        "adaln_table": torch.cat(t, dim=1),
+        "norm1": norm1,
+        "norm2": norm2,
+        "block_out": gate(x1, ym, t[5], index),
+        "final_table": final_table,
+        "final_out": final_out.float(),
+        "refiner_norm1": norm(x, refiner_norms[0]),
+        "refiner_norm2": norm(x, refiner_norms[1]),
+        "refiner_final_norm": norm(x, weights["token_refiner.final_norm.weight"]),
+    }
+
+
+def _evaluate_norms(root, x, adaln_input, index, final_index, ya, ym):
+    """SGLang's block 0, final layer and refiner norms as they are now bound (or not)."""
+
+    block, final = root.blocks[0], root.final_layer
+    seen = {}
+
+    def attention(h, **kwargs):
+        seen["norm1"] = h.clone()
+        return ya.clone()
+
+    def mlp(h):
+        seen["norm2"] = h.clone()
+        return ym.clone()
+
+    block.attn.forward, block.mlp.forward = attention, mlp
+    final._project = lambda h: (h, h)
+    try:
+        block_out = block(
+            x.clone(),  # SGLang's gated residual writes into its input
+            adaln_input=adaln_input,
+            combined_indices=index,
+            rope_cache=None,
+            cu_seqlens=None,
+            max_seqlen=0,
+        )
+        final_out, _ = final(x.clone(), adaln_input=adaln_input, inverse_indices=final_index)
+    finally:
+        for module, attribute in (
+            (block.attn, "forward"),
+            (block.mlp, "forward"),
+            (final, "_project"),
+        ):
+            module.__dict__.pop(attribute, None)
+    refiner = root.token_refiner
+    return {
+        "adaln_table": torch.cat(block.adaln_proj(adaln_input), dim=1),
+        "norm1": seen["norm1"],
+        "norm2": seen["norm2"],
+        "block_out": block_out,
+        "final_table": torch.cat(final.adaln_proj(adaln_input), dim=1),
+        "final_out": final_out,
+        "refiner_norm1": refiner.blocks[0].norm1(x),
+        "refiner_norm2": refiner.blocks[0].norm2(x),
+        "refiner_final_norm": refiner.final_norm(x),
+    }
+
+
 def _evaluate(block, x, a_local, h_local):
     return {
         "qkv": block.attn.qkv_proj(x)[0],
@@ -99,16 +214,35 @@ def _evaluate(block, x, a_local, h_local):
     }
 
 
-def projection_target(collective, *, x, a, h, prefix_rows: int = 0, **weights):
-    """One rank: native, bound and canonical projections of block 0 (see the module docstring).
+def rollout_target(
+    collective,
+    *,
+    x,
+    a,
+    h,
+    temb,
+    index,
+    final_index,
+    ya,
+    ym,
+    refiner_norm1,
+    refiner_norm2,
+    prefix_rows: int = 0,
+    **weights,
+):
+    """One rank: native, bound and canonical outputs of block 0 (see the module docstring).
 
-    ``x (T, 5376)`` feeds ``qkv_proj`` / ``fc1``; ``a (T, 7168)`` and ``h (T, 14336)`` are the full
-    inputs of ``out_proj`` / ``fc2``, of which each rank takes its TP columns. With
-    ``prefix_rows`` the bound and native projections are also run on the first ``prefix_rows``
-    rows alone (row invariance).
+    ``x (T, 5376)`` feeds ``qkv_proj`` / ``fc1``, the block, the final layer and the refiner
+    norms; ``a (T, 7168)`` and ``h (T, 14336)`` are the full inputs of ``out_proj`` / ``fc2``, of
+    which each rank takes its TP columns. ``temb (M, 2688)`` is the FP32 timestep embedding,
+    ``index`` the block's ``modality * M``-row AdaLN index of each token and ``final_index`` its
+    timestep; ``ya`` / ``ym`` stand in for the attention and MLP outputs. With ``prefix_rows``
+    the bound and native forwards are also run on the first ``prefix_rows`` rows alone (row
+    invariance).
     """
 
     import torch.distributed as dist
+    import torch.nn.functional as F
     from sglang.multimodal_gen.runtime.distributed.parallel_state import (
         maybe_init_distributed_environment_and_model_parallel,
     )
@@ -119,33 +253,39 @@ def projection_target(collective, *, x, a, h, prefix_rows: int = 0, **weights):
     os.environ.update(RANK=str(rank), LOCAL_RANK=str(rank), WORLD_SIZE=str(world))
     maybe_init_distributed_environment_and_model_parallel(tp_size=world, sp_size=1)
     weights = {name.replace("__", "."): tensor for name, tensor in weights.items()}
-    root, block, loaded = _sglang_block(weights)
+    refiner_norms = (refiner_norm1, refiner_norm2)
+    root, block, loaded = _sglang_model(weights, refiner_norms)
     tp = world
     coll = collective if tp > 1 else None
     canonical, (a_local, h_local) = _canonical(weights, x, a, h, coll, tp, rank)
-    out = {"loaded": loaded, "tp": tp}
-    with torch.no_grad():
-        native = _evaluate(block, x, a_local, h_local)
-        native_prefix = (
-            _evaluate(block, x[:prefix_rows], a_local[:prefix_rows], h_local[:prefix_rows])
-            if prefix_rows
-            else None
-        )
-        with adapter.install_h3_sglang_rollout(root, collective=coll, tp=tp) as handle:
-            bound = _evaluate(block, x, a_local, h_local)
-            bound_prefix = (
-                _evaluate(block, x[:prefix_rows], a_local[:prefix_rows], h_local[:prefix_rows])
-                if prefix_rows
-                else None
+    canonical.update(_canonical_norms(weights, x, temb, index, final_index, ya, ym, refiner_norms))
+    adaln_input = F.silu(temb).to(torch.bfloat16)  # SGLang's request-step AdaLN input
+
+    def evaluate(rows=None):
+        cut = slice(None) if rows is None else slice(0, rows)
+        out = _evaluate(block, x[cut], a_local[cut], h_local[cut])
+        out.update(
+            _evaluate_norms(
+                root, x[cut], adaln_input, index[cut], final_index[cut], ya[cut], ym[cut]
             )
+        )
+        return out
+
+    out: dict = {"loaded": loaded, "tp": tp}
+    with torch.no_grad():
+        native = evaluate()
+        native_prefix = evaluate(prefix_rows) if prefix_rows else None
+        with adapter.install_h3_sglang_rollout(root, collective=coll, tp=tp) as handle:
+            bound = evaluate()
+            bound_prefix = evaluate(prefix_rows) if prefix_rows else None
             out["report"] = adapter.report(root, handle)
-        restored = _evaluate(block, x, a_local, h_local)
-    for name in NAMES:
+        restored = evaluate()
+    for name in NAMES + NORM_NAMES:
         out[f"canonical_{name}"] = canonical[name]
         out[f"native_{name}"] = native[name]
         out[f"bound_{name}"] = bound[name]
         out[f"restored_equals_native_{name}"] = bool(torch.equal(restored[name], native[name]))
-        if prefix_rows:
+        if prefix_rows and name not in TABLES:
             assert native_prefix is not None and bound_prefix is not None
             out[f"native_prefix_{name}"] = native_prefix[name]
             out[f"bound_prefix_{name}"] = bound_prefix[name]
@@ -153,11 +293,37 @@ def projection_target(collective, *, x, a, h, prefix_rows: int = 0, **weights):
 
 
 def block_weight_inputs(weights: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    """Block-0 projection tensors as ``run_world`` inputs (keys without dots)."""
+    """The pinned tensors ``rollout_target`` loads, as ``run_world`` inputs (keys without dots)."""
 
     names = [f"{BLOCK}.attn.to_{n}.weight" for n in "qkv"] + [
         f"{BLOCK}.attn.to_out.0.weight",
         f"{BLOCK}.ff.net.0.proj.weight",
         f"{BLOCK}.ff.net.2.weight",
+        f"{BLOCK}.adaln_proj.linear.weight",
+        f"{BLOCK}.adaln_proj.linear.bias",
+        f"{BLOCK}.norm1.weight",
+        f"{BLOCK}.norm2.weight",
+        "norm_out.linear.weight",
+        "norm_out.linear.bias",
+        "norm_out.norm.weight",
+        "token_refiner.final_norm.weight",
     ]
     return {name.replace(".", "__"): weights[name] for name in names}
+
+
+def norm_inputs(rows: int, *, timesteps: int = 2, seed: int = 0) -> dict[str, torch.Tensor]:
+    """Seeded inputs of the AdaLN path and the norms (CPU; ``run_world`` moves them)."""
+
+    hidden, temb_dim, modalities = 5376, 2688, 3
+    gen = torch.Generator().manual_seed(seed)
+    step = torch.randint(0, timesteps, (rows,), generator=gen)
+    modality = torch.randint(0, modalities, (rows,), generator=gen)
+    return {
+        "temb": torch.randn(timesteps, temb_dim, generator=gen),
+        "index": step * modalities + modality,
+        "final_index": step,
+        "ya": (torch.randn(rows, hidden, generator=gen) * 0.5).bfloat16(),
+        "ym": (torch.randn(rows, hidden, generator=gen) * 0.5).bfloat16(),
+        "refiner_norm1": (1 + torch.randn(hidden, generator=gen) * 0.1).bfloat16(),
+        "refiner_norm2": (1 + torch.randn(hidden, generator=gen) * 0.1).bfloat16(),
+    }

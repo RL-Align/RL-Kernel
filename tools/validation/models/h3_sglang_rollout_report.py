@@ -3,11 +3,13 @@
 
 """RFC #420 ``sglang_runtime_adapter_h3`` on SGLang's own H3 modules: JSON report.
 
-Block 0 of the pinned checkpoint (``$RL_KERNEL_H3_WEIGHTS``), loaded through SGLang's loader at
-TP1 and TP2 (``rl_engine.validation.models.h3_sglang_rollout``). For each of ``qkv_proj``,
-``out_proj``, ``fc1`` and ``fc2`` it records whether SGLang's native forward and the bound forward
-equal the ``h3-parallel-v1`` training arithmetic bitwise, whether each gives the same rows when it
-sees only a prefix of them, and whether TP2 equals TP1.
+Block 0, the final layer and the token refiner's final norm of the pinned checkpoint
+(``$RL_KERNEL_H3_WEIGHTS``), loaded through SGLang's loader at TP1 and TP2
+(``rl_engine.validation.models.h3_sglang_rollout``). For each bound output (the four projections,
+the block's AdaLN table, both modulated norms and its output, the final layer's table and output,
+and the refiner norms) it records whether SGLang's native forward and the bound forward equal the
+training arithmetic bitwise, whether each gives the same rows when it sees only a prefix of them,
+and whether TP2 equals TP1.
 
     python tools/validation/models/h3_sglang_rollout_report.py --out report.json \
         [--rows 261] [--prefix-rows 37] [--tp 1 2]
@@ -43,7 +45,7 @@ def full_columns(name: str, shards: list[torch.Tensor]) -> torch.Tensor:
 
 def summarize(results: list[dict], prefix_rows: int) -> dict:
     out: dict = {"loaded": results[0]["loaded"], "report": results[0]["report"], "rows": {}}
-    for name in hs.NAMES:
+    for name in hs.NAMES + hs.NORM_NAMES:
         row: dict = {}
         for rank, r in enumerate(results):
             canon, native, bound = r[f"canonical_{name}"], r[f"native_{name}"], r[f"bound_{name}"]
@@ -53,7 +55,7 @@ def summarize(results: list[dict], prefix_rows: int) -> dict:
                 "native_max_abs_diff": max_abs(native, canon),
                 "restored_equals_native": r[f"restored_equals_native_{name}"],
             }
-            if prefix_rows:
+            if prefix_rows and name not in hs.TABLES:
                 row[f"rank{rank}"]["bound_prefix_equals_rows"] = bool(
                     torch.equal(r[f"bound_prefix_{name}"], bound[:prefix_rows])
                 )
@@ -85,6 +87,7 @@ def main() -> None:
         "a": (torch.randn(args.rows, HEADS * HEAD_DIM, generator=gen) * 0.5).bfloat16(),
         "h": (torch.randn(args.rows, FFN, generator=gen) * 0.5).bfloat16(),
         **hs.block_weight_inputs(weights),
+        **hs.norm_inputs(args.rows, seed=args.seed),
     }
     report: dict = {
         "environment": {
@@ -102,7 +105,7 @@ def main() -> None:
     }
     results = {}
     for tp in args.tp:
-        results[tp] = run_world(tp, hs.projection_target, inputs, prefix_rows=args.prefix_rows)
+        results[tp] = run_world(tp, hs.rollout_target, inputs, prefix_rows=args.prefix_rows)
         report["tp"][str(tp)] = summarize(results[tp], args.prefix_rows)
     if 1 in results:
         base = results[1][0]
@@ -110,7 +113,7 @@ def main() -> None:
             ranks = results[tp]
             for path in ("bound", "native"):
                 invariance = {}
-                for name in hs.NAMES:
+                for name in hs.NAMES + hs.NORM_NAMES:
                     key = f"{path}_{name}"
                     if name in ("qkv", "fc1"):
                         whole = full_columns(name, [r[key] for r in ranks])
