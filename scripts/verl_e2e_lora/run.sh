@@ -51,7 +51,10 @@ use_rlk_env() {
   if [[ -n ${SYSTEM_CUDA_HOME:-} ]]; then export CUDA_HOME=$SYSTEM_CUDA_HOME
   else export CUDA_HOME=$LORA_E2E_ROOT/envs/cuda130-home; fi
   export PATH=$CUDA_HOME/bin:$RLK_ENV/bin:$PATH
-  export LD_LIBRARY_PATH=$RLK_ENV/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+  # $RLK_ENV/lib holds the toolkit's libcuda stub; the compat libcuda must come before it.
+  local lib=$RLK_ENV/lib
+  if [[ -n $CUDA_COMPAT_DIR ]]; then lib=$CUDA_COMPAT_DIR:$lib; fi
+  export LD_LIBRARY_PATH=$lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
   export RL_KERNEL_REQUIRE_EXT=1 PYTHONUNBUFFERED=1
 }
 

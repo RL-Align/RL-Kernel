@@ -44,6 +44,13 @@ export FLASHMLA_REPO=https://github.com/vllm-project/FlashMLA.git
 export FLASHMLA_COMMIT=a8f794d1
 export TORCH_INDEX=https://download.pytorch.org/whl/cu130
 export VERL_WHEELHOUSE=https://verl-project.github.io/verl-wheelhouse/cu130/torch2.13/simple
+# A driver older than R580 cannot run CUDA 13. On data-center GPUs, NVIDIA's forward-compat
+# libcuda works instead: `conda create -p DIR -c conda-forge cuda-compat=13.0`, then
+# CUDA_COMPAT_DIR=DIR/cuda-compat. Both envs and every run put it first on LD_LIBRARY_PATH.
+export CUDA_COMPAT_DIR=${CUDA_COMPAT_DIR:-}
+if [[ -n $CUDA_COMPAT_DIR ]]; then
+  export LD_LIBRARY_PATH=$CUDA_COMPAT_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+fi
 # RL-Kernel itself: this checkout (the directory above scripts/).
 RLK_ROOT=${RLK_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 export RLK_ROOT

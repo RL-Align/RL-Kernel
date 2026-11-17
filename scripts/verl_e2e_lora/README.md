@@ -46,7 +46,7 @@ run (section 5) splits our time into what batch invariance costs the rollout and
 | Item | Needed |
 |---|---|
 | GPUs | 8 x H200 141 GB, one node, NVLink. H100 80 GB: see "Model size" |
-| Driver | R580+ (CUDA 13) |
+| Driver | R580+ (CUDA 13). An older driver: NVIDIA's forward-compat libcuda, `CUDA_COMPAT_DIR` in `env.sh`, e.g. on R550 |
 | Host RAM | >= 512 GB (the baseline offloads parameters and optimizer state to the host) |
 | Disk | >= 400 GB free under `LORA_E2E_ROOT` (default `~/dsv4-lora-e2e`) |
 | Software | conda (or mamba), [uv](https://docs.astral.sh/uv/), git, curl, gcc <= 13. CUDA 13.0 toolkit: the setup installs it into the conda env unless you set `SYSTEM_CUDA_HOME` to a local CUDA 13.0 |

@@ -28,7 +28,7 @@ clone() { # url commit dir [submodules]
 preflight() {
   say preflight
   nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader
-  nvidia-smi topo -m | head -10
+  nvidia-smi topo -m | sed -n 1,10p   # not head: SIGPIPE under pipefail on a long table
   free -g | head -2
   df -h "$LORA_E2E_ROOT" | tail -1
   command -v conda >/dev/null || { echo "need conda (or mamba) on PATH"; exit 1; }
@@ -82,14 +82,26 @@ setup_rlkernel() {
 
   say "DeepGEMM $DEEPGEMM_COMMIT (+ the paged-MQA empty-batch fix)"
   clone "$DEEPGEMM_REPO" "$DEEPGEMM_COMMIT" "$SRC_DIR/DeepGEMM" submodules
-  local patch=$HERE/deepgemm-sm90-paged-mqa-empty.patch
-  if git -C "$SRC_DIR/DeepGEMM" apply --check "$patch" 2>/dev/null; then
-    git -C "$SRC_DIR/DeepGEMM" apply "$patch"
-  fi
+  # Build from the clean tree: on a dirty one the version becomes 2.6.1+local, which
+  # rl_engine/kernels/ops/cuda/deepgemm.py refuses. The fix goes into the installed headers,
+  # which are what DeepGEMM's runtime JIT compiles.
+  git -C "$SRC_DIR/DeepGEMM" checkout -q -- .
+  # setup.py imports its namespace package `scripts`; once verl is installed (editable), verl's
+  # regular `scripts` package shadows it. An __init__.py, excluded from git status, fixes that.
+  touch "$SRC_DIR/DeepGEMM/scripts/__init__.py"
+  grep -qx scripts/__init__.py "$SRC_DIR/DeepGEMM/.git/info/exclude" ||
+    echo scripts/__init__.py >> "$SRC_DIR/DeepGEMM/.git/info/exclude"
   if [[ $($py -c 'import importlib.metadata as m; print(m.version("deep_gemm"))' \
           2>/dev/null) != 2.6.1+e21c821 ]]; then
     (cd "$SRC_DIR/DeepGEMM" && $py -m pip install -q --no-build-isolation --no-deps .)
   fi
+  local patch=$HERE/deepgemm-sm90-paged-mqa-empty.patch site
+  site=$($py -c 'import importlib.util as u, os
+print(os.path.dirname(list(u.find_spec("deep_gemm").submodule_search_locations)[0]))')
+  if patch -p1 -d "$site" -N --dry-run -s < "$patch" > /dev/null 2>&1; then
+    patch -p1 -d "$site" -N -s < "$patch"
+  fi
+  patch -p1 -d "$site" -R --dry-run -s < "$patch" > /dev/null  # fails if the fix is missing
 
   say "vLLM fork $VLLM_FORK_COMMIT (source build, 1-2 h)"
   clone "$VLLM_FORK_REPO" "$VLLM_FORK_COMMIT" "$SRC_DIR/vllm"
