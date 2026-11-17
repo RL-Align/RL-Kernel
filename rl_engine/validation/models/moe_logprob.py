@@ -60,7 +60,7 @@ def _index_vector(name: str, value: torch.Tensor, rows: int) -> torch.Tensor:
 def _first_row_difference(left: torch.Tensor, right: torch.Tensor) -> int | None:
     """Return the first changed logical row for equal-shaped tensors."""
 
-    if left.shape != right.shape or left.ndim == 0:
+    if left.shape != right.shape or left.ndim == 0 or left.dtype != right.dtype:
         return None
     lhs = left.detach().contiguous().view(torch.uint8).reshape(left.shape[0], -1)
     rhs = right.detach().contiguous().view(torch.uint8).reshape(right.shape[0], -1)
@@ -282,16 +282,20 @@ def _identity_mismatch(
     if reference.routing_weights is None or candidate.routing_weights is None:
         if reference.routing_weights is not None or candidate.routing_weights is not None:
             return "routing_weights_presence_mismatch", 0
-    elif reference.routing_weights.shape != candidate.routing_weights.shape or not torch.equal(
-        reference.routing_weights, candidate.routing_weights
+    elif (
+        reference.routing_weights.shape != candidate.routing_weights.shape
+        or reference.routing_weights.dtype != candidate.routing_weights.dtype
+        or not torch.equal(reference.routing_weights, candidate.routing_weights)
     ):
-        index = _first_row_difference(reference.routing_weights, candidate.routing_weights)
-        return "routing_weights_mismatch", 0 if index is None else index
-    if reference.logits.shape != candidate.logits.shape or not torch.equal(
-        reference.logits, candidate.logits
+        row_index = _first_row_difference(reference.routing_weights, candidate.routing_weights)
+        return "routing_weights_mismatch", 0 if row_index is None else row_index
+    if (
+        reference.logits.shape != candidate.logits.shape
+        or reference.logits.dtype != candidate.logits.dtype
+        or not torch.equal(reference.logits, candidate.logits)
     ):
-        index = _first_row_difference(reference.logits, candidate.logits)
-        return "input_logits_mismatch", 0 if index is None else index
+        row_index = _first_row_difference(reference.logits, candidate.logits)
+        return "input_logits_mismatch", 0 if row_index is None else row_index
     return None
 
 

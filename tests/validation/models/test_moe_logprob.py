@@ -198,6 +198,19 @@ def test_routing_and_input_changes_report_the_first_changed_row():
     assert result["first_divergence"]["flat_index"] == 2
 
 
+@pytest.mark.parametrize("field", ["logits", "routing_weights"])
+def test_mixed_identity_dtypes_report_structured_mismatch(field):
+    case = _case()
+    changed = getattr(case, field).to(torch.float16)
+    changed[2] += 0.25
+    result = _compare(case, candidate_case=replace(case, **{field: changed}))
+    assert result["status"] == "invalid_identity"
+    assert result["first_divergence"]["reason"] in {
+        "input_logits_mismatch",
+        "routing_weights_mismatch",
+    }
+
+
 def test_rank_mapping_injection_is_localized():
     case = _case()
     changed = case.rank_indices.clone()
