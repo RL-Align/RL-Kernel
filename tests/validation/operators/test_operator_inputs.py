@@ -136,3 +136,19 @@ def test_constant_lm_head_inputs_match_operator_contract():
     assert torch.equal(inputs["weight"], torch.full((17, 128), 0.51))
     assert inputs["bias"] is None
     assert operator_shape_name("lm_head", args) == "1x2x128x17"
+
+
+def test_qwen3_6_partial_rope_packed_positions_and_gradient_spec():
+    """Packing resets positions per sequence and keeps coefficient tables FP32."""
+    args = _args(op="qwen3_6_partial_rope", batch=2, seq=3, n_heads=2, position_offset=5)
+    case = make_operator_case(args, torch.bfloat16, torch.device("cpu"))
+    candidate = make_candidate(argparse.Namespace(**{**vars(args), "candidate": "pytorch"}))
+    assert case.inputs["x"].shape == (6, 2, 256)
+    assert case.inputs["x"].dtype == torch.bfloat16
+    assert torch.equal(case.inputs["positions"], torch.tensor([5, 6, 7, 5, 6, 7]))
+    assert case.inputs["cos"].shape == case.inputs["sin"].shape == (8, 32)
+    assert case.inputs["cos"].dtype == case.inputs["sin"].dtype == torch.float32
+    assert case.grad_input_names == ("x",)
+    assert operator_shape_name("qwen3_6_partial_rope", args) == "6x2x256"
+    assert candidate.fn(**case.inputs).dtype == torch.bfloat16
+    assert case.gold_fn(**case.inputs).dtype == torch.float32

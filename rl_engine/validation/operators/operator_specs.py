@@ -210,6 +210,20 @@ OP_SPECS = {
         },
         grad_input_names=("x",),
     ),
+    "qwen3_6_partial_rope": OperatorSpec(
+        name="qwen3_6_partial_rope",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.rope.qwen3_6_partial_rope.NativeQwen3_6PartialRoPEOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.rope.qwen3_6_partial_rope.NativeQwen3_6PartialRoPEOp",
+            "triton": (
+                "rl_engine.backends.shared.triton.rope.qwen3_6_partial_rope."
+                "TritonQwen3_6PartialRoPEOp"
+            ),
+        },
+        grad_input_names=("x",),
+    ),
     "silu": OperatorSpec(
         name="silu",
         op_class="elementwise",
