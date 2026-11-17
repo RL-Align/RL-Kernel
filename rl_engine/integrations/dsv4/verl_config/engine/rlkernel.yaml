@@ -30,4 +30,12 @@ lora_seed: 42
 # Rows per FP32 logits chunk for the entropy metric
 entropy_chunk_rows: 1024
 
+# Ranks per expert-parallel group (a divisor of the world size; 1 = every rank holds every
+# routed expert). Attention stays data parallel.
+expert_parallel_size: 1
+
+# Per-layer activation recompute in training forwards: one [T, 4, H] tensor per layer
+# instead of its activations, one more forward per layer in the backward. Same bytes.
+activation_recompute: False
+
 seed: 42

@@ -17,10 +17,13 @@ data contract, without Ray: data-parallel ranks under torchrun, each with its ow
    byte, and the first step's grad norm (same adapters on both sides) to 1e-3 relative: the
    LoRA dX path rounds with the row count (design doc section 1). Later steps start from
    adapters that already differ by that rounding, so their norms are only printed.
+6. Activation recompute (``--recompute``): the same checks, and against a ``--dump`` of a
+   run without it the same ``--compare`` holds. Each training step prints its peak memory.
 
     torchrun --nproc-per-node 2 scripts/check_dsv4_verl_engine.py --model <dsv4 checkpoint>
     torchrun --nproc-per-node 2 scripts/check_dsv4_verl_engine.py --model M --dump D
     torchrun --nproc-per-node 2 scripts/check_dsv4_verl_engine.py --model M --ep 2 --compare D
+    torchrun --nproc-per-node 2 scripts/check_dsv4_verl_engine.py --model M --recompute --compare D
 """
 
 from __future__ import annotations
@@ -97,6 +100,7 @@ def main() -> int:
     ap.add_argument("--model", default=os.path.expanduser("~/dsv4-work/dsv4-toy256"))
     ap.add_argument("--rank", type=int, default=16)
     ap.add_argument("--ep", type=int, default=1, help="expert_parallel_size")
+    ap.add_argument("--recompute", action="store_true", help="activation_recompute")
     ap.add_argument("--dump", help="save this run's log-probs and grad norms here")
     ap.add_argument("--compare", help="check against a --dump of another run")
     args = ap.parse_args()
@@ -115,7 +119,11 @@ def main() -> int:
     engine = RlkernelEngine(
         model_config=model_config,
         engine_config=RlkEngineConfig(
-            lora_rank=args.rank, lora_alpha=32, lora_seed=3, expert_parallel_size=args.ep
+            lora_rank=args.rank,
+            lora_alpha=32,
+            lora_seed=3,
+            expert_parallel_size=args.ep,
+            activation_recompute=args.recompute,
         ),
         optimizer_config=FSDPOptimizerConfig(lr=2e-3, total_training_steps=10, clip_grad=1.0),
         checkpoint_config=None,
@@ -161,10 +169,16 @@ def main() -> int:
     norms = []
     for step in range(3):
         td, _ = make_batch(lens, vocab, 200 + 10 * step + rank, T, 1100, False)
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+        before = torch.cuda.memory_allocated()
         with engine.train_mode():
             out = engine.train_batch(td, loss_function=loss_fn)
         engine.lr_scheduler_step()
         norms.append(out["metrics"]["grad_norm"])
+        if rank == 0:
+            peak = (torch.cuda.max_memory_allocated() - before) / 2**30
+            print(f"step {step}: peak over the weights {peak:.2f} GiB (recompute {args.recompute})")
     if rank == 0:
         print("grad norms", [round(n, 4) for n in norms])
     check("grad norms finite and nonzero", all(n == n and 0 < n < float("inf") for n in norms))

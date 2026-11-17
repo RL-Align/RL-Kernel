@@ -91,6 +91,53 @@ class Dsv4DecoderLayer:
         y = self.moe.forward(x, None, input_ids if self.hash_routing else None)
         return mhc_post(y, streams, post, comb)
 
+    def lora_parameters(self) -> list[Tensor]:
+        """This layer's adapter tensors (``A`` and ``B``), attention first, then MoE."""
+        params = []
+        for ad in self.attn.w.lora.values():
+            params += [ad.a, ad.b]
+        return params + self.moe.lora_params()
+
+
+class _RecomputedLayer(torch.autograd.Function):
+    """One decoder layer with activation recompute (gradient checkpointing).
+
+    The forward runs :meth:`Dsv4DecoderLayer.forward_batch` without autograd and keeps only
+    the layer's input streams. The backward reruns :meth:`Dsv4DecoderLayer.forward_train` on
+    them and backpropagates through it. Every kernel is deterministic and batch-invariant,
+    so the rerun gives the first forward's bytes: the gradients are those of a plain
+    ``forward_train`` (up to the attention backward's own nondeterminism).
+
+    The rerun writes the layer's caches again, with the same rows (a full prefill only
+    overwrites). Under expert parallelism the rerun's MoE exchange is a collective again:
+    every rank of the group backpropagates the same layers in the same order.
+
+    ``lora_params`` are :meth:`Dsv4DecoderLayer.lora_parameters`, inputs so autograd
+    returns their gradients.
+    """
+
+    @staticmethod
+    def forward(ctx, streams, layer, batch, caches, input_ids, *lora_params):
+        ctx.layer, ctx.batch, ctx.caches, ctx.input_ids = layer, batch, caches, input_ids
+        ctx.save_for_backward(streams)
+        return layer.forward_batch(streams, batch, caches, input_ids)  # no grad in here
+
+    @staticmethod
+    def backward(ctx, dout):
+        (streams,) = ctx.saved_tensors
+        need_x = ctx.needs_input_grad[0]
+        params = ctx.layer.lora_parameters()
+        wanted = [p for p, need in zip(params, ctx.needs_input_grad[5:]) if need]
+        x = streams.detach().requires_grad_(need_x)
+        with torch.enable_grad():
+            y = ctx.layer.forward_train(x, ctx.batch, ctx.caches, ctx.input_ids)
+        grads = list(torch.autograd.grad(y, ([x] if need_x else []) + wanted, dout))
+        ctx.layer = ctx.batch = ctx.caches = ctx.input_ids = None
+        dx = grads.pop(0) if need_x else None
+        it = iter(grads)
+        dparams = [next(it) if need else None for need in ctx.needs_input_grad[5:]]
+        return (dx, None, None, None, None, *dparams)
+
 
 @dataclass
 class Dsv4Model:
@@ -169,12 +216,18 @@ class Dsv4Model:
         caches: list[LayerCaches],
         *,
         return_streams: bool = False,
+        recompute: bool = False,
     ):
         """Final hidden BF16 ``[T, H]`` under autograd, byte-equal to :meth:`forward_batch`.
 
         Full-prefill batches only (``seq_lens == query_lens``, fresh caches). Gradients
         reach the LoRA adapters (:meth:`lora_parameters`); the embedding and every base
         weight are frozen. ``return_streams`` also returns each layer's output streams.
+
+        ``recompute``: activation recompute per layer (:class:`_RecomputedLayer`). Autograd
+        then keeps one BF16 ``[T, 4, H]`` input per layer instead of every intermediate the
+        layer's backward reads, and the backward runs each layer's forward again. Same
+        forward bytes, same gradients; the caches stay alive until the backward.
         """
         from rl_engine.kernels.ops.cuda.mhc_dsv4 import hc_head
 
@@ -182,7 +235,12 @@ class Dsv4Model:
         streams = self.embed_streams(input_ids)
         per_layer = []
         for layer, cache in zip(self.layers, caches):
-            streams = layer.forward_train(streams, batch, cache, input_ids)
+            if recompute:
+                streams = _RecomputedLayer.apply(
+                    streams, layer, batch, cache, input_ids, *layer.lora_parameters()
+                )
+            else:
+                streams = layer.forward_train(streams, batch, cache, input_ids)
             if return_streams:
                 per_layer.append(streams)
         p = self.hc_head
@@ -191,12 +249,7 @@ class Dsv4Model:
 
     def lora_parameters(self) -> list[Tensor]:
         """Every LoRA adapter tensor (``A`` and ``B``) of every layer."""
-        params = []
-        for layer in self.layers:
-            for ad in layer.attn.w.lora.values():
-                params += [ad.a, ad.b]
-            params += layer.moe.lora_params()
-        return params
+        return [p for layer in self.layers for p in layer.lora_parameters()]
 
     def forward(self, input_ids: Tensor, seq_lens: list[int], query_lens: list[int], caches):
         """Convenience form: builds the step's :class:`Dsv4Batch` on the host."""

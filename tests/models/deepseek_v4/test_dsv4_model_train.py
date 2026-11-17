@@ -159,3 +159,50 @@ def test_lora_gradients_reach_every_adapter_and_agree_with_finite_differences(ha
                 assert a * b > 0, (a, b)
     finally:
         _clear(model)
+
+
+def _grads(model, inp, tgt, recompute: bool):
+    params = model.lora_parameters()
+    for p in params:
+        p.grad = None
+    batch = _batch(model)
+    caches = model.new_caches(len(LENS), MAX_LEN, seed=3)
+    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats()
+    before = torch.cuda.memory_allocated()
+    hidden = model.forward_train(inp, batch, caches, recompute=recompute)
+    model.selected_logprob(hidden, tgt)[0].sum().backward()
+    torch.cuda.synchronize()
+    peak = torch.cuda.max_memory_allocated() - before
+    return hidden.detach(), [p.grad.float().clone() for p in params], peak
+
+
+@pytest.mark.skipif(not _cudnn(), reason="cudnn-frontend DSA backward")
+def test_activation_recompute_same_bytes_same_gradients_less_memory(hash_model):
+    """``forward_train(recompute=True)``: the forward's bytes, the gradients of a plain
+    ``forward_train`` (to the attention backward's run-to-run noise: cuDNN's dKV atomics),
+    and a lower peak. Hash routing, so no top-k choice can depend on rounding noise."""
+    from rl_engine.models.deepseek_v4.model import attach_lora
+
+    model = hash_model
+    inp, tgt = _inputs(model, seed=4)
+    try:
+        attach_lora(model, rank=16, alpha=32, zero_b=False, seed=9)
+        h0, g0, peak0 = _grads(model, inp, tgt, recompute=False)
+        h1, g1, _ = _grads(model, inp, tgt, recompute=False)
+        h2, g2, peak2 = _grads(model, inp, tgt, recompute=True)
+        assert torch.equal(h2.view(torch.int16), h0.view(torch.int16))
+
+        def rel(a, b):
+            return max(float((x - y).norm() / y.norm().clamp_min(1e-30)) for x, y in zip(a, b))
+
+        noise, diff = rel(g1, g0), rel(g2, g0)
+        print(f"plain vs plain {noise:.2e}, recompute vs plain {diff:.2e}")
+        mib = 2**20
+        print(f"peak over the weights: plain {peak0 / mib:.0f} MiB, recompute {peak2 / mib:.0f}")
+        for g in g2:
+            assert torch.isfinite(g).all()
+        assert diff <= max(1e-3, 4 * noise), (diff, noise)
+        assert peak2 < peak0, (peak2, peak0)
+    finally:
+        _clear(model)

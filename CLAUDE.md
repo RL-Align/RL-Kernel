@@ -73,7 +73,7 @@ Design doc 10.1 has the pieces. Things that cost time:
   GPU (4 layers on H200).
 - The attention backward is not deterministic, so grad norms differ slightly run to run.
 
-## Status (2026-11-16) and next
+## Status (2026-11-17) and next
 
 - Done:
   - The kernel set (forward BI, LoRA training end to end; EP = 2 bitwise to EP = 1).
@@ -89,9 +89,14 @@ Design doc 10.1 has the pieces. Things that cost time:
 - Ready, not run: the rest of `scripts/verl_e2e_lora/` (W6), the 8-GPU guide against verl
   #7483 on the real checkpoint (first `LAYERS` layers). It includes the ablation run and
   needs a machine with 8 GPUs per job.
+- EP and memory (2026-11-17, real checkpoint's first 4 layers, H100):
+  - `rlkernel` engine at EP = 2 / 4 and the rollout plugin at DP = EP = 2 / 4: bitwise to
+    EP = 1. EP = 8 queued.
+  - Activation recompute (`rlkernel.activation_recompute`, `RECOMPUTE=1`): same bytes, held
+    activations 1.53 to 0.18 GiB per layer at 4096 tokens.
 - Open, roughly in order:
-  - `rlkernel` engine at EP > 1 and the rollout plugin at EP > 1, so the full 43-layer
-    model can run;
+  - verl GRPO at EP > 1 (the first run hung after `ray.init` in the container), then the
+    full 43-layer model on H200;
   - CUDA graphs in the rollout (eager today);
   - the layerwise gate on the real checkpoint beyond the first 4 layers;
   - the older `scripts/verl_e2e/README.md` guide (verl #7688 baseline, full-parameter).

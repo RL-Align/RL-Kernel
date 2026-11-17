@@ -9,7 +9,7 @@ table; this page links to them.
 - Hardware: NVIDIA H100 / H200 (SM90). ROCm and SM100 are out of scope.
 - Reference architecture: vLLM #54955 (`ISEEKYAN/vllm@1a6542c`, batch-invariant mode)
 - Integration target: verl. Rollout and actor recompute must run this kernel set.
-- Last updated: 2026-11-16
+- Last updated: 2026-11-17
 
 Contents:
 1. Goal and guarantees
@@ -543,6 +543,16 @@ verl and vLLM run unmodified; RL-Kernel plugs in through their extension points
   that config defined in `vllm_model.py`, so those processes import the plugin first.
 - The verdict is verl's own `training/rollout_logprobs_mismatch_count` (FP32 `!=` per
   response token; the `probs_diff` metrics miss 1-ulp differences).
+- Activation recompute (`actor.rlkernel.activation_recompute`, launcher `RECOMPUTE=1`;
+  off by default): `Dsv4Model.forward_train(recompute=True)` keeps one BF16 `[T, 4, H]`
+  input per layer and reruns the layer's forward in the backward. The forward is
+  deterministic and batch-invariant, so the rerun has the first forward's bytes and the
+  gradients are those without recompute (to the attention backward's run-to-run noise).
+  Real checkpoint, 4096 tokens, 1 x H100: held for the backward 1.53 GiB per layer without,
+  0.18 GiB with (the input streams and the layer's caches); peak over the weights 9.15 to
+  4.46 GiB for 4 layers. About 66 vs 8 GiB for 43 layers. verl's
+  `model.enable_gradient_checkpointing` is ignored. The first training forward also
+  allocates the persisted W8 experts (section 12), about 6 GiB per layer.
 
 Toy GRPO, 2 x H200, toy checkpoint, rank-16 LoRA on every target, 8 prompts x 4 samples x
 128 tokens, synthetic reward (the adapters move every step): `rollout_logprobs_mismatch_count`
@@ -575,8 +585,9 @@ gate on one device.
 
 Open, needs the multi-GPU machine:
 
-- [ ] EP = 4 / 8 with real collectives; DeepEP (`zhuzilin/DeepEP@align_fp8_quantization`)
-      transport with the same bytes, fixed-capacity staging, route-metadata capture.
+- [ ] EP = 8 with real collectives (EP = 2 / 4 done, see below); DeepEP
+      (`zhuzilin/DeepEP@align_fp8_quantization`) transport with the same bytes,
+      fixed-capacity staging, route-metadata capture.
 - [x] vLLM rollout plugin (section 10): bitwise equal to `Dsv4Model` on one GPU, with LoRA.
 - [x] verl integration (user decision 2026-11-15: the actor is a verl engine backend on
       `Dsv4Model`, not Megatron; verl and Megatron stay unmodified): engine backend,
@@ -586,11 +597,20 @@ Open, needs the multi-GPU machine:
       negative control, the #7483 launcher on the same workload, `compare.py`); not run yet.
 - [x] The rollout's BI-off switch for the ablation (section 10; rollout side only, the
       actor's kernels have no non-invariant variant). In the 8-GPU guide as `run.sh ablation`.
-- [ ] `rlkernel` engine at EP > 1 (MoE LoRA across EP ranks), parameter offload, CUDA
-      graphs in the rollout; persisted W8 expert weights cost E x N x K bytes per weight in
-      both the actor and the rollout (check the memory budget on the real checkpoint).
-- [ ] Rollout plugin at EP = 2 (vLLM DP attention + EP MoE), with CUDA graphs, and on the
-      real checkpoint.
+- [x] `rlkernel` engine at EP > 1 (`expert_parallel_size`; groups of consecutive ranks;
+      routed-adapter gradients divided by E before the data-parallel average): EP = 2, 4
+      and 2 x 2 groups give the zero-B log-probs of EP = 1 byte for byte and its first
+      grad norm to 1e-3 (real checkpoint, first 4 layers, H100, 2026-11-17). EP = 8 queued.
+- [x] Activation recompute in the engine (section 10.1), checked on the real checkpoint.
+- [ ] verl at EP > 1 (`ACTOR_EP`, `ROLLOUT_DP` in the launcher): the first 2-GPU run hung
+      after `ray.init` (first Ray run in the cluster's container), being debugged.
+- [ ] Parameter offload, CUDA graphs in the rollout; persisted W8 expert weights cost
+      E x N x K bytes per weight in both the actor and the rollout (check the memory
+      budget on the real checkpoint).
+- [x] Rollout plugin at EP > 1 (vLLM DP attention + EP MoE, `--dp N` in
+      `scripts/check_dsv4_vllm_gate.py`) on the real checkpoint's first 4 layers: DP 2 and
+      DP 4 bitwise equal to `Dsv4Model`, with and without LoRA (2026-11-17). EP = 8 queued.
+- [ ] Rollout plugin with CUDA graphs.
 - [ ] Baseline first: verl + vLLM batch-invariant (verl #7688) end to end on 8 Hopper GPUs,
       bitwise and speed (`scripts/verl_e2e/README.md`, a guide for another machine; not run yet).
 - [ ] Layerwise gate on the real checkpoint

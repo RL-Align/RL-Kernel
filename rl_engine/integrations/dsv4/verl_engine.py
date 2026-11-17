@@ -43,6 +43,9 @@ by every expert) get their gradients summed over the EP group inside the MoE bac
 are divided by E before the data-parallel average, so every adapter's gradient is the
 world average. EP changes no forward byte (``Dsv4MoE``; ``scripts/check_dsv4_moe_ep.py``).
 
+Memory: ``activation_recompute`` keeps one tensor per layer for the backward instead of the
+layer's activations (``Dsv4Model.forward_train``).
+
 Limits: no TP / PP / CP, LoRA only (base weights frozen), no parameter offload,
 ``use_remove_padding`` inputs.
 """
@@ -78,7 +81,10 @@ class RlkEngineConfig(EngineConfig):
     ``lora_shared_expert``: which adapters :func:`attach_lora` creates. ``lora_seed``:
     their initialization seed. ``entropy_chunk_rows``: rows per FP32 logits chunk for the
     entropy metric. ``expert_parallel_size``: ranks per expert-parallel group (a divisor of
-    the world size; 1 = every rank holds every expert).
+    the world size; 1 = every rank holds every expert). ``activation_recompute``: per-layer
+    activation recompute in training forwards (``Dsv4Model.forward_train``): one BF16
+    ``[T, 4, H]`` tensor per layer instead of the layer's activations, for one more forward
+    per layer in the backward. Changes no forward byte.
     """
 
     strategy: str = BACKEND
@@ -90,6 +96,7 @@ class RlkEngineConfig(EngineConfig):
     lora_seed: int = 0
     entropy_chunk_rows: int = 1024
     expert_parallel_size: int = 1
+    activation_recompute: bool = False
 
     def __post_init__(self):
         assert self.strategy == BACKEND, f"strategy {self.strategy} is not {BACKEND}"
@@ -320,7 +327,8 @@ class RlkernelEngine(BaseEngine):
         if forward_only or not torch.is_grad_enabled():
             hidden = model.forward_batch(ids, batch, caches)
         else:
-            hidden = model.forward_train(ids, batch, caches)
+            recompute = self.engine_config.activation_recompute
+            hidden = model.forward_train(ids, batch, caches, recompute=recompute)
         del caches
 
         temps = _temperatures(mb, len(lens))
