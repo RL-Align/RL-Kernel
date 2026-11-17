@@ -8,6 +8,7 @@ import types
 import pytest
 import torch
 
+from rl_engine.backends.cuda.gemm.det_gemm import _EXT_AVAILABLE as _STRICT_GEMM_AVAILABLE
 from rl_engine.integrations.common.state import clear_active_integration, get_active_integration
 from rl_engine.integrations.orchestrators.miles import install as install_module
 from rl_engine.integrations.orchestrators.miles.config import MilesConfig
@@ -130,7 +131,7 @@ def test_rl_kernel_logprob_records_hook_and_readback_file(monkeypatch, tmp_path)
     assert files[0].name.startswith("megatron-training-")
 
 
-@pytest.mark.skipif(torch.cuda.is_available(), reason="strict GEMM extension is available")
+@pytest.mark.skipif(_STRICT_GEMM_AVAILABLE, reason="strict GEMM extension is available")
 def test_rl_kernel_attention_install_fails_closed_without_extension():
     plan = IntegrationPlan.from_case_ids(attention="R/P", ffn="P/P", logp="P/P")
 
@@ -166,23 +167,30 @@ def test_callback_arguments_declare_every_config_field():
     assert all(action.default is None for action in actions)
 
 
-def test_custom_megatron_init_reads_callback_config(monkeypatch):
+def test_custom_megatron_init_passes_callback_plan_to_the_installer(monkeypatch):
     seen = []
 
-    def fake_initialize(args):
-        seen.append(args)
+    def fake_initialize(args, *, plan=None, readback_dir=None):
+        seen.append((args, plan, readback_dir))
         return "installed"
 
     monkeypatch.setattr(install_module, "initialize_from_environment", fake_initialize)
+    monkeypatch.setenv("RL_KERNEL_MILES_INTEGRATION", "0")
+    monkeypatch.setenv("RL_KERNEL_ATTENTION_CASE", "P/P")
     args = _callback_args(
         rl_kernel_miles_enabled="1",
-        rl_kernel_attention_case="P/P",
+        rl_kernel_attention_case="R/P",
         rl_kernel_ffn_case="P/P",
-        rl_kernel_logp_case="P/P",
+        rl_kernel_logp_case="R/R",
+        rl_kernel_readback_dir=" /tmp/from-callback ",
     )
 
     assert custom_megatron_init(args) == "installed"
-    assert seen == [args]
+    ((seen_args, plan, readback_dir),) = seen
+    assert seen_args is args
+    assert plan.cases["attention"].case_id == "R/P"
+    assert plan.cases["logp"].case_id == "R/R"
+    assert readback_dir == "/tmp/from-callback"
 
 
 def test_custom_megatron_init_callback_flag_overrides_environment(monkeypatch):

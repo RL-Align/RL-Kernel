@@ -59,7 +59,11 @@ def custom_megatron_init(args: Any = None) -> Any:
     if not config.enabled:
         logger.info("miles integration disabled; Megatron worker stays native")
         return None
-    return initialize_from_environment(args)
+    return initialize_from_environment(
+        args,
+        plan=config.plan,
+        readback_dir=config.readback_dir,
+    )
 
 
 setattr(custom_megatron_init, "add_arguments", callback_arguments)
@@ -83,6 +87,7 @@ def install_from_config(
         config.plan,
         attention_classes=attention_classes,
         ffn_classes=ffn_classes,
+        readback_dir=config.readback_dir,
     )
     logger.info(
         "miles integration installed: plan=%s readback_dir=%s",

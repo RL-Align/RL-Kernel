@@ -183,3 +183,19 @@ def test_resolve_empty_callback_readback_disables_it(monkeypatch):
     config = MilesConfig.resolve(_callback_args(rl_kernel_readback_dir=""))
 
     assert config.readback_dir is None
+
+
+def test_resolve_strips_callback_readback():
+    config = MilesConfig.resolve(_callback_args(rl_kernel_readback_dir=" /tmp/dir "))
+
+    assert config.readback_dir == "/tmp/dir"
+
+
+def test_resolve_disabled_ignores_invalid_case(monkeypatch):
+    monkeypatch.setenv("RL_KERNEL_MILES_INTEGRATION", "0")
+    monkeypatch.setenv("RL_KERNEL_ATTENTION_CASE", "invalid")
+
+    config = MilesConfig.resolve(None)
+
+    assert config.enabled is False
+    assert config.plan.cases["attention"].case_id == "P/P"

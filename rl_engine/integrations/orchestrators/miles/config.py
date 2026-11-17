@@ -51,7 +51,7 @@ class MilesConfig:
                 source="RL_KERNEL_MILES_INTEGRATION",
             ),
             plan=integration_plan_from_environment(),
-            readback_dir=os.getenv("RL_KERNEL_READBACK_DIR") or None,
+            readback_dir=os.getenv("RL_KERNEL_READBACK_DIR", "").strip() or None,
         )
 
     @classmethod
@@ -61,19 +61,10 @@ class MilesConfig:
         Miles merges ``custom_megatron_init_path.config`` into the callback args after
         validating it against the fields declared by ``add_arguments``, so those fields
         reach every worker through the orchestration config instead of process
-        inheritance.  A field left out of the callback config falls back to its
+        inheritance. A field left out of the callback config falls back to its
         environment variable, which keeps local debugging independent of Miles.
         """
         enabled_value = _callback_value(args, CALLBACK_ENABLED_FIELD)
-        readback_value = _callback_value(args, CALLBACK_READBACK_FIELD)
-        cases: dict[str, str] = {}
-        for module, field in CALLBACK_CASE_FIELDS.items():
-            value = _callback_value(args, field)
-            cases[module] = (
-                str(value)
-                if value is not None
-                else os.getenv(f"RL_KERNEL_{module.upper()}_CASE", "P/P")
-            )
         enabled = (
             parse_flag(enabled_value, source=CALLBACK_ENABLED_FIELD)
             if enabled_value is not None
@@ -82,13 +73,29 @@ class MilesConfig:
                 source="RL_KERNEL_MILES_INTEGRATION",
             )
         )
-        readback_dir = (
-            (str(readback_value) or None)
-            if readback_value is not None
-            else (os.getenv("RL_KERNEL_READBACK_DIR") or None)
-        )
+        readback_value = _callback_value(args, CALLBACK_READBACK_FIELD)
+        if readback_value is not None:
+            readback_dir = str(readback_value).strip() or None
+        else:
+            readback_dir = os.getenv("RL_KERNEL_READBACK_DIR", "").strip() or None
+        if not enabled:
+            # A disabled worker never installs, so an invalid case setting must not
+            # keep it from starting.
+            return cls(
+                enabled=False,
+                plan=IntegrationPlan.from_case_ids(),
+                readback_dir=readback_dir,
+            )
+        cases: dict[str, str] = {}
+        for module, field in CALLBACK_CASE_FIELDS.items():
+            value = _callback_value(args, field)
+            cases[module] = (
+                str(value)
+                if value is not None
+                else os.getenv(f"RL_KERNEL_{module.upper()}_CASE", "P/P")
+            )
         return cls(
-            enabled=enabled,
+            enabled=True,
             plan=IntegrationPlan.from_case_ids(
                 attention=cases["attention"],
                 ffn=cases["ffn"],

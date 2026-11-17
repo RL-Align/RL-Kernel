@@ -18,12 +18,14 @@ class MegatronIntegration(FrameworkOperatorIntegration):
         plan: IntegrationPlan,
         *,
         rl_kernel_operators: Mapping[str, Callable[..., Any]],
+        readback_dir: str | None = None,
     ) -> None:
         super().__init__(
             framework="megatron",
             target="training",
             plan=plan,
             rl_kernel_operators=rl_kernel_operators,
+            readback_dir=readback_dir,
         )
 
     def attention(self, native: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
