@@ -602,8 +602,15 @@ Open, needs the multi-GPU machine:
       and 2 x 2 groups give the zero-B log-probs of EP = 1 byte for byte and its first
       grad norm to 1e-3 (real checkpoint, first 4 layers, H100, 2026-11-17). EP = 8 queued.
 - [x] Activation recompute in the engine (section 10.1), checked on the real checkpoint.
-- [ ] verl at EP > 1 (`ACTOR_EP`, `ROLLOUT_DP` in the launcher): the first 2-GPU run hung
-      after `ray.init` (first Ray run in the cluster's container), being debugged.
+- [x] verl at EP > 1 (`ACTOR_EP`, `ROLLOUT_DP` in the launcher): actor EP 2 / rollout DP 2
+      and actor EP 4 / rollout DP 4 on H100, real checkpoint's first 4 layers, 3 GRPO steps:
+      `rollout_logprobs_mismatch_count` and `actor/old_logprobs_mismatch_count` 0 at every
+      step (2026-11-17).
+- [ ] verl on 8 GPUs of one node where the per-user thread limit is 2048 (`ulimit -u`, this
+      cluster): peak 1227 threads at 2 GPUs and 1817 at 4 after the launcher's thread budget
+      (Ray, OMP), about 190 more per GPU (actor, vLLM worker, engine core), plus native
+      threads in verl's TaskRunner / agent-loop workers that grow with the allocation's CPU
+      count (source not found). 8 GPUs need a higher limit or two nodes.
 - [ ] Parameter offload, CUDA graphs in the rollout; persisted W8 expert weights cost
       E x N x K bytes per weight in both the actor and the rollout (check the memory
       budget on the real checkpoint).

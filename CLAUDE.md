@@ -95,8 +95,9 @@ Design doc 10.1 has the pieces. Things that cost time:
   - Activation recompute (`rlkernel.activation_recompute`, `RECOMPUTE=1`): same bytes, held
     activations 1.53 to 0.18 GiB per layer at 4096 tokens.
 - Open, roughly in order:
-  - verl GRPO at EP > 1 (the first run hung after `ray.init` in the container), then the
-    full 43-layer model on H200;
+  - verl GRPO at EP 2 and 4 is bitwise (H100, 3 steps). 8 GPUs on one node exceed this
+    cluster's per-user thread limit (2048; design doc section 12): a higher limit or two
+    nodes, then the full 43-layer model on H200;
   - CUDA graphs in the rollout (eager today);
   - the layerwise gate on the real checkpoint beyond the first 4 layers;
   - the older `scripts/verl_e2e/README.md` guide (verl #7688 baseline, full-parameter).
