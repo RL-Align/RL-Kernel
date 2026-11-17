@@ -1155,7 +1155,10 @@ class KernelRegistry:
             capability = platform_capabilities.get(backend)
             if capability is None:
                 rejected.append(f"{backend.name}: no LogprobBackendCapability declared")
-                capability_rejections += 1
+                # Without a declared capability there is no backend_id or
+                # implementation_kind, so any explicit request excludes it.
+                if requested_backend.lower() == "auto":
+                    capability_rejections += 1
                 continue
             policy_mismatch = self._logprob_policy_mismatch(requested_backend, capability)
             if policy_mismatch is not None:
