@@ -33,8 +33,18 @@ verl sees no LoRA (``model.lora_rank`` 0): the reference policy, when a KL term 
 is a separate ``rlkernel`` engine without adapters (``ref/rlkernel_ref.yaml``), and the
 rollout's sleep keeps its weights (``vllm_worker.py``).
 
-Limits: data parallel only (every rank holds the whole model; no EP / TP / PP / CP), LoRA
-only (base weights frozen), no parameter offload, ``use_remove_padding`` inputs.
+Parallelism: data parallel attention with expert parallel MoE. ``expert_parallel_size``
+E splits the world into groups of E consecutive ranks; each group holds every routed
+expert once (rank r of a group keeps experts ``[r * N / E, (r + 1) * N / E)``), and every
+other weight is replicated. verl sees a data-parallel group of the whole world. The MoE
+exchange is a collective of the EP group, so every rank of a group runs the same number of
+forwards (verl's ``same_micro_num_in_dp`` micro-batching). The routed adapters (one shared
+by every expert) get their gradients summed over the EP group inside the MoE backward; they
+are divided by E before the data-parallel average, so every adapter's gradient is the
+world average. EP changes no forward byte (``Dsv4MoE``; ``scripts/check_dsv4_moe_ep.py``).
+
+Limits: no TP / PP / CP, LoRA only (base weights frozen), no parameter offload,
+``use_remove_padding`` inputs.
 """
 
 from __future__ import annotations
@@ -67,7 +77,8 @@ class RlkEngineConfig(EngineConfig):
     the adapters on the plugin instead). ``lora_attention`` / ``lora_moe`` /
     ``lora_shared_expert``: which adapters :func:`attach_lora` creates. ``lora_seed``:
     their initialization seed. ``entropy_chunk_rows``: rows per FP32 logits chunk for the
-    entropy metric.
+    entropy metric. ``expert_parallel_size``: ranks per expert-parallel group (a divisor of
+    the world size; 1 = every rank holds every expert).
     """
 
     strategy: str = BACKEND
@@ -78,6 +89,7 @@ class RlkEngineConfig(EngineConfig):
     lora_shared_expert: bool = True
     lora_seed: int = 0
     entropy_chunk_rows: int = 1024
+    expert_parallel_size: int = 1
 
     def __post_init__(self):
         assert self.strategy == BACKEND, f"strategy {self.strategy} is not {BACKEND}"
@@ -135,6 +147,9 @@ class RlkernelEngine(BaseEngine):
         self.optimizer = None
         self.lr_scheduler = None
         self._lora_off = False
+        self.ep_group = None
+        self.ep_size = 1
+        self._routed: list[int] = []  # master indices of the routed (EP-summed) adapters
 
     # ------------------------------------------------------------------ setup
     @property
@@ -167,8 +182,9 @@ class RlkernelEngine(BaseEngine):
                 "(which turns on vLLM's own LoRA in the rollout)"
             )
         torch.cuda.set_device(self.device)
+        self._init_expert_parallel(cfg.expert_parallel_size)
         path = self.model_config.local_path or self.model_config.path
-        self.model = load_model(path, device=self.device)
+        self.model = load_model(path, device=self.device, ep_group=self.ep_group)
         rank = cfg.lora_rank
         if rank <= 0:
             if not cfg.forward_only:
@@ -185,6 +201,12 @@ class RlkernelEngine(BaseEngine):
             zero_b=True,
         )
         self.adapters = named_adapters(self.model)
+        self._routed = []
+        i = 0
+        for name, _ in self.adapters:
+            if name.endswith((".moe.fc1", ".moe.fc2")):
+                self._routed += [i, i + 1]  # A, B (lora_parameters order)
+            i += 2
         self.master = []
         for p in self.model.lora_parameters():
             m = p.detach().float().clone()
@@ -195,6 +217,18 @@ class RlkernelEngine(BaseEngine):
 
             self.optimizer = build_optimizer(self.master, self.optimizer_config)
             self.lr_scheduler = self._build_lr_scheduler(self.optimizer)
+
+    def _init_expert_parallel(self, ep: int) -> None:
+        world, rank = dist.get_world_size(), dist.get_rank()
+        if ep < 1 or world % ep:
+            raise ValueError(f"expert_parallel_size {ep} does not divide the world size {world}")
+        self.ep_size = ep
+        if ep == 1:
+            return
+        for start in range(0, world, ep):  # every rank creates every group
+            group = dist.new_group(list(range(start, start + ep)))
+            if start <= rank < start + ep:
+                self.ep_group = group
 
     def _build_lr_scheduler(self, optimizer):
         from verl.utils.torch_functional import (
@@ -358,6 +392,10 @@ class RlkernelEngine(BaseEngine):
 
     def optimizer_step(self):
         grads = [m.grad for m in self.master]
+        if self.ep_size > 1:
+            # Summed over the EP group in the MoE backward: make them per-rank like the rest.
+            for i in self._routed:
+                grads[i].div_(self.ep_size)
         if self.get_data_parallel_size() > 1:
             flat = torch.cat([g.flatten() for g in grads])
             dist.all_reduce(flat, op=dist.ReduceOp.AVG, group=self.get_data_parallel_group())

@@ -10,8 +10,17 @@ data contract, without Ray: data-parallel ranks under torchrun, each with its ow
 3. After training, (1) still holds (nonzero adapters).
 4. ``get_per_tensor_param`` exports the adapters' bytes; a checkpoint round trip restores
    the log-probs byte for byte.
+5. Expert parallelism (``--ep E``): the same checks with the routed experts split over
+   groups of E ranks. Every rank gets the same number of sequences, since each forward is
+   a collective of the EP group. ``--dump DIR`` saves a run's log-probs and grad norms;
+   ``--compare DIR`` checks another run against them: the zero-B (base) log-probs byte for
+   byte, and the first step's grad norm (same adapters on both sides) to 1e-3 relative: the
+   LoRA dX path rounds with the row count (design doc section 1). Later steps start from
+   adapters that already differ by that rounding, so their norms are only printed.
 
     torchrun --nproc-per-node 2 scripts/check_dsv4_verl_engine.py --model <dsv4 checkpoint>
+    torchrun --nproc-per-node 2 scripts/check_dsv4_verl_engine.py --model M --dump D
+    torchrun --nproc-per-node 2 scripts/check_dsv4_verl_engine.py --model M --ep 2 --compare D
 """
 
 from __future__ import annotations
@@ -87,6 +96,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=os.path.expanduser("~/dsv4-work/dsv4-toy256"))
     ap.add_argument("--rank", type=int, default=16)
+    ap.add_argument("--ep", type=int, default=1, help="expert_parallel_size")
+    ap.add_argument("--dump", help="save this run's log-probs and grad norms here")
+    ap.add_argument("--compare", help="check against a --dump of another run")
     args = ap.parse_args()
 
     dist.init_process_group("nccl")
@@ -102,13 +114,17 @@ def main() -> int:
     )
     engine = RlkernelEngine(
         model_config=model_config,
-        engine_config=RlkEngineConfig(lora_rank=args.rank, lora_alpha=32, lora_seed=3),
+        engine_config=RlkEngineConfig(
+            lora_rank=args.rank, lora_alpha=32, lora_seed=3, expert_parallel_size=args.ep
+        ),
         optimizer_config=FSDPOptimizerConfig(lr=2e-3, total_training_steps=10, clip_grad=1.0),
         checkpoint_config=None,
     )
     engine.initialize()
     vocab = engine.model.config.vocab_size
-    lens = [300, 140, 517, 64, 1000, 33] if rank == 0 else [77, 410, 256, 900, 129]
+    # The same count on every rank: alone() runs one forward per sequence, a collective of
+    # the EP group.
+    lens = [300, 140, 517, 64, 1000, 33] if rank == 0 else [77, 410, 256, 900, 129, 48]
     T = 0.8
     ok = True
 
@@ -190,6 +206,19 @@ def main() -> int:
     engine.load_checkpoint(path[0])
     back, _ = infer(engine, make_batch(lens, vocab, 100 + rank, T, 1 << 16)[0])
     check("checkpoint round trip", same(back, trained) and not same(moved, trained))
+
+    record = {"base": [t.cpu() for t in base], "norms": norms}
+    if args.dump:
+        os.makedirs(args.dump, exist_ok=True)
+        torch.save(record, os.path.join(args.dump, f"rank{rank}.pt"))
+    if args.compare:
+        ref = torch.load(os.path.join(args.compare, f"rank{rank}.pt"), weights_only=False)
+        check(f"EP {args.ep}: zero-B log-probs == the dump's", same(record["base"], ref["base"]))
+        rel = [abs(a - b) / abs(b) for a, b in zip(norms, ref["norms"])]
+        if rank == 0:
+            print(f"grad norms vs the dump {[round(n, 4) for n in ref['norms']]}: relative")
+            print("  " + ", ".join(f"{r:.2e}" for r in rel))
+        check(f"EP {args.ep}: first grad norm == the dump's to 1e-3", rel[0] < 1e-3)
 
     if rank == 0:
         print("VERL ENGINE", "PASS" if ok else "FAIL")
