@@ -338,8 +338,11 @@ class RlkernelEngine(BaseEngine):
         for lo in range(0, h.shape[0], step):
             hi = min(h.shape[0], lo + step)
             z = head_logits(h[lo:hi], head) / per_token[lo:hi, None]
+            # Shifted by the row max: a trained model's peaked rows otherwise lose H to the
+            # cancellation in lse - sum(p z). H >= 0; FP32 rounding can still land below 0.
+            z = z - z.amax(dim=-1, keepdim=True)
             p = torch.softmax(z, dim=-1)
-            out[lo:hi] = torch.logsumexp(z, dim=-1) - (p * z).sum(-1)
+            out[lo:hi] = (torch.logsumexp(z, dim=-1) - (p * z).sum(-1)).clamp_min_(0.0)
         return out
 
     # -------------------------------------------------------------- optimizer

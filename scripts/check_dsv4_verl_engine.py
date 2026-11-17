@@ -132,8 +132,11 @@ def main() -> int:
         mixed, _ = infer(engine, make_batch(lens, vocab, 100 + rank, temps, 1 << 16)[0])
         check(f"[{tag}] per-sample temperatures", same(mixed, alone(engine, ids, temps)))
         ent = out["model_output"]["entropy"].values()
-        good = bool(torch.isfinite(ent).all() and (ent > 0).all())
-        check(f"[{tag}] entropy finite, positive", good)
+        # >= 0, not > 0: on a trained checkpoint a peaked row's entropy is 0 in FP32.
+        good = bool(torch.isfinite(ent).all() and (ent >= 0).all())
+        if rank == 0:
+            print(f"entropy [{tag}] min {ent.min().item():.3e} max {ent.max().item():.3e}")
+        check(f"[{tag}] entropy finite, non-negative", good)
         return one
 
     base = invariance("zero-B adapters")

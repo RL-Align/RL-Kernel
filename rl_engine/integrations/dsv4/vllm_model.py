@@ -67,6 +67,7 @@ import dataclasses
 import functools
 import os
 import pathlib
+import re
 import sys
 import types
 from itertools import islice
@@ -732,7 +733,18 @@ class RlkDeepseekV4ForCausalLM(vm.DeepseekV4ForCausalLM):
         """vLLM loads everything but the MoE blocks; RL-Kernel then loads those from the
         checkpoint directory (this rank's experts) and installs the test adapters, if any."""
         skip = (".ffn.", ".attn.wo_a.", ".attn.wo_b.")
-        loaded = super().load_weights((n, w) for n, w in weights if not any(k in n for k in skip))
+        n_layers = self.config.num_hidden_layers
+        layer = re.compile(r"(?:^|\.)layers\.(\d+)\.")
+
+        def keep(name):
+            # A view of the first N layers (config edited, shards shared) also holds the
+            # later layers' tensors, which vLLM's loader has no parameter for.
+            m = layer.search(name)
+            if m is not None and int(m.group(1)) >= n_layers:
+                return False
+            return not any(k in name for k in skip)
+
+        loaded = super().load_weights((n, w) for n, w in weights if keep(n))
         with _float32_default():
             self.model.rlk_load()
             self._rlk_test_lora()
