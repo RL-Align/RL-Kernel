@@ -213,6 +213,21 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
             )
         return result
 
+    def forward_step(self, batch_iter, model, logits_processor_func, postprocess_micro_batch_func):
+        from verl.utils import tensordict_utils as tu
+        from rl_engine.ops.autograd.canonical_backward import active_session
+
+        batch = next(batch_iter)
+        session = active_session()
+        if session is not None:
+            count = tu.get_non_tensor_data(batch, key="num_micro_batch", default=None)
+            if type(count) is not int:
+                raise RuntimeError("native schedule must declare the actual microbatch count")
+            session.expect_uses(count)
+        return super().forward_step(
+            iter((batch,)), model, logits_processor_func, postprocess_micro_batch_func
+        )
+
     def _lm_head_logits_processor(self, logits, label, temperature, **kwargs):
         model = self._rlk_models[0]
         with model._rlk_p1.request(self.rlk_weight_version):

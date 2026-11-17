@@ -3,21 +3,7 @@
 
 import torch
 
-
-class _Gemm(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, weight):
-        ctx.save_for_backward(x, weight)
-        return torch.mm(x, weight.T, out_dtype=torch.float32)
-
-    @staticmethod
-    def backward(ctx, dy):
-        x, weight = ctx.saved_tensors
-        # The pinned mm(out_dtype=FP32) overload has no autograd derivative.
-        # Preserve the FP32 upstream gradient before each original BF16 leaf.
-        dx = torch.mm(dy.float(), weight.float()).to(x.dtype) if ctx.needs_input_grad[0] else None
-        dw = torch.mm(dy.float().T, x.float()).to(weight.dtype) if ctx.needs_input_grad[1] else None
-        return dx, dw
+from rl_engine.backends.rocm.attention.compressor_projection import compressor_projection
 
 
 class CompressorProjectionFP32(torch.nn.Module):
@@ -34,12 +20,12 @@ class CompressorProjectionFP32(torch.nn.Module):
         if kwargs or x.dtype != torch.bfloat16:
             raise ValueError("compressor GEMM requires original BF16 operands")
         shape = x.shape
-        y = _Gemm.apply(x.reshape(-1, shape[-1]).contiguous(), self.weight)
+        y = compressor_projection(x.reshape(-1, shape[-1]).contiguous(), self.weight)
         if not hasattr(self, "_executed"):
             print(
                 "RLK_NATIVE_COMPRESSOR_FP32_EXECUTED",
                 __file__,
-                "torch.mm BF16 operands, FP32 output",
+                "fixed no-split FP32 GEMM; original BF16 operands",
                 flush=True,
             )
             self._executed = True

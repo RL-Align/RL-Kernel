@@ -1,0 +1,26 @@
+{
+  "tag": "rlk/dsv4-4l-rocm:grpo-stress",
+  "id": "sha256:f3bf76c2d3863bf5b3f6a912d106a6eb2042ad9898c54f60b1e9015d6aeb225f",
+  "source_shas": {
+    "RL-Kernel": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+    "verl": "8196af485ae50e09aa42c1fc6e399f266fb166d3"
+  },
+  "base_tag": "rlk/dsv4-4l-rocm:306c0ba-verl-grpo-0d5a434",
+  "base_id": "sha256:c426b78eff37ff3830829bd53e23d8adb1f570321d46f156c940037fc469a968",
+  "build_command": [
+    "docker",
+    "build",
+    "--network=none",
+    "--pull=false",
+    "--progress=plain",
+    "--build-arg",
+    "BASE_IMAGE=rlk/dsv4-4l-rocm:306c0ba-verl-grpo-0d5a434",
+    "--build-arg",
+    "RLK_SHA=478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+    "--build-arg",
+    "VERL_SHA=8196af485ae50e09aa42c1fc6e399f266fb166d3",
+    "-t",
+    "rlk/dsv4-4l-rocm:grpo-stress",
+    "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/build/stress-code"
+  ]
+}

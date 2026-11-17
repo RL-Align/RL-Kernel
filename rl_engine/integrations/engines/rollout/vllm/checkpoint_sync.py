@@ -76,7 +76,13 @@ def verify_loaded_update(wrapper, payload, loaded):
             raise RuntimeError(
                 f"rollout parameter readback differs from actor bytes: {logical_name}"
             )
-        checked[logical_name] = dict(parameter=actual_name, shard=shard, sha256=declared["sha256"])
+        checked[logical_name] = dict(
+            parameter=actual_name,
+            shard=shard,
+            sha256=declared["sha256"],
+            dtype=str(actual.dtype),
+            shape=list(actual.shape),
+        )
         expected_loaded.add(actual_name)
     if set(loaded) != expected_loaded:
         raise RuntimeError(

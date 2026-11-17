@@ -1,0 +1,118 @@
+{
+  "task": "Exact text copying; normalized character Levenshtein similarity to the explicitly supplied reference.",
+  "source": "Deterministic six instruction/reference pairs, constructed for functional integration, not a benchmark or training-benefit claim.",
+  "rows": [
+    {
+      "data_source": "rlk/exact-copy",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Copy this text exactly, without any explanation:\nthe quick brown fox jumps over the lazy dog"
+        }
+      ],
+      "ability": "text-copy",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "the quick brown fox jumps over the lazy dog"
+      },
+      "extra_info": {
+        "index": 0,
+        "split": "train"
+      }
+    },
+    {
+      "data_source": "rlk/exact-copy",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Copy this text exactly, without any explanation:\npack my box with five dozen liquor jugs"
+        }
+      ],
+      "ability": "text-copy",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "pack my box with five dozen liquor jugs"
+      },
+      "extra_info": {
+        "index": 1,
+        "split": "train"
+      }
+    },
+    {
+      "data_source": "rlk/exact-copy",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Copy this text exactly, without any explanation:\na red balloon floats above the green field"
+        }
+      ],
+      "ability": "text-copy",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "a red balloon floats above the green field"
+      },
+      "extra_info": {
+        "index": 2,
+        "split": "train"
+      }
+    },
+    {
+      "data_source": "rlk/exact-copy",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Copy this text exactly, without any explanation:\nthe small bird sings a cheerful song"
+        }
+      ],
+      "ability": "text-copy",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "the small bird sings a cheerful song"
+      },
+      "extra_info": {
+        "index": 3,
+        "split": "train"
+      }
+    },
+    {
+      "data_source": "rlk/exact-copy",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Copy this text exactly, without any explanation:\nbring the blue book to the quiet room"
+        }
+      ],
+      "ability": "text-copy",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "bring the blue book to the quiet room"
+      },
+      "extra_info": {
+        "index": 4,
+        "split": "train"
+      }
+    },
+    {
+      "data_source": "rlk/exact-copy",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Copy this text exactly, without any explanation:\nwe walked along the river before sunset"
+        }
+      ],
+      "ability": "text-copy",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "we walked along the river before sunset"
+      },
+      "extra_info": {
+        "index": 5,
+        "split": "train"
+      }
+    }
+  ],
+  "sha256": {
+    "val.parquet": "79807d08bd32dae5bcb1e49fb2a845d9c39576495110a16c2d2e82d5ca2ae118",
+    "train.parquet": "a7142aecfca09b478608fd37d39db4e0a77159cf02fb73dfd3d5899a0145a665"
+  }
+}

@@ -1,0 +1,3 @@
+{'actor': ('torch.float32', [3]), 'rollout': ('torch.float32', [3]), 'case': 'dict', 'weight_version': 'int', 'stages': 'list', 'actual_actor_micro_batch_size': 'int', 'actor_forward_batches': 'list'}
+{'actor': [-0.015024185180664062, -0.00684356689453125, -4.658092498779297], 'rollout': [-0.014894485473632812, -0.0069408416748046875, -4.701491355895996]}
+{'actor': [-1133107200, -1142931456, -1063973096], 'rollout': [-1133246464, -1142722560, -1063882082]}

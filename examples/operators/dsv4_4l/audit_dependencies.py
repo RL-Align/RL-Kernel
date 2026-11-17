@@ -12,7 +12,7 @@ from pathlib import Path
 
 def audit(root=Path("/opt/dsv4")):
     expected = {
-        "verl": "8c94a12d7811030413cd85e2bba6db863e0913c8",
+        "verl": os.environ.get("VERL_ASSEMBLY_SHA", "8c94a12d7811030413cd85e2bba6db863e0913c8"),
         "Megatron-LM": "97b50bdd936022ef58031c35db6d10581c181be0",
         "vllm": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
     }

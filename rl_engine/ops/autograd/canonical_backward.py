@@ -29,13 +29,35 @@ class CanonicalBackwardSession:
     uses: dict[str, list[_Use]] = field(default_factory=dict)
     received: dict[str, int] = field(default_factory=dict)
     backward_started: bool = False
+    expected_uses_per_parameter: int | None = None
+
+    def expect_uses(self, count: int) -> None:
+        """Declare the real schedule size before any forward registration.
+
+        PP 1F1B may discover later forward uses after an early backward. The
+        declaration prevents emitting a partial parameter gradient in between.
+        """
+        if type(count) is not int or count <= 0:
+            raise ValueError("expected uses must be a positive integer")
+        if self.expected_uses_per_parameter is not None:
+            if count != self.expected_uses_per_parameter:
+                raise RuntimeError("canonical schedule size changed within a step")
+            return
+        if self.uses or self.backward_started:
+            raise RuntimeError("declare canonical schedule before forward registration")
+        self.expected_uses_per_parameter = count
 
     def register(self, parameter_id: str, keys: torch.Tensor) -> int:
-        if self.backward_started:
+        if self.backward_started and self.expected_uses_per_parameter is None:
             raise RuntimeError("cannot register canonical rows after backward started")
         if keys.dim() != 2 or keys.shape[1] not in (2, 3):
             raise ValueError("logical keys must have shape [rows, 2] or [rows, 3]")
         slot = len(self.uses.setdefault(parameter_id, []))
+        if (
+            self.expected_uses_per_parameter is not None
+            and slot >= self.expected_uses_per_parameter
+        ):
+            raise RuntimeError("canonical forward uses exceed the declared schedule")
         self.uses[parameter_id].append(_Use(keys=keys.detach()))
         return slot
 
@@ -52,13 +74,15 @@ class CanonicalBackwardSession:
         if entries is None or slot >= len(entries):
             raise RuntimeError(f"unregistered canonical use: {parameter_id}:{slot}")
         entry = entries[slot]
+        if entry.rows is not None:
+            raise RuntimeError(f"duplicate canonical submission: {parameter_id}:{slot}")
         entry.rows = rows.reshape(-1, rows.shape[-1]).detach()
         entry.grads = grads.reshape(-1, grads.shape[-1]).detach()
         if entry.rows.shape[0] != entry.keys.shape[0]:
             raise ValueError("logical key count does not match linear rows")
         count = self.received.get(parameter_id, 0) + 1
         self.received[parameter_id] = count
-        if count != len(entries):
+        if count != (self.expected_uses_per_parameter or len(entries)):
             return None
         all_keys = torch.cat([item.keys for item in entries], dim=0)
         all_rows = torch.cat([item.rows for item in entries if item.rows is not None], dim=0)
@@ -87,12 +111,14 @@ class CanonicalBackwardSession:
         if entries is None or slot >= len(entries):
             raise RuntimeError(f"unregistered canonical use: {parameter_id}:{slot}")
         entry = entries[slot]
+        if entry.rows is not None:
+            raise RuntimeError(f"duplicate canonical submission: {parameter_id}:{slot}")
         entry.rows = rows.reshape(rows.shape[0], -1).detach()
         if entry.rows.shape[0] != entry.keys.shape[0]:
             raise ValueError("logical key count does not match contribution rows")
         count = self.received.get(parameter_id, 0) + 1
         self.received[parameter_id] = count
-        if count != len(entries):
+        if count != (self.expected_uses_per_parameter or len(entries)):
             return None
         all_keys = torch.cat([item.keys for item in entries], dim=0)
         all_rows = torch.cat([item.rows for item in entries if item.rows is not None], dim=0)
@@ -106,9 +132,17 @@ class CanonicalBackwardSession:
 
     def validate_complete(self) -> None:
         missing = {
-            name: len(entries) - self.received.get(name, 0)
+            name: dict(
+                registered=len(entries),
+                received=self.received.get(name, 0),
+                expected=self.expected_uses_per_parameter or len(entries),
+            )
             for name, entries in self.uses.items()
-            if self.received.get(name, 0) != len(entries)
+            if self.received.get(name, 0) != (self.expected_uses_per_parameter or len(entries))
+            or (
+                self.expected_uses_per_parameter is not None
+                and len(entries) != self.expected_uses_per_parameter
+            )
         }
         if missing:
             raise RuntimeError(f"incomplete canonical submissions: {missing}")

@@ -1,0 +1,2 @@
+run,scope,status,version,actual_updates,expected_tokens,compared_tokens,mismatch_count,finite,mean_abs_diff,max_abs_diff,first_target_token,first_actor_bits,first_rollout_bits
+final-run1,fixed-AB-A valid response case; not a complete matrix,FAIL_UNRESOLVED,3,3,3,3,3,True,0.014541943868001303,0.04339885711669922,128819,0xbc762800,0xbc740800

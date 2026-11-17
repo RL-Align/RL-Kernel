@@ -65,6 +65,9 @@ def test_every_owned_parameter_is_read_back_and_any_corruption_is_rejected():
     w.named_parameters = lambda: actual.items()
     w.hf_to_vllm_mapper = NS(map_name=lambda name: name)
     checked = verify_loaded_update(w, state, set(actual))
+    for name, record in checked.items():
+        assert record["shape"] == state["manifest"][name]["shape"]
+        assert record["dtype"] == state["manifest"][name]["dtype"]
     assert set(checked) == set(state["weights"])
     with torch.no_grad():
         actual["layers.3.ffn.gate.bias"].add_(0.001)

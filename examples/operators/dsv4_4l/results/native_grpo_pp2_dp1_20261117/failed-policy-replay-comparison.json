@@ -1,0 +1,98 @@
+{
+  "diagnostic_only": true,
+  "original": "outputs/final-run1",
+  "replay": "outputs/diagnostic-replay4",
+  "scope": "Not an acceptance run. Same PPO batch, original parameters, PP forward and native loss; independent backward/update does not reproduce the old policy. Original v3 failure remains unresolved.",
+  "ranks": [
+    {
+      "rank": 0,
+      "parameter_before_exact": true,
+      "parameter_after_exact": false,
+      "changed_parameter_hashes": 17,
+      "pipeline": [
+        {
+          "direction": "forward_send",
+          "original_count": 4,
+          "replay_count": 4,
+          "equal_sha256": [
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "direction": "forward_recv",
+          "original_count": 0,
+          "replay_count": 0,
+          "equal_sha256": []
+        },
+        {
+          "direction": "backward_send",
+          "original_count": 0,
+          "replay_count": 0,
+          "equal_sha256": []
+        },
+        {
+          "direction": "backward_recv",
+          "original_count": 4,
+          "replay_count": 4,
+          "equal_sha256": [
+            false,
+            false,
+            false,
+            false
+          ]
+        }
+      ],
+      "native_loss_calls_exact": true,
+      "identical_main_gradient_hashes": 5,
+      "gradient_tensors": 58
+    },
+    {
+      "rank": 1,
+      "parameter_before_exact": true,
+      "parameter_after_exact": false,
+      "changed_parameter_hashes": 4,
+      "pipeline": [
+        {
+          "direction": "forward_send",
+          "original_count": 0,
+          "replay_count": 0,
+          "equal_sha256": []
+        },
+        {
+          "direction": "forward_recv",
+          "original_count": 4,
+          "replay_count": 4,
+          "equal_sha256": [
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "direction": "backward_send",
+          "original_count": 4,
+          "replay_count": 4,
+          "equal_sha256": [
+            false,
+            false,
+            false,
+            false
+          ]
+        },
+        {
+          "direction": "backward_recv",
+          "original_count": 0,
+          "replay_count": 0,
+          "equal_sha256": []
+        }
+      ],
+      "native_loss_calls_exact": true,
+      "identical_main_gradient_hashes": 12,
+      "gradient_tensors": 25
+    }
+  ]
+}
