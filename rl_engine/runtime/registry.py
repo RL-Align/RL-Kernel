@@ -1256,7 +1256,10 @@ class KernelRegistry:
             capability = self._attention_capabilities.get(backend)
             if capability is None:
                 rejected.append(f"{backend.name}: no AttentionBackendCapability declared")
-                capability_rejections += 1
+                # Without a declared capability there is no backend_id or
+                # implementation_kind, so any explicit request excludes it.
+                if requested_backend == "auto":
+                    capability_rejections += 1
                 continue
             policy_mismatch = self._attention_policy_mismatch(requested_backend, capability)
             incompatibilities = list(capability.incompatibilities(contract))
