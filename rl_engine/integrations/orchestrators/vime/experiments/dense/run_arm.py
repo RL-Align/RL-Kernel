@@ -140,9 +140,7 @@ def _rollout_topology(
 # Pinning the choice keeps the production arms independent of host-specific
 # backend auto-selection.
 MEGATRON_ATTENTION_BACKEND = "fused"
-RL_KERNEL_LINEAR_LOGP_PROVIDER = (
-    "rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider.provider"
-)
+RL_KERNEL_LINEAR_LOGP_PROVIDER = "rl_engine.integrations.common.linear_logp_provider.provider"
 RL_KERNEL_MISMATCH_METRICS_HOOK = (
     "rl_engine.integrations.orchestrators.vime.experiments.rocm_attention.tis_me"
     "trics.metrics_only_tis"
