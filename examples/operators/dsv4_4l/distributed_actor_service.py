@@ -22,6 +22,7 @@ from examples.operators.dsv4_4l.distributed_evidence import (
     ddp_step_evidence,
     distributed_token_loss,
 )
+from examples.operators.dsv4_4l.measurement import instrument_actor, measure, workload
 from examples.operators.dsv4_4l.native_trace import install
 from examples.operators.dsv4_4l.step_evidence import training_metrics
 
@@ -56,7 +57,9 @@ def main():
     rank = dist.get_rank()
     local_root = ROOT / f"actor-rank-{rank}"
     local_root.mkdir()
-    worker, engine, model = build_actor_worker()
+    with measure("actor_init_load_compile_warmup", cuda_fence=True):
+        worker, engine, model = build_actor_worker()
+    instrument_actor(engine)
     dp_rank = engine.get_data_parallel_rank()
     output_rank = engine.is_mp_src_rank_with_outputs()
     from rl_engine.integrations.common.device_identity import hip_device_identity
@@ -80,7 +83,10 @@ def main():
     topologies = gather(topology)
     if rank == 0:
         save(ROOT / "actor-topology.json", topologies)
-        save(ROOT / "actor-ready.json", dict(ranks=topologies, version=engine.rlk_weight_version))
+        save(
+            ROOT / "actor-ready.json",
+            dict(ranks=topologies, version=engine.rlk_weight_version),
+        )
     from examples.operators.dsv4_4l.optimizer_evidence import optimizer_snapshot
 
     if int(os.environ.get("DSV4_TRAIN_STEPS", "1")) == 3:
@@ -121,7 +127,14 @@ def main():
             if action == "infer":
                 stop = install(model, local_root / f"trace-{name}")
                 try:
-                    out = worker.infer_batch(batch(cases))
+                    with measure(
+                        "actor_logprob",
+                        cuda_fence=True,
+                        command=name,
+                        version=engine.rlk_weight_version,
+                        **workload(cases),
+                    ):
+                        out = worker.infer_batch(batch(cases))
                 finally:
                     stop()
                 selected = None
@@ -202,13 +215,18 @@ def main():
                     if before == after:
                         raise RuntimeError("actual optimizer did not change this stage witness")
                     save(local_root / "gradient-evidence.json", gradients)
-                    save(local_root / "pipeline-boundary-evidence.json", boundaries.records)
+                    save(
+                        local_root / "pipeline-boundary-evidence.json",
+                        boundaries.records,
+                    )
                     parameters, _ = engine.get_per_tensor_param(base_sync_done=True)
                     manifest, export = {}, {}
                     for key, value in parameters:
                         cpu = value.detach().cpu().clone()
                         manifest[key] = dict(
-                            shape=list(cpu.shape), dtype=str(cpu.dtype), sha256=digest(cpu)
+                            shape=list(cpu.shape),
+                            dtype=str(cpu.dtype),
+                            sha256=digest(cpu),
                         )
                         if rank == 0:
                             export[key] = cpu

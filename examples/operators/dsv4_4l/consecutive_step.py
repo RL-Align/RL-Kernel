@@ -7,6 +7,7 @@ import torch
 
 from examples.operators.dsv4_4l.actor_service import batch, digest
 from examples.operators.dsv4_4l.distributed_evidence import ddp_step_evidence, tensor_record
+from examples.operators.dsv4_4l.measurement import measure, workload
 from examples.operators.dsv4_4l.optimizer_evidence import (
     optimizer_snapshot,
     verify_optimizer_transition,
@@ -52,7 +53,13 @@ def consecutive_step(
     }
     optimizer_before = optimizer_snapshot(engine)
     with ddp_step_evidence(engine, model) as gradients:
-        out = worker.train_batch(batch(cases))
+        with measure(
+            "forward_backward_optimizer",
+            cuda_fence=True,
+            version=version,
+            **workload(cases),
+        ):
+            out = worker.train_batch(batch(cases))
     optimizer_after = optimizer_snapshot(engine)
     verify_optimizer_transition(
         optimizer_before, optimizer_after, version=version, previous=previous_optimizer

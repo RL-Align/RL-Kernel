@@ -14,6 +14,8 @@ cache=$(realpath -m "$6")
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 backend=${DSV4_MHC_BACKEND:-rocm}
 steps=${DSV4_TRAIN_STEPS:-1}
+group=${DSV4_EXPERIMENT_GROUP:-R/R}
+[[ "$group" == R/R || "$group" == P/P ]] || exit 2
 [[ "$steps" == 1 || "$steps" == 3 ]] || exit 2
 [[ "$backend" == rocm || "$backend" == rocm_triton ]] || exit 2
 actor_count=$(python3 - "$actors" "$rollouts" <<'PY'
@@ -33,6 +35,9 @@ for gpu in "${gpu_ids[@]}"; do
   python3 "$script_dir/guard_gpu.py" "$gpu"
 done
 mkdir "$output"
+if [[ -n "${DSV4_FIXED_CASES_HOST:-}" ]]; then
+  cp -- "$DSV4_FIXED_CASES_HOST" "$output/predeclared-cases.json"
+fi
 mkdir -p "$cache"
 docker image inspect "$image" > "$output/image-inspect.json"
 checkpoint_sha=$(sha256sum "$model/model.safetensors" | cut -d ' ' -f 1)
@@ -68,10 +73,16 @@ docker run --pull=never --rm --init --name "rlk-dsv4-pipeline-$$" \
   -e DSV4_FIXED_SHARED_DOWN=1 -e DSV4_CHECKPOINT_SHA256="$checkpoint_sha" \
   -e DSV4_MHC_BACKEND="$backend" -e DSV4_TRAIN_STEPS="$steps" \
   -e DSV4_TRACE_FORMAT="${DSV4_TRACE_FORMAT:-torch}" \
+  -e DSV4_MEASURE="${DSV4_MEASURE:-0}" -e DSV4_EXPERIMENT_GROUP="$group" \
+  -e DSV4_FIXED_CASES="${DSV4_FIXED_CASES_HOST:+/outputs/predeclared-cases.json}" \
   -e HF_HOME=/cache/huggingface -e TRITON_CACHE_DIR=/cache/triton \
   -e XDG_CACHE_HOME=/cache/xdg -e TORCH_EXTENSIONS_DIR=/cache/torch_extensions \
   -e TMPDIR=/outputs/tmp \
   -v "$cache:/cache" -v "$output:/outputs" -v "$model:/models/4l:ro" \
-  "$image" bash -c 'mkdir /outputs/tmp; cd /opt/dsv4/RL-Kernel; exec /opt/dsv4-venv/bin/python -m examples.operators.dsv4_4l.cycle' \
+  "$image" bash -c 'mkdir /outputs/tmp; cd /opt/dsv4/RL-Kernel; if [[ "$DSV4_EXPERIMENT_GROUP" == P/P ]]; then exec /opt/dsv4-venv/bin/python -m examples.operators.dsv4_4l.native_probe; fi; exec /opt/dsv4-venv/bin/python -m examples.operators.dsv4_4l.cycle' \
   > "$output/container.log" 2>&1
-python3 "$script_dir/verify_pipeline.py" "$output" --dp-size "$((actor_count / 2))" --steps "$steps"
+if [[ "$group" == R/R ]]; then
+  python3 "$script_dir/verify_pipeline.py" "$output" --dp-size "$((actor_count / 2))" --steps "$steps"
+else
+  python3 -c 'import json,sys; x=json.load(open(sys.argv[1])); assert x["status"] == "BLOCKED" and x["completed_steps"] == 0; print("NATIVE_STARTUP_BLOCKER_RECORDED")' "$output/native-status.json"
+fi

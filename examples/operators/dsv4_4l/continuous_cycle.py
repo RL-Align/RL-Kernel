@@ -2,17 +2,30 @@
 """Three consecutive updates in the same real verl/vLLM worker processes."""
 
 import json
+import time
 
 from examples.operators.dsv4_4l.cycle import command, save_json, wait_file
+from examples.operators.dsv4_4l.measurement import emit
 from examples.operators.dsv4_4l.verify_pipeline import verify_pipeline_step, verify_rollout_shards
 
 
 async def run_continuous(
-    root, server, process, cases, results, first_ack, *, score_fixed, generate_case, matrix, dp_size
+    root,
+    server,
+    process,
+    cases,
+    results,
+    first_ack,
+    *,
+    score_fixed,
+    generate_case,
+    matrix,
+    dp_size,
 ):
     original_pids = sorted((x["pipeline_stage"], x["pid"]) for x in first_ack)
     summaries = []
     for version in range(4):
+        version_start = time.perf_counter()
         step_path = root / "steps" / f"v{version}"
         if version:
             name = f"step-v{version}"
@@ -75,6 +88,13 @@ async def run_continuous(
                 real_update_executed=version > 0,
                 same_rollout_pids=True,
             )
+        )
+        emit(
+            "full_acceptance_cycle",
+            version=version,
+            seconds=time.perf_counter() - version_start,
+            diagnostic_overhead_included=True,
+            includes="update/export/sync/fixed and generated matrices/compare/trace",
         )
         save_json(root / "continuous-progress.json", summaries)
         save_json(

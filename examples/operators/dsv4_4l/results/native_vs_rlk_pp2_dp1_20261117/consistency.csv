@@ -1,0 +1,25 @@
+group,version,comparison_kind,status,expected_tokens,compared_tokens,mismatch_count,mismatch_rate,max_abs_diff,mean_abs_diff,all_finite,batch_invariance,synchronization
+P/P,0,actor_vs_rollout,BLOCKED,,,,,,,,,not reached
+P/P,0,actor_repeat_or_batch_position,BLOCKED,,,,,,,,,not reached
+P/P,0,rollout_repeat_or_batch_position,BLOCKED,,,,,,,,,not reached
+P/P,1,actor_vs_rollout,BLOCKED,,,,,,,,,not reached
+P/P,1,actor_repeat_or_batch_position,BLOCKED,,,,,,,,,not reached
+P/P,1,rollout_repeat_or_batch_position,BLOCKED,,,,,,,,,not reached
+P/P,2,actor_vs_rollout,BLOCKED,,,,,,,,,not reached
+P/P,2,actor_repeat_or_batch_position,BLOCKED,,,,,,,,,not reached
+P/P,2,rollout_repeat_or_batch_position,BLOCKED,,,,,,,,,not reached
+P/P,3,actor_vs_rollout,BLOCKED,,,,,,,,,not reached
+P/P,3,actor_repeat_or_batch_position,BLOCKED,,,,,,,,,not reached
+P/P,3,rollout_repeat_or_batch_position,BLOCKED,,,,,,,,,not reached
+R/R,0,actor_repeat_or_batch_position,PASSED,52,52,0,0.0,0.0,0.0,True,True,initial checkpoint
+R/R,0,actor_vs_rollout,PASSED,74,74,0,0.0,0.0,0.0,True,True,initial checkpoint
+R/R,0,rollout_repeat_or_batch_position,PASSED,52,52,0,0.0,0.0,0.0,True,True,initial checkpoint
+R/R,1,actor_repeat_or_batch_position,PASSED,52,52,0,0.0,0.0,0.0,True,True,verified
+R/R,1,actor_vs_rollout,PASSED,70,70,0,0.0,0.0,0.0,True,True,verified
+R/R,1,rollout_repeat_or_batch_position,PASSED,52,52,0,0.0,0.0,0.0,True,True,verified
+R/R,2,actor_repeat_or_batch_position,PASSED,52,52,0,0.0,0.0,0.0,True,True,verified
+R/R,2,actor_vs_rollout,PASSED,70,70,0,0.0,0.0,0.0,True,True,verified
+R/R,2,rollout_repeat_or_batch_position,PASSED,52,52,0,0.0,0.0,0.0,True,True,verified
+R/R,3,actor_repeat_or_batch_position,PASSED,52,52,0,0.0,0.0,0.0,True,True,verified
+R/R,3,actor_vs_rollout,PASSED,70,70,0,0.0,0.0,0.0,True,True,verified
+R/R,3,rollout_repeat_or_batch_position,PASSED,52,52,0,0.0,0.0,0.0,True,True,verified

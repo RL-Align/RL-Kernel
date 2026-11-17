@@ -11,6 +11,8 @@ from pathlib import Path
 
 import torch
 
+from examples.operators.dsv4_4l.measurement import emit, instrument_server, measure, workload
+
 ROOT = Path("/outputs")
 
 
@@ -43,10 +45,12 @@ async def command(process, name, action, cases=(), **metadata):
     temp.rename(temp.with_name(f"{name}.json"))
     if action == "quit":
         return
-    return await wait_file(ROOT / f"actor-{name}.json", process)
+    with measure("actor_command_" + action, command=name, **workload(cases)):
+        return await wait_file(ROOT / f"actor-{name}.json", process)
 
 
 def compare_values(name, cases, rollout_scores, actor_scores, version, kind="actor_vs_rollout"):
+    comparison_start = time.perf_counter()
     rows = []
     for position, (case, x, y) in enumerate(zip(cases, rollout_scores, actor_scores, strict=True)):
         expected = len(case["response_token_ids"])
@@ -56,6 +60,7 @@ def compare_values(name, cases, rollout_scores, actor_scores, version, kind="act
         xb = x.reshape(-1).view(torch.int32)
         yb = y.reshape(-1).view(torch.int32)
         changed = xb != yb
+        diagnostic_diff = (x.double() - y.double()).abs()
         row = dict(
             comparison_kind=kind,
             case_id=case["id"],
@@ -66,6 +71,9 @@ def compare_values(name, cases, rollout_scores, actor_scores, version, kind="act
             expected_tokens=expected,
             compared_tokens=expected,
             mismatch_count=int(changed.sum()),
+            mismatch_rate=int(changed.sum()) / expected,
+            max_abs_diff=float(diagnostic_diff.max()),
+            mean_abs_diff=float(diagnostic_diff.mean()),
             dtype=str(x.dtype),
             all_finite=True,
         )
@@ -83,6 +91,14 @@ def compare_values(name, cases, rollout_scores, actor_scores, version, kind="act
             )
         rows.append(row)
     save_json(ROOT / f"compare-{name}.json", rows)
+    emit(
+        "comparison_tool",
+        seconds=time.perf_counter() - comparison_start,
+        configuration=name,
+        version=version,
+        comparison_kind=kind,
+        **workload(cases),
+    )
     print("STRICT_COMPARISON", json.dumps(rows), flush=True)
     return rows
 
@@ -128,7 +144,11 @@ def teacher_scores(name, cases, version):
     result = []
     for case in cases:
         matches = [v for key, v in rows if key == case["id"]]
-        assert len(matches) == 1, (case["id"], len(matches), "unaligned prompt-score capture")
+        assert len(matches) == 1, (
+            case["id"],
+            len(matches),
+            "unaligned prompt-score capture",
+        )
         result.append(matches[0])
     return result
 
@@ -213,6 +233,7 @@ async def main():
         nnodes=1,
         cuda_visible_devices=",".join(str(i) for i in range(rollout_pp)),
     )
+    instrument_server(server)
     process = None
     results = []
     before_passed = False
@@ -230,7 +251,12 @@ async def main():
             request_id="generated-A-v0",
         )
         actual = output.model_dump()
-        case = dict(id="A", prompt_token_ids=prompt, response_token_ids=actual["token_ids"])
+        declared_path = os.environ.get("DSV4_FIXED_CASES")
+        case = dict(
+            id="A-bootstrap" if declared_path else "A",
+            prompt_token_ids=prompt,
+            response_token_ids=actual["token_ids"],
+        )
         assert len(case["response_token_ids"]) == 2
         save_json(ROOT / "cases-v0.json", [case])
         scores = generated_scores("generate-A-v0", case, 0)
@@ -256,7 +282,11 @@ async def main():
                 "examples.operators.dsv4_4l.distributed_actor_service",
             ]
         else:
-            actor_args = [sys.executable, "-m", "examples.operators.dsv4_4l.actor_service"]
+            actor_args = [
+                sys.executable,
+                "-m",
+                "examples.operators.dsv4_4l.actor_service",
+            ]
         (ROOT / "actor-commands").mkdir()
         process = subprocess.Popen(
             actor_args,
@@ -285,6 +315,7 @@ async def main():
         references = {}
 
         async def score_fixed(name, cases, version):
+            score_start = time.perf_counter()
             await server.collective_rpc(
                 "set_case", args=(name, [f"{name}-{c['id']}" for c in cases])
             )
@@ -295,7 +326,9 @@ async def main():
                     max_tokens=1, temperature=0, prompt_logprobs=1, ignore_eos=True
                 )
                 async for _item in server.engine.generate(
-                    TokensPrompt(prompt_token_ids=tokens), sampling, f"{name}-{case['id']}"
+                    TokensPrompt(prompt_token_ids=tokens),
+                    sampling,
+                    f"{name}-{case['id']}",
                 ):
                     pass
 
@@ -311,11 +344,16 @@ async def main():
                     for c in cases:
                         tokens = c["prompt_token_ids"] + c["response_token_ids"]
                         sampling = SamplingParams(
-                            max_tokens=1, temperature=0, prompt_logprobs=1, ignore_eos=True
+                            max_tokens=1,
+                            temperature=0,
+                            prompt_logprobs=1,
+                            ignore_eos=True,
                         )
                         queues.append(
                             await server.engine.add_request(
-                                f"{name}-{c['id']}", TokensPrompt(prompt_token_ids=tokens), sampling
+                                f"{name}-{c['id']}",
+                                TokensPrompt(prompt_token_ids=tokens),
+                                sampling,
                             )
                         )
                     assert server.engine.get_num_unfinished_requests() == len(cases)
@@ -332,6 +370,15 @@ async def main():
                         queue.close()
 
                 await asyncio.wait_for(asyncio.gather(*(drain(q) for q in queues)), timeout=180)
+            emit(
+                "rollout_teacher",
+                seconds=time.perf_counter() - score_start,
+                configuration=name,
+                version=version,
+                **workload(cases),
+                completion_boundary="all request outputs drained",
+                diagnostic_overhead_included=True,
+            )
             metadata = await server.collective_rpc("case_batches")
             save_json(ROOT / f"rollout-batches-{name}.json", metadata)
             if len(cases) > 1:
@@ -358,7 +405,11 @@ async def main():
                     old_rollout, old_actor = references[key]
                     for kind, current, previous in (
                         ("rollout_repeat_or_batch_position", values[i], old_rollout),
-                        ("actor_repeat_or_batch_position", actor["selected"][i], old_actor),
+                        (
+                            "actor_repeat_or_batch_position",
+                            actor["selected"][i],
+                            old_actor,
+                        ),
                     ):
                         extra = compare_values(
                             name + "-" + c["id"] + "-" + kind,
@@ -381,7 +432,12 @@ async def main():
             await server.collective_rpc("set_case", args=(name,))
             output = await server.generate(
                 prompt,
-                {"max_tokens": count, "temperature": 0.0, "logprobs": True, "ignore_eos": True},
+                {
+                    "max_tokens": count,
+                    "temperature": 0.0,
+                    "logprobs": True,
+                    "ignore_eos": True,
+                },
                 request_id=name,
             )
             case = dict(
@@ -427,9 +483,16 @@ async def main():
         # First prove a fixed-sequence independent replay before updating anything.
         if not await score_fixed("v0-A-repeat", [case], 0):
             raise RuntimeError("pre-update fixed-sequence replay mismatched")
-        b = await generate_case("B", [0] + [101] * (126 if train_steps == 3 else 127), 3, 0)
-        c = await generate_case("C", [0, 104, 105, 106, 107, 108, 109, 110, 111], 1, 0)
-        cases = [case, b, c]
+        if declared_path:
+            cases = json.loads(Path(declared_path).read_text())
+            if [c["id"] for c in cases] != ["A", "B", "C"] or any(
+                not c["prompt_token_ids"] or not c["response_token_ids"] for c in cases
+            ):
+                raise ValueError("predeclared fixed workload must contain nonempty A/B/C")
+        else:
+            b = await generate_case("B", [0] + [101] * (126 if train_steps == 3 else 127), 3, 0)
+            c = await generate_case("C", [0, 104, 105, 106, 107, 108, 109, 110, 111], 1, 0)
+            cases = [case, b, c]
         save_json(ROOT / "cases-v0.json", cases)
         before_passed = await matrix(0, cases)
         if not before_passed:
@@ -455,7 +518,12 @@ async def main():
             temp = ROOT / "actor-commands/.step.tmp"
             save_json(
                 temp,
-                dict(id="step", action="step", cases=[case], cases_by_dp={"0": [case], "1": [b]}),
+                dict(
+                    id="step",
+                    action="step",
+                    cases=[case],
+                    cases_by_dp={"0": [case], "1": [b]},
+                ),
             )
             temp.rename(temp.with_name("step.json"))
             update = await wait_file(ROOT / "actor-step.json", process)
@@ -478,7 +546,11 @@ async def main():
             verify_rollout_shards(ack, manifest)
             save_json(
                 ROOT / "rollout-shards-verified.json",
-                dict(verified_tensors=len(manifest), actual_pp_workers=len(ack), weight_version=1),
+                dict(
+                    verified_tensors=len(manifest),
+                    actual_pp_workers=len(ack),
+                    weight_version=1,
+                ),
             )
         after_ack = await server.collective_rpc("set_case", args=("v1-A-fixed",))
         save_json(ROOT / "rollout-after-ack.json", after_ack)
@@ -491,7 +563,10 @@ async def main():
         for old in cases:
             new_cases.append(
                 await generate_case(
-                    old["id"] + "-new", old["prompt_token_ids"], len(old["response_token_ids"]), 1
+                    old["id"] + "-new",
+                    old["prompt_token_ids"],
+                    len(old["response_token_ids"]),
+                    1,
                 )
             )
         save_json(ROOT / "cases-v1-generated.json", new_cases)

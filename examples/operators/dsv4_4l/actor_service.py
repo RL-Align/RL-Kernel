@@ -6,6 +6,7 @@ import inspect
 import json
 import os
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 import torch
@@ -97,6 +98,18 @@ def build_actor_worker():
         ),
         checkpoint_config=CheckpointConfig(),
         profiler_config=ProfilerConfig(tool=None, save_path="/outputs", tool_config={}),
+    )
+    from examples.operators.dsv4_4l.measurement import emit
+
+    emit(
+        "actor_configuration",
+        optimizer=asdict(cfg.optimizer_config),
+        seed=cfg.engine_config.seed,
+        dtype=cfg.engine_config.dtype,
+        transformer_overrides=cfg.engine_config.override_transformer_config,
+        loss="negative mean response-token raw logprob",
+        normalization="global response loss-mask token count",
+        microbatch_size=1,
     )
     worker = TrainingWorker(cfg)
     worker.reset()

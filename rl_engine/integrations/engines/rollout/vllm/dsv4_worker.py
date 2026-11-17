@@ -15,6 +15,9 @@ from rl_engine.integrations.orchestrators.verl.mhc import bind_mhc_worker
 
 class RLKDeepSeekV4Worker(Worker):
     def set_case(self, case_id, request_order=()):
+        from examples.operators.dsv4_4l.measurement import memory_snapshot
+
+        memory_snapshot("rollout_memory", case_id=case_id)
         if not case_id or not all(c.isalnum() or c in "-_" for c in case_id):
             raise ValueError("invalid case ID")
         self._rlk_case_id = case_id
