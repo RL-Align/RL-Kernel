@@ -222,8 +222,12 @@ skips are not GPU passes. Benchmark tests include wrong-forward and wrong-backwa
   inplace execution, coefficient gradients or higher-order input gradients.
 - The current fixes passed a one-H100 cloud regression (227 passed, 9 skipped:
   2 two-device cases and 7 Ascend cases). The large-stride regression executed.
-  Two-device restoration passed on two RTX 5080s before these review fixes; it
-  was not rerun on two devices for this revision. ROCm remains unqualified;
-  MUSA/Ascend acceleration is outside this implementation.
+  The same kernel/reference/test bytes also passed the two-device restoration
+  cases on two RTX A4000 GPUs (SM86, PyTorch 2.8.0+cu128, Triton 3.4.0):
+  BF16/FP32 both passed with `CUDA_VISIBLE_DEVICES=0,1`, then again with `1,0`
+  (2 + 2 passes, no skips). This validates both physical device directions for
+  forward/backward and current-device restoration; it is not a multi-GPU
+  performance benchmark. ROCm remains unqualified; MUSA/Ascend acceleration
+  is outside this implementation.
 - Megatron/SGLang adapters, full-model correctness, distributed/CP position
   alignment, and every #642 verification mode require separate integration evidence.
