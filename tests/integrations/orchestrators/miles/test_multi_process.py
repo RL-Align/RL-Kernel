@@ -28,8 +28,7 @@ def _install_in_worker(directory: str, case: str) -> None:
 def _run_workers(directory: str, case: str, count: int) -> list:
     context = multiprocessing.get_context("spawn")
     processes = [
-        context.Process(target=_install_in_worker, args=(directory, case))
-        for _ in range(count)
+        context.Process(target=_install_in_worker, args=(directory, case)) for _ in range(count)
     ]
     for process in processes:
         process.start()
@@ -45,9 +44,7 @@ def test_every_worker_writes_its_own_readback(tmp_path):
     report = audit_readbacks(tmp_path, expected_workers=_WORKERS)
     assert report.healthy
     assert len({worker.pid for worker in report.workers}) == _WORKERS
-    assert {worker.pid for worker in report.workers} == {
-        process.pid for process in processes
-    }
+    assert {worker.pid for worker in report.workers} == {process.pid for process in processes}
 
 
 def test_missing_worker_is_detected(tmp_path):
