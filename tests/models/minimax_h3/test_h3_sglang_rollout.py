@@ -464,7 +464,7 @@ def test_bound_sglang_operators_equal_the_training_arithmetic_bitwise(h3_block_w
         pytest.param(
             t, marks=pytest.mark.skipif(torch.cuda.device_count() < t, reason=f"needs {t} GPUs")
         )
-        for t in (2, 4)
+        for t in (2, 4, 8)
     ],
 )
 def test_bound_sglang_operators_at_tp_n_equal_tp1(h3_block_weights_cuda, tp):
