@@ -36,6 +36,10 @@ SGLang's ``adaln_input`` is ``silu(t_emb).to(bfloat16)``, the activation that
 
 Before any forward changes, it refuses what SGLang can put in the way of a bound forward:
 
+* an SGLang version other than those in ``TESTED_SGLANG_VERSIONS``, also without ``strict``: the
+  bound block and final-layer forwards replace SGLang's own and call its ``adaln_proj``, ``attn``,
+  ``mlp`` and ``_project`` with the signatures of the versions they were validated on. A new
+  version is added after ``tools/validation/models/h3_sglang_rollout_report.py`` passes on it;
 * a compiled module (``torch.compile`` / ``nn.Module.compile``): the compiled graph keeps
   running the forward it traced;
 * a LoRA wrapper (``BaseLayerWithLoRA``) at a bound linear: it adds the LoRA output in its own
@@ -61,6 +65,7 @@ restores every forward.
 
 from __future__ import annotations
 
+import importlib.metadata
 import re
 from collections.abc import Callable
 from typing import Any
@@ -74,6 +79,8 @@ from rl_engine.integrations.engines.rollout.vllm.h3_omni import (
 )
 
 ENGINE = "sglang"
+# The SGLang releases the bound forwards were validated on (the report tool, every bound output).
+TESTED_SGLANG_VERSIONS = ("0.5.21",)
 EXTERNAL = [
     "attention",
     "rotary",
@@ -85,6 +92,27 @@ EXTERNAL = [
 ]
 _REFINER_NORM = re.compile(r"(?:^|\.)token_refiner\.(?:blocks\.\d+\.norm[12]|final_norm)$")
 _ADALN_MODULES = {"MiniMaxH3DiTBlock": "block", "MiniMaxH3FinalLayer": "final"}
+
+
+def _sglang_version() -> str | None:
+    try:
+        return importlib.metadata.version("sglang")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _version_refusal() -> str | None:
+    version = _sglang_version()
+    if version in TESTED_SGLANG_VERSIONS:
+        return None
+    found = "SGLang is not installed" if version is None else f"SGLang {version} is installed"
+    return (
+        f"{found}, but the bound forwards are validated only on SGLang "
+        f"{', '.join(TESTED_SGLANG_VERSIONS)}: they replace SGLang's block and final-layer "
+        "forwards, so a changed SGLang module would be bypassed without an error. Run "
+        "tools/validation/models/h3_sglang_rollout_report.py on the new version and add it to "
+        "TESTED_SGLANG_VERSIONS"
+    )
 
 
 def _compiled(module: torch.nn.Module) -> bool:
@@ -310,9 +338,13 @@ def install_h3_sglang_rollout(
     ``tp`` is SGLang's TP size and ``collective`` a deterministic collective over SGLang's TP
     group (``tp > 1``). With ``strict``, one error names every refusal and no forward changes;
     without it, refused modules keep SGLang's forward and are listed in ``handle.skipped``
-    (model-level refusals still raise, since no forward of a compiled model can be bound).
+    (model-level refusals still raise: an SGLang version the bound forwards were not validated
+    on, and a compiled model, whose forwards cannot be bound).
     """
 
+    version = _version_refusal()
+    if version is not None:
+        raise RuntimeError("H3 rollout on SGLang: " + version)
     compiled, variant = _model_refusals(model)
     refusals = compiled + variant if strict else compiled
     if refusals:
@@ -344,5 +376,6 @@ def report(model: torch.nn.Module, handle: H3RolloutHandle) -> dict:
 
     out = handle.report()
     out["engine"] = ENGINE
+    out["sglang"] = _sglang_version()
     out["external"] = list(EXTERNAL)
     return out

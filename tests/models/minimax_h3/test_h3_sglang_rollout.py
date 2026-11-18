@@ -21,6 +21,20 @@ from rl_engine.models.minimax_h3 import checkpoint_mapper as cm
 from rl_engine.models.minimax_h3 import fingerprint as fp
 
 needs_gpu = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+TESTED = adapter.TESTED_SGLANG_VERSIONS[0]
+
+
+@pytest.fixture(autouse=True)
+def _validated_sglang(monkeypatch):
+    """The stand-ins run as if a validated SGLang were installed (CI has none).
+
+    The SGLang tests below install the adapter in ``run_world``'s spawned ranks, which check the
+    SGLang that is really installed.
+    """
+
+    monkeypatch.setattr(adapter, "_sglang_version", lambda: TESTED)
+
+
 PROJECTIONS = (
     "blocks.0.attn.qkv_proj",
     "blocks.0.attn.out_proj",
@@ -213,6 +227,21 @@ def test_a_projection_sglang_would_compute_differently_is_refused_before_any_for
     assert _no_forward_changed(model)
 
 
+@pytest.mark.parametrize(
+    ("version", "match"),
+    [("0.5.22", "SGLang 0.5.22 is installed"), (None, "SGLang is not installed")],
+)
+def test_an_sglang_version_the_bound_forwards_were_not_validated_on_is_refused(
+    monkeypatch, version, match
+):
+    monkeypatch.setattr(adapter, "_sglang_version", lambda: version)
+    model = _model()
+    for strict in (True, False):
+        with pytest.raises(RuntimeError, match=f"{match}, but the bound forwards are validated"):
+            adapter.install_h3_sglang_rollout(model, strict=strict)
+    assert _no_forward_changed(model)
+
+
 def test_a_compiled_module_is_refused_even_without_strict():
     model = _model()
     model.blocks[0].compile()  # lazy: sets the compiled call, compiles nothing yet
@@ -325,7 +354,7 @@ def test_without_strict_a_refused_projection_keeps_its_forward_and_is_listed():
             model.blocks[0](torch.zeros(3, 640, device="cuda").bfloat16())
         report = adapter.report(model, handle)
         assert report["engine"] == "sglang" and report["skipped"] == handle.skipped
-        assert report["external"] == adapter.EXTERNAL
+        assert report["external"] == adapter.EXTERNAL and report["sglang"] == TESTED
     assert _no_forward_changed(model)
 
 
@@ -429,11 +458,19 @@ def test_bound_sglang_operators_equal_the_training_arithmetic_bitwise(h3_block_w
         assert rank[f"restored_equals_native_{name}"], name
 
 
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs 2 GPUs")
-def test_bound_sglang_operators_at_tp2_equal_tp1(h3_block_weights_cuda):
+@pytest.mark.parametrize(
+    "tp",
+    [
+        pytest.param(
+            t, marks=pytest.mark.skipif(torch.cuda.device_count() < t, reason=f"needs {t} GPUs")
+        )
+        for t in (2, 4)
+    ],
+)
+def test_bound_sglang_operators_at_tp_n_equal_tp1(h3_block_weights_cuda, tp):
     _sglang_dit()
     hs, (one,), _ = _rollout_world(1, h3_block_weights_cuda)
-    hs, ranks, _ = _rollout_world(2, h3_block_weights_cuda)
+    hs, ranks, _ = _rollout_world(tp, h3_block_weights_cuda)
     for name in hs.NAMES + hs.NORM_NAMES:
         for rank in ranks:
             assert torch.equal(rank[f"bound_{name}"], rank[f"canonical_{name}"]), name

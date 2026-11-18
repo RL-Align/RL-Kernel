@@ -4,15 +4,15 @@
 """RFC #420 ``sglang_runtime_adapter_h3`` on SGLang's own H3 modules: JSON report.
 
 Block 0, the final layer and the token refiner's final norm of the pinned checkpoint
-(``$RL_KERNEL_H3_WEIGHTS``), loaded through SGLang's loader at TP1 and TP2
-(``rl_engine.validation.models.h3_sglang_rollout``). For each bound output (the four projections,
-the block's AdaLN table, both modulated norms and its output, the final layer's table and output,
-and the refiner norms) it records whether SGLang's native forward and the bound forward equal the
-training arithmetic bitwise, whether each gives the same rows when it sees only a prefix of them,
-and whether TP2 equals TP1.
+(``$RL_KERNEL_H3_WEIGHTS``), loaded through SGLang's loader at each ``--tp`` size, one GPU per
+rank (``rl_engine.validation.models.h3_sglang_rollout``). For each bound output (the four
+projections, the block's AdaLN table, both modulated norms and its output, the final layer's table
+and output, and the refiner norms) it records whether SGLang's native forward and the bound forward
+equal the training arithmetic bitwise, whether each gives the same rows when it sees only a prefix
+of them, and whether each TP size equals TP1 (the reference).
 
     python tools/validation/models/h3_sglang_rollout_report.py --out report.json \
-        [--rows 261] [--prefix-rows 37] [--tp 1 2]
+        [--rows 261] [--prefix-rows 37] [--tp 1 2 4]
 """
 
 from __future__ import annotations
