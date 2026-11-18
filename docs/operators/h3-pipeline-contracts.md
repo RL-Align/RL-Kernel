@@ -103,7 +103,38 @@ The `fl2va_pipeline_contract` row (`rl_engine/models/minimax_h3/fl2va.py`).
 
 ## Ref2VA
 
-The `ref2va_pipeline_contract` row (`rl_engine/models/minimax_h3/ref2va.py`).
+`rl_engine/models/minimax_h3/ref2va.py`, workflow `ref2va` on `transformer_ref/`.
+
+- **`validate_references`.**
+  - Limits: at most 9 images, 3 videos, 3 audios and 12 references in total.
+  - Audio alone is refused.
+  - Diffusers' reference objects are accepted as they are.
+- **`resolve_ref2va_plan`.** The canvas is 16:9 unless given: references never bind it. The
+  frame count is aligned like the target's.
+- **`normalize_references`.**
+  - An image goes to its own 2048-pixel short edge, rounded to 32, with no area cap, LANCZOS.
+  - A video is resampled to 24 fps by holding whole frames (`floor(i * 24 / fps + 0.5)`),
+    truncated, then LANCZOS-resized onto the canvas its own aspect ratio resolves to.
+  - A soundtrack is truncated at its source rate, upmixed to stereo and resampled once to
+    32 kHz.
+- **`sample_video_condition_frames`, `ref2va_presentation`.** What the conditioner reads:
+  - frames at 2 fps;
+  - merged pairs labelled `"<x.x seconds>"` with round-half-even;
+  - `"<Audio j>: "` before `"<Video k>: "` for a video with sound, labels numbered per
+    modality.
+- **`vae_video_frame_count`.** A video reference snaps *down* to `17n + 5`.
+- **`reference_blocks`, `build_ref2va_layout`.**
+  - Layout: `[text | references | target audio | target video]`.
+  - How each reference advances the clock:
+    - an image by one slot;
+    - an audio by its latent count;
+    - a video (its soundtrack packed just before it) by `max(audio latents, video span)`.
+- **`ref2va_initial_rows`.** Noised visual references, then target noise. Clean reference
+  soundtracks (`t = 1`), then target audio noise.
+- **`map_transformer_ref`.**
+  - Maps the `transformer_ref/` state dict through the `h3_checkpoint_mapper` tables.
+  - The result carries the Ref2VA identity (`VariantState`), so `check_layout_weights`
+    refuses it with an FL2VA layout and refuses FL2VA weights with a Ref2VA layout.
 
 ## Repeated Preprocessing (H-C7)
 
