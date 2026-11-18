@@ -1498,6 +1498,7 @@ def _first_row_difference(a: torch.Tensor, b: torch.Tensor, row_dim: int) -> dic
     }
     if bool(rows.any()):
         out["first_row"] = int(torch.nonzero(rows)[0, 0])
+        out["first_index"] = [int(i) for i in torch.nonzero(differs)[0].tolist()]
     return out
 
 

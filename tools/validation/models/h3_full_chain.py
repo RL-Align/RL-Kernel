@@ -459,9 +459,9 @@ def _expectation(inject: fc.DriftInjection, drift: dict[str, Any] | None) -> dic
         return {"localized": False, "reason": "no drift found"}
     if inject.stage != "denoise":
         ok = (drift["stage"], drift["component"]) == (inject.stage, inject.component)
-        if "first_row" in drift:
+        if (inject.stage, inject.component) in fc._COMPONENT_ROWS:  # rows mapped to the layout
             ok = ok and drift["first_row"] == inject.row
-        return {"localized": ok}
+        return {"localized": ok, "first_index": drift.get("first_index")}
     found = drift.get("transformer") or {}
     ok = (
         drift["stage"] == "denoise"

@@ -181,6 +181,10 @@ def test_stage_injection_is_the_first_drift(workflow, stage, component, row) -> 
     if (stage, component) in fc._COMPONENT_ROWS:
         assert drift["first_row"] == row
         assert drift["row"]["local_row"] == row
+    else:  # no row space: the unraveled index of the first differing element
+        row_dim = {"media_preprocess": 3 if "pixels" in component else 1}.get(stage)
+        row_dim = row_dim or {"visual_vae_encode": 1, "audio_vae_encode": 0, "unpack": 2}[stage]
+        assert drift["first_index"][row_dim] == row
 
 
 def test_initial_row_injection_names_the_packed_identity() -> None:
