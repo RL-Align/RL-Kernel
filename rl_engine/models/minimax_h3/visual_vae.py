@@ -142,8 +142,9 @@ def load_release_vae(
     vae = vae_cls.from_config(config)
     state: dict[str, torch.Tensor] = {}
     for shard in sorted(root.glob("*.safetensors")):
-        state.update(load_file(str(shard), device=str(device)))
+        state.update(load_file(str(shard), device="cpu"))
     vae.load_state_dict(state, strict=True)
+    del state  # one device copy of the 10 GB of weights, not two
     vae = vae.to(device).eval()
     if any(p.dtype != torch.float32 for p in vae.parameters()):
         raise TypeError("the released VisualVAE is FP32; a parameter loaded in another dtype")

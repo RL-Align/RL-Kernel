@@ -343,9 +343,11 @@ def test_encode_matches_diffusers_condition_recipe(frames: int) -> None:
     pixels = _pixels(2, frames)
     ours = contract.encode(pixels)
     for i in range(2):
-        reference = encoders.encode_vae_condition(
-            vae, pixels[i : i + 1].cuda(), vv.PIXEL_MEAN, vv.PIXEL_STD
-        )
+        # The pipeline block runs under no_grad; encode_vae_condition itself does not.
+        with torch.no_grad():
+            reference = encoders.encode_vae_condition(
+                vae, pixels[i : i + 1].cuda(), vv.PIXEL_MEAN, vv.PIXEL_STD
+            )
         assert torch.equal(ours.tensor[i : i + 1], reference)
 
 
@@ -437,9 +439,10 @@ def test_release_checkpoint_repeated_encode_decode(release_vae) -> None:
     for pixels in (keyframe, video):
         first = contract.encode(pixels)
         assert contract.encode(pixels).digest == first.digest
-        reference = encoders.encode_vae_condition(
-            release_vae, pixels.cuda(), vv.PIXEL_MEAN, vv.PIXEL_STD
-        )
+        with torch.no_grad():  # as in the pipeline block; autograd would hold ~55 GB
+            reference = encoders.encode_vae_condition(
+                release_vae, pixels.cuda(), vv.PIXEL_MEAN, vv.PIXEL_STD
+            )
         assert torch.equal(first.tensor, reference)
     latents = contract.encode(video).tensor
     decoded = contract.decode(latents)
