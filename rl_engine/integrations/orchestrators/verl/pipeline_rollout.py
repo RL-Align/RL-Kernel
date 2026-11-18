@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Opt-in single-node PP2 standalone server using real verl/vLLM workers.
+"""Opt-in one/two-node PP2 standalone server using real verl/vLLM workers.
 
 Generic verl PP rollout/IPC remains unsupported. This selected path uses native
 vLLM pipeline workers and RLK's stage-owned loading, bindings and checked sync.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from verl.workers.config import RolloutConfig
 from verl.workers.rollout.replica import RolloutMode
@@ -14,6 +14,9 @@ from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer
 
 @dataclass
 class RLKPipelineRolloutConfig(RolloutConfig):
+    rlk_node_ips: list[str] = field(default_factory=list)
+    rlk_sync_dir: str | None = None
+
     def __post_init__(self):
         mtp_enabled = (
             self.mtp.get("enable", False)
@@ -47,19 +50,23 @@ class RLKPipelineRolloutConfig(RolloutConfig):
 def validate_pipeline_server(
     config, *, rollout_mode, workers, node_rank, nnodes, gpus_per_node, cuda_visible_devices
 ):
-    ids = cuda_visible_devices.split(",")
+    from .pipeline_topology import validate_pp2_layout
+
     if (
         not isinstance(config, RLKPipelineRolloutConfig)
         or rollout_mode != RolloutMode.STANDALONE
         or workers
-        or node_rank != 0
-        or nnodes != 1
-        or gpus_per_node != 2
-        or len(ids) != 2
-        or len(set(ids)) != 2
-        or any(not x.isdecimal() for x in ids)
     ):
-        raise ValueError("RLK PP2 server requires two local GPUs and standalone native workers")
+        raise ValueError("RLK PP2 server requires standalone native workers")
+    try:
+        validate_pp2_layout(
+            nnodes=nnodes,
+            node_rank=node_rank,
+            gpus_per_node=gpus_per_node,
+            visible_devices=cuda_visible_devices,
+        )
+    except ValueError as exc:
+        raise ValueError("RLK PP2 server requires standalone native workers: " + str(exc)) from exc
 
 
 class RLKPipelineVLLMHttpServer(vLLMHttpServer):
@@ -102,5 +109,15 @@ class RLKPipelineVLLMHttpServer(vLLMHttpServer):
             raise ValueError("RLK PP2 requires the native vLLM multiprocess executor")
         if engine_kwargs.get("pipeline_parallel_size", 2) != 2:
             raise ValueError("vLLM pipeline size must match the selected real PP2 topology")
+        if getattr(self, "nnodes", 1) > 1:
+            import inspect
+            from vllm.engine.arg_utils import AsyncEngineArgs
+
+            if not {"nnodes", "node_rank", "master_addr", "master_port"}.issubset(
+                inspect.signature(AsyncEngineArgs).parameters
+            ):
+                raise RuntimeError("installed vLLM lacks multi-node mp engine arguments")
+        # The pinned verl server passes nnodes/node_rank/master address to vLLM
+        # and starts a headless follower. Its mp executor already spans nodes.
         engine_kwargs["pipeline_parallel_size"] = self.config.pipeline_model_parallel_size
         engine_kwargs["distributed_executor_backend"] = "mp"

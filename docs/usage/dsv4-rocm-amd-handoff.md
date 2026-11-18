@@ -2,20 +2,16 @@
 
 ## Status at the PR #711 handoff
 
-**The measured baseline is single-node, four-layer GRPO. Multi-node model
-execution and full-model acceptance are not implemented by this handoff.**
-This document adds preparation commands, a communication smoke test and the
-implementation/acceptance gates needed before AMD can run those extensions.
-The smoke test has not been executed on AMD hardware in this documentation update.
+**Measured evidence remains single-node, four-layer GRPO.** This update adds an
+experimental multi-node PP2 implementation and executable launch commands. It has
+CPU contract coverage only; AMD multi-node GPU acceptance is still pending.
 
-| Scope | Evidence / status |
+| Scope | Status |
 | --- | --- |
-| Single-node, four original checkpoint layers | Completed jobs show actor/rollout raw FP32 parity through three real GRPO updates; see the report below |
-| Overall four-layer acceptance | Still pending: one unexplained historical v3 failure and two final-image GPU regression setup errors |
-| Multi-node communication smoke | New preparation command below; hardware validation pending |
-| Actor and rollout on separate nodes | Requires placement, shared policy storage and evidence changes; not yet a supported recipe |
-| Actor or rollout model parallelism across nodes | Requires the multi-node integration changes below; not enabled by changing `nnodes` alone |
-| Full model, EP/TP/CP expansion, performance | Separate, unvalidated extensions; no pass or speedup claim |
+| Single-node, four original layers | Existing measured jobs; historical failure and two GPU setup errors remain open |
+| Actor and rollout on separate hosts, each local PP2 | Implemented via explicit Ray placement and checked shared-file policy synchronization; GPU validation pending |
+| Actor and rollout PP2 each spanning two hosts | Implemented via native Megatron PP and the pinned vLLM multi-node `mp`/headless path; GPU validation pending |
+| Full model, EP/DP/TP/CP expansion | Not enabled by this change; four layers, PP2/DP1, TP1/EP1/CP1 remain mandatory |
 
 The [measured report](../../examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_20261117/README.md)
 is the authority for results and remaining failures. It used one node and four
@@ -40,8 +36,9 @@ git -C verl rev-parse HEAD
 
 The community [verl PR #1](https://github.com/RL-Align/verl/pull/1) is merged.
 The published pin above has the same source tree as the measured
-`8196af485ae50e09aa42c1fc6e399f266fb166d3`. Future multi-node integration needs
-a new companion verl commit; this pin intentionally still rejects unsupported layouts.
+`8196af485ae50e09aa42c1fc6e399f266fb166d3`. For multi-node runs, use the companion `dsv4-rocm-multinode` verl PR branch
+instead of this historical pin, and record its exact SHA. Both repositories must
+include the multi-node changes; the historical pin still rejects those layouts.
 
 The measured RLK execution pin is `478caf1a787f6c9d9d3747a45ad79756b6c2c616`.
 Keep measured results associated with that pin, even when testing a newer branch.
@@ -138,51 +135,127 @@ This tests integer all-reduce and forward/backward rank-chain P2P payloads.
 It does **not** test EP all-to-all, bandwidth, floating-point reduction order,
 Ray placement, weight synchronization or model logprob parity.
 
-## 4. Required code changes before multi-node model execution
+## 4. Run the experimental multi-node four-layer GRPO path
 
-These are implementation gates, not settings AMD should bypass. Do not remove
-validation checks merely to make a larger configuration start.
+Use RLK #711 together with the community verl `dsv4-rocm-multinode` PR. Build
+both exact commits into the **same image on every node** using the measured
+dependency environment. Record the new image digest; it is not the previously
+measured image. Do not merely update a host checkout while running an old image.
+The new modules must be importable in the image's Python environment.
 
-| Location | Current limitation | Required change and evidence |
-| --- | --- | --- |
-| RLK `examples/operators/dsv4_4l/run_grpo.py` | Physical GPUs 4–7, `address=local`, one container | Separate cluster bootstrap/job submission; explicit allocated GPUs and per-node environment; retain every node's logs and exits |
-| verl `experimental/rl_kernel/trainer_contract.py` and `config/dsv4_grpo.yaml` | Actor and rollout each fixed to one node/two GPUs | Add explicit supported topologies, resource accounting and negative config tests; preserve rejection of unimplemented layouts |
-| RLK `rl_engine/integrations/orchestrators/verl/pipeline_rollout.py` | Requires one node, two local GPUs and vLLM `mp` | For a replica spanning nodes, implement a distributed executor/placement path with correct PP worker ownership; local `mp` cannot span hosts |
-| verl `experimental/rl_kernel/trainer_rollout.py` | Two reservations and hard-coded original layer partition `3,1` | Configure and verify node/rank placement and layer ownership; do not carry the four-layer partition into a full model |
-| verl `experimental/rl_kernel/trainer_sync.py`, actor export and rollout readback | Exactly two stage exports; policy files read by path | Validate shared storage visibility/atomic publication or implement explicit transfer; collect complete shard acknowledgments and preserve stale/corrupt failure behavior |
-| verl acceptance plus RLK `verify_grpo.py` / evidence writers | Four-layer PP2 identities, file names and stage counts | Generalize identities to node/rank/replica, prevent filename collisions, verify complete expected token/shard coverage and all process exits |
+This recipe still uses four GPUs total. On two nodes, allocate two GPUs per node.
+Supported placements include:
 
-Keep checkpoint layout and native Megatron layer mapping aligned when expanding
-to the full model. EP/DP expansion additionally needs routing/gradient/sync
-ownership checks; this PR's native GRPO evidence has EP1/DP1 only.
+| Case | Actor | Rollout | What crosses nodes |
+| --- | --- | --- | --- |
+| Separate engines | Node A: two PP ranks | Node B: two PP ranks | Control flow and shared-file policy sync |
+| Cross-node PP | One actor PP rank on A and B | One rollout PP rank on A and B | Actor forward/backward PP, rollout PP, control and policy sync |
 
-## 5. Multi-node end-to-end execution order after those gates land
+The two cases use the same GPU allocation but must run separately. Four-layer
+ownership stays `0–2 / 3`; no extra DP replicas are created. Do not substitute
+PP4/EP4/full-model settings into these commands.
 
-1. Publish the new RLK and companion verl SHAs, image digest, launch script and
-   resolved configuration. Specify actor and rollout node/GPU ownership separately.
-   Joining Ray nodes alone is not proof that model ranks span hosts.
-2. Start with four layers and TP1/EP1/CP1. First validate actor/rollout placement
-   on separate hosts, then explicitly test model PP across hosts. Record actual
-   host/rank/device placement for both cases; they exercise different communication.
-3. Run the real GRPO path: generation → reward → advantages → native PPO
-   backward/optimizer → policy export/load/readback → next rollout. Audit v0 and
-   each of three updates on the same live workers, with fixed/fresh B1/B2 cases,
-   request-order swaps and repeats. Retain failed policies and first-difference traces.
-4. Require original finite FP32 token-score bit equality, zero mismatches and
-   `expected_tokens == compared_tokens > 0`, matching tokens/positions/masks,
-   current policy versions and complete shard readback. Record all node exits.
-5. Only after multi-node four-layer acceptance, switch to the full checkpoint
-   with a declared layer partition and feasible GPU/memory plan. Expand EP/DP and
-   sequence lengths in named cases; TP/CP remain 1 unless explicitly in scope.
-   Do not treat a four-layer result as coverage of all compression branches.
-6. Collect performance separately after correctness passes. Report rollout,
-   update and synchronization time, token counts, total GPU count and peak memory;
-   instrumented correctness timing is not a speedup result.
+### Start the allocated Ray cluster
 
-There is deliberately **no multi-node GRPO/full-model launch command yet**:
-the current pinned integration rejects it. The follow-up integration must supply
-that executable command before asking AMD to run steps 2–6. AMD can meanwhile
-prepare artifacts, reproduce the supported baseline and run the communication smoke.
+Run in identical runtime containers, using the image's Python/Ray executable.
+Expose only allocated GPU devices. Preserve each node's own local visibility;
+never copy GPU ordinals from one host to the other. The examples assume the image
+is installed at `/opt/dsv4` and a shared mount is visible at `/shared/dsv4`.
+Use host networking or an equivalent cluster-approved network setup with Ray,
+RCCL and vLLM rendezvous ports reachable. Mount required RDMA devices if applicable.
+`NODE_A` and `NODE_B` must be actual Ray node IP addresses, not hostnames.
+
+On node A:
+
+```bash
+export PATH=/opt/dsv4-venv/bin:$PATH
+export NODE_A=10.0.0.10  # replace with the actual address
+export VLLM_HOST_IP="$NODE_A"
+export NCCL_DEBUG=INFO
+ray start --head --node-ip-address="$NODE_A" --port=6379 \
+  --num-gpus=2 --num-cpus=16 --disable-usage-stats
+```
+
+On node B:
+
+```bash
+export PATH=/opt/dsv4-venv/bin:$PATH
+export NODE_A=10.0.0.10
+export NODE_B=10.0.0.11
+export VLLM_HOST_IP="$NODE_B"
+export NCCL_DEBUG=INFO
+ray start --address="$NODE_A:6379" --node-ip-address="$NODE_B" \
+  --num-gpus=2 --num-cpus=16 --disable-usage-stats
+```
+
+These commands start a dedicated allocated cluster; do not stop or replace a
+shared Ray service. Apply the actual NIC/RDMA settings on **both nodes before
+starting Ray**. On the head, `ray status` must show both allocated nodes and four
+GPUs. The launcher attaches to this cluster; it never creates a local replacement.
+
+### Submit one job from node A
+
+All paths below must exist at the same absolute location on every node. The
+output mount must be a real shared filesystem with coherent reads and atomic
+rename. Preflight writes a unique challenge, checks peer writes, hashes checkpoint
+weights/tokenizer/data, and compares source/dependency identity on every node.
+Node binding has a bounded placement timeout. No model workers are allocated
+until preflight succeeds.
+
+```bash
+cd /opt/dsv4/RL-Kernel
+export NODE_A=10.0.0.10
+export NODE_B=10.0.0.11
+export GRPO_CHECKPOINT=/shared/dsv4/models/DeepSeek-V4-Flash-4l
+export GRPO_DATA=/shared/dsv4/final-data
+export GRPO_OUTPUT=/shared/dsv4/runs/cross-node-pp-001  # must not exist
+
+python examples/operators/dsv4_4l/run_cluster_grpo.py \
+  --ray-address "$NODE_A:6379" \
+  --actor-nodes "$NODE_A,$NODE_B" \
+  --rollout-nodes "$NODE_A,$NODE_B" \
+  --checkpoint "$GRPO_CHECKPOINT" --data "$GRPO_DATA" \
+  --output "$GRPO_OUTPUT" --stress-final-repeats 1000
+
+python examples/operators/dsv4_4l/verify_grpo.py \
+  "$GRPO_OUTPUT/policy-sync" --inventory "$GRPO_DATA/checkpoint-inventory.json"
+```
+
+Add `--dry-run` to inspect the exact Hydra command without submitting a job.
+For the separate-engines case, use `--actor-nodes "$NODE_A"` and
+`--rollout-nodes "$NODE_B"` with a **new** output directory. Both cases keep
+three actual GRPO/PPO updates and audit v0–v3 on the same live workers.
+
+The launcher writes `launch.json`, `driver.log`, the process exit code and wall
+time. `policy-sync/cluster-preflight.json` records node/source/input checks;
+`cluster-placement.json` records actual node/rank/PCI ownership. Placement is
+checked before policy publication: every declared rank must be present and no
+actor/rollout GPU can overlap. Worker identity includes node, PID and process
+instance, so equal PIDs on different hosts are valid and restarted workers fail.
+
+Weight synchronization uses the existing complete actor export and native
+stage-owned rollout load/readback over the checked shared mount. It retains
+atomic rename, version ordering, admission pause and full tensor acknowledgments.
+There is no new RDMA weight transport. Node failure or missing shared files must
+fail the job, not fall back to stale weights.
+
+Collect each node's Ray worker logs in addition to driver and policy evidence.
+The cluster daemons remain running after the job; a daemon being alive is not a
+training pass. The verifier checks driver success, actual worker placement,
+complete score matrices, state readback and unchanged live-worker identity.
+
+## 5. Acceptance and remaining scope
+
+Run the separate-engines case, then cross-node PP. Require original finite FP32
+logprob bit equality, zero mismatches and `expected_tokens == compared_tokens > 0`
+for fixed/fresh B1/B2, swapped orders and repeats at v0–v3. Preserve failures,
+updated policies and traces. Report CPU checks and GPU results separately.
+
+Full-model execution remains blocked by the explicit four-layer recipe and
+stage partition. A follow-up must generalize native model binding, checkpoint
+ownership and the acceptance matrix before changing the model path. EP/DP/TP/CP
+expansion also needs its own numerical and synchronization tests. Neither a
+successful communication smoke nor this code submission is multi-node GPU evidence.
 
 ## Result handoff
 

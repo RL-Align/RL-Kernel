@@ -83,3 +83,16 @@ def test_only_two_gpu_single_node_standalone_uses_the_opt_in_server():
     ]:
         with pytest.raises(ValueError, match="standalone native workers"):
             validate_pipeline_server(config(), **dict(kwargs, **update))
+
+
+def test_cross_node_pp2_accepts_one_local_gpu_per_server():
+    for node_rank in (0, 1):
+        validate_pipeline_server(
+            config(),
+            rollout_mode=RolloutMode.STANDALONE,
+            workers=[],
+            node_rank=node_rank,
+            nnodes=2,
+            gpus_per_node=1,
+            cuda_visible_devices="3",
+        )

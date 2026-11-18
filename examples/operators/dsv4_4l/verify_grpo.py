@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Fail-closed audit of the real verl GRPO recipe, never a diagnostic-loss run."""
+
 import argparse
 import json
 from pathlib import Path
 
 import torch
+
+
+def worker_key(record):
+    return record.get("worker_identity", record["pid"])
 
 
 def verify_stress(root, repeats, pids):
@@ -53,7 +58,9 @@ def verify_stress(root, repeats, pids):
             count += row["compared_tokens"]
         assert len(raw["stages"]) == 2
         for stage in raw["stages"]:
-            assert stage["weight_version"] == 3 and stage["pid"] == pids[stage["pipeline_stage"]]
+            assert (
+                stage["weight_version"] == 3 and worker_key(stage) == pids[stage["pipeline_stage"]]
+            )
             assert len(stage["batches"]) == 1
             batch = stage["batches"][0]
             assert batch["num_requests"] == len(selected)
@@ -77,7 +84,7 @@ def verify_stress(root, repeats, pids):
     assert len(acks) == 2
     covered = set()
     for ack in acks:
-        assert ack["weight_version"] == 3 and ack["pid"] == pids[ack["pipeline_stage"]]
+        assert ack["weight_version"] == 3 and worker_key(ack) == pids[ack["pipeline_stage"]]
         assert ack["readback_only"]
         current = ack["verified_original_tensors"]
         assert not covered.intersection(current)
@@ -206,7 +213,7 @@ def verify(root, inventory):
             for stage in raw["stages"]:
                 assert (
                     stage["weight_version"] == version
-                    and stage["pid"] == pids[stage["pipeline_stage"]]
+                    and worker_key(stage) == pids[stage["pipeline_stage"]]
                 )
                 assert len(stage["batches"]) == 1
                 batch = stage["batches"][0]
@@ -334,10 +341,41 @@ def verify(root, inventory):
         repeats = int(OmegaConf.load(config).rlk.get("stress_final_repeats", 0))
         if repeats:
             stress = verify_stress(root, repeats, pids)
+    placement = None
+    if config.exists():
+        from omegaconf import OmegaConf
+
+        declared = OmegaConf.load(config)
+        if declared.rlk.get("multinode", False):
+            from verl.experimental.rl_kernel.cluster_contract import topology, verify_placement
+
+            pre = json.loads((root / "cluster-preflight.json").read_text())
+            assert pre["plan"] == topology(declared)
+            observed = json.loads((root / "cluster-placement.json").read_text())
+            placement = verify_placement(
+                pre["plan"], observed["actor"], observed["rollout"], pre["nodes"]
+            )
+            # Verify placement against actual execution evidence, not just a sidecar.
+            for rank in (0, 1):
+                identity = identities[rank]
+                placed = next(r for r in placement["actor"] if r["rank"] == rank)
+                assert identity["source_identity"]["node_id"] == placed["node_id"]
+                assert identity["pid"] == placed["pid"]
+                assert identity["device_identity"]["pci_bus_id"] == placed["pci_bus_id"]
+            initial = json.loads((root / "sync-v0-raw.json").read_text())["stages"]
+            for stage in initial:
+                placed = next(
+                    r for r in placement["rollout"] if r["rank"] == stage["pipeline_stage"]
+                )
+                assert worker_key(stage) == placed["worker_identity"]
+                assert stage["node_id"] == placed["node_id"]
+                assert stage["device_identity"]["pci_bus_id"] == placed["pci_bus_id"]
     result = dict(
         status="PASS",
+        placement=placement,
         scope=(
-            "Single-node four-GPU, four-layer actor PP2/DP1 and rollout PP2/DP1; "
+            ("Explicit multi-node four-GPU, " if placement else "Single-node four-GPU, ")
+            + "four-layer actor PP2/DP1 and rollout PP2/DP1; "
             "three continuous native verl GRPO/PPO updates."
         ),
         versions=versions,
