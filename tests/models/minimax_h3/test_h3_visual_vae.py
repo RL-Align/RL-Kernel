@@ -20,6 +20,7 @@ import pytest
 import torch
 
 from rl_engine.models.minimax_h3 import visual_vae as vv
+from rl_engine.models.minimax_h3.trajectory import tensor_digest
 
 VAE_DIR_ENV = "RL_KERNEL_H3_VAE_DIR"
 needs_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
@@ -233,6 +234,29 @@ def test_manifest_is_reproducible() -> None:
     assert a["checkpoint"]["revision"] == "42ed227ee7df40d41602854ae760620d6eb651fe"
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16, torch.uint8])
+@pytest.mark.parametrize("batch", [1, 2, 3])
+def test_output_digests_equal_tensor_digest(dtype: torch.dtype, batch: int) -> None:
+    g = torch.Generator().manual_seed(batch)
+    rows = [(torch.rand(1, 3, 2, 5, 7, generator=g) * 200).to(dtype) for _ in range(batch)]
+    digest, row_digests = vv.output_digests(rows)
+    assert digest == tensor_digest(torch.cat(rows))
+    assert row_digests == [tensor_digest(r) for r in rows]
+
+
+def test_output_digests_strided_and_empty_rows() -> None:
+    base = torch.arange(2 * 4 * 6, dtype=torch.float32).view(2, 4, 6)
+    rows = [base[:1].transpose(1, 2), base[1:].transpose(1, 2)]  # non-contiguous
+    assert vv.output_digests(rows) == (
+        tensor_digest(torch.cat(rows)),
+        [tensor_digest(r) for r in rows],
+    )
+    empty = [torch.empty(1, 0), torch.empty(1, 0)]
+    assert vv.output_digests(empty)[0] == tensor_digest(torch.cat(empty))
+    with pytest.raises(ValueError):
+        vv.output_digests([])
+
+
 # --- encode/decode with a small Diffusers model -------------------------------------------
 
 
@@ -316,6 +340,8 @@ def test_repeated_encode_is_bitwise_identical(device: str, frames: int) -> None:
         again = contract.encode(pixels)
         assert again.digest == first.digest
         assert torch.equal(again.tensor, first.tensor)
+    assert first.digest == tensor_digest(first.tensor)
+    assert first.row_digests == [tensor_digest(r) for r in first.tensor.split(1)]
     assert tuple(first.tensor.shape) == vv.RELEASE_LAYOUT.latent_shape(2, frames, 64, 48)
     assert first.tile_plan is not None and first.tile_plan.tiles == 6
     assert first.record["tile_plan_sha256"] == first.tile_plan.digest()
@@ -332,6 +358,8 @@ def test_batch_rows_are_independent(device: str) -> None:
     decoded = contract.decode(batched.tensor)
     alone = contract.decode(batched.tensor[1:2])
     assert alone.row_digests[0] == decoded.row_digests[1]
+    assert alone.digest == tensor_digest(alone.tensor)
+    assert decoded.digest == tensor_digest(decoded.tensor)
 
 
 @needs_cuda
