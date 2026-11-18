@@ -116,9 +116,9 @@ MLP outputs; the refiner blocks' norm weights are seeded (not in the pinned extr
 
 - **The whole DiT.** SGLang's `MiniMaxH3DiTModel` with 2 blocks at H3's widths and seeded weights
   (`full_model_target`), on one denoising step packed by SGLang's own request builder
-  (`minimax_h3_packed_sequence`, `MiniMaxH3DenoiseBranch`), at TP1 and TP2. The adapter binds 27
+  (`minimax_h3_packed_sequence`, `MiniMaxH3DenoiseBranch`), at TP1, TP2, TP4 and TP8. The adapter binds 27
   forwards (2 blocks x 6, 2 refiner blocks x 6, the final layer's 2, the refiner's final norm).
-  Over two forwards each bound forward ran exactly twice, the output is finite and repeats
+  Over two forwards each bound forward ran exactly twice on every rank, the output is finite and repeats
   bitwise, and `remove()` restores SGLang's output and its batching switch. The weights are seeded,
   so this checks that every bound path runs, not the bytes; the bytes are the table above.
 - **Row invariance.** Every bound output gives the same rows on a prefix of the rows. SGLang's
