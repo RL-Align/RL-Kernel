@@ -182,7 +182,7 @@ def plot(report: dict[str, Any], path: str) -> None:
 
     reference = report["reference"]
     timing = report["timing"]
-    fig, (left, right) = plt.subplots(1, 2, figsize=(11, 3.8))
+    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 4.2))
     names = [k for k, v in reference.items() if isinstance(v, dict) and "cases" in v]
     cases = [reference[k]["cases"] for k in names]
     equal = [reference[k]["bitwise_equal"] for k in names]
@@ -191,12 +191,12 @@ def plot(report: dict[str, Any], path: str) -> None:
     left.barh([i - 0.2 for i in y], equal, height=0.4, color="#2f6f9f", label="bitwise equal")
     left.set_yticks(list(y), names)
     left.set_xlabel("cases")
-    left.set_title(f"{report['row']}: packed layout vs prior art")
-    left.legend(loc="lower right", frameon=False)
+    left.set_title(f"{report['row']}: layout vs prior art", fontsize=10)
+    left.legend(loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=2, frameon=False)
     impls = list(timing)
     right.bar(impls, [timing[k]["median_ms"] for k in impls], color="#2f6f9f")
     right.set_ylabel("median ms per layout")
-    right.set_title(timing[impls[0]].get("label", "layout build, released size"))
+    right.set_title(timing[impls[0]].get("label", "layout build, released size"), fontsize=10)
     for side in (left, right):
         side.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
@@ -210,7 +210,11 @@ def main() -> None:
     parser.add_argument("--png")
     parser.add_argument("--transformer-dir")
     parser.add_argument("--repeats", type=int, default=3)
+    parser.add_argument("--replot", help="only redraw --png from this existing report JSON")
     args = parser.parse_args()
+    if args.replot:
+        plot(json.loads(Path(args.replot).read_text()), args.png)
+        return
     sys.path.insert(0, str(Path(__file__).parent))
     module = importlib.import_module(ROWS[args.row])
     report: dict[str, Any] = {
