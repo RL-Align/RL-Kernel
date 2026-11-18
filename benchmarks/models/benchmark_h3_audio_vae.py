@@ -446,15 +446,17 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
         ax.set_title(f"{kind}: max |Δ| of one channel across batch compositions")
         ax.set_xlabel("clip length")
     axes[0].set_ylabel("max abs diff (0 = batch invariant)")
-    axes[0].legend(frameon=False, fontsize=8)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False, fontsize=9)
     fig.suptitle(f"H3 audio VAE batch invariance on {gpu} (FP32)")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
     files.append(out_prefix.with_name(out_prefix.name + "-bi.png"))
     fig.savefig(files[-1], dpi=130)
     plt.close(fig)
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4))
     for ax, kind in zip(axes, ("encode", "decode"), strict=True):
+        ends: list[tuple[float, str]] = []
         for n in names:
             lat = [c["paths"][n][kind].get("latency", {}).get("median_ms") for c in cases]
             if all(v is not None for v in lat):
@@ -467,23 +469,33 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
                     color=COLORS.get(n, "#777"),
                     label=n,
                 )
-                ax.annotate(
-                    n,
-                    (len(secs) - 1, lat[-1]),
-                    xytext=(6, 0),
-                    textcoords="offset points",
-                    va="center",
-                    fontsize=8,
-                    color=INK,
-                )
+                ends.append((math.log10(lat[-1]), n))
+        # End-of-line labels, nudged apart in log space so coincident lines stay readable.
+        ends.sort()
+        lo, hi = ax.get_ylim()
+        gap = 0.06 * (math.log10(hi) - math.log10(lo))
+        placed: list[float] = []
+        for y, n in ends:
+            y = max(y, placed[-1] + gap) if placed else y
+            placed.append(y)
+            ax.annotate(
+                n,
+                (len(secs) - 1, 10**y),
+                xytext=(8, 0),
+                textcoords="offset points",
+                va="center",
+                fontsize=8,
+                color=INK,
+            )
         ax.set_xlim(-0.3, len(secs) - 0.2)
         ax.set_title(f"{kind} latency, stereo call (median)")
         ax.set_ylabel("ms")
         ax.set_xlabel("clip length")
         ax.set_yscale("log")
-    axes[0].legend(frameon=False, fontsize=8)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False, fontsize=9)
     fig.suptitle(f"H3 audio VAE latency on {gpu}")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
     files.append(out_prefix.with_name(out_prefix.name + "-latency.png"))
     fig.savefig(files[-1], dpi=130)
     plt.close(fig)
