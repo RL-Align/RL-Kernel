@@ -130,7 +130,11 @@ class _SharedLinear(torch.autograd.Function):
             return (
                 torch.empty_like(x) if ctx.needs_input_grad[0] else None,
                 torch.zeros_like(weight) if ctx.needs_input_grad[1] else None,
-                weight.new_zeros(weight.shape[0]) if ctx.has_bias else None,
+                (
+                    weight.new_zeros(weight.shape[0])
+                    if ctx.has_bias and ctx.needs_input_grad[2]
+                    else None
+                ),
             )
         grad = grad_output.contiguous()
         with torch.cuda.device(x.device):
@@ -347,8 +351,9 @@ def shared_moe(x, router_weight, gate_up_weights, down_weights):
     Weights are [512, 2*I_local, H] (gate then up) and [512, H, I_local].
     All experts belong to EP=1. Each (token, route) output row has exactly one
     writer and the ten routes are combined in route order. Shared-expert and
-    TP-reduction ownership remains with the model adapter. The forward has no
-    host synchronisation; the backward builds per-expert row lists on the host.
+    TP-reduction ownership remains with the model adapter. The forward
+    synchronises with the host for the fail-closed finiteness check on the
+    router logits; the backward builds per-expert row lists on the host.
     """
     _cuda_tensors(x, router_weight, gate_up_weights, down_weights)
     if x.ndim != 2 or x.dtype != torch.bfloat16:
