@@ -7,8 +7,8 @@ Everything runs on CPU with the stand-ins of ``_toy_chain`` (seconds). Diffusers
 checks (the scheduler step against ``MiniMaxH3Scheduler``, a tiny real
 ``MiniMaxH3Transformer3DModel``) skip when Diffusers with MiniMax-H3 is not importable.
 
-The two sealed fixtures under ``fixtures/`` are replayed when the runtime profile (torch
-version, CPU capability, machine) matches the one they were sealed on; set
+The two sealed fixtures under ``fixtures/`` are replayed at 4 intra-op threads when the
+runtime profile (torch version, CPU capability, machine) matches the one they were sealed on; set
 ``RL_KERNEL_H3_REGEN_CHAIN_FIXTURES=1`` to reseal them.
 """
 
@@ -28,7 +28,10 @@ from tests.models.minimax_h3 import _toy_chain as toy
 
 FIXTURES = Path(__file__).with_name("fixtures")
 REGEN_ENV = "RL_KERNEL_H3_REGEN_CHAIN_FIXTURES"
-PROFILE_KEYS = ("torch", "cpu_capability", "platform_machine")
+PROFILE_KEYS = ("torch", "cpu_capability", "platform_machine", "num_threads")
+# CPU convolutions (the audio VAE) change bytes with the intra-op thread count, so the
+# fixtures are sealed and replayed at a fixed one.
+FIXTURE_THREADS = 4
 
 
 def _variant(workflow: str) -> str:
@@ -475,7 +478,14 @@ def _profile(runtime: dict) -> dict:
 @pytest.mark.parametrize("workflow", ["fl2va", "ref2va"])
 def test_sealed_fixture_replays(workflow: str) -> None:
     path = FIXTURES / f"h3_full_chain_{workflow}_toy.json"
-    run = clean_run(workflow, decode=True)
+    threads = torch.get_num_threads()
+    torch.set_num_threads(FIXTURE_THREADS)
+    try:
+        run = fc.run_chain(
+            _request(workflow), toy.components(_variant(workflow)), label=f"{workflow}-fixture"
+        )
+    finally:
+        torch.set_num_threads(threads)
     if os.environ.get(REGEN_ENV):
         path.parent.mkdir(exist_ok=True)
         path.write_text(fc.dumps(run.artifact))

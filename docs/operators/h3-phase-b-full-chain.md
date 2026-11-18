@@ -110,9 +110,10 @@ localized.
 
 `tests/models/minimax_h3/fixtures/h3_full_chain_{fl2va,ref2va}_toy.json` are sealed toy runs.
 They use a 64x64 canvas, 124 frames, a toy VAE with the release layout, the small audio VAE of
-`audio_vae_contract` and a toy H3-shaped transformer, all on CPU. The test replays them when
-the runtime profile (torch, CPU capability, machine) matches. Bytes are only claimed within
-one profile; set `RL_KERNEL_H3_REGEN_CHAIN_FIXTURES=1` to reseal. The released-weight
+`audio_vae_contract` and a toy H3-shaped transformer, all on CPU. The test replays them at 4
+intra-op threads when the runtime profile (torch, CPU capability, machine) matches. The
+thread count is pinned because CPU convolutions (the audio VAE) change bytes with it. Bytes
+are only claimed within one profile; set `RL_KERNEL_H3_REGEN_CHAIN_FIXTURES=1` to reseal. The released-weight
 fixtures are produced by the runner and kept with the evidence, not in the repository.
 
 ## Reproduce

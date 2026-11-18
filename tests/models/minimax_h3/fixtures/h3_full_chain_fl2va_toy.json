@@ -1,6 +1,6 @@
 {
  "architecture_fingerprint_sha256": "805d0ebf601a09d65ede184441fda2694aa374d80f3dc274ba4670cfcfdf0839",
- "artifact_sha256": "f1a1053bc28091c9e6b9166624af2e7b1e8cc481738e92b7e625096de6620d17",
+ "artifact_sha256": "9331578cf65749b17151c44fa2736fb9e0253f063bcabfc624da80d25bd35856",
  "checkpoint": {
   "repo": "MiniMaxAI/MiniMax-H3",
   "revision": "42ed227ee7df40d41602854ae760620d6eb651fe"
@@ -26,7 +26,7 @@
   ]
  },
  "injection": null,
- "label": "fl2va-clean",
+ "label": "fl2va-fixture",
  "layout": {
   "artifact_sha256": "ccdd2b9efbb3cae1252e1e31f4a70c81f080dc0921420070f85753dce1501beb",
   "checkpoint": {
@@ -110,7 +110,7 @@
   "device": "cpu",
   "hip": null,
   "matmul_allow_tf32": false,
-  "num_threads": 112,
+  "num_threads": 4,
   "platform_machine": "x86_64",
   "python": "3.12.14",
   "torch": "2.13.0+cu130"
@@ -118,10 +118,10 @@
  "schema_version": "rlkernel.h3.full_chain.v1",
  "secondary_metrics": {
   "audio": {
-   "peak": 0.24596548080444336,
+   "peak": 0.24596552550792694,
    "rms_lr": [
-    0.132204954175023,
-    0.13219941751649059
+    0.13220495416571373,
+    0.13219941751741912
    ],
    "shape": [
     2,
@@ -143,7 +143,7 @@
     64,
     64
    ],
-   "std": 0.1717224422765284
+   "std": 0.17172244227651856
   }
  },
  "stages": [
@@ -479,11 +479,11 @@
    "stage": "video_decode"
   },
   {
-   "chain_sha256": "3558742c442a3b674aae2afb22910827fc7c48875a0bea7f03d44af05ee0ecbf",
+   "chain_sha256": "09db8d2a1e6f8b05e3a1910177348081550e74fd50b1fb9ebe0c639e6495d5fc",
    "components": [
     [
      "waveform",
-     "cae64db4ffca4f8a57181c52e87904e21e98b331584ee62f21cfa767edb3688f"
+     "e797f61fa8c04b7acc16973d62dc361648de0ff9702f5cc77b868a327c5bb5f1"
     ]
    ],
    "provenance": {
@@ -525,7 +525,7 @@
  ],
  "trajectory": {
   "architecture_fingerprint_sha256": "805d0ebf601a09d65ede184441fda2694aa374d80f3dc274ba4670cfcfdf0839",
-  "artifact_sha256": "6e4ea9058a2268a4dae7c4b5d5729ca78e7ebb9740403d546f2ce7f25ffea7ce",
+  "artifact_sha256": "5d0b47bb5a8c34fd29def8e5203b849be93a7413952eacf34f184dbd4e415e71",
   "final_latent_sha256": {
    "audio": "1a45edf7bc0588d397e06cd861399bbc3925234ef763c512b603c8f69d0cc59e",
    "video": "a902f9d8d83823231679d77c9f976daf4dd01b1896b0918502ca1da34dd57876"
@@ -548,7 +548,7 @@
     ]
    }
   },
-  "label": "fl2va-clean",
+  "label": "fl2va-fixture",
   "metadata": {
    "chain": "h3-phase-b-full-chain-v1",
    "sampler": "MiniMaxH3Scheduler euler eta=0"
