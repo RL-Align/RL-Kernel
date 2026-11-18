@@ -86,8 +86,75 @@ def strict_add_rms_norm(
     return _strict_add_rms_norm(x, residual, weight, eps)
 
 
-def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
-    """Shape-invariant per-row rstd (the shared RMSNorm statistic).
+_CHUNK = 32
+
+
+def _pad_to_chunk(x_f: torch.Tensor) -> torch.Tensor:
+    """Reshape the last dim into fixed ``_CHUNK``-wide chunks, zero-padding the tail.
+
+    Both reductions below used to fall back to a plain ``mean``/``sum`` when the
+    width was not a multiple of 32, which is the shape-dependent reduction they
+    exist to avoid. Measured on CUDA at width 100 with 16 rows: the mean's per-row
+    bytes moved in 3 of 9 sub-batch comparisons, the row sum's in 8, and the whole
+    closed-form backward in 23 -- while width 6656 was invariant, which is why the
+    operator's own tests never saw it. Axis A in RFC #501 is unconditional, so the
+    fallback had to go rather than be documented.
+
+    This changes ``shape_invariant_rstd`` and so ``NativeRMSNormOp`` and the Ascend
+    statistic at widths that are not a multiple of 32, which is a reference
+    behaviour change and is called out as one. Verified bit-identical to the old
+    result at 64, 128 and 4096, and different at 33 and 100. The change is in the
+    direction of the contract: those widths were not batch invariant before.
+
+    An earlier version of this docstring said every consumer test uses a multiple
+    of 32, which is not true and is corrected here rather than quietly dropped.
+    ``test_rms_norm.py`` covers 63, 65, 127, 129, 255 and 257 in the CUDA and Triton
+    layout-invariance test and 1000 in the Ascend tests. What holds is the thing
+    that matters: no expected value is pinned to the old bytes. The only bitwise
+    comparison against this statistic, ``_manual_rms_norm``, computes it by calling
+    ``shape_invariant_rstd``, so it tracks any change here by construction rather
+    than carrying a copy of the result; the layout-invariance test compares a kernel
+    against itself across batch layouts and never against this reduction; and the
+    Ascend tests are tolerance-based against that same manual reference. The widths
+    that reach a bitwise expectation here are 4096 and 128.
+
+    Padding with zeros is exact for both a sum of squares and a row sum, and the
+    chunk count is ``ceil(width / 32)``, which depends on the width alone. The
+    intermediate shapes therefore stay independent of the batch layout, which is
+    the whole point of the scheme.
+
+    What it costs, since the pad is a copy: nothing at a width that is already a
+    multiple of 32, where this returns a view that shares its input's storage, and
+    that covers every width the model uses -- 6656 here, 4096 and 128 in the config.
+    Elsewhere it is one temporary of the row's size per call. Measured on SM 8.9 at
+    512 rows, the statistic takes 37.95 us at width 6656 and 55.21 us at 6657, and
+    the pad alone is 6.32 us, about 27% of the statistic at width 100. The way to
+    avoid it would be to reduce the whole chunks as a view and fold the tail
+    separately, which associates the additions differently and so changes the bytes
+    at exactly the widths this function exists to make invariant. The copy is the
+    cheaper side of that trade.
+    """
+    hidden = x_f.shape[-1]
+    remainder = hidden % _CHUNK
+    if remainder:
+        x_f = torch.nn.functional.pad(x_f, (0, _CHUNK - remainder))
+    # The chunk count written out rather than left to -1. An empty batch has zero
+    # elements, and reshape refuses to infer a dimension from nothing: (0, 100) gave
+    # "cannot reshape tensor of 0 elements into shape [0, -1, 32] because the
+    # unspecified dimension size -1 can be any value and is ambiguous". That was
+    # true at every width, not only the padded ones, and it predates this row: the
+    # same -1 is in shape_invariant_rstd on test-museglimmer, where zero rows at
+    # width 6656 already raised and zero rows at width 100 survived only because the
+    # non-multiple-of-32 fallback bypassed the reshape. Removing that fallback in
+    # 02462fb took the survivors with it. ceil(width / 32) depends on the width
+    # alone, so writing it out keeps the scheme batch-layout independent and makes
+    # the empty case work at every width, here and in NativeRMSNormOp.
+    chunks = -(-hidden // _CHUNK)
+    return x_f.reshape(*x_f.shape[:-1], chunks, _CHUNK)
+
+
+def shape_invariant_meansq(x_f: torch.Tensor) -> torch.Tensor:
+    """Shape-invariant per-row mean of squares (the shared RMSNorm statistic).
 
     torch mean/sum select shape-dependent reduction kernels on NPU and flip
     single-ULP results between batch layouts (e.g. [1,7,H] vs [1,20,H]),
@@ -95,16 +162,53 @@ def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
     in FIXED 32-wide chunks first, so the intermediate shapes -- and hence
     the reduction kernels -- never depend on the batch layout, and the
     result is bitwise identical for every layout on every device.
+
+    Split out from ``shape_invariant_rstd`` because the reciprocal square root
+    is not spelled the same way everywhere: Muse-Glimmer's fingerprint freezes
+    ``rsqrt`` for the decoder norms and ``pow_neg_half`` for the final norm, and
+    both have to share this reduction or batch invariance goes with it.
     """
     hidden = x_f.shape[-1]
-    if hidden % 32 != 0:
-        var = x_f.pow(2).mean(dim=-1)
-        return torch.rsqrt(var + float(eps))
-    sq = x_f.pow(2).reshape(*x_f.shape[:-1], -1, 32)
+    if hidden == 0:
+        # A mean of no elements is 0/0. Reported as a regression from writing the
+        # chunk count out, and it is not: measured against the version on
+        # test-museglimmer, a (4, 0) input returns NaN there too, because
+        # reshape(4, -1, 32) can solve -1 as zero when the other dimensions do not
+        # multiply to zero. So this is older than the row and the chunk change did
+        # not touch it. It is still wrong: both GPU wrappers and the C++ binding
+        # reject a zero last dimension with a message that names it, the Ascend path
+        # hands this statistic straight back to its caller, and a NaN rstd
+        # propagates into whatever reads it. Raising is what the rest of the
+        # operator already does.
+        raise ValueError(
+            "shape_invariant_meansq needs a non-zero last dimension; a mean over no "
+            "elements is 0/0, and the GPU wrappers reject this shape rather than "
+            "returning NaN."
+        )
+    sq = _pad_to_chunk(x_f.pow(2))
     partial = sq.sum(dim=-1)  # [*, C] — fixed 32-wide chunks
     sumsq = partial.sum(dim=-1)  # [*lead]
-    var = sumsq / float(hidden)
-    return torch.rsqrt(var + float(eps))
+    return sumsq / float(hidden)
+
+
+def shape_invariant_rowsum(x_f: torch.Tensor) -> torch.Tensor:
+    """Shape-invariant sum over the last dim, same fixed-chunk scheme as the mean.
+
+    The backward pass reduces a per-row dot product, and it has to use the same
+    chunking as ``shape_invariant_meansq`` or gradients stop being batch invariant
+    even though the forward still is.
+
+    No zero-width guard here, unlike the mean, and the asymmetry is deliberate: a
+    sum over no elements is 0, which is the right answer and is what this returns,
+    while a mean over no elements is 0/0. The caller that would reach either with a
+    zero width is rejected earlier anyway, by the wrappers and the binding.
+    """
+    return _pad_to_chunk(x_f).sum(dim=-1).sum(dim=-1)
+
+
+def shape_invariant_rstd(x_f: torch.Tensor, eps: float) -> torch.Tensor:
+    """Shape-invariant per-row rstd, ``rsqrt`` form."""
+    return torch.rsqrt(shape_invariant_meansq(x_f) + float(eps))
 
 
 class NativeRMSNormOp:

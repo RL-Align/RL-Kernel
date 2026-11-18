@@ -14,6 +14,7 @@ from rl_engine.validation.operators.operator_specs import (
     make_operator_case,
     operator_names,
 )
+from tests.helpers.fused_add_norm_tolerance import assert_within
 
 
 def _args(**overrides):
@@ -43,6 +44,7 @@ def _args(**overrides):
     [
         "rms_norm",
         "qk_norm",
+        "fused_post_norm_residual_pre_norm",
         "pack",
         "matmul",
         "det_gemm",
@@ -136,3 +138,183 @@ def test_constant_lm_head_inputs_match_operator_contract():
     assert torch.equal(inputs["weight"], torch.full((17, 128), 0.51))
     assert inputs["bias"] is None
     assert operator_shape_name("lm_head", args) == "1x2x128x17"
+
+
+def test_the_harness_eps_defaults_match_the_reference_constants():
+    """The two eps live in two files and must not drift apart.
+
+    ``operator_inputs.py`` carries its own ``MUSE_POST_NORM_EPS`` and
+    ``MUSE_RMS_NORM_EPS`` rather than importing them, so the harness and the
+    operator each hold a copy of a value that comes from the #558 fingerprint.
+    Nothing tied them together. They are equal today; if the reference's value were
+    corrected and this one were not, the harness would keep validating at an eps the
+    model does not use, and every candidate would agree with the gold while all of
+    them were measured at the wrong number. Found by reading the file rather than by
+    a failure, which is why the check is cheap and the comment is long.
+    """
+    from rl_engine.reference.norm.fused_add_norm import POST_NORM_EPS, RMS_NORM_EPS
+    from rl_engine.validation.operators.operator_inputs import MUSE_POST_NORM_EPS, MUSE_RMS_NORM_EPS
+
+    assert (MUSE_POST_NORM_EPS, MUSE_RMS_NORM_EPS) == (POST_NORM_EPS, RMS_NORM_EPS), (
+        f"harness eps {(MUSE_POST_NORM_EPS, MUSE_RMS_NORM_EPS)} against reference "
+        f"{(POST_NORM_EPS, RMS_NORM_EPS)}"
+    )
+    # And the builder actually uses them, rather than naming them and passing
+    # something else.
+    inputs = make_operator_inputs(
+        "fused_post_norm_residual_pre_norm",
+        _args(),
+        torch.float32,
+        torch.device("cpu"),
+    )
+    assert inputs["post_eps"] == POST_NORM_EPS
+    assert inputs["pre_eps"] == RMS_NORM_EPS
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+def test_the_fused_add_norm_gold_is_checked_against_an_independent_recomputation(dtype):
+    """The harness's gold for [F1] is the pytorch candidate, so this checks it elsewhere.
+
+    Every spec in ``operator_specs.py`` names the same class as its gold and as its
+    ``pytorch`` candidate, and the others get an independent comparison out of it by
+    setting ``gold_method="forward_fp32"`` while the candidate is called through
+    ``forward``. This operator cannot: ``forward_fp32`` is a different computation
+    rather than ``forward`` widened, because the frozen semantics narrow twice and
+    ``forward_fp32`` skips both, so the gold is ``forward`` and the ``pytorch`` row
+    of the harness compares that method against itself. That row is a tautology and
+    saying so is better than implying otherwise.
+
+    What it would miss is a bug in the narrowing, the ``1 + w`` gain or the eps
+    pair, which would then only surface as a CUDA or Triton mismatch against a gold
+    that is itself wrong. So that is checked here, against an FP64 recomputation
+    written out in this file, on the harness's own inputs rather than on shapes
+    chosen by a unit test. ``tests/ops/norm/test_fused_add_norm.py`` holds the same
+    comparison with negative controls; this is the part that follows the harness.
+
+    The second comparison exists because the first one cannot see the eps. At the
+    model's values, 1e-8 and 1e-5 against a mean of squares near 1, swapping them
+    moves ``rstd`` by about five parts in a million, which is well inside the
+    forward row: measured, the swap leaves this test green. Running the same
+    comparison again with 0.5 and 1e-9 makes the two distinguishable, and the swap
+    then fails it.
+    """
+    from rl_engine.reference.norm.fused_add_norm import NativeFusedAddNormOp
+
+    inputs = make_operator_inputs(
+        "fused_post_norm_residual_pre_norm",
+        _args(input_mode="random", normalized_dim=128, seq=8),
+        dtype,
+        torch.device("cpu"),
+    )
+    got_res, got_pre = NativeFusedAddNormOp().forward(
+        inputs["hidden"],
+        inputs["residual"],
+        inputs["post_weight"],
+        inputs["pre_weight"],
+        post_eps=inputs["post_eps"],
+        pre_eps=inputs["pre_eps"],
+    )
+
+    # Written out rather than borrowed: mean of squares in FP64, rsqrt, the 1 + w
+    # gain, and a cast at each of the two declared narrowing points.
+    def norm64(x, weight, eps):
+        rstd = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + eps)
+        return x * rstd * (1.0 + weight.double())
+
+    hidden64 = inputs["hidden"].double()
+    post = norm64(hidden64, inputs["post_weight"], inputs["post_eps"])
+    residual_out = (inputs["residual"].double() + post.to(dtype).double()).to(dtype)
+    pre_normed = norm64(residual_out.double(), inputs["pre_weight"], inputs["pre_eps"]).to(dtype)
+
+    assert_within("forward_accuracy", dtype, got_res, residual_out.double(), "residual_out: ")
+    assert_within("forward_accuracy", dtype, got_pre, pre_normed.double(), "pre_normed: ")
+
+    post_eps, pre_eps = 0.5, 1e-9
+    got_res2, got_pre2 = NativeFusedAddNormOp().forward(
+        inputs["hidden"],
+        inputs["residual"],
+        inputs["post_weight"],
+        inputs["pre_weight"],
+        post_eps=post_eps,
+        pre_eps=pre_eps,
+    )
+    post2 = norm64(hidden64, inputs["post_weight"], post_eps)
+    residual_out2 = (inputs["residual"].double() + post2.to(dtype).double()).to(dtype)
+    pre_normed2 = norm64(residual_out2.double(), inputs["pre_weight"], pre_eps).to(dtype)
+    assert_within(
+        "forward_accuracy", dtype, got_res2, residual_out2.double(), "residual_out, wide eps: "
+    )
+    assert_within(
+        "forward_accuracy", dtype, got_pre2, pre_normed2.double(), "pre_normed, wide eps: "
+    )
+
+    # Negative controls, in the test rather than in a commit message, because a
+    # comparison that cannot fail is the thing this test exists to replace. Each
+    # mutation is applied to the recomputation, not to the operator, so the
+    # assertion is that the oracle does *not* match a wrong reading of the frozen
+    # semantics.
+    def missing_offset(x, weight, eps):
+        rstd = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + eps)
+        return x * rstd * weight.double()  # w, not 1 + w
+
+    wrong_post = missing_offset(hidden64, inputs["post_weight"], inputs["post_eps"])
+    wrong_res = (inputs["residual"].double() + wrong_post.to(dtype).double()).to(dtype)
+    with pytest.raises(AssertionError):
+        assert_within("forward_accuracy", dtype, got_res, wrong_res.double(), "no offset: ")
+
+    swapped_post = norm64(hidden64, inputs["post_weight"], pre_eps)
+    swapped_res = (inputs["residual"].double() + swapped_post.to(dtype).double()).to(dtype)
+    with pytest.raises(AssertionError):
+        assert_within("forward_accuracy", dtype, got_res2, swapped_res.double(), "swapped eps: ")
+
+    # And the builder's own defaults, not only the overrides above, since the point
+    # is to follow the harness's inputs wherever they go.
+    default_inputs = make_operator_inputs(
+        "fused_post_norm_residual_pre_norm", _args(), dtype, torch.device("cpu")
+    )
+    d_res, d_pre = NativeFusedAddNormOp().forward(
+        default_inputs["hidden"],
+        default_inputs["residual"],
+        default_inputs["post_weight"],
+        default_inputs["pre_weight"],
+        post_eps=default_inputs["post_eps"],
+        pre_eps=default_inputs["pre_eps"],
+    )
+    d_hidden64 = default_inputs["hidden"].double()
+    d_post = norm64(d_hidden64, default_inputs["post_weight"], default_inputs["post_eps"])
+    d_residual_out = (default_inputs["residual"].double() + d_post.to(dtype).double()).to(dtype)
+    d_pre_normed = norm64(
+        d_residual_out.double(), default_inputs["pre_weight"], default_inputs["pre_eps"]
+    ).to(dtype)
+    assert_within("forward_accuracy", dtype, d_res, d_residual_out.double(), "default shape: ")
+    assert_within("forward_accuracy", dtype, d_pre, d_pre_normed.double(), "default shape pre: ")
+
+
+def test_the_harness_calls_the_gold_method_the_spec_names():
+    """``gold_method`` has to be read, not just declared.
+
+    This row is the only spec whose gold is ``forward`` rather than ``forward_fp32``,
+    for the reason in that file, and the whole comparison depends on the harness
+    honouring it: if it called ``forward_fp32`` anyway, the narrowed candidates would
+    be measured against the widened reference, which that spec's own comment puts at
+    1.8e-01 on BF16. Asked as a question in review, so it is a test now rather than
+    an answer: both gold resolution paths, ``make_operator_case`` here and
+    ``load_adapter_gold`` for the gradient adapters, read ``spec.gold_method``.
+    """
+    import argparse
+
+    from rl_engine.validation.operators.operator_specs import OP_SPECS, make_operator_case
+
+    spec = OP_SPECS["fused_post_norm_residual_pre_norm"]
+    assert spec.gold_method == "forward", "this row's gold is forward on purpose"
+
+    args = _args()
+    args.op = "fused_post_norm_residual_pre_norm"
+    args.candidate = "pytorch"
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    assert case.gold_fn.__name__ == "forward", (
+        f"the harness resolved the gold to {case.gold_fn.__name__}, not the "
+        f"{spec.gold_method} the spec names"
+    )
+    assert type(case.gold_fn.__self__).__name__ == "NativeFusedAddNormOp"
+    assert isinstance(args, argparse.Namespace)
