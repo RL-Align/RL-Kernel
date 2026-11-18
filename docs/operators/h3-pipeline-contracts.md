@@ -186,6 +186,7 @@ the identity table and the layout build time.
 
 - **Encoders.** The VAE encodes and the Qwen3-VL forward belong to the encoder rows.
 - **SGLang's hybrid layouts.** SGLang's padding to 64 rows and its hybrid Ref2VA-plus-keyframe
-  layout (ComfyUI) are not Diffusers layouts. The structural check would refuse the latter.
+  layout (ComfyUI) are not Diffusers layouts and these builders do not produce them. The
+  structural check classifies a hybrid layout as Ref2VA; it does not recognise the keyframes.
 - **A sealed end-to-end fixture per variant.** This needs the full model on Hopper and the
   `transformer_ref/` weights, and is `phase_b_full_chain`.
