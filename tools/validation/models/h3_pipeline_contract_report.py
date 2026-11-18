@@ -171,7 +171,11 @@ def time_call(fn: Callable[[], Any], *, repeats: int = 15) -> dict[str, float]:
         start = time.perf_counter()
         fn()
         samples.append((time.perf_counter() - start) * 1e3)
-    return {"median_ms": statistics.median(samples), "min_ms": min(samples), "runs": repeats}
+    return {
+        "median_ms": statistics.median(samples),
+        "min_ms": min(samples),
+        "runs": repeats,
+    }
 
 
 def plot(report: dict[str, Any], path: str) -> None:
@@ -203,6 +207,206 @@ def plot(report: dict[str, Any], path: str) -> None:
     fig.savefig(path, dpi=150)
 
 
+# One chart per Results table in the PR body (light surface, validated two-hue palette).
+INK, INK_2, GRID, SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
+SERIES = ("#2a78d6", "#eb6834")
+REFERENCE_LABELS = {
+    "diffusers_static": "Diffusers static builder",
+    "diffusers_media": "Diffusers media steps",
+    "sglang_prefix": "SGLang (unpadded prefix)",
+}
+TIMING_LABELS = {
+    "rl_kernel": "RL-Kernel (ours)",
+    "diffusers": "Diffusers",
+    "sglang": "SGLang",
+}
+
+
+def _axes(width: float, height: float, title: str, subtitle: str) -> tuple[Any, Any]:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(width, height), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+    fig.suptitle(title, x=0.01, ha="left", fontsize=11, color=INK, fontweight="bold")
+    ax.set_title(subtitle, loc="left", fontsize=8.5, color=INK_2)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(GRID)
+    ax.tick_params(colors=INK_2, labelsize=8.5)
+    ax.set_axisbelow(True)
+    return fig, ax
+
+
+def _save(fig: Any, path: Path) -> None:
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, facecolor=SURFACE, metadata={"Software": None})
+    import matplotlib.pyplot as plt
+
+    plt.close(fig)
+
+
+def charts(report: dict[str, Any], out_dir: str) -> list[str]:
+    """Write one PNG per Results table: equality, timing, repeatability, row finding."""
+
+    from matplotlib.ticker import FuncFormatter
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    row = report["row"].split("_")[0]
+    name = {"fl2va": "FL2VA", "ref2va": "Ref2VA"}[row]
+    env = report["environment"]
+    gpu = env["gpus"][0] if env["gpus"] else "CPU"
+    where = f"{gpu}, commit {env['commit'][:8]}, {row}-report.json"
+    written = []
+
+    # Byte equality with prior art: cases per reference, all bitwise equal or not.
+    reference = report["reference"]
+    keys = [k for k, v in reference.items() if isinstance(v, dict) and "cases" in v]
+    fig, ax = _axes(
+        7.5,
+        0.9 + 0.55 * len(keys),
+        f"{name} layout vs prior art: bitwise-equal cases ({gpu})",
+        where,
+    )
+    y = list(range(len(keys)))[::-1]
+    equal = [reference[k]["bitwise_equal"] for k in keys]
+    differ = [reference[k]["cases"] - reference[k]["bitwise_equal"] for k in keys]
+    ax.barh(y, equal, height=0.5, color=SERIES[0], label="bitwise equal")
+    ax.barh(y, differ, left=equal, height=0.5, color=SERIES[1], label="differ")
+    for i, k in zip(y, keys, strict=True):
+        ax.text(
+            reference[k]["cases"],
+            i,
+            f"  {reference[k]['bitwise_equal']} / {reference[k]['cases']} equal, "
+            f"{reference[k]['cases'] - reference[k]['bitwise_equal']} differ",
+            va="center",
+            fontsize=8.5,
+            color=INK,
+        )
+    ax.set_yticks(y, [REFERENCE_LABELS.get(k, k) for k in keys])
+    ax.set_xlabel("cases", color=INK_2, fontsize=8.5)
+    ax.set_xlim(0, max(reference[k]["cases"] for k in keys) * 1.45)
+    ax.xaxis.grid(True, color=GRID, linewidth=0.6)
+    ax.legend(loc="lower right", fontsize=8, frameon=False)
+    path = out / f"{row}-equality.png"
+    _save(fig, path)
+    written.append(path.name)
+
+    # Layout build time: median bar, minimum marker.
+    timing = report["timing"]
+    impls = list(TIMING_LABELS)
+    label = timing["rl_kernel"].get("label", "layout build")
+    fig, ax = _axes(
+        7.5,
+        3.2,
+        f"{name} layout build time, released size ({gpu} host, CPU)",
+        f"{label}\n{where}",
+    )
+    x = list(range(len(impls)))
+    med = [round(timing[k]["median_ms"], 2) for k in impls]
+    low = [round(timing[k]["min_ms"], 2) for k in impls]
+    ax.bar(
+        x,
+        med,
+        width=0.5,
+        color=SERIES[0],
+        label=f"median of {timing['rl_kernel']['runs']} runs",
+    )
+    ax.scatter(
+        x,
+        low,
+        s=64,
+        color=SERIES[1],
+        zorder=3,
+        label="minimum",
+        edgecolors=SURFACE,
+        linewidths=2,
+    )
+    for i, (m, lo) in enumerate(zip(med, low, strict=True)):
+        ax.text(i, m, f"median {m:.2f}\n", ha="center", va="bottom", fontsize=8.5, color=INK)
+        ax.text(i + 0.28, lo, f"min {lo:.2f}", va="center", fontsize=8.5, color=INK_2)
+    ax.set_xticks(x, [TIMING_LABELS[k] for k in impls])
+    ax.set_ylabel("ms per layout", color=INK_2, fontsize=8.5)
+    ax.set_ylim(0, max(med) * 1.3)
+    ax.yaxis.grid(True, color=GRID, linewidth=0.6)
+    ax.legend(loc="upper right", fontsize=8, frameon=False)
+    path = out / f"{row}-timing.png"
+    _save(fig, path)
+    written.append(path.name)
+
+    # H-C7: rows per case, every case identical across its runs.
+    rep = report["repeatability"]
+    cases = list(rep)
+    runs = {rep[c]["runs"] for c in cases}
+    same = sum(rep[c]["identical"] for c in cases)
+    fig, ax = _axes(
+        7.5,
+        1.0 + 0.3 * len(cases),
+        f"{name} H-C7: sealed artifact identical in {same} / {len(cases)} cases ({gpu} host)",
+        f"rows per case; {'/'.join(map(str, sorted(runs)))} runs each; {where}",
+    )
+    y = list(range(len(cases)))[::-1]
+    rows = [rep[c]["sequence_length"] for c in cases]
+    ax.barh(
+        y,
+        rows,
+        height=0.6,
+        color=[SERIES[0] if rep[c]["identical"] else SERIES[1] for c in cases],
+    )
+    for i, c in zip(y, cases, strict=True):
+        verdict = "identical" if rep[c]["identical"] else "DIFFER"
+        ax.text(
+            rows[cases.index(c)],
+            i,
+            f"  {rows[cases.index(c)]:,}  ({rep[c]['runs']} runs {verdict})",
+            va="center",
+            fontsize=8,
+            color=INK,
+        )
+    ax.set_yticks(y, cases)
+    ax.set_xlabel("packed rows", color=INK_2, fontsize=8.5)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
+    ax.set_xlim(0, max(rows) * 1.45)
+    ax.xaxis.grid(True, color=GRID, linewidth=0.6)
+    path = out / f"{row}-repeatability.png"
+    _save(fig, path)
+    written.append(path.name)
+
+    # Ref2VA finding: rows whose position differs between the two summations.
+    span = report["findings"].get("video_span_summation")
+    if span:
+        req = span["random_requests"]
+        bars = [
+            ("rows sampled", req["rows"]),
+            ("differ in fp64", req["rows_with_fp64_difference"]),
+            ("differ after fp32 cast", req["rows_with_fp32_difference_after_cast"]),
+        ]
+        fig, ax = _axes(
+            7.5,
+            2.6,
+            f"{name} span summation, neumaier vs sequential, {req['layouts']} layouts ({gpu} host)",
+            f"{span['interpreter']}; {where}",
+        )
+        y = list(range(len(bars)))[::-1]
+        ax.barh(y, [v for _, v in bars], height=0.5, color=[SERIES[0], SERIES[1], SERIES[1]])
+        for i, (_, v) in zip(y, bars, strict=True):
+            text = f"  {v:,}" if v else "  = 0, bitwise equal"
+            ax.text(v, i, text, va="center", fontsize=8.5, color=INK)
+        ax.set_yticks(y, [b for b, _ in bars])
+        ax.set_xlabel("rows", color=INK_2, fontsize=8.5)
+        ax.set_xlim(0, req["rows"] * 1.35)
+        ax.xaxis.grid(True, color=GRID, linewidth=0.6)
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v / 1e6:.0f}M"))
+        path = out / f"{row}-span-summation.png"
+        _save(fig, path)
+        written.append(path.name)
+    return written
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--row", choices=sorted(ROWS), required=True)
@@ -210,10 +414,15 @@ def main() -> None:
     parser.add_argument("--png")
     parser.add_argument("--transformer-dir")
     parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--replot", help="only redraw --png from this existing report JSON")
+    parser.add_argument("--charts", help="also write one PNG per Results table into this dir")
+    parser.add_argument("--replot", help="only redraw --png / --charts from this report JSON")
     args = parser.parse_args()
     if args.replot:
-        plot(json.loads(Path(args.replot).read_text()), args.png)
+        measured = json.loads(Path(args.replot).read_text())
+        if args.png:
+            plot(measured, args.png)
+        if args.charts:
+            print(json.dumps(charts(measured, args.charts)))
         return
     sys.path.insert(0, str(Path(__file__).parent))
     module = importlib.import_module(ROWS[args.row])
@@ -235,6 +444,8 @@ def main() -> None:
     Path(args.out).write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
     if args.png:
         plot(report, args.png)
+    if args.charts:
+        charts(report, args.charts)
     print(json.dumps({"row": report["row"], "passed": report["passed"]}))
 
 
