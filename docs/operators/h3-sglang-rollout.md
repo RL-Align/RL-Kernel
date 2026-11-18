@@ -77,23 +77,26 @@ pinned `MiniMax-H3@42ed227` block 0, final layer and refiner final norm loaded t
 loader, 261 rows, a prefix of 37 rows, two timesteps. The block runs with stand-ins for its attention and
 MLP outputs; the refiner blocks' norm weights are seeded (not in the pinned extract).
 
-| Output | Bound = training, TP1 / TP2 / TP4 | Bound TP2, TP4 = TP1 | SGLang native = training, TP1 / TP2 / TP4 (max abs diff) | Native TP2, TP4 = TP1 |
+| Output | Bound = training, TP1 / TP2 / TP4 / TP8 | Bound TP2, TP4, TP8 = TP1 | SGLang native = training, TP1 / TP2 / TP4 / TP8 (max abs diff) | Native TP2, TP4, TP8 = TP1 |
 | --- | --- | --- | --- | --- |
-| `qkv_proj` | yes / yes / yes | yes | yes / yes / yes | yes |
-| `out_proj` | yes / yes / yes | yes | no (0.0625) / no (0.125) / no (0.125) | no |
-| `fc1` | yes / yes / yes | yes | yes / yes / yes | yes |
-| `fc2` | yes / yes / yes | yes | no (0.25) / no (0.25) / no (0.25) | no |
-| block AdaLN table | yes / yes / yes | yes | no (0.03125) at every TP size | yes |
-| block norm1 (modulated) | yes / yes / yes | yes | no (0.125) at every TP size | yes |
-| block norm2 (modulated) | yes / yes / yes | yes | no (0.25) at every TP size | yes |
-| block output | yes / yes / yes | yes | no (0.0625) at every TP size | yes |
-| final AdaLN table | yes / yes / yes | yes | no (0.03125) at every TP size | no |
-| final layer output | yes / yes / yes | yes | no (0.0078) / no (0.0234) / no (0.0234) | no |
-| refiner norms (3) | yes / yes / yes | yes | yes / yes / yes | yes |
+| `qkv_proj` | yes / yes / yes / yes | yes | yes / yes / yes / yes | yes |
+| `out_proj` | yes / yes / yes / yes | yes | no (0.0625) / no (0.125) / no (0.125) / no (0.125) | no |
+| `fc1` | yes / yes / yes / yes | yes | yes / yes / yes / yes | yes |
+| `fc2` | yes / yes / yes / yes | yes | no (0.25) / no (0.25) / no (0.25) / no (0.25) | no |
+| block AdaLN table | yes / yes / yes / yes | yes | no (0.03125) / no (0.03125) / no (0.03125) / no (0.03125) | no at TP8 |
+| block norm1 (modulated) | yes / yes / yes / yes | yes | no (0.125) / no (0.125) / no (0.125) / no (0.125) | no at TP8 |
+| block norm2 (modulated) | yes / yes / yes / yes | yes | no (0.25) / no (0.25) / no (0.25) / no (0.125) | no at TP8 |
+| block output | yes / yes / yes / yes | yes | no (0.0625) / no (0.0625) / no (0.0625) / no (0.0625) | no at TP8 |
+| final AdaLN table | yes / yes / yes / yes | yes | no (0.03125) / no (0.03125) / no (0.03125) / no (0.03125) | no |
+| final layer output | yes / yes / yes / yes | yes | no (0.0078) / no (0.0234) / no (0.0234) / no (0.0234) | no |
+| refiner norms (3) | yes / yes / yes / yes | yes | yes / yes / yes / yes | yes |
 
 - **Row invariance.** Every bound output gives the same rows on a prefix of the rows. SGLang's
   own `out_proj` / `fc2` do not at TP1.
 - **`remove()`** restores SGLang's forward bitwise.
+- **TP size.** SGLang's own `out_proj`, `fc2` and final-layer table change with the TP size. At
+  TP8 its block AdaLN table does too (its GEMM sees a narrower column shard), and with it its norms
+  and block output. Every bound output is the same at TP1, TP2, TP4 and TP8.
 - **Where SGLang's drift comes from.** Given the training AdaLN table, SGLang's own
   norm-then-modulation and gated residual equal `h3_rmsnorm` / `adaln_gate_residual` bitwise at
   these inputs, and its plain `nn.RMSNorm` equals `h3_rmsnorm`. So all of the native drift in the
@@ -117,9 +120,6 @@ same inputs, under these conditions:
   was run on B200 only.
 - **`strict`**, a validated SGLang version, and server settings that pass
   `check_sglang_server_args` (the adapter does not run a server).
-
-TP8 is not measured. The bound kernels' TP layouts (whole weight rows per column shard, the fixed
-8-unit row-parallel reduction) do not depend on the TP size, which TP2 and TP4 confirm.
 
 Tests: `tests/models/minimax_h3/test_h3_sglang_rollout.py`. The refusal and server-setting tests
 run on CPU; a CUDA test checks the bound AdaLN paths against the training operators on stand-in
