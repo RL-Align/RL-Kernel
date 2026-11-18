@@ -384,7 +384,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 # --- charts ---------------------------------------------------------------------------------
 
 
-COLORS = {"diffusers": "#2a78d6", "sglang": "#eb6834", "vllm-omni": "#9b59b6", "ours": "#1f9d55"}
+# Fixed categorical order (blue, orange, aqua, yellow); identity is also carried by direct labels.
+COLORS = {"diffusers": "#2a78d6", "sglang": "#eb6834", "vllm-omni": "#1baf7a", "ours": "#eda100"}
+INK, MUTED, SURFACE = "#1f1f1e", "#6b6a64", "#fcfcfb"
 
 
 def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
@@ -392,6 +394,23 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    plt.rcParams.update(
+        {
+            "figure.facecolor": SURFACE,
+            "axes.facecolor": SURFACE,
+            "axes.edgecolor": MUTED,
+            "axes.labelcolor": INK,
+            "text.color": INK,
+            "xtick.color": MUTED,
+            "ytick.color": MUTED,
+            "axes.grid": True,
+            "grid.color": "#e4e3de",
+            "grid.linewidth": 0.6,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+        }
+    )
 
     names = list(report["paths"])
     cases = report["cases"]
@@ -409,7 +428,15 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
             ]
             xs = [j + (i - (len(names) - 1) / 2) * width for j in range(len(cases))]
             shown = [v if v > 0 else 1e-12 for v in vals]
-            ax.bar(xs, shown, width, color=COLORS.get(n, "#777"), label=n)
+            ax.bar(
+                xs,
+                shown,
+                width,
+                color=COLORS.get(n, "#777"),
+                label=n,
+                edgecolor=SURFACE,
+                linewidth=1,
+            )
             for x, v in zip(xs, vals, strict=True):
                 if v == 0:
                     ax.text(x, 1.5e-12, "0", ha="center", va="bottom", fontsize=8)
@@ -431,7 +458,25 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
         for n in names:
             lat = [c["paths"][n][kind].get("latency", {}).get("median_ms") for c in cases]
             if all(v is not None for v in lat):
-                ax.plot(secs, lat, marker="o", color=COLORS.get(n, "#777"), label=n)
+                ax.plot(
+                    secs,
+                    lat,
+                    marker="o",
+                    markersize=5,
+                    linewidth=2,
+                    color=COLORS.get(n, "#777"),
+                    label=n,
+                )
+                ax.annotate(
+                    n,
+                    (len(secs) - 1, lat[-1]),
+                    xytext=(6, 0),
+                    textcoords="offset points",
+                    va="center",
+                    fontsize=8,
+                    color=INK,
+                )
+        ax.set_xlim(-0.3, len(secs) - 0.2)
         ax.set_title(f"{kind} latency, stereo call (median)")
         ax.set_ylabel("ms")
         ax.set_xlabel("clip length")
