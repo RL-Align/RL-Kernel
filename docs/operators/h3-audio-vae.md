@@ -54,7 +54,7 @@ the batch. The strict policies fix the arithmetic per logical mono channel:
 
 Micro-batch 1 makes a channel's bytes a function of its own waveform or latent only. Encode
 disables cuDNN (the SGLang / vLLM-Omni encode recipe; on B200 the encoder is as fast as with deterministic
-FP32 cuDNN, though about 6x slower than Diffusers' default TF32 cuDNN),
+FP32 cuDNN, though 2-11x slower than Diffusers' default TF32 cuDNN),
 so the convolution algorithm cannot depend on free workspace. Decode keeps deterministic cuDNN
 (the SGLang decode recipe): native convolutions make BigVGAN about 4x slower on B200.
 `execution_scope` applies the flags and restores them; they are process-global, so do not run
