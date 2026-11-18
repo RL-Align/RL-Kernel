@@ -586,6 +586,96 @@ def toy(args: argparse.Namespace) -> dict[str, Any]:
     return out
 
 
+# --- plot ---------------------------------------------------------------------------------
+
+EQUAL, DIFFERS, INK, INK2, SURFACE = "#d9d8d3", "#2a78d6", "#0b0b0b", "#52514e", "#fcfcfb"
+
+
+def plot(args: argparse.Namespace) -> dict[str, Any]:
+    """Drift map of two runs: one row per step, one cell per probed module output (execution
+    order) and per trajectory tensor; blue where the two runs' digests differ."""
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch, Rectangle
+
+    lhs = fc.loads(Path(args.lhs).read_text())
+    rhs = fc.loads(Path(args.rhs).read_text())
+    steps_a, steps_b = lhs["transformer_probe"]["steps"], rhs["transformer_probe"]["steps"]
+    modules = [name for name, _ in steps_a[0]]
+    traj = [("velocity", "video"), ("velocity", "audio"), ("latent", "video"), ("latent", "audio")]
+    gap = 1.0
+    width = len(modules) + gap + len(traj)
+    fig, ax = plt.subplots(figsize=(max(8.0, 0.16 * width + 2.5), 0.55 * len(steps_a) + 2.2))
+    fig.patch.set_facecolor(SURFACE)
+    ax.set_facecolor(SURFACE)
+    first = None
+    for step, (sa, sb) in enumerate(zip(steps_a, steps_b, strict=True)):
+        y = len(steps_a) - 1 - step
+        for i, (ea, eb) in enumerate(zip(sa, sb, strict=True)):
+            differs = ea != eb
+            if differs and first is None:
+                first = (i, y, ea[0], step)
+            ax.add_patch(
+                Rectangle((i + 0.06, y + 0.08), 0.88, 0.84, color=DIFFERS if differs else EQUAL)
+            )
+        ra, rb = lhs["trajectory"]["step_records"][step], rhs["trajectory"]["step_records"][step]
+        for j, (kind, modality) in enumerate(traj):
+            differs = ra[f"{kind}_sha256"][modality] != rb[f"{kind}_sha256"][modality]
+            x = len(modules) + gap + j
+            ax.add_patch(
+                Rectangle((x + 0.06, y + 0.08), 0.88, 0.84, color=DIFFERS if differs else EQUAL)
+            )
+    subtitle = "no difference"
+    if first is not None:
+        i, y, name, step = first
+        ax.add_patch(Rectangle((i, y), 1, 1, fill=False, edgecolor=INK, linewidth=1.5))
+        subtitle = f"first drift (outlined): step {step}, {name}"
+    ax.text(0, 1.02, subtitle, transform=ax.transAxes, fontsize=9, color=INK2, va="bottom")
+    ax.set_xlim(0, width)
+    ax.set_ylim(0, len(steps_a))
+    ax.set_yticks([len(steps_a) - 0.5 - s for s in range(len(steps_a))])
+    ax.set_yticklabels([f"step {s}" for s in range(len(steps_a))], color=INK2, fontsize=9)
+    blocks = [n for n in modules if n.startswith("transformer_blocks.")]
+
+    def labelled(name: str) -> bool:
+        if not name.startswith("transformer_blocks.") or len(blocks) <= 10:
+            return True
+        index = int(name.split(".")[1].split("#")[0])
+        return index % 5 == 0 or index == len(blocks) - 1 or (first and first[2] == name)
+
+    marks = {
+        i: n.replace("transformer_blocks.", "block ") for i, n in enumerate(modules) if labelled(n)
+    }
+    ticks = [i + 0.5 for i in marks] + [len(modules) + gap + j + 0.5 for j in range(len(traj))]
+    labels = list(marks.values()) + [f"{k} {m}" for k, m in traj]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(labels, rotation=90, fontsize=7, color=INK2)
+    for side in ("top", "right", "left", "bottom"):
+        ax.spines[side].set_visible(False)
+    ax.tick_params(length=0)
+    ax.set_title(args.title, loc="left", fontsize=11, color=INK, pad=22)
+    ax.legend(
+        handles=[Patch(color=EQUAL, label="byte-equal"), Patch(color=DIFFERS, label="differs")],
+        loc="lower right",
+        bbox_to_anchor=(1.0, 1.0),
+        borderaxespad=0.2,
+        ncol=2,
+        frameon=False,
+        fontsize=8,
+    )
+    fig.tight_layout()
+    fig.savefig(args.png, dpi=160, facecolor=SURFACE)
+    return {
+        "schema": SCHEMA,
+        "kind": "plot",
+        "png": Path(args.png).name,
+        "first_drift_cell": None if first is None else {"step": first[3], "module": first[2]},
+    }
+
+
 # --- main ---------------------------------------------------------------------------------
 
 
@@ -642,13 +732,22 @@ def main() -> None:
     p.add_argument("--tensors-rhs")
     p.add_argument("--report", required=True)
 
+    p = sub.add_parser("plot")
+    p.add_argument("lhs")
+    p.add_argument("rhs")
+    p.add_argument("--png", required=True)
+    p.add_argument("--title", default="Per-step digest equality of two runs")
+    p.add_argument("--report", required=True)
+
     p = sub.add_parser("toy")
     p.add_argument("--report", required=True)
 
     args = parser.parse_args()
     if getattr(args, "offload", False) and getattr(args, "stream_blocks", False):
         parser.error("--offload and --stream-blocks are alternatives")
-    handler = {"pin-text": pin_text, "run": run, "compare": compare, "toy": toy}[args.command]
+    handler = {"pin-text": pin_text, "run": run, "compare": compare, "toy": toy, "plot": plot}[
+        args.command
+    ]
     report = handler(args)
     Path(args.report).write_text(json.dumps(report, indent=1, sort_keys=True, default=str) + "\n")
     print(json.dumps({k: report[k] for k in report if k in ("kind", "summary", "first_drift")}))
