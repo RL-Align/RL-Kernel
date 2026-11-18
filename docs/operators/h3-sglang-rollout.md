@@ -152,8 +152,8 @@ MLP outputs; the refiner blocks' norm weights are seeded (not in the pinned extr
   Over two forwards each bound forward ran exactly twice on every rank, the output is finite and repeats
   bitwise, and `remove()` restores SGLang's output and its batching switch. The weights are seeded,
   so this checks that every bound path runs, not the bytes; the bytes are the table above.
-- **The plugin in SGLang's worker lifecycle** (`plugin_target`), at TP1 and TP2: RL-Kernel's entry
-  point, declared in a `dist-info` as an install declares it, is found by SGLang's own
+- **The plugin in SGLang's worker lifecycle** (`plugin_target`), at TP1, TP2, TP4 and TP8, on every
+  rank: RL-Kernel's entry point, declared in a `dist-info` as an install declares it, is found by SGLang's own
   `load_plugins()` / `apply_plugin_hooks()` and hooks `TransformerLoader.load_customized`. The
   loader's body is replaced by one that returns the seeded whole DiT, since there is no H3
   checkpoint here. The adapter is installed with the collective over SGLang's TP group; two guarded
@@ -161,8 +161,9 @@ MLP outputs; the refiner blocks' norm weights are seeded (not in the pinned extr
   the forward; with one bound forward put back to SGLang's own, the next forward is stopped
   (`final_layer: ran 2 times in 3 forwards`); `remove()` restores the model's forward. Not run: a
   server launched on the released checkpoint.
-- **Row invariance.** Every bound output gives the same rows on a prefix of the rows. SGLang's
-  own `out_proj` / `fc2` do not at TP1.
+- **Row invariance.** Every bound output gives the same rows on a prefix of the rows, at every TP
+  size. SGLang's own `out_proj` / `fc2` do not at TP1, and its `qkv_proj` (TP4, TP8) and `fc1`
+  (TP8) stop being row-invariant at larger TP sizes.
 - **`remove()`** restores SGLang's forward bitwise.
 - **TP size.** SGLang's own `out_proj`, `fc2` and final-layer table change with the TP size. At
   TP8 its block AdaLN table does too (its GEMM sees a narrower column shard), and with it its norms
