@@ -472,12 +472,16 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
                 ends.append((math.log10(lat[-1]), n))
         # End-of-line labels, nudged apart in log space so coincident lines stay readable.
         ends.sort()
+        ax.set_yscale("log")
+        ax.margins(y=0.12)
         lo, hi = ax.get_ylim()
         gap = 0.06 * (math.log10(hi) - math.log10(lo))
         placed: list[float] = []
-        for y, n in ends:
-            y = max(y, placed[-1] + gap) if placed else y
-            placed.append(y)
+        for y, _ in ends:
+            placed.append(max(y, placed[-1] + gap) if placed else y)
+        shift = (sum(placed) - sum(y for y, _ in ends)) / max(len(ends), 1)
+        for (_, n), y in zip(ends, placed, strict=True):
+            y -= shift
             ax.annotate(
                 n,
                 (len(secs) - 1, 10**y),
