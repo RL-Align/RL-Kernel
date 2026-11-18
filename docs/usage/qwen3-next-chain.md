@@ -86,7 +86,6 @@ publish if any survive, and writes `SHA256SUMS`.
 
 `tests/models/qwen3_next/check_qwen3_next_*.py` import vLLM and run in the self-hosted
 `Qwen3-Next-provider-GPU` workflow and in `preflight`.
-`tests/models/qwen3_next/check_qwen3_next_vime_weight_hooks.py`,
-`tests/models/qwen3_next/test_qwen3_next_training_checkpoint.py` and
-`tests/models/qwen3_next/test_qwen3_next_vllm_attention_metadata.py` need the training
+`tests/models/qwen3_next/check_qwen3_next_vime_weight_hooks.py` and
+`tests/models/qwen3_next/test_qwen3_next_training_checkpoint.py` need the training
 environment (VIME, Megatron) and run there.
