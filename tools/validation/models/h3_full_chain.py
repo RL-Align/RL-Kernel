@@ -31,6 +31,7 @@ import math
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -722,11 +723,13 @@ def plot(args: argparse.Namespace) -> dict[str, Any]:
             ax.add_patch(
                 Rectangle((x + 0.06, y + 0.08), 0.88, 0.84, color=DIFFERS if differs else EQUAL)
             )
-    subtitle = "no difference"
+    device = lhs["runtime"].get("device_name", lhs["runtime"].get("device", "?"))
+    case = _case_id(lhs)
+    subtitle = f"{device}, transformer {case}; no difference"
     if first is not None:
         i, y, name, step = first
         ax.add_patch(Rectangle((i, y), 1, 1, fill=False, edgecolor=INK, linewidth=1.5))
-        subtitle = f"first drift (outlined): step {step}, {name}"
+        subtitle = f"{device}, transformer {case}; first drift (outlined): step {step}, {name}"
     ax.text(0, 1.02, subtitle, transform=ax.transAxes, fontsize=9, color=INK2, va="bottom")
     ax.set_xlim(0, width)
     ax.set_ylim(0, len(steps_a))
@@ -760,13 +763,398 @@ def plot(args: argparse.Namespace) -> dict[str, Any]:
         frameon=False,
         fontsize=8,
     )
-    fig.tight_layout()
-    fig.savefig(args.png, dpi=160, facecolor=SURFACE)
+    _save(fig, args.png)
+    report = (
+        load_report(args.compare)
+        if args.compare
+        else fc.compare(lhs, rhs, allow_text_source_change=True)
+    )
+    step_rows = []
+    for step, (sa, sb) in enumerate(zip(steps_a, steps_b, strict=True)):
+        differing = [ea[0] for ea, eb in zip(sa, sb, strict=True) if ea != eb]
+        ra, rb = lhs["trajectory"]["step_records"][step], rhs["trajectory"]["step_records"][step]
+        step_rows.append(
+            [step, f"{len(differing)} / {len(sa)}", differing[0] if differing else "none"]
+            + [
+                _eq(ra[f"{kind}_sha256"][modality] == rb[f"{kind}_sha256"][modality])
+                for kind, modality in traj
+            ]
+        )
+    step_headers = ["Step", "Module outputs that differ", "First that differs"] + [
+        f"{k} {m}" for k, m in traj
+    ]
     return {
         "schema": SCHEMA,
         "kind": "plot",
         "png": Path(args.png).name,
+        "device": device,
+        "transformer": case,
         "first_drift_cell": None if first is None else {"step": first[3], "module": first[2]},
+        "tables": {
+            "first_drift": _first_drift_table(report),
+            "steps": {"headers": step_headers, "rows": step_rows},
+            "stages": _stage_table([("A vs B", report)]),
+        },
+        "markdown": "\n\n".join(
+            [
+                _md(*_first_drift_table(report).values()),
+                _md(step_headers, step_rows),
+                _md(*_stage_table([(args.pair_label, report)]).values()),
+            ]
+        ),
+        "source": source_state(),
+    }
+
+
+# --- chart helpers ------------------------------------------------------------------------
+
+SERIES = ("#2a78d6", "#eb6834", "#1baf7a")  # palette slots 1-3 (validated adjacent/all-pairs)
+
+
+def _save(fig: Any, path: str) -> None:
+    fig.tight_layout()
+    # no timestamp or software string beyond the library name
+    fig.savefig(path, dpi=160, facecolor=SURFACE, metadata={"Software": "matplotlib"})
+
+
+def _eq(equal: bool) -> str:
+    return "equal" if equal else "differs"
+
+
+def _md(headers: list[str], rows: list[list[Any]]) -> str:
+    def cell(value: Any) -> str:
+        return str(value).replace("|", "\\|")
+
+    lines = ["| " + " | ".join(cell(h) for h in headers) + " |"]
+    lines.append("|" + "---|" * len(headers))
+    lines += ["| " + " | ".join(cell(c) for c in row) + " |" for row in rows]
+    return "\n".join(lines)
+
+
+def load_report(path: str) -> dict[str, Any]:
+    return json.loads(Path(path).read_text())
+
+
+def _case_id(artifact: Mapping[str, Any]) -> str:
+    for record in artifact["stages"]:
+        if record["stage"] == "denoise":
+            return str(record["provenance"]["execution"].get("case_id"))
+    return "?"
+
+
+def _row_text(row: Mapping[str, Any] | None) -> str:
+    if not row:
+        return "n/a (no tensors kept)"
+    role = row.get("role", "")
+    if row.get("modality") == "video" and role == "target":
+        return (
+            f"target video, latent frame {row['latent_frame']}, "
+            f"patch ({row['patch_row']}, {row['patch_col']})"
+        )
+    if role == "condition":
+        return f"{row['modality']} condition row {row['condition_row']}"
+    if role == "reference":
+        return f"audio reference row {row['reference_row']}"
+    if role == "target":
+        return f"target audio, {row['stereo_channel']}, latent {row['latent_index']}"
+    return str(role)
+
+
+def _fmt(value: Any, digits: int = 3) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, float):
+        if value.is_integer() and abs(value) < 1e7:
+            return str(int(value))
+        return f"{value:.{digits}g}"
+    return str(value)
+
+
+def _first_drift_table(report: Mapping[str, Any]) -> dict[str, Any]:
+    fd = report["first_drift"]
+    headers = [
+        "First drift: stage",
+        "Step",
+        "Module",
+        "Packed row",
+        "Row",
+        "Module max |Δ|",
+        "Trajectory first drift",
+    ]
+    if fd is None:
+        return {"headers": headers, "rows": [["none"] + ["n/a"] * 6]}
+    found = fd.get("transformer") or {}
+    traj = fd.get("trajectory") or {}
+    traj_text = (
+        f"{traj['kind']} {traj['modality']}, step {traj['step']}, "
+        f"{_fmt(traj.get('differing_rows'))} rows, max |Δ| {_fmt(traj.get('max_abs_diff'))}"
+        if traj
+        else "none (velocities and latents equal)"
+    )
+    row = found.get("row") or {}
+    return {
+        "headers": headers,
+        "rows": [
+            [
+                fd["stage"],
+                _fmt(fd.get("step")),
+                found.get("module") or "n/a",
+                _fmt(row.get("packed_row", found.get("first_row"))),
+                _row_text(row),
+                _fmt(found.get("max_abs_diff")),
+                traj_text,
+            ]
+        ],
+    }
+
+
+PROBE_ONLY = "intermediates only"
+
+
+def _stage_state(stage: Mapping[str, Any]) -> str:
+    """equal / differs / intermediates only (only the transformer probe digests differ)."""
+
+    if stage["equal"]:
+        return "equal"
+    if stage["differing_components"] == ["transformer_probe"]:
+        return PROBE_ONLY
+    return "differs"
+
+
+def _stage_table(pairs: list[tuple[str, Mapping[str, Any]]]) -> dict[str, Any]:
+    headers = ["Pair"] + list(fc.STAGES) + ["Hard gate"]
+    rows = []
+    for label, report in pairs:
+        state = {s["stage"]: _stage_state(s) for s in report["stages"]}
+        rows.append([label] + [state[st] for st in fc.STAGES] + [report["gate"]["hard_gate"]])
+    return {"headers": headers, "rows": rows}
+
+
+def plot_stages(args: argparse.Namespace) -> dict[str, Any]:
+    """Stage-by-stage digest equality of several run pairs (one row per compare report)."""
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch, Rectangle
+
+    pairs = []
+    for item in args.pair:
+        label, _, path = item.partition("=")
+        pairs.append((label, load_report(path)))
+    stages = list(fc.STAGES)
+    gap = 0.6
+    fig, ax = plt.subplots(figsize=(10.5, 0.5 * len(pairs) + 3.0))
+    fig.patch.set_facecolor(SURFACE)
+    ax.set_facecolor(SURFACE)
+    for r, (_label, report) in enumerate(pairs):
+        y = len(pairs) - 1 - r
+        state = {st["stage"]: _stage_state(st) for st in report["stages"]}
+        for c, stage in enumerate(stages):
+            x = c + (gap if stage in fc.SECONDARY_STAGES else 0.0)
+            cell = (x + 0.05, y + 0.08)
+            if state[stage] == PROBE_ONLY:
+                hatched = dict(facecolor=EQUAL, edgecolor=DIFFERS, hatch="///", linewidth=0)
+                ax.add_patch(Rectangle(cell, 0.9, 0.84, **hatched))
+            else:
+                fill = EQUAL if state[stage] == "equal" else DIFFERS
+                ax.add_patch(Rectangle(cell, 0.9, 0.84, color=fill))
+    ax.set_xlim(0, len(stages) + gap)
+    ax.set_ylim(0, len(pairs))
+    ax.set_yticks([len(pairs) - 0.5 - r for r in range(len(pairs))])
+    ax.set_yticklabels([label for label, _ in pairs], fontsize=8, color=INK2)
+    ax.set_xticks(
+        [c + 0.5 + (gap if st in fc.SECONDARY_STAGES else 0.0) for c, st in enumerate(stages)]
+    )
+    ax.set_xticklabels(stages, rotation=40, ha="right", fontsize=8, color=INK2)
+    for side in ("top", "right", "left", "bottom"):
+        ax.spines[side].set_visible(False)
+    ax.tick_params(length=0)
+    ax.set_title(args.title, loc="left", fontsize=11, color=INK, pad=22)
+    ax.text(
+        0,
+        1.02,
+        "hard gate: every stage up to unpack, transformer intermediates excluded; "
+        "decodes (right) are secondary",
+        transform=ax.transAxes,
+        fontsize=8.5,
+        color=INK2,
+        va="bottom",
+    )
+    ax.legend(
+        handles=[
+            Patch(color=EQUAL, label="byte-equal"),
+            Patch(facecolor=EQUAL, edgecolor=DIFFERS, hatch="///", label=PROBE_ONLY),
+            Patch(color=DIFFERS, label="differs"),
+        ],
+        loc="upper right",
+        bbox_to_anchor=(1.0, -0.36),
+        borderaxespad=0.2,
+        ncol=3,
+        frameon=False,
+        fontsize=8,
+    )
+    _save(fig, args.png)
+    table = _stage_table(pairs)
+    return {
+        "schema": SCHEMA,
+        "kind": "plot-stages",
+        "png": Path(args.png).name,
+        "pairs": [label for label, _ in pairs],
+        "tables": {"stages": table},
+        "markdown": _md(table["headers"], table["rows"]),
+        "source": source_state(),
+    }
+
+
+def plot_text(args: argparse.Namespace) -> dict[str, Any]:
+    """Contract text features against the pinned file: relative errors, CPU and CUDA."""
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    analysis = load_report(args.analysis)
+    metrics = [
+        ("relative L2, all tokens", "relative_l2"),
+        ("median per-token rel. error, text", "text"),
+        ("median per-token rel. error, vision", "vision"),
+    ]
+    rows, values = [], {}
+    for wf in ("fl2va", "ref2va"):
+        for dev in ("cpu", "cuda"):
+            check = load_report(str(Path(args.dir) / f"{wf}-{dev}.json"))
+            if check["bitwise_equal"]:
+                vals = {"relative_l2": 0.0, "text": 0.0, "vision": 0.0}
+            else:
+                a = analysis[wf]
+                vals = {
+                    "relative_l2": check["relative_l2"],
+                    "text": a["per_token_relative_l2_text"],
+                    "vision": a["per_token_relative_l2_vision"],
+                }
+            values[wf, dev] = vals
+            rows.append(
+                [
+                    wf.upper().replace("REF2VA", "Ref2VA").replace("FL2VA", "FL2VA"),
+                    dev.upper(),
+                    check["shape"][1],
+                    "yes" if check["bitwise_equal"] else "no",
+                ]
+                + [_fmt(vals[key]) for _, key in metrics]
+                + [_fmt(check.get("max_abs_diff")), _fmt(check.get("first_differing_token"))]
+            )
+    fig, axes = plt.subplots(1, 2, figsize=(11, 3.6), sharex=True)
+    fig.patch.set_facecolor(SURFACE)
+    floor = 1e-4
+    for ax, wf in zip(axes, ("fl2va", "ref2va"), strict=True):
+        ax.set_facecolor(SURFACE)
+        for m, (_label, key) in enumerate(metrics):
+            for d, dev in enumerate(("cuda", "cpu")):
+                y = m * 3 + d
+                v = values[wf, dev][key]
+                if v == 0.0:
+                    ax.plot([floor], [y], marker="o", ms=6, color=SERIES[1])
+                    ax.text(floor * 1.4, y, "= 0, bitwise", va="center", fontsize=8, color=INK)
+                else:
+                    ax.barh(y, v - floor, height=0.8, color=SERIES[0], left=floor)  # ends at v
+                    ax.text(v * 1.08, y, f"{v:.3g}", va="center", fontsize=8, color=INK)
+        ax.set_xscale("log")
+        ax.set_xlim(floor, 3.0)
+        ax.set_yticks([m * 3 + d for m in range(len(metrics)) for d in range(2)])
+        ax.set_yticklabels(
+            [f"{label} ({dev})" for label, _ in metrics for dev in ("CUDA", "CPU")],
+            fontsize=7.5,
+            color=INK2,
+        )
+        ax.invert_yaxis()
+        ax.set_title(
+            {"fl2va": "FL2VA (259 tokens)", "ref2va": "Ref2VA (8,217 tokens)"}[wf],
+            loc="left",
+            fontsize=9.5,
+            color=INK,
+        )
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        ax.grid(axis="x", color=EQUAL, linewidth=0.6)
+        ax.set_axisbelow(True)
+        ax.tick_params(colors=INK2, labelsize=7.5)
+    axes[0].set_xlabel("relative error vs the pinned CPU features (log)", fontsize=8, color=INK2)
+    axes[1].set_xlabel("relative error vs the pinned CPU features (log)", fontsize=8, color=INK2)
+    fig.suptitle(args.title, x=0.01, ha="left", fontsize=11, color=INK)
+    _save(fig, args.png)
+    headers = [
+        "Workflow",
+        "Contract on",
+        "Tokens",
+        "Bitwise equal",
+        *[label for label, _ in metrics],
+        "max |Δ|",
+        "First differing token",
+    ]
+    return {
+        "schema": SCHEMA,
+        "kind": "plot-text",
+        "png": Path(args.png).name,
+        "tables": {"text_check": {"headers": headers, "rows": rows}},
+        "markdown": _md(headers, rows),
+        "source": source_state(),
+    }
+
+
+def plot_time(args: argparse.Namespace) -> dict[str, Any]:
+    """Load and chain wall time per run (run reports), grouped bars."""
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    runs = []
+    for item in args.run:
+        label, _, path = item.partition("=")
+        runs.append((label, load_report(path)))
+    series = [
+        ("VAE load", "vae_load_s"),
+        ("transformer load", "transformer_load_s"),
+        ("chain", "chain_s"),
+    ]
+    fig, ax = plt.subplots(figsize=(9, 0.9 * len(runs) + 1.8))
+    fig.patch.set_facecolor(SURFACE)
+    ax.set_facecolor(SURFACE)
+    height = 0.26
+    rows = []
+    for r, (label, rep) in enumerate(runs):
+        info = rep["info"]
+        rows.append([label] + [f"{float(info[key]):.1f}" for _, key in series])
+        for k, (name, key) in enumerate(series):
+            y = r + (k - 1) * height
+            value = float(info[key])
+            ax.barh(y, value, height=height * 0.9, color=SERIES[k], label=name if r == 0 else None)
+            ax.text(value + 1.5, y, f"{value:.1f} s", va="center", fontsize=7.5, color=INK)
+    ax.set_yticks(range(len(runs)))
+    ax.set_yticklabels([label for label, _ in runs], fontsize=8, color=INK2)
+    ax.invert_yaxis()
+    ax.set_xlabel("seconds (shared GPU, indicative)", fontsize=8, color=INK2)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.grid(axis="x", color=EQUAL, linewidth=0.6)
+    ax.set_axisbelow(True)
+    ax.tick_params(colors=INK2, labelsize=8)
+    ax.set_xlim(0, max(float(rep["info"][k]) for _, rep in runs for _, k in series) * 1.15)
+    ax.set_title(args.title, loc="left", fontsize=11, color=INK, pad=22)
+    ax.legend(loc="lower right", bbox_to_anchor=(1.0, 1.0), ncol=3, frameon=False, fontsize=8)
+    _save(fig, args.png)
+    headers = ["Run"] + [f"{name} (s)" for name, _ in series]
+    return {
+        "schema": SCHEMA,
+        "kind": "plot-time",
+        "png": Path(args.png).name,
+        "tables": {"time": {"headers": headers, "rows": rows}},
+        "markdown": _md(headers, rows),
+        "source": source_state(),
     }
 
 
@@ -850,6 +1238,27 @@ def main() -> None:
     p.add_argument("rhs")
     p.add_argument("--png", required=True)
     p.add_argument("--title", default="Per-step digest equality of two runs")
+    p.add_argument("--compare", help="compare report of the same pair (row identity)")
+    p.add_argument("--pair-label", default="A vs B")
+    p.add_argument("--report", required=True)
+
+    p = sub.add_parser("plot-stages")
+    p.add_argument("--pair", action="append", required=True, help="LABEL=compare-report.json")
+    p.add_argument("--png", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--report", required=True)
+
+    p = sub.add_parser("plot-text")
+    p.add_argument("--dir", required=True, help="dir with {fl2va,ref2va}-{cpu,cuda}.json")
+    p.add_argument("--analysis", required=True, help="per-token analysis of the CUDA runs")
+    p.add_argument("--png", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--report", required=True)
+
+    p = sub.add_parser("plot-time")
+    p.add_argument("--run", action="append", required=True, help="LABEL=run-report.json")
+    p.add_argument("--png", required=True)
+    p.add_argument("--title", required=True)
     p.add_argument("--report", required=True)
 
     p = sub.add_parser("toy")
@@ -864,6 +1273,9 @@ def main() -> None:
         "compare": compare,
         "toy": toy,
         "plot": plot,
+        "plot-stages": plot_stages,
+        "plot-text": plot_text,
+        "plot-time": plot_time,
         "text-check": text_check,
     }[args.command]
     report = handler(args)
