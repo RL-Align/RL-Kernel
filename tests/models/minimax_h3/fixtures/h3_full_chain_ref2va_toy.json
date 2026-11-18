@@ -1,0 +1,888 @@
+{
+ "architecture_fingerprint_sha256": "805d0ebf601a09d65ede184441fda2694aa374d80f3dc274ba4670cfcfdf0839",
+ "artifact_sha256": "15d2e398943b46cd04eb6e412afbf01835cdfdb1124b371efa1c87514d61e363",
+ "checkpoint": {
+  "repo": "MiniMaxAI/MiniMax-H3",
+  "revision": "42ed227ee7df40d41602854ae760620d6eb651fe"
+ },
+ "contract": "h3-phase-b-full-chain-v1",
+ "gate_policy": {
+  "hard": [
+   "request",
+   "media_preprocess",
+   "text_conditions",
+   "visual_vae_encode",
+   "audio_vae_encode",
+   "packed_layout",
+   "initial_rows",
+   "schedule",
+   "denoise",
+   "unpack"
+  ],
+  "rule": "latent trajectory equality is the gate; decoded media are recorded only",
+  "secondary": [
+   "video_decode",
+   "audio_decode"
+  ]
+ },
+ "injection": null,
+ "label": "ref2va-clean",
+ "layout": {
+  "artifact_sha256": "b13d53c67741d8738f711cc94bc3afbeba5f611110dc66f7755e1a1b08fc1dce",
+  "checkpoint": {
+   "repo": "MiniMaxAI/MiniMax-H3",
+   "revision": "42ed227ee7df40d41602854ae760620d6eb651fe"
+  },
+  "geometry": {
+   "height": 64,
+   "latent_height": 4,
+   "latent_width": 4,
+   "num_audio_latents": 207,
+   "num_frames": 124,
+   "num_latent_frames": 37,
+   "reference_blocks": [
+    {
+     "audio_rows": 0,
+     "kind": "image",
+     "latent_frames": 1,
+     "latent_height": 4,
+     "latent_width": 8
+    },
+    {
+     "audio_rows": 100,
+     "kind": "video",
+     "latent_frames": 7,
+     "latent_height": 4,
+     "latent_width": 8
+    },
+    {
+     "audio_rows": 50,
+     "kind": "audio",
+     "latent_frames": 0,
+     "latent_height": 0,
+     "latent_width": 0
+    }
+   ],
+   "span_summation": "neumaier",
+   "width": 64
+  },
+  "input_sha256": {
+   "audio_rows.0": "76c7e24c5e6c2cddadd000c4cb587580ee5a36c950665e9e56c816a25089d979",
+   "audio_rows.1": "0dc829cede2c2f559407f861e41145c4683c559fad55977ca06e55325f6d105a",
+   "condition_latents.0": "ba47307fa93897ff09984ad1b03a925a937eb72bcad082d50a000ea70d8a6991",
+   "condition_latents.1": "85a5bf4c87e3503d63ae838d1d9ee0b56399bce4b083057bdf93e5d97d9c74cd",
+   "prompt_embeds": "0bc514d88fd68b74a764ab01abde11a50bd28c089c2f5c15b1c8372892d0ac0c",
+   "text_token_tags": "e3bc4e264d6ce0697f86b7830169964fbb037ab327527fd9b50596bf5697fe18"
+  },
+  "layout_component_sha256": {
+   "audio_indices": "430c54bed1a5e698ed19b0d5cbf037f3114d2ae2b8ccbf68a0d5ac3c28274157",
+   "position_ids": "072f6407ad19e55d6d6ab035b3d6d9f29f9ad1d4ce4049b2c62f73d7222cff5d",
+   "text_indices": "413419bf12286c64fa3b1438c2724ff75058cbc3578dd8a36cf62a079d11c21e",
+   "token_tags": "deaace71b2860ebbca142a978811e6843cf0125481928fc6af5e38755deac186",
+   "video_indices": "9c7dc61b547ea891d7db4b67d1b124b6fcda46a74713846b0c6f194b14f514d1"
+  },
+  "num_condition_audio_rows": 150,
+  "num_condition_video_rows": 64,
+  "num_text_tokens": 18,
+  "pipeline_identity": {
+   "checkpoint_component_sha256": {
+    "audio_scheduler": "dc8edef0db5c133b968057cc6e0f2ef744444a9ece7ae5814cf77b877c40c356",
+    "audio_vae": "65e6a637a33ad44563a5f3285706b4134370591838fde6adfb93e4d5cf72fa38",
+    "processor": "7cfa7904c3a1db6893170b0ace80e97a6dd73a4e390036cd2cf4d63b90595d15",
+    "scheduler": "e60054558dcfb74246af86d5da946fdb79e5445c0c710bfcfe165e3c5da1f3a9",
+    "text_encoder": "fa3a3ec973b6530cc0be32ed4c158376ed50ab3846a3ce101d1941e2a580951d",
+    "tokenizer": "b1f7d0443124c52e292b24e2b62327143cbdebcc6d849ceffa6eb9c0d5941f52",
+    "transformer": "2043e25af70d94796436a98423ee13a2b868442a162373f671c9ad4d4ea4eef0",
+    "video_vae": "65c38c7e255b7be4a8a802dc47687ad7a18c4e4eeaf99d3840d27ea8ccc85cb3"
+   },
+   "preprocessing_recipe_sha256": "112dcefe5b748fa7223122feb954f2c3b7e8dfa714bb555f5a4d0f06102b918c",
+   "structural_workflow": "ref2va",
+   "transformer_dir": "transformer_ref",
+   "variant": "Ref2VA",
+   "workflow": "ref2va"
+  },
+  "schema_version": "rlkernel.h3.packed_layout.v1",
+  "sequence_length": 794
+ },
+ "metadata": {},
+ "request": {
+  "canvas": [
+   64,
+   8192
+  ],
+  "generator": "torch.Generator('cpu').manual_seed(seed)",
+  "height": 64,
+  "image_short_edge": 64,
+  "num_frames": 124,
+  "num_inference_steps": 4,
+  "prompt_sha256": "1aabd77c4da2660e3dc654091819cf2b6f25cd8eff731603c101ae890b4d51b8",
+  "references": [
+   {
+    "fps": null,
+    "has_audio": false,
+    "kind": "image",
+    "sample_rate": null
+   },
+   {
+    "fps": 24.0,
+    "has_audio": true,
+    "kind": "video",
+    "sample_rate": 32000
+   },
+   {
+    "fps": null,
+    "has_audio": true,
+    "kind": "audio",
+    "sample_rate": 32000
+   }
+  ],
+  "seed": 11,
+  "span_summation": "neumaier",
+  "width": 64,
+  "workflow": "ref2va"
+ },
+ "runtime": {
+  "cpu_capability": "AVX512",
+  "cuda": "13.0",
+  "cudnn": 92000,
+  "cudnn_allow_tf32": true,
+  "deterministic_algorithms": false,
+  "device": "cpu",
+  "hip": null,
+  "matmul_allow_tf32": false,
+  "num_threads": 112,
+  "platform_machine": "x86_64",
+  "python": "3.12.14",
+  "torch": "2.13.0+cu130"
+ },
+ "schema_version": "rlkernel.h3.full_chain.v1",
+ "secondary_metrics": {
+  "audio": {
+   "peak": 0.24321961402893066,
+   "rms_lr": [
+    0.13220889910512543,
+    0.13218788862594463
+   ],
+   "shape": [
+    2,
+    165600
+   ]
+  },
+  "video": {
+   "max": 0.713782548904419,
+   "mean_rgb": [
+    0.4087374136002073,
+    0.3723520741707856,
+    0.40043215599331644
+   ],
+   "min": 0.18100343644618988,
+   "shape": [
+    1,
+    3,
+    124,
+    64,
+    64
+   ],
+   "std": 0.1698644045314209
+  }
+ },
+ "stages": [
+  {
+   "chain_sha256": "039cb7b86b39a33c9a3576ff43cadfa17426eb43d320a825a0b1035643023488",
+   "components": [
+    [
+     "spec",
+     "46a01a1864844a74c4b3e23b7f2ec3e85c7c0a2e550256407e6b536cc56d1a99"
+    ],
+    [
+     "prompt",
+     "1aabd77c4da2660e3dc654091819cf2b6f25cd8eff731603c101ae890b4d51b8"
+    ],
+    [
+     "reference.0.image",
+     "d020c3a0f562077c3636099793557c10a8d6aab647bfb55ec4e654f29a26b66b"
+    ],
+    [
+     "reference.1.video",
+     "0306cdc8d5b2d500436a60fd9f9863d3479f072b4653394e2db2e1544390ae34"
+    ],
+    [
+     "reference.1.audio",
+     "0a625e49bb7ba2ea6434bfb06125595f4ed0fa7b198677d73207ee6f695160ab"
+    ],
+    [
+     "reference.2.audio",
+     "71acf0916738f816299c73705abdef5fcb26fc25b8390b5dd564a2987478439e"
+    ]
+   ],
+   "provenance": {
+    "variant": "Ref2VA",
+    "workflow": "ref2va"
+   },
+   "stage": "request"
+  },
+  {
+   "chain_sha256": "fc27d400a46c0f2b537d569b3598e063d568d1d38285ca6460345a99d91fa362",
+   "components": [
+    [
+     "reference.0.pixels",
+     "d340579ce942f47b8ac0e2f538fb91ba71b009f3c822220e81701ea1f3378a24"
+    ],
+    [
+     "reference.1.pixels",
+     "8af22d47fe730c4534d096e132600cc6a0a51d4455363b771dc0434a7a12902a"
+    ],
+    [
+     "reference.1.waveform",
+     "64be2185594255b1b7b4a0cf6517e23e3f5f6f81cdbc3ff3f955456a5cff17a0"
+    ],
+    [
+     "reference.2.waveform",
+     "71acf0916738f816299c73705abdef5fcb26fc25b8390b5dd564a2987478439e"
+    ]
+   ],
+   "provenance": {
+    "canvas": [
+     64,
+     64
+    ],
+    "contract": "ref2va_pipeline_contract",
+    "kinds": [
+     "image",
+     "video",
+     "audio"
+    ],
+    "num_frames": 124
+   },
+   "stage": "media_preprocess"
+  },
+  {
+   "chain_sha256": "a7727bf66d1be45815b33d1eb16e0d80d14af1327826a0d34af8dbb9e345bec2",
+   "components": [
+    [
+     "prompt_embeds",
+     "0bc514d88fd68b74a764ab01abde11a50bd28c089c2f5c15b1c8372892d0ac0c"
+    ],
+    [
+     "text_token_tags",
+     "e3bc4e264d6ce0697f86b7830169964fbb037ab327527fd9b50596bf5697fe18"
+    ]
+   ],
+   "provenance": {
+    "conditioner_input_sha256": "a10141a4ff1c5da5661070dcbdcb06cee798ccf1c6a2c58fbc1c770e16f531aa",
+    "source": "synthetic (tests)"
+   },
+   "stage": "text_conditions"
+  },
+  {
+   "chain_sha256": "6ef5ddd4429df3ce1b8653add7c0adf4074e3e80b3498f0a39be82527222ac71",
+   "components": [
+    [
+     "condition_latents.0",
+     "ba47307fa93897ff09984ad1b03a925a937eb72bcad082d50a000ea70d8a6991"
+    ],
+    [
+     "condition_latents.1",
+     "85a5bf4c87e3503d63ae838d1d9ee0b56399bce4b083057bdf93e5d97d9c74cd"
+    ]
+   ],
+   "provenance": {
+    "batch": 1,
+    "contract_id": "h3-visual-vae-f16t4d24-v1",
+    "kind": "encode",
+    "latent_stats_sha256": "1ccbe8e3bfa6e5e1205268e1f6682992dffb3d2b8143a9e6cdbd7963ab328f2d",
+    "layout": {
+     "clip_length": 17,
+     "latent_channels": 24,
+     "spatial_factor": 16,
+     "temporal_factor": 4,
+     "token_drop": 3
+    },
+    "layout_name": "f16t4d24",
+    "pixel_lut_sha256": "a5d9666da39858eb9c76c5c16f6e8acfc28a60422a1512245e2e2ae87715999d",
+    "policy": {
+     "cudnn_allow_tf32": true,
+     "cudnn_benchmark": false,
+     "cudnn_deterministic": true,
+     "matmul_allow_tf32": false
+    },
+    "posterior": "sample",
+    "round_fp16": true,
+    "runtime": {
+     "compute_capability": [
+      10,
+      0
+     ],
+     "cuda": "13.0",
+     "cudnn": 92000,
+     "cudnn_allow_tf32": true,
+     "cudnn_benchmark": false,
+     "cudnn_deterministic": true,
+     "device_name": "NVIDIA B200",
+     "matmul_allow_tf32": false,
+     "torch": "2.13.0+cu130"
+    },
+    "seed": 42,
+    "tile_plan_sha256": null,
+    "tiles": 1
+   },
+   "stage": "visual_vae_encode"
+  },
+  {
+   "chain_sha256": "804dc5554926dec140a6d81def45cdd001b03ea4582888b480920f3aee79591e",
+   "components": [
+    [
+     "audio_rows.0",
+     "76c7e24c5e6c2cddadd000c4cb587580ee5a36c950665e9e56c816a25089d979"
+    ],
+    [
+     "audio_rows.1",
+     "0dc829cede2c2f559407f861e41145c4683c559fad55977ca06e55325f6d105a"
+    ]
+   ],
+   "provenance": {
+    "contract": "h3-audio-vae-v1",
+    "decode_policy": {
+     "allow_tf32": false,
+     "cudnn_benchmark": false,
+     "cudnn_deterministic": true,
+     "cudnn_enabled": true,
+     "micro_batch": 1,
+     "name": "h3-audio-decode-strict-v1",
+     "sdpa_backend": null
+    },
+    "device": "cpu",
+    "encode_policy": {
+     "allow_tf32": false,
+     "cudnn_benchmark": false,
+     "cudnn_deterministic": true,
+     "cudnn_enabled": false,
+     "micro_batch": 1,
+     "name": "h3-audio-encode-strict-v1",
+     "sdpa_backend": "math"
+    },
+    "hop_length": 800,
+    "latent_channels": 32,
+    "latents_mean_sha256": "5bdc96383d7a0af3af4f9b19996b81a82ce416b379b04232b4ed2ca0ecf41d3e",
+    "latents_per_second": 40,
+    "latents_std_sha256": "0e4fee6af37fe5c8ebb1e6537e572631e9bfebc06e1b235e96ca909565a68252",
+    "row_layout": "channel-major [left T rows | right T rows] x 32",
+    "sample_rate": 32000,
+    "stereo_order": [
+     "left",
+     "right"
+    ],
+    "torch": "2.13.0+cu130"
+   },
+   "stage": "audio_vae_encode"
+  },
+  {
+   "chain_sha256": "0de217c35fb2b38255ccab686e687cb4e81f5bb3d24fd36de46dbfd433d55e66",
+   "components": [
+    [
+     "layout_artifact",
+     "b13d53c67741d8738f711cc94bc3afbeba5f611110dc66f7755e1a1b08fc1dce"
+    ],
+    [
+     "position_ids",
+     "072f6407ad19e55d6d6ab035b3d6d9f29f9ad1d4ce4049b2c62f73d7222cff5d"
+    ],
+    [
+     "token_tags",
+     "deaace71b2860ebbca142a978811e6843cf0125481928fc6af5e38755deac186"
+    ],
+    [
+     "text_indices",
+     "413419bf12286c64fa3b1438c2724ff75058cbc3578dd8a36cf62a079d11c21e"
+    ],
+    [
+     "video_indices",
+     "9c7dc61b547ea891d7db4b67d1b124b6fcda46a74713846b0c6f194b14f514d1"
+    ],
+    [
+     "audio_indices",
+     "430c54bed1a5e698ed19b0d5cbf037f3114d2ae2b8ccbf68a0d5ac3c28274157"
+    ]
+   ],
+   "provenance": {
+    "schema": "rlkernel.h3.packed_layout.v1",
+    "sequence_length": 794,
+    "variant": "Ref2VA",
+    "workflow": "ref2va"
+   },
+   "stage": "packed_layout"
+  },
+  {
+   "chain_sha256": "c2549dddd967b16a2f0dad3ee851ff1fc02d33620b9ea966fd8ba2f31f99b2e3",
+   "components": [
+    [
+     "video_rows",
+     "1c0fb314b211f8348ee5621153abcf67902e45fb690d854a4cce9b37f7acdbbc"
+    ],
+    [
+     "audio_rows",
+     "544a488844478051fafeb2632f855a2d2e510a453e19f80c4314f4fa47779fa1"
+    ]
+   ],
+   "provenance": {
+    "device": "cpu",
+    "draw_device": "cpu",
+    "generator": "cpu",
+    "seed": 11
+   },
+   "stage": "initial_rows"
+  },
+  {
+   "chain_sha256": "627fe42a90f3b1344c2e209aa2767df54686c9c4888e4932f0b18a597ca8e0ae",
+   "components": [
+    [
+     "video_sigmas",
+     "adf3aa7009a3804b42cc8d0a032456799b9e3a5720f357bba7c428e202217fcb"
+    ],
+    [
+     "audio_sigmas",
+     "698a99d0cd635599942b10afc429ce922b6bd5220c01b0e6f57fbc2fc7cd13fd"
+    ],
+    [
+     "video_timesteps",
+     "d13d4b33f8216be9523df77ec193dede1e7b21faccc3bf542ef579e2e07ae832"
+    ],
+    [
+     "audio_timesteps",
+     "44ac97368e3b7ceb2b527dd06a776dbbfb37be5110142fdf381293bad2fa9ce7"
+    ],
+    [
+     "row_timestep_plan",
+     "705b4f88a3e6dd5fdda17cf72242213520a5ae63a983ee78e0b955a3338e6682"
+    ]
+   ],
+   "provenance": {
+    "condition_noise_level": 0.999,
+    "model_evaluations": 3,
+    "num_inference_steps": 4,
+    "operator": "h3_sigma_schedule (NativeH3SigmaScheduleOp)",
+    "shifts": {
+     "audio": 3.0,
+     "video": 12.0
+    }
+   },
+   "stage": "schedule"
+  },
+  {
+   "chain_sha256": "5deab3223a3810392ffa4c0d5bd6c13bceb32fe07723d662da551511306647e8",
+   "components": [
+    [
+     "trajectory",
+     "bbc64e0ff65edc6ca6ab8ea701c54b469b7be44d5450fe22bf8a71f4d8f43f85"
+    ],
+    [
+     "transformer_probe",
+     "167e962ab696bd9ceb95af862e64b03f2af968d4d0fb6c9c4a30fad02b7460d1"
+    ],
+    [
+     "final_video_rows",
+     "af031a90e50484548705c4f930aafe1a69fd0b60daa35bcdab1e539f5da656e0"
+    ],
+    [
+     "final_audio_rows",
+     "3c5ef45b8f0af44f68e90b4455fbcabbbbf32b8dcf0f155e235f4af612ef7610"
+    ]
+   ],
+   "provenance": {
+    "execution": {
+     "bound": false,
+     "case_id": "P/P",
+     "mode": "provider"
+    },
+    "probe": true,
+    "sampler": "MiniMaxH3Scheduler.step (diffusers f53d552), op for op",
+    "transformer": {
+     "class": "ToyH3Transformer",
+     "config_sha256": "96d6e2c9d6537823290b23d10e04cd98c1c8b751495df7120f49df0a4ed98290",
+     "mode": "provider",
+     "num_layers": 3,
+     "parameter_dtypes": [
+      "torch.float32"
+     ],
+     "transformer_dir": "transformer_ref",
+     "variant": "Ref2VA"
+    }
+   },
+   "stage": "denoise"
+  },
+  {
+   "chain_sha256": "b5ffb153b2894d3e8b28ab55e5918389303df96f8f5b5797fb475a6bebbacb2e",
+   "components": [
+    [
+     "video_latents",
+     "8e15424cae18c49530e571e84c3da9cd06556ef3228f219d9c64a049c691899c"
+    ],
+    [
+     "audio_latents",
+     "f7a75539a2c6270f58f6d000d03ac7adb23de6f94326b14b758410d1aa506858"
+    ]
+   ],
+   "provenance": {
+    "audio": "(2, 32, T) normalized, (left, right)",
+    "video": "(1, 24, T, H, W) normalized"
+   },
+   "stage": "unpack"
+  },
+  {
+   "chain_sha256": "efd2744a862e621a5b4fc938cb441c1488616cdb732ea4336ba45febe0b6c2a9",
+   "components": [
+    [
+     "video",
+     "c1ad934481085d0be0d6417fb7157bca6da91589a746c967d5a7bfd4df33b100"
+    ]
+   ],
+   "provenance": {
+    "autocast_fp16": true,
+    "batch": 1,
+    "contract_id": "h3-visual-vae-f16t4d24-v1",
+    "kind": "decode",
+    "latent_stats_sha256": "1ccbe8e3bfa6e5e1205268e1f6682992dffb3d2b8143a9e6cdbd7963ab328f2d",
+    "layout": {
+     "clip_length": 17,
+     "latent_channels": 24,
+     "spatial_factor": 16,
+     "temporal_factor": 4,
+     "token_drop": 3
+    },
+    "layout_name": "f16t4d24",
+    "pixel_lut_sha256": "a5d9666da39858eb9c76c5c16f6e8acfc28a60422a1512245e2e2ae87715999d",
+    "policy": {
+     "cudnn_allow_tf32": true,
+     "cudnn_benchmark": false,
+     "cudnn_deterministic": true,
+     "matmul_allow_tf32": false
+    },
+    "runtime": {
+     "compute_capability": [
+      10,
+      0
+     ],
+     "cuda": "13.0",
+     "cudnn": 92000,
+     "cudnn_allow_tf32": true,
+     "cudnn_benchmark": false,
+     "cudnn_deterministic": true,
+     "device_name": "NVIDIA B200",
+     "matmul_allow_tf32": false,
+     "torch": "2.13.0+cu130"
+    },
+    "tile_plan_sha256": null,
+    "tiles": 1
+   },
+   "stage": "video_decode"
+  },
+  {
+   "chain_sha256": "4715f44c44dba96f3911337bc42156bf9a3a0d1ac4a6d01e468955a8edd291a4",
+   "components": [
+    [
+     "waveform",
+     "d3dfcc27e3bd6c3cdd806ea1e5bd9b95aad957ae351373e15be7883320d814e0"
+    ]
+   ],
+   "provenance": {
+    "contract": "h3-audio-vae-v1",
+    "decode_policy": {
+     "allow_tf32": false,
+     "cudnn_benchmark": false,
+     "cudnn_deterministic": true,
+     "cudnn_enabled": true,
+     "micro_batch": 1,
+     "name": "h3-audio-decode-strict-v1",
+     "sdpa_backend": null
+    },
+    "device": "cpu",
+    "encode_policy": {
+     "allow_tf32": false,
+     "cudnn_benchmark": false,
+     "cudnn_deterministic": true,
+     "cudnn_enabled": false,
+     "micro_batch": 1,
+     "name": "h3-audio-encode-strict-v1",
+     "sdpa_backend": "math"
+    },
+    "hop_length": 800,
+    "latent_channels": 32,
+    "latents_mean_sha256": "5bdc96383d7a0af3af4f9b19996b81a82ce416b379b04232b4ed2ca0ecf41d3e",
+    "latents_per_second": 40,
+    "latents_std_sha256": "0e4fee6af37fe5c8ebb1e6537e572631e9bfebc06e1b235e96ca909565a68252",
+    "row_layout": "channel-major [left T rows | right T rows] x 32",
+    "sample_rate": 32000,
+    "stereo_order": [
+     "left",
+     "right"
+    ],
+    "torch": "2.13.0+cu130"
+   },
+   "stage": "audio_decode"
+  }
+ ],
+ "trajectory": {
+  "architecture_fingerprint_sha256": "805d0ebf601a09d65ede184441fda2694aa374d80f3dc274ba4670cfcfdf0839",
+  "artifact_sha256": "84234514c515f7953abeb7c051b20c20f6d93cea136ed104d5934c248d6fba66",
+  "final_latent_sha256": {
+   "audio": "3c5ef45b8f0af44f68e90b4455fbcabbbbf32b8dcf0f155e235f4af612ef7610",
+   "video": "af031a90e50484548705c4f930aafe1a69fd0b60daa35bcdab1e539f5da656e0"
+  },
+  "initial_noise": {
+   "audio": {
+    "dtype": "torch.float32",
+    "sha256": "544a488844478051fafeb2632f855a2d2e510a453e19f80c4314f4fa47779fa1",
+    "shape": [
+     564,
+     32
+    ]
+   },
+   "video": {
+    "dtype": "torch.float32",
+    "sha256": "1c0fb314b211f8348ee5621153abcf67902e45fb690d854a4cce9b37f7acdbbc",
+    "shape": [
+     212,
+     96
+    ]
+   }
+  },
+  "label": "ref2va-clean",
+  "metadata": {
+   "chain": "h3-phase-b-full-chain-v1",
+   "sampler": "MiniMaxH3Scheduler euler eta=0"
+  },
+  "modalities": [
+   "video",
+   "audio"
+  ],
+  "operator_trace_sha256": "",
+  "schema_version": "rlkernel.h3.trajectory.v1",
+  "seed": 11,
+  "shifts": {
+   "audio": 3.0,
+   "video": 12.0
+  },
+  "sigma_grids": {
+   "audio": [
+    "0x1.0000000000000p+0",
+    "0x1.b6db6c0000000p-1",
+    "0x1.3333320000000p-1",
+    "0x0.0p+0"
+   ],
+   "video": [
+    "0x1.0000000000000p+0",
+    "0x1.eb851e0000000p-1",
+    "0x1.b6db6c0000000p-1",
+    "0x0.0p+0"
+   ]
+  },
+  "step_records": [
+   {
+    "chain_sha256": "be3c5e7708d31ccb7ecf21da52cc59661a1bb9d376d35f46152ed24e050c64e3",
+    "index": 0,
+    "latent_sha256": {
+     "audio": "4dab9ed494f74014c9a297eae8877d14e818a39b009b854681ad1a7c21a3445f",
+     "video": "b2e2e5c5cd736e59e02f4d38b634105bf6c9baac2b61b622900b7d34d55d8991"
+    },
+    "sigma": {
+     "audio": "0x1.0000000000000p+0",
+     "video": "0x1.0000000000000p+0"
+    },
+    "sigma_next": {
+     "audio": "0x1.b6db6c0000000p-1",
+     "video": "0x1.eb851e0000000p-1"
+    },
+    "velocity_sha256": {
+     "audio": "ae17be2dbd9547a4d5129dc23e84caa8b94894136572bdf170f844ebac812f69",
+     "video": "16f1c02bf687f9b5677395223cf4d53d5fd5d75f99383b193e92956b4c2c9f10"
+    }
+   },
+   {
+    "chain_sha256": "4ba7055807443a8467d67cd12238df69a12a4d4bc79d4e14d4cdd52440db0071",
+    "index": 1,
+    "latent_sha256": {
+     "audio": "6b5e0e8c36319b0bb8da51b98c1aedd330a1e1ff70d94d73fb7d9f39df623ad8",
+     "video": "a4183e67a8214418d6d280ff16a4fcc0335d8735c6823668792217b0c2cc3c1f"
+    },
+    "sigma": {
+     "audio": "0x1.b6db6c0000000p-1",
+     "video": "0x1.eb851e0000000p-1"
+    },
+    "sigma_next": {
+     "audio": "0x1.3333320000000p-1",
+     "video": "0x1.b6db6c0000000p-1"
+    },
+    "velocity_sha256": {
+     "audio": "a32bb554ff147567c8803ebe03a3802a136e7dd5c634b08e4772973f4505d53f",
+     "video": "c95b871b98309af9b2b731ae3829ed186c7a9beacfb3e154363f2ad5ec02161e"
+    }
+   },
+   {
+    "chain_sha256": "b1565311384a4d21792e71a40a79eff157d0a4375e35de14acdaa21ac7c6de92",
+    "index": 2,
+    "latent_sha256": {
+     "audio": "3c5ef45b8f0af44f68e90b4455fbcabbbbf32b8dcf0f155e235f4af612ef7610",
+     "video": "af031a90e50484548705c4f930aafe1a69fd0b60daa35bcdab1e539f5da656e0"
+    },
+    "sigma": {
+     "audio": "0x1.3333320000000p-1",
+     "video": "0x1.b6db6c0000000p-1"
+    },
+    "sigma_next": {
+     "audio": "0x0.0p+0",
+     "video": "0x0.0p+0"
+    },
+    "velocity_sha256": {
+     "audio": "4b638742641e1d68c65038bd6d1055a3ab5ba7b40ad9f60238d528d4d85a5a7a",
+     "video": "aab33bfffee9d0c841d764d33e099628b8d6cb49288c16346bb3cc6229eb47ff"
+    }
+   }
+  ],
+  "steps": 3,
+  "variant": "Ref2VA"
+ },
+ "transformer_probe": {
+  "steps": [
+   [
+    [
+     "proj_in",
+     "cb76f1eb48ea01321c4d5e77c02fabe3a396213690867a53d69cadfc368a2fd2"
+    ],
+    [
+     "audio_proj_in",
+     "5c0a990c34bd233646a7cf89b534e832d9755050f4414f4eac84534f805f949e"
+    ],
+    [
+     "context_embedder",
+     "80e671ee5e319d1c183bb80b9548c76a158f771a8cf58e56ac3fdf7b09fb115a"
+    ],
+    [
+     "token_refiner",
+     "4ae99975d9534ab558461c63e7a4742421038268da53188de979dd6bdf9fbc69"
+    ],
+    [
+     "time_embedder",
+     "ff5adc0fa4bd9af692a32793b4b550d650c00e72d907c61a007d6ada9a31f0ae"
+    ],
+    [
+     "transformer_blocks.0",
+     "77a3fbbc3894f6f66f1a21dc24cac67e3917801820e6dbd473f266c831c265be"
+    ],
+    [
+     "transformer_blocks.1",
+     "feb2a0de9e7f861a111657dc61f466e57a197fb8da0f69b10b8198bd721b7445"
+    ],
+    [
+     "transformer_blocks.2",
+     "d4d4dce3b52cb9d00fedbb35d732d506922e8ea828fa6c9255256eea9d52acdd"
+    ],
+    [
+     "norm_out",
+     "8516a894cf64d68ba0ff7dc1474b02ae8b26475c304c0b605e2e3f26f3ad5f88"
+    ],
+    [
+     "proj_out",
+     "dcfa36b9818ca0e25d2dc21fd85afe847ec8d702ce032b5251b0fe0ec801c476"
+    ],
+    [
+     "audio_proj_out",
+     "b3ac702630ce47291f4f75075d2f0a24b02f1987b0b954008c445506145a67c4"
+    ]
+   ],
+   [
+    [
+     "proj_in",
+     "e6304a3a5f9deac58656d1c3fa58fa5e98c8af3c8136549375eb1120f758e1ba"
+    ],
+    [
+     "audio_proj_in",
+     "954440f718bce42dd04e42f3e150c1ee64f533bb41dc3d2a4d655accb37dbf3d"
+    ],
+    [
+     "context_embedder",
+     "80e671ee5e319d1c183bb80b9548c76a158f771a8cf58e56ac3fdf7b09fb115a"
+    ],
+    [
+     "token_refiner",
+     "4ae99975d9534ab558461c63e7a4742421038268da53188de979dd6bdf9fbc69"
+    ],
+    [
+     "time_embedder",
+     "ceb0ab230af7c49753076ae013fc08085e3a78200380a33f91b76f53049ce9de"
+    ],
+    [
+     "transformer_blocks.0",
+     "5f27321ee2fc018b423ca39bb7ca00e7d8006daae6fb88d38d5c0efb768c74e2"
+    ],
+    [
+     "transformer_blocks.1",
+     "95f0b85885c5e55d164c4bae9c1ec7deec429e762343984651bd2a86527ffe6d"
+    ],
+    [
+     "transformer_blocks.2",
+     "8bf2052625d3e01196c08581f26f6b7af882620302975dbc9553d17f43b2be56"
+    ],
+    [
+     "norm_out",
+     "8c8aa21d044bceafb69ed479c0946165570934221a8eca147b48c8d4fcf16001"
+    ],
+    [
+     "proj_out",
+     "8bcca32c0bed846b92c7c9e97a4a1bfb84c49a706f8502980e2c41c5770cf4a6"
+    ],
+    [
+     "audio_proj_out",
+     "96e06b1bf29c86bb97913402ee1d6b3fde5d8a5281eb90c892e6fbf11d6b9ad9"
+    ]
+   ],
+   [
+    [
+     "proj_in",
+     "645f0a11f509e7dde80440637001bb7bf015a6d76ea83067a63c0a5c841257d5"
+    ],
+    [
+     "audio_proj_in",
+     "6fa2f6db74bf3bb617b38a2818f3c0d23f22023c3c3ad3ee2277f719fb0fc262"
+    ],
+    [
+     "context_embedder",
+     "80e671ee5e319d1c183bb80b9548c76a158f771a8cf58e56ac3fdf7b09fb115a"
+    ],
+    [
+     "token_refiner",
+     "4ae99975d9534ab558461c63e7a4742421038268da53188de979dd6bdf9fbc69"
+    ],
+    [
+     "time_embedder",
+     "206e614e2807d8ef8d7fcc934aebd8328c7aebc1ea11cc0eee90429909ab731f"
+    ],
+    [
+     "transformer_blocks.0",
+     "5554cd19b2181b50d3c0efcd4c3e1c5d9fcbdbb58e29171ee7f3b399516b8e57"
+    ],
+    [
+     "transformer_blocks.1",
+     "f4d16c1783bb1cd5061c095fcb9de332c95689e757cae3e63fc85a1473035f93"
+    ],
+    [
+     "transformer_blocks.2",
+     "f8011044e251ae0143d6b58647af7c788b3a9dc6f82428e921e9f74023cdd110"
+    ],
+    [
+     "norm_out",
+     "f3af42ff614570bb2d430fa03c6fac0d13e842e32c4ae437d288a44a68fdae8b"
+    ],
+    [
+     "proj_out",
+     "945de80acb2e62bd26c5cdfe6bab1945a05e49dfaa633cbaf84b45f237e69b5b"
+    ],
+    [
+     "audio_proj_out",
+     "f479c59312d755f20b40b839501fe8e237e5362cfcba3b852f3bb1770f4d4829"
+    ]
+   ]
+  ]
+ },
+ "variant": "Ref2VA",
+ "workflow": "ref2va"
+}
