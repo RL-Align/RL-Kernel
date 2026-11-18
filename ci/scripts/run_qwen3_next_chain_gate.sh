@@ -39,6 +39,8 @@ if not isinstance(report["cells"], dict):
 for key, expected in (("schema_version", SCHEMA_VERSION), ("compatible_schema", COMPATIBLE_SCHEMA)):
     if report.get(key) != expected:
         invalid(f"{key} is {report.get(key)!r}, expected {expected!r}")
+if not isinstance(report["passed"], bool):
+    invalid(f"passed is {report['passed']!r}, expected a boolean")
 print(f"passed={report['passed']} first_drift={report['first_drift']} "
       f"family={report['first_drift_family']} cells={len(report['cells'])}")
 sys.exit(0 if report["passed"] else 1)
