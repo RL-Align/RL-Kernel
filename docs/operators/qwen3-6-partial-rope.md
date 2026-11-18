@@ -54,8 +54,8 @@ For explicit backend selection, import `NativeQwen3_6PartialRoPEOp` from
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Shared Triton | `TritonQwen3_6PartialRoPEOp` | `_qwen3_6_partial_rope_fwd_kernel`, `_qwen3_6_partial_rope_bwd_kernel` | Validated on NVIDIA H100 (SM90) and A40 (SM86), BF16/FP32; prior RTX 5080 (SM120) coverage is historical. |
-| PyTorch reference/fallback | `NativeQwen3_6PartialRoPEOp` | Eager PyTorch operations | Validated on NVIDIA H100 and A40, BF16/FP32, with CPU contract coverage in the cloud suite. |
+| Shared Triton | `TritonQwen3_6PartialRoPEOp` | `_qwen3_6_partial_rope_fwd_kernel`, `_qwen3_6_partial_rope_bwd_kernel` | Validated on NVIDIA A40 (SM86), BF16/FP32, including two-device restoration. |
+| PyTorch reference/fallback | `NativeQwen3_6PartialRoPEOp` | Eager PyTorch operations | Validated on NVIDIA A40, BF16/FP32, with CPU contract coverage in the cloud suite. |
 
 PyTorch uses the `cuda` tensor API for both NVIDIA CUDA and AMD ROCm. The same
 device guard can select either backend; this does **not** establish ROCm numerical
@@ -178,31 +178,31 @@ the GPU/runtime/compiler versions, source hashes (including uncommitted code),
 seed, repetitions and numerical-contract fingerprint. Git metadata is optional.
 Measured JSON/Markdown belongs in `artifacts/`, not in the PR source diff.
 
-The earlier kernel review-fix regression used one cloud NVIDIA H100 80GB HBM3 (SM90), PyTorch
-2.8.0+cu128 and Triton 3.4.0. Both full runs used 30 warmups and 100 samples per
-provider/mode; dtype order was reversed in the repeat. All 20 dtype/shape cases
-passed output/gradient gates in both runs. At `[8192,16,256]`, the repeat measured:
+Cloud measurements use NVIDIA A40 (SM86), PyTorch 2.8.0+cu128 and Triton 3.4.0.
+Two runs cover T=1/32/256/2048/8192, H=2/16 and BF16/FP32, with 30 warmups
+and 100 samples per provider/mode; the repeat reverses dtype order. All 120 rows
+per run passed no-grad forward and grad-enabled output/dx checks.
+At `[8192,16,256]`, the repeat measured:
 
 | Dtype | Mode | Native median us | Triton median us | Native / Triton | Native extra MiB | Triton extra MiB | Triton / Native memory |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| BF16 | Forward + backward | 2293.952 | 1755.360 | 1.31x | 210 | 128 | 61.0% |
-| FP32 | Forward + backward | 1896.736 | 1604.224 | 1.18x | 290 | 256 | 88.3% |
+| BF16 | Forward + backward | 2165.504 | 1355.232 | 1.60x | 210 | 128 | 61.0% |
+| FP32 | Forward + backward | 2307.680 | 1566.896 | 1.47x | 290 | 256 | 88.3% |
 
-These are eager public-call medians, not isolated kernel or model-throughput
-measurements. Host launch gaps and timing noise are substantial: 74/120 groups
-in the first run and 57/120 in the repeat had sample SD above 15% of the median.
-Across matched rows, median absolute drift was 2.26%, with extremes -89.24% to
-+861.02%. Both complete runs and raw sample order/latencies are retained in the
-PR evidence. Every memory row matched between runs. These data are regression
-evidence and do not establish a stable hardware-wide speedup.
-
-The subsequent checker/benchmark review fixes passed two full A40 (SM86) runs
-with the same matrix and 30 warmups / 100 samples. All 120 rows passed per run,
-including the separate no-grad forward gate; all memory rows matched. Timing
-remains noisy: 72/120 and 67/120 groups had SD above 15% of the median, with
-13.43% median absolute drift between runs. These do not establish stable speedups.
+All memory rows matched across runs. Timing is noisy: 72/120 and 67/120 groups
+had SD above 15% of the median; median absolute drift was 13.43%, ranging from
+-51.94% to +447.92%. These public-call measurements are regression evidence,
+not stable hardware-wide or full-model speedups. Full results, source fingerprints
+and linear-axis plots are attached to the PR.
 
 ## Tests
+
+The cloud suite passed 237 tests on one A40, with 9 skips (2 two-device cases
+and 7 Ascend cases). The large-stride regression executed. All 24 unified checks
+across default/1e5/1e8 theta and 8 default-buffer parity checks passed.
+On two A40 GPUs, BF16/FP32 forward/backward device restoration passed with both
+`CUDA_VISIBLE_DEVICES=0,1` and `1,0` (2 + 2 passes, no skips). This is device-guard
+correctness coverage, not a multi-GPU performance benchmark.
 
 ```bash
 python -m pytest tests/ops/rope/test_qwen3_6_partial_rope.py \
@@ -234,17 +234,6 @@ output/dx before any mode is measured.
 - Text position IDs only; no multimodal t/h/w assembly or frequency generation.
 - Fixed D=256 and R=64, split-half pairing; no FP16, arbitrary rotation range,
   inplace execution, coefficient gradients or higher-order input gradients.
-- The latest checker/benchmark fixes passed a one-A40 cloud regression
-  (237 passed, 9 skipped: 2 two-device cases and 7 Ascend cases), 24 unified
-  checks across default/1e5/1e8 theta, and 8 GPU default-buffer parity checks.
-  The earlier one-H100 regression passed 227 tests with the same 9 skips.
-  Both single-GPU runs executed the large-stride regression.
-  The unchanged kernel/reference/device-guard-test bytes also passed two-device restoration
-  cases on two RTX A4000 GPUs (SM86, PyTorch 2.8.0+cu128, Triton 3.4.0):
-  BF16/FP32 both passed with `CUDA_VISIBLE_DEVICES=0,1`, then again with `1,0`
-  (2 + 2 passes, no skips). This validates both physical device directions for
-  forward/backward and current-device restoration; it is not a multi-GPU
-  performance benchmark. ROCm remains unqualified; MUSA/Ascend acceleration
-  is outside this implementation.
+- ROCm remains unqualified; MUSA/Ascend acceleration is outside this implementation.
 - Megatron/SGLang adapters, full-model correctness, distributed/CP position
   alignment, and every #642 verification mode require separate integration evidence.
