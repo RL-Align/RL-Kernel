@@ -91,7 +91,9 @@ def _make_workload(op, inputs, grad_y, mode):
 
 
 def _check_accuracy(op, inputs, grad_y):
-    """Gate both output and dx against FP32 math using unmodified contract rows."""
+    """Preflight no-grad forward and grad-enabled output/dx against FP32 math."""
+    with torch.no_grad():
+        forward_y = op(**inputs)
     leaf = inputs["x"].detach().requires_grad_(True)
     y = op(**{**inputs, "x": leaf})
     (dx,) = torch.autograd.grad(y, leaf, grad_y)
@@ -100,6 +102,7 @@ def _check_accuracy(op, inputs, grad_y):
     (gold_dx,) = torch.autograd.grad(gold_y, gold_leaf, grad_y.float())
     errors = {}
     for label, actual, gold, judgment in (
+        ("forward_no_grad", forward_y, gold_y, "forward_accuracy"),
         ("output", y, gold_y, "forward_accuracy"),
         ("gradient", dx, gold_dx, "gradient_accuracy"),
     ):
@@ -123,7 +126,7 @@ def _measure_interleaved(profiler, functions):
     for index in range(profiler.warmup):
         for name in names if index % 2 == 0 else names[::-1]:
             functions[name]()
-    profiler._sync()
+    torch.cuda.synchronize(profiler.device)
     torch.cuda.empty_cache()
     for index in range(profiler.repeat):
         order = names if index % 2 == 0 else names[::-1]
@@ -140,7 +143,7 @@ def _measure_interleaved(profiler, functions):
             samples[name].append(
                 {"round": index, "order_index": position, "latency_us": elapsed_us}
             )
-    profiler._sync()
+    torch.cuda.synchronize(profiler.device)
     return {
         name: {
             "median_us": statistics.median(sample["latency_us"] for sample in values),
@@ -158,7 +161,7 @@ def _measure_interleaved(profiler, functions):
 def _measure_peak_memory(profiler, fn):
     """Measure one provider separately, after reclaiming retired autograd objects."""
     fn()  # Warm the rebuilt workload/graph; this call is outside the measurement.
-    profiler._sync()
+    torch.cuda.synchronize(profiler.device)
     gc.collect()
     torch.cuda.empty_cache()
     baseline = torch.cuda.memory_allocated(profiler.device)
@@ -167,13 +170,13 @@ def _measure_peak_memory(profiler, fn):
     gc.disable()
     try:
         fn()
-        profiler._sync()
+        torch.cuda.synchronize(profiler.device)
         peak = torch.cuda.max_memory_allocated(profiler.device) - baseline
     finally:
         if gc_enabled:
             gc.enable()
     gc.collect()
-    profiler._sync()
+    torch.cuda.synchronize(profiler.device)
     after = torch.cuda.memory_allocated(profiler.device)
     if after != baseline or peak <= 0:
         raise RuntimeError(
@@ -242,6 +245,10 @@ def run_benchmark(args):
                 "baseline": "eager NativeQwen3_6PartialRoPEOp, explicit FP32 VJP; no torch.compile",
                 "scope": "public wrappers; allocations/autograd included; JIT/input setup excluded",
                 "backward": "random input-dtype dy; retained forward graph excluded from timing",
+                "accuracy_scope": (
+                    "untimed provider preflight: no-grad forward and grad-enabled output/dx; "
+                    "shared across mode rows, not a claim that forward timing includes backward"
+                ),
                 "memory": (
                     "extra peak allocated MiB from a post-GC baseline; "
                     "each provider measured separately; excludes inputs and its prebuilt graph"
@@ -311,7 +318,8 @@ def _markdown(report):
         "",
         f"{env['gpu']}; PyTorch {env['torch']}; Triton {env['triton']}; {env['runtime']}.",
         f"Timer: {env['timer']}. Warmup {env['warmup']}; repeat {env['repeat']}.",
-        "All rows passed forward/dx accuracy checks before measurement.",
+        "Before timing, every provider/shape passed no-grad forward and "
+        "grad-enabled output/dx checks.",
         "",
         "| Shape [T,H,256] | Dtype | Mode | Provider | Median us | Std us | Extra MiB |",
         "| --- | --- | --- | --- | ---: | ---: | ---: |",

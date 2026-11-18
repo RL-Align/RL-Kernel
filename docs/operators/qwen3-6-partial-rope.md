@@ -54,8 +54,8 @@ For explicit backend selection, import `NativeQwen3_6PartialRoPEOp` from
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Shared Triton | `TritonQwen3_6PartialRoPEOp` | `_qwen3_6_partial_rope_fwd_kernel`, `_qwen3_6_partial_rope_bwd_kernel` | Current review fixes validated on NVIDIA H100 (SM90), BF16/FP32; prior RTX 5080 (SM120) coverage is historical. |
-| PyTorch reference/fallback | `NativeQwen3_6PartialRoPEOp` | Eager PyTorch operations | Validated on NVIDIA H100, BF16/FP32, with CPU contract coverage in the cloud suite. |
+| Shared Triton | `TritonQwen3_6PartialRoPEOp` | `_qwen3_6_partial_rope_fwd_kernel`, `_qwen3_6_partial_rope_bwd_kernel` | Validated on NVIDIA H100 (SM90) and A40 (SM86), BF16/FP32; prior RTX 5080 (SM120) coverage is historical. |
+| PyTorch reference/fallback | `NativeQwen3_6PartialRoPEOp` | Eager PyTorch operations | Validated on NVIDIA H100 and A40, BF16/FP32, with CPU contract coverage in the cloud suite. |
 
 PyTorch uses the `cuda` tensor API for both NVIDIA CUDA and AMD ROCm. The same
 device guard can select either backend; this does **not** establish ROCm numerical
@@ -178,7 +178,7 @@ the GPU/runtime/compiler versions, source hashes (including uncommitted code),
 seed, repetitions and numerical-contract fingerprint. Git metadata is optional.
 Measured JSON/Markdown belongs in `artifacts/`, not in the PR source diff.
 
-The review-fix regression used one cloud NVIDIA H100 80GB HBM3 (SM90), PyTorch
+The earlier kernel review-fix regression used one cloud NVIDIA H100 80GB HBM3 (SM90), PyTorch
 2.8.0+cu128 and Triton 3.4.0. Both full runs used 30 warmups and 100 samples per
 provider/mode; dtype order was reversed in the repeat. All 20 dtype/shape cases
 passed output/gradient gates in both runs. At `[8192,16,256]`, the repeat measured:
@@ -196,6 +196,12 @@ Across matched rows, median absolute drift was 2.26%, with extremes -89.24% to
 PR evidence. Every memory row matched between runs. These data are regression
 evidence and do not establish a stable hardware-wide speedup.
 
+The subsequent checker/benchmark review fixes passed two full A40 (SM86) runs
+with the same matrix and 30 warmups / 100 samples. All 120 rows passed per run,
+including the separate no-grad forward gate; all memory rows matched. Timing
+remains noisy: 72/120 and 67/120 groups had SD above 15% of the median, with
+13.43% median absolute drift between runs. These do not establish stable speedups.
+
 ## Tests
 
 ```bash
@@ -207,22 +213,33 @@ python tools/validation/operators/check_operator.py --op qwen3_6_partial_rope \
   --candidate pytorch --device cpu --dtype bf16 --batch 2 --seq 7 --n-heads 2 --check-grad
 ```
 
+The unified checker uses `theta=1e7` for this operator by default; `--theta`
+overrides the frequency base when generating its caller-owned test tables.
+For example, add `--theta 1e5` to exercise a different table. The existing
+full-dimension `rope` operator retains its `theta=1e6` default.
+
 Tests cover an independent FP64 rotation-matrix oracle, FP32 accuracy, both model
 head counts, repeated/offset positions, chunk/padding/head-shard invariance,
 strides, empty inputs, tail bits, metadata errors, dispatch, and two-device
 forward/backward restoration. A BF16 large-channel-stride regression exercises
 forward/backward offsets beyond `INT32_MAX`; it needs about 8.5 GiB of free GPU
 memory and skips explicitly on smaller devices. GPU cases skip on CPU; those
-skips are not GPU passes. Benchmark tests include wrong-forward and wrong-backward negative controls.
+skips are not GPU passes. Benchmark tests include wrong-forward, wrong-no-grad and wrong-backward negative
+controls, and verify that each timed backward closure actually computes a finite
+gradient. Untimed accuracy checks cover both no-grad forward and grad-enabled
+output/dx before any mode is measured.
 
 ## Known Limitations
 
 - Text position IDs only; no multimodal t/h/w assembly or frequency generation.
 - Fixed D=256 and R=64, split-half pairing; no FP16, arbitrary rotation range,
   inplace execution, coefficient gradients or higher-order input gradients.
-- The current fixes passed a one-H100 cloud regression (227 passed, 9 skipped:
-  2 two-device cases and 7 Ascend cases). The large-stride regression executed.
-  The same kernel/reference/test bytes also passed the two-device restoration
+- The latest checker/benchmark fixes passed a one-A40 cloud regression
+  (237 passed, 9 skipped: 2 two-device cases and 7 Ascend cases), 24 unified
+  checks across default/1e5/1e8 theta, and 8 GPU default-buffer parity checks.
+  The earlier one-H100 regression passed 227 tests with the same 9 skips.
+  Both single-GPU runs executed the large-stride regression.
+  The unchanged kernel/reference/device-guard-test bytes also passed two-device restoration
   cases on two RTX A4000 GPUs (SM86, PyTorch 2.8.0+cu128, Triton 3.4.0):
   BF16/FP32 both passed with `CUDA_VISIBLE_DEVICES=0,1`, then again with `1,0`
   (2 + 2 passes, no skips). This validates both physical device directions for

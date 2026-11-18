@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from typing import Any
 
 import torch
@@ -15,6 +16,7 @@ DEFAULT_HEAD_DIM = 128
 DEFAULT_INTERMEDIATE = 12288
 DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
+DEFAULT_QWEN3_6_ROPE_THETA = 1.0e7
 DEFAULT_RMS_EPS = 1.0e-6
 
 
@@ -281,7 +283,10 @@ def _make_qwen3_6_partial_rope_inputs(
     offset = _arg_int(args, "position_offset", 0)
     if offset < 0:
         raise ValueError(f"position_offset must be nonnegative, got {offset}")
-    frequencies = 1.0 / (10_000_000.0 ** (torch.arange(32, device=device).float() / 32))
+    theta = _arg_float(args, "theta", DEFAULT_QWEN3_6_ROPE_THETA)
+    if not math.isfinite(theta) or theta <= 0:
+        raise ValueError(f"theta must be finite and positive, got {theta}")
+    frequencies = 1.0 / (theta ** (torch.arange(32, device=device).float() / 32))
     angles = torch.arange(offset + seq, device=device).float()[:, None] * frequencies[None, :]
     return {
         "x": _floating_tensor((batch * seq, n_heads, 256), args, dtype, device, offset=0),

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 
 import pytest
 import torch
@@ -14,6 +15,7 @@ from rl_engine.validation.operators.operator_specs import (
     make_operator_case,
     operator_names,
 )
+from tools.validation.operators.check_operator import parse_args
 
 
 def _args(**overrides):
@@ -152,3 +154,32 @@ def test_qwen3_6_partial_rope_packed_positions_and_gradient_spec():
     assert operator_shape_name("qwen3_6_partial_rope", args) == "6x2x256"
     assert candidate.fn(**case.inputs).dtype == torch.bfloat16
     assert case.gold_fn(**case.inputs).dtype == torch.float32
+
+
+@pytest.mark.parametrize(
+    "op_name, default_theta", [("rope", 1.0e6), ("qwen3_6_partial_rope", 1.0e7)]
+)
+@pytest.mark.parametrize("theta", [None, 1.0e5, 1.0e8])
+def test_rope_cli_theta_defaults_and_overrides(monkeypatch, op_name, default_theta, theta):
+    argv = ["check_operator", "--op", op_name, "--batch", "1", "--seq", "9", "--n-heads", "2"]
+    if theta is not None:
+        argv.extend(["--theta", str(theta)])
+    monkeypatch.setattr("sys.argv", argv)
+    args = parse_args()
+    inputs = make_operator_inputs(op_name, args, torch.float32, torch.device("cpu"))
+    expected_theta = default_theta if theta is None else theta
+    if op_name == "rope":
+        assert inputs["theta"] == expected_theta
+    else:
+        # At frequency index 16 of 32, theta's exponent is exactly one half.
+        angle = 8 / math.sqrt(expected_theta)
+        torch.testing.assert_close(inputs["cos"][8, 16], torch.tensor(math.cos(angle)))
+        torch.testing.assert_close(inputs["sin"][8, 16], torch.tensor(math.sin(angle)))
+
+
+@pytest.mark.parametrize("theta", [0, -1, float("nan"), float("inf")])
+def test_qwen3_6_partial_rope_rejects_invalid_theta(theta):
+    with pytest.raises(ValueError, match="theta must be finite and positive"):
+        make_operator_inputs(
+            "qwen3_6_partial_rope", _args(theta=theta), torch.float32, torch.device("cpu")
+        )

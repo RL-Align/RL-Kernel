@@ -37,7 +37,7 @@ def test_cpu_measurements_are_rejected():
 
 @pytest.mark.parametrize("dtype", (torch.bfloat16, torch.float32))
 @pytest.mark.parametrize("position_offset", (0, 11))
-def test_workloads_and_accuracy_gate(dtype, position_offset):
+def test_workloads_and_accuracy_gate(dtype, position_offset, monkeypatch):
     args = argparse.Namespace(
         batch=1,
         seq=3,
@@ -57,13 +57,35 @@ def test_workloads_and_accuracy_gate(dtype, position_offset):
                 leaves.append(kwargs["x"])
             return op(**kwargs)
 
+        gradients = []
+        autograd_grad = torch.autograd.grad
+
+        def capture_grad(*args, **kwargs):
+            result = autograd_grad(*args, **kwargs)
+            gradients.extend(g.detach().clone() for g in result)
+            return result
+
         workload = _make_workload(capture_leaf, inputs, grad_y, mode)
-        assert workload() is None
-        assert workload() is None  # Retained backward graph survives repeated timing calls.
-        if mode != "forward":
+        with monkeypatch.context() as patch:
+            patch.setattr(torch.autograd, "grad", capture_grad)
+            assert workload() is None
+            assert workload() is None  # Retained graph survives repeated timing calls.
+        if mode == "forward":
+            assert gradients == []
+        else:
+            assert len(gradients) == 2
+            assert all(g.shape == inputs["x"].shape and torch.isfinite(g).all() for g in gradients)
+            torch.testing.assert_close(gradients[0], gradients[1], atol=0, rtol=0)
             assert leaves
             assert all(leaf is not inputs["x"] and leaf.grad is None for leaf in leaves)
-    assert set(_check_accuracy(op, inputs, grad_y)) == {"output", "gradient"}
+    assert set(_check_accuracy(op, inputs, grad_y)) == {"forward_no_grad", "output", "gradient"}
+
+    def wrong_no_grad(**kwargs):
+        y = op(**kwargs)
+        return y if torch.is_grad_enabled() else y + 1
+
+    with pytest.raises(AssertionError):
+        _check_accuracy(wrong_no_grad, inputs, grad_y)
 
     def wrong_rotation(**kwargs):
         return op(**kwargs) + 1
@@ -82,32 +104,53 @@ def test_workloads_and_accuracy_gate(dtype, position_offset):
 def test_interleaved_samples_record_balanced_order(monkeypatch):
     """Check scheduling/report aggregation with a fake clock, not GPU performance."""
     calls = []
+    timeline = []
     elapsed = iter(range(1, 9))
 
     class FakeEvent:
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, *, enable_timing):
+            assert enable_timing
+            timeline.append(("create", self))
 
         def record(self):
-            pass
+            assert ("record", self) not in timeline
+            timeline.append(("record", self))
 
         def synchronize(self):
-            pass
+            assert ("record", self) in timeline
+            timeline.append(("synchronize", self))
 
         def elapsed_time(self, end):
+            assert self is not end
+            start_index = timeline.index(("record", self))
+            assert timeline.index(("create", self)) < start_index
+            assert timeline.index(("create", end)) < start_index
+            assert timeline[start_index:] == [
+                ("record", self),
+                ("work", calls[-1]),
+                ("record", end),
+                ("synchronize", end),
+            ]
+            timeline.append(("elapsed", self, end))
             return next(elapsed)
+
+    def work(name):
+        calls.append(name)
+        timeline.append(("work", name))
 
     monkeypatch.setattr(torch.cuda, "Event", FakeEvent)
     monkeypatch.setattr(torch.cuda, "empty_cache", lambda: None)
-    profiler = argparse.Namespace(warmup=2, repeat=4, device="cuda:0", _sync=lambda: None)
+    monkeypatch.setattr(torch.cuda, "synchronize", lambda device: None)
+    profiler = argparse.Namespace(warmup=2, repeat=4, device="cuda:0")
     rows = _measure_interleaved(
         profiler,
         {
-            "pytorch": lambda: calls.append("pytorch"),
-            "triton": lambda: calls.append("triton"),
+            "pytorch": lambda: work("pytorch"),
+            "triton": lambda: work("triton"),
         },
     )
     assert calls == ["pytorch", "triton", "triton", "pytorch"] * 3
+    assert sum(entry[0] == "elapsed" for entry in timeline) == 8
     for name, positions in (("pytorch", [0, 1, 0, 1]), ("triton", [1, 0, 1, 0])):
         row = rows[name]
         assert [sample["order_index"] for sample in row["samples"]] == positions
