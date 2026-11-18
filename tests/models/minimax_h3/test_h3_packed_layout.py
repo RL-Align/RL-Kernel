@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 import pytest
@@ -239,6 +240,51 @@ def test_identify_transformer_dir_needs_a_hash_source(tmp_path):
     with pytest.raises(ValueError, match="full_hash=True"):
         pl.identify_transformer_dir(directory)
     with pytest.raises(pl.VariantMismatch):  # empty files hash to neither variant
+        pl.identify_transformer_dir(directory, full_hash=True)
+
+
+def _content_download(root, monkeypatch, *, metadata, contents):
+    """A ``--local-dir`` tree whose shard bytes and Hub metadata name the given variants.
+
+    The pinned shard hashes are replaced by hashes of small per-variant contents, so the
+    files can be hashed for real.
+    """
+
+    names = sorted(pl.transformer_shard_hashes("FL2VA"))
+    payload = {v: {n: f"{v}:{n}".encode() for n in names} for v in ("FL2VA", "Ref2VA")}
+    table = {v: {n: hashlib.sha256(b).hexdigest() for n, b in payload[v].items()} for v in payload}
+    monkeypatch.setattr(pl, "transformer_shard_hashes", lambda variant: dict(table[variant]))
+    directory = root / "transformer"
+    meta = root / ".cache" / "huggingface" / "download" / "transformer"
+    directory.mkdir(parents=True)
+    meta.mkdir(parents=True)
+    for name in names:
+        (directory / name).write_bytes(payload[contents][name])
+        (meta / f"{name}.metadata").write_text(f"{fp.REVISION}\n{table[metadata][name]}\n0\n")
+    return directory
+
+
+@pytest.mark.parametrize("variant", ["FL2VA", "Ref2VA"])
+def test_identify_transformer_dir_full_hash_reads_shards_despite_metadata(
+    tmp_path, monkeypatch, variant
+):
+    directory = _content_download(tmp_path, monkeypatch, metadata=variant, contents=variant)
+    reads = []
+    original = pl._file_sha256
+    monkeypatch.setattr(pl, "_file_sha256", lambda path: reads.append(path) or original(path))
+    assert pl.identify_transformer_dir(directory) == variant
+    assert reads == []  # metadata only
+    assert pl.identify_transformer_dir(directory, full_hash=True) == variant
+    assert len(reads) == len(pl.transformer_shard_hashes(variant))  # every shard read
+
+
+def test_identify_transformer_dir_full_hash_catches_metadata_disagreeing_with_shards(
+    tmp_path, monkeypatch
+):
+    # Metadata says FL2VA, the bytes are Ref2VA's: only a real hash can tell.
+    directory = _content_download(tmp_path, monkeypatch, metadata="FL2VA", contents="Ref2VA")
+    assert pl.identify_transformer_dir(directory) == "FL2VA"
+    with pytest.raises(pl.VariantMismatch, match="download metadata records"):
         pl.identify_transformer_dir(directory, full_hash=True)
 
 

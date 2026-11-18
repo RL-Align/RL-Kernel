@@ -783,9 +783,11 @@ def identify_transformer_dir(directory: str | Path, *, full_hash: bool = False) 
     """Which released variant a local transformer directory holds (``"FL2VA"`` / ``"Ref2VA"``).
 
     The two partitions have the same config, index and tensor table, so only the shard
-    contents tell them apart. Shard sha256 values come from the Hub download metadata or the
-    HF cache blob name when present (no read of the 66 GB), else from hashing the file when
-    ``full_hash``. A directory whose shards match neither variant, or both in part, raises
+    contents tell them apart. Without ``full_hash``, shard sha256 values come from the Hub
+    download metadata or the HF cache blob name (no read of the 66 GB); a shard with neither
+    raises :class:`ValueError`. With ``full_hash``, every shard file is read and hashed, and a
+    recorded hash that disagrees with the contents raises :class:`VariantMismatch`. A
+    directory whose shards match neither variant, or both in part, raises
     :class:`VariantMismatch`.
     """
 
@@ -797,13 +799,19 @@ def identify_transformer_dir(directory: str | Path, *, full_hash: bool = False) 
         path = directory / name
         if not path.exists():
             raise FileNotFoundError(f"missing transformer shard {path}")
-        sha = _hub_metadata_sha256(path) or _blob_sha256(path)
-        if sha is None:
-            if not full_hash:
+        recorded = _hub_metadata_sha256(path) or _blob_sha256(path)
+        if not full_hash:
+            if recorded is None:
                 raise ValueError(
                     f"{path}: no Hub metadata or cache blob name; pass full_hash=True to hash it"
                 )
-            sha = _file_sha256(path)
+            observed[name] = recorded
+            continue
+        sha = _file_sha256(path)
+        if recorded is not None and recorded != sha:
+            raise VariantMismatch(
+                f"{path}: contents hash to {sha}, but the download metadata records {recorded}"
+            )
         observed[name] = sha
     matches = {
         variant: sum(observed[n] == table[n] for n in names) for variant, table in expected.items()
