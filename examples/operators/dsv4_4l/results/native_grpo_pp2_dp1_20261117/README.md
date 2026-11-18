@@ -1,5 +1,10 @@
 # Native verl GRPO on four MI300X GPUs
 
+For AMD reproduction, artifact prerequisites, multi-node communication preparation
+and the remaining model-integration gates, see the
+[AMD handoff guide](../../../../../docs/usage/dsv4-rocm-amd-handoff.md).
+The guide does not extend the measured scope of this report.
+
 **Work in progress: the historical `final-run1` version-3 failure and two standalone final-image GPU test setup errors remain unresolved.** The completed jobs below executed three continuous real updates and passed every requested comparison in those jobs. They do not explain or erase the earlier failure. This is not a declaration that all four-layer acceptance work is complete.
 
 The tables below list qualified completed jobs; the preserved failed and incomplete jobs are explicitly reported under limitations. They are not silently included as passes.
