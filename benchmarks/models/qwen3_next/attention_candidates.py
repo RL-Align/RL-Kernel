@@ -107,6 +107,11 @@ def fp64_reference(q, k, v):
 # ``run(seqs) -> outputs``: ``seqs`` is a list of (q, k, v) with queries aligned
 # to the end of each KV sequence; every candidate computes the whole list in the
 # way its engine batches it (one varlen launch, or one launch per sequence).
+# ``prepare(seqs) -> launch`` when the candidate has per-batch setup that an
+# engine does once per step and shares across layers (packing, ``cu_seqlens``,
+# a paged KV cache, a FlashInfer plan, a mask): the setup runs in ``prepare``
+# and ``launch()`` only runs the kernel, so latency times the kernel alone.
+# ``run(seqs)`` is ``prepare(seqs)()``, so the checks still cover the setup.
 # ``grad(q, k, v, dy) -> (dq, dk, dv)`` when the candidate has a backward.
 # --------------------------------------------------------------------------- #
 
@@ -135,32 +140,42 @@ def _rl_kernel():
 
 
 def _sdpa():
-    def one(q, k, v):
+    def mask_for(q, k):
         lq, lk = q.shape[0], k.shape[0]
+        return None if lq == lk else ~_bottom_right_mask(lq, lk, q.device)
+
+    def one(q, k, v, mask):
         qh, kh, vh = (t.transpose(0, 1).unsqueeze(0) for t in (q, k, v))
-        if lq == lk:
+        if mask is None:
             out = F.scaled_dot_product_attention(
                 qh, kh, vh, is_causal=True, scale=SCALE, enable_gqa=True
             )
         else:
-            rows = torch.arange(lq, device=q.device)[:, None] + (lk - lq)
-            mask = torch.arange(lk, device=q.device)[None, :] <= rows
             out = F.scaled_dot_product_attention(
                 qh, kh, vh, attn_mask=mask, scale=SCALE, enable_gqa=True
             )
         return out.squeeze(0).transpose(0, 1)
 
+    def prepare(seqs):
+        masks = [mask_for(s[0], s[1]) for s in seqs]
+
+        def launch():
+            with torch.no_grad():
+                return [one(*s, m) for s, m in zip(seqs, masks)]
+
+        return launch
+
     def run(seqs):
-        with torch.no_grad():
-            return [one(*s) for s in seqs]
+        return prepare(seqs)()
 
     def grad(q, k, v, dy):
         leaves = [t.detach().clone().requires_grad_(True) for t in (q, k, v)]
-        return torch.autograd.grad(one(*leaves), leaves, dy)
+        return torch.autograd.grad(one(*leaves, mask_for(q, k)), leaves, dy)
 
     return {
         "name": "torch SDPA (default backend, one launch per sequence)",
         "source": f"torch {torch.__version__} scaled_dot_product_attention",
+        "prepare": prepare,
         "run": run,
         "grad": grad,
     }
@@ -177,33 +192,43 @@ def _split(out, lengths):
     return list(out.split(list(lengths)))
 
 
+def _pack(seqs):
+    """Varlen batch setup: per-sequence lengths, packed q/k/v and their ``cu_seqlens``."""
+    lq, lk = [s[0].shape[0] for s in seqs], [s[1].shape[0] for s in seqs]
+    q, k, v = (torch.cat([s[i] for s in seqs]) for i in range(3))
+    return lq, lk, q, k, v, _cu(lq), _cu(lk)
+
+
 def _vllm_fa(num_splits: int):
     import vllm
     from vllm.vllm_flash_attn import flash_attn_varlen_func
 
-    def run(seqs):
-        lq = [s[0].shape[0] for s in seqs]
-        lk = [s[1].shape[0] for s in seqs]
-        q, k, v = (torch.cat([s[i] for s in seqs]) for i in range(3))
-        out = flash_attn_varlen_func(
-            q,
-            k,
-            v,
-            max_seqlen_q=max(lq),
-            cu_seqlens_q=_cu(lq),
-            max_seqlen_k=max(lk),
-            cu_seqlens_k=_cu(lk),
-            softmax_scale=SCALE,
-            causal=True,
-            num_splits=num_splits,
-            fa_version=2,
-        )
-        return _split(out, lq)
+    def prepare(seqs):
+        lq, lk, q, k, v, cu_q, cu_k = _pack(seqs)
+
+        def launch():
+            out = flash_attn_varlen_func(
+                q,
+                k,
+                v,
+                max_seqlen_q=max(lq),
+                cu_seqlens_q=cu_q,
+                max_seqlen_k=max(lk),
+                cu_seqlens_k=cu_k,
+                softmax_scale=SCALE,
+                causal=True,
+                num_splits=num_splits,
+                fa_version=2,
+            )
+            return _split(out, lq)
+
+        return launch
 
     return {
         "name": f"vLLM FlashAttention-2 varlen, num_splits={num_splits}",
         "source": f"vllm {vllm.__version__} vllm_flash_attn.flash_attn_varlen_func",
-        "run": run,
+        "prepare": prepare,
+        "run": lambda seqs: prepare(seqs)(),
     }
 
 
@@ -213,7 +238,8 @@ def _vllm_triton():
 
     block = 16
 
-    def run(seqs):
+    def prepare(seqs):
+        # vLLM keeps the paged cache across steps; building it is setup, not the kernel.
         lq = [s[0].shape[0] for s in seqs]
         lk = [s[1].shape[0] for s in seqs]
         blocks = [(n + block - 1) // block for n in lk]
@@ -228,33 +254,40 @@ def _vllm_triton():
             table[i, :n] = torch.arange(first, first + n, device="cuda")
             first += n
         q = torch.cat([s[0] for s in seqs])
-        out = torch.empty_like(q)
-        unified_attention(
-            q,
-            k_cache,
-            v_cache,
-            out,
-            cu_seqlens_q=_cu(lq),
-            max_seqlen_q=max(lq),
-            seqused_k=torch.tensor(lk, device="cuda", dtype=torch.int32),
-            max_seqlen_k=max(lk),
-            softmax_scale=SCALE,
-            causal=True,
-            window_size=(-1, -1),
-            block_table=table,
-            softcap=0,
-            q_descale=None,
-            k_descale=None,
-            v_descale=None,
-        )
-        return _split(out, lq)
+        cu_q = _cu(lq)
+        used_k = torch.tensor(lk, device="cuda", dtype=torch.int32)
+
+        def launch():
+            out = torch.empty_like(q)
+            unified_attention(
+                q,
+                k_cache,
+                v_cache,
+                out,
+                cu_seqlens_q=cu_q,
+                max_seqlen_q=max(lq),
+                seqused_k=used_k,
+                max_seqlen_k=max(lk),
+                softmax_scale=SCALE,
+                causal=True,
+                window_size=(-1, -1),
+                block_table=table,
+                softcap=0,
+                q_descale=None,
+                k_descale=None,
+                v_descale=None,
+            )
+            return _split(out, lq)
+
+        return launch
 
     return {
         # Without split-softmax buffers the 2D kernel runs for every batch, which
         # is also the only kernel vLLM's batch-invariant mode allows.
         "name": "vLLM Triton unified attention (2D kernel)",
         "source": f"vllm {vllm.__version__} v1/attention/ops/triton_unified_attention",
-        "run": run,
+        "prepare": prepare,
+        "run": lambda seqs: prepare(seqs)(),
     }
 
 
@@ -264,26 +297,20 @@ def _flashinfer():
     workspace = torch.empty(256 << 20, device="cuda", dtype=torch.uint8)
     wrapper = flashinfer.BatchPrefillWithRaggedKVCacheWrapper(workspace, "NHD")
 
-    def run(seqs):
-        lq = [s[0].shape[0] for s in seqs]
-        lk = [s[1].shape[0] for s in seqs]
+    def prepare(seqs):
+        # Engines plan once per step and reuse the plan in every layer. The wrapper
+        # holds one plan, so a launch is valid until the next prepare.
+        lq, lk, q, k, v, cu_q, cu_k = _pack(seqs)
         wrapper.plan(
-            _cu(lq),
-            _cu(lk),
-            HQ,
-            HKV,
-            D,
-            causal=True,
-            sm_scale=SCALE,
-            q_data_type=torch.bfloat16,
+            cu_q, cu_k, HQ, HKV, D, causal=True, sm_scale=SCALE, q_data_type=torch.bfloat16
         )
-        q, k, v = (torch.cat([s[i] for s in seqs]) for i in range(3))
-        return _split(wrapper.run(q, k, v), lq)
+        return lambda: _split(wrapper.run(q, k, v), lq)
 
     return {
         "name": "FlashInfer BatchPrefillWithRaggedKVCache",
         "source": f"flashinfer {flashinfer.__version__}",
-        "run": run,
+        "prepare": prepare,
+        "run": lambda seqs: prepare(seqs)(),
     }
 
 
@@ -298,13 +325,13 @@ def _fa4():
     import vllm
     from vllm.vllm_flash_attn.cute import interface as fa4
 
-    def call(q, k, v, lq, lk):
+    def call(q, k, v, lq, lk, cu_q, cu_k):
         out = fa4.flash_attn_varlen_func(
             q,
             k,
             v,
-            cu_seqlens_q=_cu(lq),
-            cu_seqlens_k=_cu(lk),
+            cu_seqlens_q=cu_q,
+            cu_seqlens_k=cu_k,
             max_seqlen_q=max(lq),
             max_seqlen_k=max(lk),
             softmax_scale=SCALE,
@@ -312,23 +339,28 @@ def _fa4():
         )
         return out[0] if isinstance(out, tuple) else out
 
-    def run(seqs):
-        lq, lk = [s[0].shape[0] for s in seqs], [s[1].shape[0] for s in seqs]
-        q, k, v = (torch.cat([s[i] for s in seqs]) for i in range(3))
-        with torch.no_grad():
-            return _split(call(q, k, v, lq, lk), lq)
+    def prepare(seqs):
+        lq, lk, q, k, v, cu_q, cu_k = _pack(seqs)
+
+        def launch():
+            with torch.no_grad():
+                return _split(call(q, k, v, lq, lk, cu_q, cu_k), lq)
+
+        return launch
 
     def grad_batch(seqs, dys):
         lq, lk = [s[0].shape[0] for s in seqs], [s[1].shape[0] for s in seqs]
         leaves = [torch.cat([s[i] for s in seqs]).detach().requires_grad_(True) for i in range(3)]
-        dq, dk, dv = torch.autograd.grad(call(*leaves, lq, lk), leaves, torch.cat(dys))
+        out = call(*leaves, lq, lk, _cu(lq), _cu(lk))
+        dq, dk, dv = torch.autograd.grad(out, leaves, torch.cat(dys))
         return list(zip(_split(dq, lq), _split(dk, lk), _split(dv, lk)))
 
     return {
         "name": "FlashAttention-4 (CuTe DSL) varlen, vendored by vLLM",
         "source": f"vllm {vllm.__version__} vllm_flash_attn/cute "
         "(its head-dim-256 SM100 backward has no deterministic mode)",
-        "run": run,
+        "prepare": prepare,
+        "run": lambda seqs: prepare(seqs)(),
         "grad_batch": grad_batch,
     }
 
@@ -354,28 +386,35 @@ def _te(training: bool):
     )
     attention.train(training)
 
-    def call(q, k, v, lq, lk):
+    def call(q, k, v, lq, lk, cu_q, cu_k):
         out = attention(
             q,
             k,
             v,
-            cu_seqlens_q=_cu(lq),
-            cu_seqlens_kv=_cu(lk),
+            cu_seqlens_q=cu_q,
+            cu_seqlens_kv=cu_k,
             max_seqlen_q=max(lq),
             max_seqlen_kv=max(lk),
         )
         return out.view(q.shape[0], HQ, D)
 
+    def prepare(seqs):
+        lq, lk, q, k, v, cu_q, cu_k = _pack(seqs)
+
+        def launch():
+            with torch.no_grad():
+                return _split(call(q, k, v, lq, lk, cu_q, cu_k), lq)
+
+        return launch
+
     def run(seqs):
-        lq, lk = [s[0].shape[0] for s in seqs], [s[1].shape[0] for s in seqs]
-        q, k, v = (torch.cat([s[i] for s in seqs]) for i in range(3))
-        with torch.no_grad():
-            return _split(call(q, k, v, lq, lk), lq)
+        return prepare(seqs)()
 
     def grad_batch(seqs, dys):
         lq, lk = [s[0].shape[0] for s in seqs], [s[1].shape[0] for s in seqs]
         leaves = [torch.cat([s[i] for s in seqs]).detach().requires_grad_(True) for i in range(3)]
-        dq, dk, dv = torch.autograd.grad(call(*leaves, lq, lk), leaves, torch.cat(dys))
+        out = call(*leaves, lq, lk, _cu(lq), _cu(lk))
+        dq, dk, dv = torch.autograd.grad(out, leaves, torch.cat(dys))
         return list(zip(_split(dq, lq), _split(dk, lk), _split(dv, lk)))
 
     version = f"transformer-engine {transformer_engine.__version__}"
@@ -383,11 +422,13 @@ def _te(training: bool):
         return {
             "name": "Transformer Engine DotProductAttention (THD), inference: cuDNN fused",
             "source": f"{version} (no fused head-dim-256 backward on SM100)",
+            "prepare": prepare,
             "run": run,
         }
     return {
         "name": "Transformer Engine DotProductAttention (THD), training: unfused fallback",
         "source": f"{version} (selected for head-dim-256 training on SM100)",
+        "prepare": prepare,
         "run": run,
         "grad_batch": grad_batch,
     }
@@ -431,40 +472,57 @@ def _megatron_local():
         softmax_scale=SCALE,
     )
 
-    def one(q, k, v):
-        mask = _bottom_right_mask(q.shape[0], k.shape[0], q.device)[None, None]
+    def mask_for(q, k):
+        return _bottom_right_mask(q.shape[0], k.shape[0], q.device)[None, None]
+
+    def one(q, k, v, mask):
         out = attention(q.unsqueeze(1), k.unsqueeze(1), v.unsqueeze(1), mask)
         return out.view(q.shape[0], HQ, D)
 
+    def prepare(seqs):
+        masks = [mask_for(s[0], s[1]) for s in seqs]
+
+        def launch():
+            with torch.no_grad():
+                return [one(*s, m) for s, m in zip(seqs, masks)]
+
+        return launch
+
     def run(seqs):
-        with torch.no_grad():
-            return [one(*s) for s in seqs]
+        return prepare(seqs)()
 
     def grad(q, k, v, dy):
         leaves = [t.detach().clone().requires_grad_(True) for t in (q, k, v)]
-        return torch.autograd.grad(one(*leaves), leaves, dy)
+        return torch.autograd.grad(one(*leaves, mask_for(q, k)), leaves, dy)
 
     return {
         "name": "Megatron-core DotProductAttention (local, one launch per sequence)",
         "source": f"megatron-core {megatron.core.__version__}",
+        "prepare": prepare,
         "run": run,
         "grad": grad,
     }
 
 
-def candidates() -> list[dict[str, Any]]:
-    return [
-        _guard("rl_kernel_cuda", _rl_kernel),
-        _guard("torch_sdpa", _sdpa),
-        _guard("vllm_fa2_auto", lambda: _vllm_fa(0)),
-        _guard("vllm_fa2_split1", lambda: _vllm_fa(1)),
-        _guard("vllm_triton_2d", _vllm_triton),
-        _guard("flashinfer", _flashinfer),
-        _guard("fa4_cute", _fa4),
-        _guard("te_fused", lambda: _te(False)),
-        _guard("te_training", lambda: _te(True)),
-        _guard("megatron_local", _megatron_local),
-    ]
+FACTORIES: dict[str, Callable[[], dict[str, Any]]] = {
+    "rl_kernel_cuda": _rl_kernel,
+    "torch_sdpa": _sdpa,
+    "vllm_fa2_auto": lambda: _vllm_fa(0),
+    "vllm_fa2_split1": lambda: _vllm_fa(1),
+    "vllm_triton_2d": _vllm_triton,
+    "flashinfer": _flashinfer,
+    "fa4_cute": _fa4,
+    "te_fused": lambda: _te(False),
+    "te_training": lambda: _te(True),
+    "megatron_local": _megatron_local,
+}
+
+
+def candidates(only=None) -> list[dict[str, Any]]:
+    """Build the selected candidates only, so an unselected one allocates nothing."""
+    if only is not None and set(only) - set(FACTORIES):
+        raise ValueError(f"Unknown candidates: {sorted(set(only) - set(FACTORIES))}")
+    return [_guard(key, f) for key, f in FACTORIES.items() if only is None or key in only]
 
 
 # --------------------------------------------------------------------------- #
@@ -553,13 +611,17 @@ def _latency(cands) -> dict[str, Any]:
     ready = [c for c in cands if "unavailable" not in c]
 
     def calls_for(seqs):
+        # Per-batch setup (``prepare``) runs here, outside the timed window.
         calls = {}
         for cand in ready:
             try:
-                cand["run"](seqs)
+                launch = (
+                    cand["prepare"](seqs) if "prepare" in cand else (lambda c=cand: c["run"](seqs))
+                )
+                launch()
             except Exception:  # noqa: BLE001 - recorded by the BI section
                 continue
-            calls[cand["key"]] = lambda c=cand: c["run"](seqs)
+            calls[cand["key"]] = launch
         return calls
 
     prefill = {
@@ -568,15 +630,16 @@ def _latency(cands) -> dict[str, Any]:
     decode = time_interleaved(calls_for([make_sequence(1, 401, kv_length=DECODE_KV)]))
     q, k, v = make_sequence(BACKWARD_TOKENS, 402)
     dy = torch.randn_like(q)
-    backward = time_interleaved(
-        {
-            c["key"]: (lambda c=c: grad_batch(c, [(q, k, v)], [dy]))
-            for c in ready
-            if has_backward(c)
-        },
-        warmup=3,
-        iters=15,
-    )
+    backward_calls = {}
+    for cand in ready:
+        if not has_backward(cand):
+            continue
+        try:
+            grad_batch(cand, [(q, k, v)], [dy])
+        except Exception:  # noqa: BLE001 - recorded by the BI section
+            continue
+        backward_calls[cand["key"]] = lambda c=cand: grad_batch(c, [(q, k, v)], [dy])
+    backward = time_interleaved(backward_calls, warmup=3, iters=15)
     return {
         "prefill_us": prefill,
         f"decode_us_kv{DECODE_KV}": decode,
@@ -588,9 +651,7 @@ def attention_report(only=None) -> dict[str, Any]:
     """Every candidate, or only the keys in ``only`` (run each Python environment separately)."""
     target = make_sequence(TARGET, 1)
     others = [make_sequence(n, 10 + i) for i, n in enumerate(COMPANIONS)]
-    cands = [c for c in candidates() if only is None or c["key"] in only]
-    if only is not None and set(only) - {c["key"] for c in cands}:
-        raise ValueError(f"Unknown candidates: {sorted(set(only) - {c['key'] for c in cands})}")
+    cands = candidates(only)
     return {
         "op": "qwen3_next_tp4_attention",
         "shape": {"q_heads": HQ, "kv_heads": HKV, "head_dim": D, "scale": SCALE},
