@@ -552,7 +552,8 @@ class TransformerDenoiser:
     ``"Ref2VA"`` for ``transformer_ref/``); the chain refuses a layout of the other variant
     before any forward (H16). ``mode=None`` runs the provider's arithmetic; ``"strict"`` /
     ``"audit"`` bind the RL-Kernel graph through ``runtime.H3DiffusersAdapter`` for the whole
-    sampling loop (forward hooks of the probe still observe every module).
+    sampling loop (forward hooks of the probe still observe every module); ``ops`` replaces the
+    default ``h3_block.CandidateOps`` (e.g. with query-chunked attention).
     """
 
     def __init__(
@@ -562,6 +563,7 @@ class TransformerDenoiser:
         variant: str,
         mode: str | None = None,
         identity: Mapping[str, Any] | None = None,
+        ops: Any = None,
     ) -> None:
         if variant not in fp.VARIANTS:
             raise ValueError(f"unknown transformer variant {variant!r}")
@@ -573,7 +575,7 @@ class TransformerDenoiser:
         if mode is not None:
             from rl_engine.models.minimax_h3.runtime import H3DiffusersAdapter
 
-            self.adapter = H3DiffusersAdapter(model, mode)
+            self.adapter = H3DiffusersAdapter(model, mode, ops=ops)
 
     @property
     def device(self) -> torch.device:
@@ -605,7 +607,9 @@ class TransformerDenoiser:
     def report(self) -> dict[str, Any]:
         if self.adapter is None:
             return {"case_id": "P/P", "bound": False, "mode": "provider"}
-        return dict(self.adapter.report())
+        report = dict(self.adapter.report())
+        report["actual_backends"] = dict(self.adapter.trace.actual_backends)
+        return report
 
     def __call__(
         self,

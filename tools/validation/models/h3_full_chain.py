@@ -380,13 +380,23 @@ def build_components(args: argparse.Namespace, variant: str) -> tuple[fc.ChainCo
         ),
     }
     mode = None if args.mode == "provider" else args.mode
+    ops = None
+    if mode is not None and args.attention_query_chunk:
+        from rl_engine.validation.models.h3_block import CandidateOps
+        from rl_engine.validation.models.h3_full_model import QueryChunkAttention
+
+        ops = CandidateOps()
+        ops.attention = QueryChunkAttention(ops.attention, args.attention_query_chunk)
+        identity["attention_query_chunk"] = args.attention_query_chunk
     denoiser: fc.TransformerDenoiser
     if args.offload:
         denoiser = OffloadedDenoiser(
-            model, variant=variant, mode=mode, identity=identity, run_device=device
+            model, variant=variant, mode=mode, identity=identity, ops=ops, run_device=device
         )
     else:
-        denoiser = fc.TransformerDenoiser(model, variant=variant, mode=mode, identity=identity)
+        denoiser = fc.TransformerDenoiser(
+            model, variant=variant, mode=mode, identity=identity, ops=ops
+        )
     text = fc.PinnedTextFeatures(args.text, expected_sha256=args.text_sha256)
     info["identity"] = identity
     return fc.ChainComponents(text, denoiser, visual, audio, device), info
@@ -607,6 +617,12 @@ def main() -> None:
     p.add_argument("--label", default="run")
     p.add_argument("--device", default="cuda")
     p.add_argument("--offload", action="store_true", help="keep idle models on the CPU")
+    p.add_argument(
+        "--attention-query-chunk",
+        type=int,
+        default=0,
+        help="strict/audit: run the interim attention in query chunks (bounded workspace)",
+    )
     p.add_argument(
         "--stream-blocks",
         action="store_true",
