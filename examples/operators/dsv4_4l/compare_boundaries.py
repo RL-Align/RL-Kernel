@@ -7,6 +7,8 @@ from pathlib import Path
 
 import torch
 
+from examples.operators.dsv4_4l.trace_store import load_capture
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -27,7 +29,7 @@ def main():
     def load(events, directory, name, layer=None, occurrence=0):
         found = [e for e in events if e["name"] == name and (layer is None or e["layer"] == layer)]
         event = found[occurrence]
-        value = torch.load(directory / event["file"], weights_only=True, map_location="cpu")
+        value = load_capture(directory / event["file"])
         while isinstance(value, (tuple, list)):
             value = value[0]
         return value

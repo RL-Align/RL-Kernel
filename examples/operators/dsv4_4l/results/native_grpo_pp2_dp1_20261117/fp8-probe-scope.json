@@ -1,0 +1,9 @@
+{
+  "ordinary_probes": [
+    "fp8-dispatch-probe",
+    "fp8-dispatch-ab"
+  ],
+  "ordinary_scope": "Original checkpoint ordinary unshuffled AITER blockscale kernel only; NOT the actual AMD shared gate/up B-preshuffle caller. These differences do not establish the historical worker root cause.",
+  "actual_caller": "/opt/dsv4/vllm/vllm/models/deepseek_v4/amd/model.py:DeepseekV4MLP.forward",
+  "actual_dispatch": "group_fp8_quant(transpose_scale=True) -> gemm_a8w8_blockscale_bpreshuffle"
+}

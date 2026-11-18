@@ -1,0 +1,30 @@
+[
+  {
+    "name": "stress-rlk-cpu",
+    "tests": 10,
+    "failed": 0,
+    "skipped": 0,
+    "log": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/logs/stress-rlk-cpu.log"
+  },
+  {
+    "name": "stress-verl-cpu",
+    "tests": 19,
+    "failed": 0,
+    "skipped": 0,
+    "log": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/logs/stress-verl-cpu.log"
+  },
+  {
+    "name": "stress-evidence",
+    "tests": 8,
+    "failed": 0,
+    "skipped": 0,
+    "log": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/logs/stress-evidence.log"
+  },
+  {
+    "name": "stress-compressor-gfx942",
+    "tests": 2,
+    "failed": 2,
+    "skipped": 0,
+    "log": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/logs/stress-compressor-gfx942.log"
+  }
+]

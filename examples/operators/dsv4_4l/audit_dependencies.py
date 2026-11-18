@@ -12,7 +12,7 @@ from pathlib import Path
 
 def audit(root=Path("/opt/dsv4")):
     expected = {
-        "verl": "8c94a12d7811030413cd85e2bba6db863e0913c8",
+        "verl": os.environ.get("VERL_ASSEMBLY_SHA", "8c94a12d7811030413cd85e2bba6db863e0913c8"),
         "Megatron-LM": "97b50bdd936022ef58031c35db6d10581c181be0",
         "vllm": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
     }
@@ -52,6 +52,55 @@ def audit(root=Path("/opt/dsv4")):
         raise RuntimeError("Bridge RECORD contains no verifiable Python sources")
     result["megatron-bridge"] = {"version": dist.version, "pristine_python_files": checked}
     return result
+
+
+def runtime_versions():
+    """Read versions/import locations from this actual process, including wheel metadata."""
+    import importlib
+
+    import torch
+
+    from rl_engine.integrations.orchestrators.verl.native_imports import (
+        install_native_import_adapters,
+    )
+
+    install_native_import_adapters()
+    projects = {}
+    for repo, module_name, distribution in [
+        ("verl", "verl", "verl"),
+        ("vllm", "vllm", "vllm"),
+        ("Megatron-LM", "megatron.core", "megatron-core"),
+        ("RL-Kernel", "rl_engine", "rl-kernel"),
+    ]:
+        module = importlib.import_module(module_name)
+        root = Path("/opt/dsv4") / repo
+
+        def git(*args, _root=root):
+            return subprocess.check_output(["git", "-C", str(_root), *args], text=True).strip()
+
+        try:
+            dist_version = md.version(distribution)
+        except md.PackageNotFoundError:
+            dist_version = None
+        projects[repo] = dict(
+            module_version=getattr(module, "__version__", None),
+            distribution_version=dist_version,
+            sha=git("rev-parse", "HEAD"),
+            repository_url=git("config", "--get", "remote.origin.url"),
+            import_path=module.__file__,
+            dirty=bool(git("status", "--porcelain")),
+        )
+    versions = {}
+    for distribution in ["megatron-bridge", "torch", "triton", "amd-aiter"]:
+        versions[distribution] = md.version(distribution)
+    rocm = {
+        str(p): p.read_text().strip()
+        for p in Path("/opt/rocm/.info").glob("version*")
+        if p.is_file()
+    }
+    return dict(
+        projects=projects, dependencies=versions, hip=torch.version.hip, rocm_version_files=rocm
+    )
 
 
 if __name__ == "__main__":

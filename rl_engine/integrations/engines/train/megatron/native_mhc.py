@@ -141,12 +141,13 @@ def bind_native_training_stage(model, worker):
     worker.check_config(cfg.layernorm_epsilon, 1e-6)
     layers = list(stack.layers)
     norms = []
-    for layer_index, layer in enumerate(layers):
+    for layer in layers:
         if not isinstance(layer, HyperConnectionHybridLayer):
             raise ValueError("native DSV4 requires HyperConnectionHybridLayer boundaries")
         hc = layer.hyper_connection
+        global_index = layer.layer_number - 1
         hc._rlk_parameter_id = (
-            f"model.layers.{layer_index // 2}.hc_{'attn' if layer_index % 2 == 0 else 'ffn'}"
+            f"model.layers.{global_index // 2}.hc_{'attn' if global_index % 2 == 0 else 'ffn'}"
         )
         if hc.n != 4 or hc.mapping_proj.weight.shape != (24, 4 * cfg.hidden_size):
             raise ValueError("unsupported native HyperConnectionModule ABI")
@@ -205,15 +206,28 @@ def bind_native_training_stage(model, worker):
     return worker
 
 
-def normalize_native_causal_mask(attention_mask, input_shape=None):
+def normalize_native_causal_mask(attention_mask, input_shape=None, *, valid_lengths=None):
     """Translate verl's explicit full causal mask to MCore CSA's implicit mask.
 
-    Reject padding/document masks rather than silently dropping their semantics.
+    Reject undeclared padding/document masks. Explicit right padding can only lie
+    after each complete original sequence, so every scored query already masks
+    every padding key by causality. verl retains the original mask to remove
+    unscored padded outputs and to construct the original response loss mask.
     This eager adapter deliberately validates tensor contents before execution.
     """
     if attention_mask is None or attention_mask.numel() == 1:
         return attention_mask
     if input_shape is not None and tuple(attention_mask.shape) == tuple(input_shape):
+        if valid_lengths is not None:
+            if len(valid_lengths) != input_shape[0] or any(
+                type(n) is not int or n <= 0 or n > input_shape[1] for n in valid_lengths
+            ):
+                raise ValueError("invalid original right-padding lengths")
+            positions = torch.arange(input_shape[1], device=attention_mask.device)[None, :]
+            lengths = torch.tensor(valid_lengths, device=attention_mask.device)[:, None]
+            if not bool((attention_mask == (positions < lengths)).all()):
+                raise ValueError("only declared complete-prefix right padding is supported")
+            return None
         if not bool((attention_mask == 1).all()):
             raise ValueError("native DSV4 adapter cannot discard padding tokens")
         return None
@@ -234,7 +248,8 @@ def normalize_native_causal_mask(attention_mask, input_shape=None):
 def original_mhc_parameters(model):
     """Return actual native FP32 controller Parameters, without replacing them."""
     result = {}
-    for index, layer in enumerate(model.decoder.layers):
+    for layer in model.decoder.layers:
+        index = layer.layer_number - 1
         hc = layer.hyper_connection
         prefix = f"layers.{index // 2}.hc_{'attn' if index % 2 == 0 else 'ffn'}"
         for name, parameter in (
@@ -245,8 +260,9 @@ def original_mhc_parameters(model):
             ("alpha_res", hc.alpha_res),
         ):
             result[prefix + "." + name] = parameter
-    for name in ("hc_head_fn", "hc_head_base", "hc_head_scale"):
-        result[name] = getattr(model.decoder, name)
+    if model.decoder.post_process:
+        for name in ("hc_head_fn", "hc_head_base", "hc_head_scale"):
+            result[name] = getattr(model.decoder, name)
     for name, parameter in result.items():
         if (
             not isinstance(parameter, torch.nn.Parameter)

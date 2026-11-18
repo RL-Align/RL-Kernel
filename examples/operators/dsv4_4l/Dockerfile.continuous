@@ -1,0 +1,15 @@
+# Build from the existing verified four-project image; rlk.bundle contains committed RLK source.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG RLK_SHA
+COPY rlk.bundle /tmp/rlk.bundle
+RUN git -C /opt/dsv4/RL-Kernel fetch /tmp/rlk.bundle HEAD \
+ && git -C /opt/dsv4/RL-Kernel checkout --detach --force "$RLK_SHA" \
+ && git -C /opt/dsv4/RL-Kernel clean -fd \
+ && rm /tmp/rlk.bundle
+ENV RLK_ASSEMBLY_SHA=${RLK_SHA}
+RUN mkdir -p /opt/dsv4/lib \
+ && gcc -shared -fPIC -O2 -Wall -Wextra -Werror \
+    /opt/dsv4/RL-Kernel/examples/operators/dsv4_4l/isolated_kfd.c \
+    -o /opt/dsv4/lib/rlk-isolated-kfd.so -ldl
+RUN /opt/dsv4-venv/bin/python /opt/dsv4/RL-Kernel/examples/operators/dsv4_4l/audit_dependencies.py

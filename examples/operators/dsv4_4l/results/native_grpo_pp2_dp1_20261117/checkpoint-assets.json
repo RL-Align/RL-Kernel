@@ -1,0 +1,14 @@
+{
+  "tokenizer_config.json": {
+    "bytes": 801,
+    "sha256": "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547"
+  },
+  "tokenizer.json": {
+    "bytes": 6367146,
+    "sha256": "8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf"
+  },
+  "config.json": {
+    "bytes": 1610,
+    "sha256": "e3b0a44aa6fa723cac977c3cd37ee28855671a0b3d65ded3d13f165bc4d70eb5"
+  }
+}

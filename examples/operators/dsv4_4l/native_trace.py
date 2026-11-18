@@ -1,6 +1,7 @@
 """Capture original tensors from the real native actor; no arithmetic replacements."""
 
 import json
+import os
 import types
 from pathlib import Path
 
@@ -39,8 +40,22 @@ def install(model, root):
             return
         index = len(events)
         file = f"{index:04d}.pt"
-        torch.save(clone(value), root / file)
-        events.append(dict(index=index, layer=context["layer"], name=name, file=file))
+        from examples.operators.dsv4_4l.trace_store import save_trace
+
+        file = save_trace(
+            value if os.environ.get("DSV4_TRACE_FORMAT") == "cas-v1" else clone(value), root / file
+        )
+        events.append(
+            dict(
+                index=index,
+                layer=context["layer"],
+                name=name,
+                file=file,
+                weight_version=model._rlk_p1.version,
+                pid=os.getpid(),
+                rank=os.environ.get("RANK"),
+            )
+        )
         (root / "manifest.json").write_text(json.dumps(events, indent=2))
 
     def stop():
@@ -63,8 +78,10 @@ def install(model, root):
         def after_embedding(m, args, result):
             dump("embedding.output", result)
 
-        handles.append(model.embedding.register_forward_hook(after_embedding))
-        for index, layer in enumerate(model.decoder.layers):
+        if getattr(model, "pre_process", True):
+            handles.append(model.embedding.register_forward_hook(after_embedding))
+        for layer in model.decoder.layers:
+            index = layer.layer_number - 1
 
             def entering(m, args, index=index):
                 context["layer"] = index // 2

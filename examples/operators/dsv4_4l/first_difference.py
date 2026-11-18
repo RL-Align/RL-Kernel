@@ -7,6 +7,8 @@ from pathlib import Path
 
 import torch
 
+from examples.operators.dsv4_4l.trace_store import load_capture
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -23,7 +25,7 @@ def main():
             for e in events
             if e["name"] == name and e["layer"] == 0 and (role == "actor" or e["forward"] == 0)
         )
-        return torch.load(directory / event["file"], weights_only=True, map_location="cpu")
+        return load_capture(directory / event["file"])
 
     def a(name):
         return get(am, name, actor, "actor")

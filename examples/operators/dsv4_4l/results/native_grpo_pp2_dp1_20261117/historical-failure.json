@@ -1,0 +1,31 @@
+{
+  "status": "UNRESOLVED",
+  "run": "final-run1",
+  "version": 3,
+  "case": "fixed AB A",
+  "expected_tokens": 3,
+  "compared_tokens": 3,
+  "mismatch_count": 3,
+  "raw": "outputs/final-run1/policy-sync/audit-v3-fixed-06-AB-A.pt",
+  "baseline": "outputs/final-run1/policy-sync/audit-v3-fixed-00-A-A.pt",
+  "actor": [
+    -0.015024185180664062,
+    -0.00684356689453125,
+    -4.658092498779297
+  ],
+  "rollout": [
+    -0.014894485473632812,
+    -0.0069408416748046875,
+    -4.701491355895996
+  ],
+  "first_actor_bits": "0xbc762800",
+  "first_rollout_bits": "0xbc740800",
+  "response_token_index": 0,
+  "target_token": 128819,
+  "absolute_target_position": 159,
+  "predicting_row": 158,
+  "first_internal_boundary": "Not captured in the original failed job; unknown",
+  "original_failed_updated_policy": "Unavailable: the old sync implementation removed its transfer snapshot",
+  "replay": "Recorded PPO inputs and all four forward activation hashes match, but independent backward trajectories differ already at update 1. This does not recover the failed version-3 weights.",
+  "current_mitigation": "Retain every updated policy, full failure boundary capture, strict fail-closed raw-bit audits, optional repeated live requests and parameter readback. These do not establish a root-cause fix for this historical failure."
+}

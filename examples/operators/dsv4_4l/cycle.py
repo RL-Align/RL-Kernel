@@ -11,6 +11,8 @@ from pathlib import Path
 
 import torch
 
+from examples.operators.dsv4_4l.measurement import emit, instrument_server, measure, workload
+
 ROOT = Path("/outputs")
 
 
@@ -35,16 +37,20 @@ async def wait_file(path, process, timeout=600):
         await asyncio.sleep(0.2)
 
 
-async def command(process, name, action, cases=()):
+async def command(process, name, action, cases=(), **metadata):
     temp = ROOT / "actor-commands" / f".{name}.tmp"
-    save_json(temp, {"id": name, "action": action, "cases": cases})
+    if temp.with_name(f"{name}.json").exists() or (ROOT / f"actor-{name}.json").exists():
+        raise RuntimeError(f"command output already exists: {name}")
+    save_json(temp, {"id": name, "action": action, "cases": cases, **metadata})
     temp.rename(temp.with_name(f"{name}.json"))
     if action == "quit":
         return
-    return await wait_file(ROOT / f"actor-{name}.json", process)
+    with measure("actor_command_" + action, command=name, **workload(cases)):
+        return await wait_file(ROOT / f"actor-{name}.json", process)
 
 
 def compare_values(name, cases, rollout_scores, actor_scores, version, kind="actor_vs_rollout"):
+    comparison_start = time.perf_counter()
     rows = []
     for position, (case, x, y) in enumerate(zip(cases, rollout_scores, actor_scores, strict=True)):
         expected = len(case["response_token_ids"])
@@ -54,6 +60,7 @@ def compare_values(name, cases, rollout_scores, actor_scores, version, kind="act
         xb = x.reshape(-1).view(torch.int32)
         yb = y.reshape(-1).view(torch.int32)
         changed = xb != yb
+        diagnostic_diff = (x.double() - y.double()).abs()
         row = dict(
             comparison_kind=kind,
             case_id=case["id"],
@@ -64,6 +71,9 @@ def compare_values(name, cases, rollout_scores, actor_scores, version, kind="act
             expected_tokens=expected,
             compared_tokens=expected,
             mismatch_count=int(changed.sum()),
+            mismatch_rate=int(changed.sum()) / expected,
+            max_abs_diff=float(diagnostic_diff.max()),
+            mean_abs_diff=float(diagnostic_diff.mean()),
             dtype=str(x.dtype),
             all_finite=True,
         )
@@ -81,6 +91,14 @@ def compare_values(name, cases, rollout_scores, actor_scores, version, kind="act
             )
         rows.append(row)
     save_json(ROOT / f"compare-{name}.json", rows)
+    emit(
+        "comparison_tool",
+        seconds=time.perf_counter() - comparison_start,
+        configuration=name,
+        version=version,
+        comparison_kind=kind,
+        **workload(cases),
+    )
     print("STRICT_COMPARISON", json.dumps(rows), flush=True)
     return rows
 
@@ -126,7 +144,11 @@ def teacher_scores(name, cases, version):
     result = []
     for case in cases:
         matches = [v for key, v in rows if key == case["id"]]
-        assert len(matches) == 1, (case["id"], len(matches), "unaligned prompt-score capture")
+        assert len(matches) == 1, (
+            case["id"],
+            len(matches),
+            "unaligned prompt-score capture",
+        )
         result.append(matches[0])
     return result
 
@@ -134,9 +156,10 @@ def teacher_scores(name, cases, version):
 async def main():
     if not __debug__:
         raise RuntimeError("strict comparison cannot run with Python assertions disabled")
-    from examples.operators.dsv4_4l.audit_dependencies import audit
+    from examples.operators.dsv4_4l.audit_dependencies import audit, runtime_versions
 
     save_json(ROOT / "dependency-audit.json", audit())
+    save_json(ROOT / "runtime-versions.json", runtime_versions())
     import ray
     from verl.workers.config import HFModelConfig, RolloutConfig
     from verl.workers.rollout.replica import RolloutMode
@@ -144,19 +167,35 @@ async def main():
     from vllm import SamplingParams
     from vllm.inputs import TokensPrompt
 
+    actor_pp = int(os.environ.get("DSV4_ACTOR_PP", "1"))
+    actor_dp = int(os.environ.get("DSV4_ACTOR_DP", "1"))
+    train_steps = int(os.environ.get("DSV4_TRAIN_STEPS", "1"))
+    if train_steps not in (1, 3) or (train_steps == 3 and actor_pp != 2):
+        raise ValueError("continuous three-step acceptance requires the selected native PP2 actor")
+    if actor_pp not in (1, 2) or actor_dp not in (1, 2) or (actor_pp == 1 and actor_dp != 1):
+        raise ValueError("cycle supports single-card or selected PP2 DP1/2 configurations")
+    rollout_pp = actor_pp
     ray.init(
         num_cpus=8,
-        num_gpus=1,
+        num_gpus=rollout_pp,
         include_dashboard=False,
         object_store_memory=256 * 1024**2,
         _memory=4 * 1024**3,
         _temp_dir="/outputs/tmp/ray-parity",
         log_to_driver=True,
     )
-    cfg = RolloutConfig(
+    config_type, server_type = RolloutConfig, vLLMHttpServer
+    if rollout_pp == 2:
+        from rl_engine.integrations.orchestrators.verl.pipeline_rollout import (
+            RLKPipelineRolloutConfig,
+            RLKPipelineVLLMHttpServer,
+        )
+
+        config_type, server_type = RLKPipelineRolloutConfig, RLKPipelineVLLMHttpServer
+    cfg = config_type(
         name="vllm",
         tensor_model_parallel_size=1,
-        pipeline_model_parallel_size=1,
+        pipeline_model_parallel_size=rollout_pp,
         data_parallel_size=1,
         expert_parallel_size=1,
         seed=42,
@@ -178,22 +217,23 @@ async def main():
                 "worker_cls": (
                     "rl_engine.integrations.engines.rollout.vllm.dsv4_worker." "RLKDeepSeekV4Worker"
                 ),
-                "distributed_executor_backend": "uni",
+                "distributed_executor_backend": "uni" if rollout_pp == 1 else "mp",
                 "compilation_config": {"cudagraph_mode": "NONE"},
             }
         },
     )
-    server = vLLMHttpServer(
+    server = server_type(
         cfg,
         HFModelConfig(path="/models/4l", trust_remote_code=False, use_remove_padding=True),
         RolloutMode.STANDALONE,
         workers=[],
         replica_rank=0,
         node_rank=0,
-        gpus_per_node=1,
+        gpus_per_node=rollout_pp,
         nnodes=1,
-        cuda_visible_devices="0",
+        cuda_visible_devices=",".join(str(i) for i in range(rollout_pp)),
     )
+    instrument_server(server)
     process = None
     results = []
     before_passed = False
@@ -211,17 +251,45 @@ async def main():
             request_id="generated-A-v0",
         )
         actual = output.model_dump()
-        case = dict(id="A", prompt_token_ids=prompt, response_token_ids=actual["token_ids"])
+        declared_path = os.environ.get("DSV4_FIXED_CASES")
+        case = dict(
+            id="A-bootstrap" if declared_path else "A",
+            prompt_token_ids=prompt,
+            response_token_ids=actual["token_ids"],
+        )
         assert len(case["response_token_ids"]) == 2
         save_json(ROOT / "cases-v0.json", [case])
         scores = generated_scores("generate-A-v0", case, 0)
         env = dict(os.environ)
         env.pop("ROCR_VISIBLE_DEVICES", None)
         env.pop("CUDA_VISIBLE_DEVICES", None)
-        env["HIP_VISIBLE_DEVICES"] = os.environ["DSV4_PHYSICAL_GPU"]
+        if (ROOT / "device-allocation.json").exists():
+            allocation = json.loads((ROOT / "device-allocation.json").read_text())
+            selected = [r for r in allocation if r["role"] == "actor"]
+            env["HIP_VISIBLE_DEVICES"] = ",".join(str(r["container_gpu"]) for r in selected)
+        else:
+            env["HIP_VISIBLE_DEVICES"] = os.environ.get(
+                "DSV4_ACTOR_PHYSICAL_GPUS", os.environ.get("DSV4_PHYSICAL_GPU", "")
+            )
+        if actor_pp == 2:
+            actor_args = [
+                sys.executable,
+                "-m",
+                "torch.distributed.run",
+                "--standalone",
+                f"--nproc-per-node={actor_pp * actor_dp}",
+                "--module",
+                "examples.operators.dsv4_4l.distributed_actor_service",
+            ]
+        else:
+            actor_args = [
+                sys.executable,
+                "-m",
+                "examples.operators.dsv4_4l.actor_service",
+            ]
         (ROOT / "actor-commands").mkdir()
         process = subprocess.Popen(
-            [sys.executable, "-m", "examples.operators.dsv4_4l.actor_service"],
+            actor_args,
             env=env,
             stdout=(ROOT / "actor-service.log").open("w"),
             stderr=subprocess.STDOUT,
@@ -247,20 +315,25 @@ async def main():
         references = {}
 
         async def score_fixed(name, cases, version):
-            await server.collective_rpc("set_case", args=(name,))
+            score_start = time.perf_counter()
+            await server.collective_rpc(
+                "set_case", args=(name, [f"{name}-{c['id']}" for c in cases])
+            )
 
             async def run(case):
                 tokens = case["prompt_token_ids"] + case["response_token_ids"]
                 sampling = SamplingParams(
                     max_tokens=1, temperature=0, prompt_logprobs=1, ignore_eos=True
                 )
-                async for item in server.engine.generate(
-                    TokensPrompt(prompt_token_ids=tokens), sampling, f"{name}-{case['id']}"
+                async for _item in server.engine.generate(
+                    TokensPrompt(prompt_token_ids=tokens),
+                    sampling,
+                    f"{name}-{case['id']}",
                 ):
                     pass
 
             if len(cases) == 1:
-                await run(cases[0])
+                await asyncio.wait_for(run(cases[0]), timeout=180)
             else:
                 # Stage every actual request while the real scheduler is paused.
                 # Concurrent generators alone may be scheduled as serial B=1.
@@ -271,11 +344,16 @@ async def main():
                     for c in cases:
                         tokens = c["prompt_token_ids"] + c["response_token_ids"]
                         sampling = SamplingParams(
-                            max_tokens=1, temperature=0, prompt_logprobs=1, ignore_eos=True
+                            max_tokens=1,
+                            temperature=0,
+                            prompt_logprobs=1,
+                            ignore_eos=True,
                         )
                         queues.append(
                             await server.engine.add_request(
-                                f"{name}-{c['id']}", TokensPrompt(prompt_token_ids=tokens), sampling
+                                f"{name}-{c['id']}",
+                                TokensPrompt(prompt_token_ids=tokens),
+                                sampling,
                             )
                         )
                     assert server.engine.get_num_unfinished_requests() == len(cases)
@@ -291,7 +369,16 @@ async def main():
                     finally:
                         queue.close()
 
-                await asyncio.gather(*(drain(q) for q in queues))
+                await asyncio.wait_for(asyncio.gather(*(drain(q) for q in queues)), timeout=180)
+            emit(
+                "rollout_teacher",
+                seconds=time.perf_counter() - score_start,
+                configuration=name,
+                version=version,
+                **workload(cases),
+                completion_boundary="all request outputs drained",
+                diagnostic_overhead_included=True,
+            )
             metadata = await server.collective_rpc("case_batches")
             save_json(ROOT / f"rollout-batches-{name}.json", metadata)
             if len(cases) > 1:
@@ -318,7 +405,11 @@ async def main():
                     old_rollout, old_actor = references[key]
                     for kind, current, previous in (
                         ("rollout_repeat_or_batch_position", values[i], old_rollout),
-                        ("actor_repeat_or_batch_position", actor["selected"][i], old_actor),
+                        (
+                            "actor_repeat_or_batch_position",
+                            actor["selected"][i],
+                            old_actor,
+                        ),
                     ):
                         extra = compare_values(
                             name + "-" + c["id"] + "-" + kind,
@@ -341,7 +432,12 @@ async def main():
             await server.collective_rpc("set_case", args=(name,))
             output = await server.generate(
                 prompt,
-                {"max_tokens": count, "temperature": 0.0, "logprobs": True, "ignore_eos": True},
+                {
+                    "max_tokens": count,
+                    "temperature": 0.0,
+                    "logprobs": True,
+                    "ignore_eos": True,
+                },
                 request_id=name,
             )
             case = dict(
@@ -363,7 +459,9 @@ async def main():
                 raise RuntimeError(f"{name} generated token comparison mismatched")
             return case
 
-        async def matrix(version, cases):
+        async def matrix(version, cases, prefix=""):
+            if prefix not in ("", "generated-"):
+                raise ValueError("invalid matrix kind")
             a, b, c = cases
             ok = True
             for label, group in (
@@ -373,28 +471,87 @@ async def main():
                 ("AB", [a, b]),
                 ("BA", [b, a]),
                 ("A-repeat", [a]),
+                ("B-repeat", [b]),
+                ("C-repeat", [c]),
                 ("AB-repeat", [a, b]),
+                ("BA-repeat", [b, a]),
             ):
-                passed = await score_fixed(f"v{version}-{label}-matrix", group, version)
+                passed = await score_fixed(f"v{version}-{prefix}{label}-matrix", group, version)
                 ok = ok and passed
             return ok
 
         # First prove a fixed-sequence independent replay before updating anything.
         if not await score_fixed("v0-A-repeat", [case], 0):
             raise RuntimeError("pre-update fixed-sequence replay mismatched")
-        b = await generate_case("B", [0] + [101] * 127, 3, 0)
-        c = await generate_case("C", [0, 104, 105, 106, 107, 108, 109, 110, 111], 1, 0)
-        cases = [case, b, c]
+        if declared_path:
+            cases = json.loads(Path(declared_path).read_text())
+            if [c["id"] for c in cases] != ["A", "B", "C"] or any(
+                not c["prompt_token_ids"] or not c["response_token_ids"] for c in cases
+            ):
+                raise ValueError("predeclared fixed workload must contain nonempty A/B/C")
+        else:
+            b = await generate_case("B", [0] + [101] * (126 if train_steps == 3 else 127), 3, 0)
+            c = await generate_case("C", [0, 104, 105, 106, 107, 108, 109, 110, 111], 1, 0)
+            cases = [case, b, c]
         save_json(ROOT / "cases-v0.json", cases)
         before_passed = await matrix(0, cases)
         if not before_passed:
             raise RuntimeError("expanded pre-update comparison mismatched; update not attempted")
+        if train_steps == 3:
+            from examples.operators.dsv4_4l.continuous_cycle import run_continuous
+
+            await run_continuous(
+                ROOT,
+                server,
+                process,
+                cases,
+                results,
+                first_ack,
+                score_fixed=score_fixed,
+                generate_case=generate_case,
+                matrix=matrix,
+                dp_size=actor_dp,
+            )
+            return
         update_attempted = True
-        update = await command(process, "step", "step", [case])
+        if actor_pp == 2 and actor_dp == 2:
+            temp = ROOT / "actor-commands/.step.tmp"
+            save_json(
+                temp,
+                dict(
+                    id="step",
+                    action="step",
+                    cases=[case],
+                    cases_by_dp={"0": [case], "1": [b]},
+                ),
+            )
+            temp.rename(temp.with_name("step.json"))
+            update = await wait_file(ROOT / "actor-step.json", process)
+        else:
+            update = await command(process, "step", "step", [case])
+        if actor_pp == 2:
+            from examples.operators.dsv4_4l.verify_pipeline import verify_pipeline_step
+
+            evidence = json.loads((ROOT / "actor-distributed-step.json").read_text())
+            transfers = verify_pipeline_step(evidence, dp_size=actor_dp)
+            save_json(ROOT / "pipeline-transfer-verification.json", transfers)
         update_executed = True
         assert update["weight_version"] == 1 and update["before"] != update["after"]
         ack = await server.collective_rpc("load_actor_update", args=("/outputs/actor-update.pt",))
         save_json(ROOT / "rollout-sync-ack.json", ack)
+        if rollout_pp == 2:
+            from examples.operators.dsv4_4l.verify_pipeline import verify_rollout_shards
+
+            manifest = json.loads((ROOT / "actor-update-manifest.json").read_text())
+            verify_rollout_shards(ack, manifest)
+            save_json(
+                ROOT / "rollout-shards-verified.json",
+                dict(
+                    verified_tensors=len(manifest),
+                    actual_pp_workers=len(ack),
+                    weight_version=1,
+                ),
+            )
         after_ack = await server.collective_rpc("set_case", args=("v1-A-fixed",))
         save_json(ROOT / "rollout-after-ack.json", after_ack)
         assert [r["pid"] for r in first_ack] == [r["pid"] for r in after_ack]
@@ -406,7 +563,10 @@ async def main():
         for old in cases:
             new_cases.append(
                 await generate_case(
-                    old["id"] + "-new", old["prompt_token_ids"], len(old["response_token_ids"]), 1
+                    old["id"] + "-new",
+                    old["prompt_token_ids"],
+                    len(old["response_token_ids"]),
+                    1,
                 )
             )
         save_json(ROOT / "cases-v1-generated.json", new_cases)
@@ -421,6 +581,9 @@ async def main():
                 rows=results,
                 expanded_coverage_passed=post,
                 limitation="independent container repeat must be evaluated separately",
+                actor_parallelism=dict(TP=1, PP=actor_pp, EP=1, CP=1, DP=actor_dp),
+                rollout_parallelism=dict(TP=1, PP=rollout_pp, EP=1, CP=1, DP=1),
+                multi_gpu_verified=(actor_pp == 2 and actor_dp == 2 and post),
             ),
         )
     except Exception as error:

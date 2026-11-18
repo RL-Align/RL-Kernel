@@ -1,0 +1,1207 @@
+[
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/exit-code.json",
+    "bytes": 16,
+    "sha256": "124fd50cb6d223cdd18fedc166d00af7254199b6e6dedf9be82f71db87af6d01"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/job-result.json",
+    "bytes": 4278,
+    "sha256": "946f0b04f7107ea3f14ffdbaf26e100c664cbccd9b3fbae47f3df95aff5f829f"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/launch.json",
+    "bytes": 4222,
+    "sha256": "caac72d80d998fb2a2b1b176449d77ce196c1916ed8bc86da4e46d1b2d658ddc"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/device-allocation.json",
+    "bytes": 962,
+    "sha256": "f3ff43ebe089d9973fa9be74520fdb18d338c8d1a95c780494e30f62b27dfc05"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/physical-gpu-processes.txt",
+    "bytes": 604,
+    "sha256": "001b42957e9b32798661cba383ed236895a4ae075434804b4a297a463e2b9c46"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/grpo-acceptance.json",
+    "bytes": 1610,
+    "sha256": "708a2bb7152f73077db777d75606415dbaa0cc46025ad1764013dd5b9543175e"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/initial-v0.json",
+    "bytes": 38510,
+    "sha256": "2cad843bf628994dff59b6ba9b6aa450a55ca37b59f02e5d41062bd9a0c5c180"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/post-update-v2.json",
+    "bytes": 38502,
+    "sha256": "47cff26537de6a28272b546e18a12b2e2a1dcab5ef6d368fafaa507a1b8580ff"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/post-update-v3.json",
+    "bytes": 38514,
+    "sha256": "950ddf400fb511b2765c76e560523d088b0ba5a7290a803d896f8c9ab158d3c9"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/post-update-v1.json",
+    "bytes": 38517,
+    "sha256": "6a3af7562f4c55d9aca15847d4920f500aa8c5e7004b90003b2edb2a8df06490"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/sync-v3-raw.json",
+    "bytes": 41926,
+    "sha256": "7d5234d984348c8576a214eee2bcefd9107b5fa3e7aa0678c67d253c194883b5"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/sync-v1.json",
+    "bytes": 27745,
+    "sha256": "132e1c57b9b183ddec0fbe6a882bd6edf0b0fee3a8f7cd6117853ec15f34485d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/sync-v0-raw.json",
+    "bytes": 41926,
+    "sha256": "715f26332fc881c0d3b65ac3bcd1124ad1b57019c175e0597b738f0f4296cff0"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/sync-v0.json",
+    "bytes": 27745,
+    "sha256": "408703f7d2c3c64d80a0799e502b9b909b5735a0200fec641542a02d778d26ff"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/sync-v2-raw.json",
+    "bytes": 41926,
+    "sha256": "507a8359da5f49228a25f27ba72b64a4dc2638e9896b1868fe3cef9d20005559"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/sync-v3.json",
+    "bytes": 27745,
+    "sha256": "41fcc777af5c92a528ab4e31563e8edf3190ef8261c11cd7eff56989a6f2e007"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/sync-v2.json",
+    "bytes": 27745,
+    "sha256": "b38eb8bd22dae6cd6ee8910fc939a15936cf865c0c9ad57278c1df689c2c999d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/sync-v1-raw.json",
+    "bytes": 41926,
+    "sha256": "1fad1029f15621d972611c83ccb52a75351e3bf58ef7ff8c6e71819cb0689135"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/actor-rank-0-v2.json",
+    "bytes": 211798,
+    "sha256": "15aebb12383dc8fde84310a798585d1d2891793d61dbedc17e51748c0d44861f"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/actor-rank-0-v3.json",
+    "bytes": 211798,
+    "sha256": "903e36c10dcc7c5374923098d8cd025606ef91f51ac90dae39de7b193dcc53f8"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/actor-rank-1-v1.json",
+    "bytes": 83800,
+    "sha256": "235b2b0ad5a3a1480d1495e91fe260a00d318035ae40d5f04545ed31aefd0d47"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/actor-rank-1-v2.json",
+    "bytes": 99579,
+    "sha256": "431f3a5e6f39c270b2acd43da87c4e75610fb606013da16e7a0376a6a18a5229"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/actor-rank-1-v3.json",
+    "bytes": 99579,
+    "sha256": "13bc386b21b1a3947b0218a31f9721c9a9796f004a3914d0c3a1ce02038c985f"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/actor-rank-0-v1.json",
+    "bytes": 175744,
+    "sha256": "8b88dfac31960d3237b4ae0bacd4be73c494a6de21cdf3eac80d279dcb55b789"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/training-batch-step1.json",
+    "bytes": 8715,
+    "sha256": "284022b3743d77c0a0763da7140b3afa1a63eb81bf38f7c153ca527b75c8f221"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/training-batch-step2.json",
+    "bytes": 8547,
+    "sha256": "c609b255366e5f7c61f7cd6d280e2170f0c9dab63b5cca0bc5765e7619a84afa"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/training-batch-step3.json",
+    "bytes": 8755,
+    "sha256": "62b21aecdb65dde000accb85b7509f0bef9da15c25d620b1fff8ce9648ae60a5"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/metrics-step3.json",
+    "bytes": 4474,
+    "sha256": "902ea6919396370e6d57201d58e8e0bde08075d6d1294caaf217c0e37a972533"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/metrics-step2.json",
+    "bytes": 4360,
+    "sha256": "d5b3ecf7cf3581dcd05c7b261a534956fb158338d49ca9a4267d2c0d1e6cd3d0"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/metrics-step1.json",
+    "bytes": 4446,
+    "sha256": "dfcf76d901848fad8861db30d01e7fa106d4d79bcb40b239f7cf81340c990684"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/parity.jsonl",
+    "bytes": 1483,
+    "sha256": "0916f6a8c89b98c8c7f31001462861248582762e0d9bd1e916222f816092da80"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/audit-v3-fixed-06-AB-A.pt",
+    "bytes": 6109,
+    "sha256": "65bfc4ef11ab0b8bf83aeea7dcefa4de0f9ec314233ffb265aa6a0f3ecad9e94"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/policy-sync/audit-v3-fixed-00-A-A.pt",
+    "bytes": 4501,
+    "sha256": "9f54fd3e1aa1c3cf5ee604742849756d383e1064b919e23feba8d39c589aadc2"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded1/driver.log",
+    "bytes": 238074,
+    "sha256": "a316aeb59a7aed43c81909c1e33f8baa61083d1e6a94b4505145ef301c9649c1"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/exit-code.json",
+    "bytes": 16,
+    "sha256": "124fd50cb6d223cdd18fedc166d00af7254199b6e6dedf9be82f71db87af6d01"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/job-result.json",
+    "bytes": 4277,
+    "sha256": "76a83e3951999859b0538fd30a03c2b574cbdb8e7e0d14c793bf99f1e6a18f9e"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/launch.json",
+    "bytes": 4222,
+    "sha256": "48d90c7736acb6a0fcb1a32c87eb58357e8fa39f19a9ffc67a909b388f2230c1"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/device-allocation.json",
+    "bytes": 962,
+    "sha256": "f3ff43ebe089d9973fa9be74520fdb18d338c8d1a95c780494e30f62b27dfc05"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/physical-gpu-processes.txt",
+    "bytes": 403,
+    "sha256": "879ad23e510223414e708007b1badd3d8776678ff588a748187abfce41460dba"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/grpo-acceptance.json",
+    "bytes": 1610,
+    "sha256": "588136d54e551769e0cf42ef8188861936daa1ea94333371a0a591609a9f18fb"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/initial-v0.json",
+    "bytes": 38512,
+    "sha256": "e28b7ac74ddaf793ef60f435f2142e84257662732d46fda9c3d68f283b056b07"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/post-update-v2.json",
+    "bytes": 38503,
+    "sha256": "00949b75fa329951ea82274e31a09b6fd05c12ffdd01644b0adf78652b97694e"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/post-update-v3.json",
+    "bytes": 38507,
+    "sha256": "b15f4ed12ee7dde5fce886c1ee2d59ca1d2b626d539a9ed4fcd69a51c8656663"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/post-update-v1.json",
+    "bytes": 38505,
+    "sha256": "b920f75d0d1f95963e765e3c3d5de47eb0b6732aaca176f9dba29a11239ce623"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/sync-v3-raw.json",
+    "bytes": 41926,
+    "sha256": "a253ae80843ffa9dd6821571a4b9ceb8456ea2c24f2b59a1bddff9df84ac206a"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/sync-v1.json",
+    "bytes": 27745,
+    "sha256": "12269fd228494f26074d38204bb6015cfdf673ccb94509a10a0ad183300d87a1"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/sync-v0-raw.json",
+    "bytes": 41926,
+    "sha256": "3f4ddb0be5bd5f0b3e486ac1d3b07d0d7a476b652ad75906372489a179dcf95f"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/sync-v0.json",
+    "bytes": 27745,
+    "sha256": "6f86bf645d7b6aff729be65b5faf4e69b07ecaa52f35a900a458b64faf032f12"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/sync-v2-raw.json",
+    "bytes": 41926,
+    "sha256": "ef3746aadf61ad01fda26e9ea12d88015f4b4b81ac3f7c52cd9e17e71a77499c"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/sync-v3.json",
+    "bytes": 27745,
+    "sha256": "2ae286bafeac8ec9710830022322e264b42ef34dc2dadbdda6380df747a97055"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/sync-v2.json",
+    "bytes": 27745,
+    "sha256": "f9b70d52df6cf5f01e24195d330404f1cbd43bd67f310699ca567644384c4942"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/sync-v1-raw.json",
+    "bytes": 41926,
+    "sha256": "7acf29159a8e6a8e72709cbdcd1582d2fc5a458826d06c0d213530d4026046fc"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/actor-rank-0-v2.json",
+    "bytes": 211747,
+    "sha256": "db650438c9107773c5a49d67ceccdbb1d3a730ec7e8dff289364c98e3bef4710"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/actor-rank-0-v3.json",
+    "bytes": 211798,
+    "sha256": "4c2b25ac8cecc4da4c5e060ce1f752c68ce12f3cec53913718aeec095c90a76a"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/actor-rank-1-v1.json",
+    "bytes": 83800,
+    "sha256": "424cdd4ee56d2dd66962ef401b31e11d58a38bfc9f01eaee5550c53a19919660"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/actor-rank-1-v2.json",
+    "bytes": 99579,
+    "sha256": "67eebe6f32a2e1c507948141bbbe054e99f99cb283aebec7171923d5ee9e143d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/actor-rank-1-v3.json",
+    "bytes": 99579,
+    "sha256": "d92836b4c44085d49b63de6b611386256c1752f497e1d34d39e261689c304eb5"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/actor-rank-0-v1.json",
+    "bytes": 175744,
+    "sha256": "ad26b5373fbfc0e6d1b9df06ebf9e66d8ff2120eff075ec0093cff7b1eb39ca9"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/training-batch-step1.json",
+    "bytes": 8676,
+    "sha256": "c0250e3ec04cc2ab53e719194f29848703c5186416edeb42358bc9d58d2eba70"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/training-batch-step2.json",
+    "bytes": 8721,
+    "sha256": "a998f925832946c0ee7ad8d17b8eb105f12ac10a78d8fec257fe2cbabd3c1e0b"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/training-batch-step3.json",
+    "bytes": 8781,
+    "sha256": "d7f8d1d590a2b514c9a6c12be2e4027812e00426634ade3abf2ef163f5cdd6ba"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/metrics-step3.json",
+    "bytes": 4435,
+    "sha256": "8d313e45ac39688ce8ae45c6ece1a5d1e4e3ca27efa4aa19d4b0e3889ed49972"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/metrics-step2.json",
+    "bytes": 4448,
+    "sha256": "192371648c0fdee448d77219e7c1490347651fdd160057229d13c3b15ed8d49c"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/metrics-step1.json",
+    "bytes": 4389,
+    "sha256": "a5d3fd7d41c5df81901811d9f25826bc82857666638fb243c2cc0d4b1472f8c9"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/parity.jsonl",
+    "bytes": 1481,
+    "sha256": "05482986b68878b272a2504a10248c1c60c558a278b1961f26dd1495d8e5e00b"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/audit-v3-fixed-06-AB-A.pt",
+    "bytes": 6109,
+    "sha256": "85183cef2d8a0fadfc9a8d1e35feaec3765920b7695dd88f561118d750052527"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/policy-sync/audit-v3-fixed-00-A-A.pt",
+    "bytes": 4501,
+    "sha256": "1f014300a22694064ae769667b99dfa18f50bcdfd6cc2e8723fa1d068900e6a8"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/expanded2/driver.log",
+    "bytes": 232999,
+    "sha256": "aaf076b2c2e27aeb12f65a9a5cd54898bdc636e0b3982330a8b69c61c6a221bc"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/exit-code.json",
+    "bytes": 16,
+    "sha256": "124fd50cb6d223cdd18fedc166d00af7254199b6e6dedf9be82f71db87af6d01"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/job-result.json",
+    "bytes": 5493,
+    "sha256": "73dd22f1494e5401e05e5f270a694f27cfc97ceb75ff8d57abede08043405ab3"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/launch.json",
+    "bytes": 5437,
+    "sha256": "81e8d9a5705143882ef354c773f310ee3e7c884096459d661299d45b2ebd66c9"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/device-allocation.json",
+    "bytes": 962,
+    "sha256": "f3ff43ebe089d9973fa9be74520fdb18d338c8d1a95c780494e30f62b27dfc05"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/physical-gpu-processes.txt",
+    "bytes": 604,
+    "sha256": "8989006efd2a65e397034fec4fcb9067b949ab7b0a5b6dad90dcc5d514add353"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/grpo-acceptance.json",
+    "bytes": 1642,
+    "sha256": "b5a9fa2f50569627ad5b862de59be517536070b13ff7d1d127f860e596f0ee34"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/initial-v0.json",
+    "bytes": 39246,
+    "sha256": "56187c81b5f23acdf103298eb9a804e8247a0afed911d9c7c6ad0d8f12ec9403"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/post-update-v2.json",
+    "bytes": 39238,
+    "sha256": "ae2b5e6aa5136364048fd2fcfe01c2a0810479203d437dc7bcec2b70ba3111bb"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/post-update-v3.json",
+    "bytes": 39245,
+    "sha256": "5e648ba4acc0bf99078c5a582f77e2ef8b21e6dfe1ff0f0b6e22a88e452bab82"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/post-update-v1.json",
+    "bytes": 39247,
+    "sha256": "ae10ab7c52bc8eefb5b68d51b6b9ffe4453b6f744f1cddf40e8d3edd1072f1a0"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/sync-v3-raw.json",
+    "bytes": 41926,
+    "sha256": "885403bb89e01cc2812cd5e6b485a1a319f3634815ef852dc0944ecf8fc3a0e9"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/sync-v1.json",
+    "bytes": 27745,
+    "sha256": "cad84b47125671f7e15aa062e8a85ac2bc8426299a3ffd6e8f573746ff7ff026"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/sync-v0-raw.json",
+    "bytes": 41926,
+    "sha256": "71bfc18bfd7aa1382c9229121fc9c05011d1f271adb28a0a917caa36f66f1713"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/sync-v0.json",
+    "bytes": 27745,
+    "sha256": "a1e9c2eee65a26dee35c5fed527a09d074530903bff8a122f51608e939142f03"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/sync-v2-raw.json",
+    "bytes": 41926,
+    "sha256": "a52050fdc450528fead969a5179d7e3af7c5f740cc665286aab4f61c8e65ce4d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/sync-v3.json",
+    "bytes": 27745,
+    "sha256": "f900bf84a838c8eb77f40a5d238d9806c99108cb518778f0daad39f6a5973315"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/sync-v2.json",
+    "bytes": 27745,
+    "sha256": "ef5036d6db1e5a4e786e8c7fa95346872777bef9c9e47866298e576d64931240"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/sync-v1-raw.json",
+    "bytes": 41926,
+    "sha256": "a96d20db7b4ce9e4a0284e1c11e6b8ccb35c321e52d0b8193629cef3fba8b917"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/actor-rank-0-v2.json",
+    "bytes": 211798,
+    "sha256": "c238484c2408fbdcf84fa47ebbf818296cc42c172e13b6b23dc3c120b3cca994"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/actor-rank-0-v3.json",
+    "bytes": 211747,
+    "sha256": "21a7b32a34cd1b2f72fd2c53f3e213af3b2ebfe603c0d4e4f026ee9813316d2d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/actor-rank-1-v1.json",
+    "bytes": 83800,
+    "sha256": "5883c3a284f5dd8b63409eaed9fd5370d11078e885bd7d6bbc613fbc22878b6a"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/actor-rank-1-v2.json",
+    "bytes": 99579,
+    "sha256": "566db3aa9aadf01d79b3e426153c1332ec09f899611a153f7f4a8ff05b67fc28"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/actor-rank-1-v3.json",
+    "bytes": 99579,
+    "sha256": "e064e6a16353739446237ab763902a94fafc220f0aa3525250b15e45a256c9d3"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/actor-rank-0-v1.json",
+    "bytes": 175744,
+    "sha256": "7cc590056c8122ca3f54454698ebe7a80a34c8cf08b13488583249b25b3db923"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/training-batch-step1.json",
+    "bytes": 8675,
+    "sha256": "89c2d3691e01bbc5c9f58812654cd5d8072eb8c9d0f9e2bfdbce2de0bbfd7847"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/training-batch-step2.json",
+    "bytes": 8749,
+    "sha256": "ad3f28a7268ceaaa34f008456f00b5f268ca763e681ee47f54f08acc8abe06c1"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/training-batch-step3.json",
+    "bytes": 8783,
+    "sha256": "e288f5d3c93d372d4f895755ff01b097da5b48465303d3c82e730b63c86ddef5"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/metrics-step3.json",
+    "bytes": 4467,
+    "sha256": "54f774a67679bd7159145929a00208335a1a84fa6adb04fdd989e3f4bf1cade5"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/metrics-step2.json",
+    "bytes": 4466,
+    "sha256": "9b899a11d04bcb64b69b2fba45d9a4b10867a6d237c6946a7cb171fd252e581f"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/metrics-step1.json",
+    "bytes": 4374,
+    "sha256": "f56c47d3fc911ac5e600c365a76882f51c30c63df6b7345b6888201862a4d5d5"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/parity.jsonl",
+    "bytes": 1481,
+    "sha256": "f4b7c6529261e3f0f7bd9f847b9b42e4eccea9d040e2e854087a9c9c973fcc99"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/audit-v3-fixed-06-AB-A.pt",
+    "bytes": 6109,
+    "sha256": "dadd58399b203b017dffe94d355df8fc37ad68f9b0c3f0ed8d91a744327f5532"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/policy-sync/audit-v3-fixed-00-A-A.pt",
+    "bytes": 4501,
+    "sha256": "9d68fe1d0c1efba50bee24e7a420f4d0f7fd77d34e261d65c44bcdca6f9a64fd"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/long-audit1/driver.log",
+    "bytes": 236890,
+    "sha256": "791b56065b7d9ce7d7b68b7c86a23a5217a416817582d9ce43367a775c574223"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/exit-code.json",
+    "bytes": 16,
+    "sha256": "124fd50cb6d223cdd18fedc166d00af7254199b6e6dedf9be82f71db87af6d01"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/job-result.json",
+    "bytes": 5506,
+    "sha256": "f20c793ccfed8816ed4c2eacc878c8015b947435b5cb36b95d878f19494bb047"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/launch.json",
+    "bytes": 5451,
+    "sha256": "c5a63dc0d7e0c596167ffba3bbe02bf88e284cfb2a7a2d11d50f4c8f6eda252d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/device-allocation.json",
+    "bytes": 962,
+    "sha256": "f3ff43ebe089d9973fa9be74520fdb18d338c8d1a95c780494e30f62b27dfc05"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/physical-gpu-processes.txt",
+    "bytes": 604,
+    "sha256": "c2b93bf7e9cf8e204232b217b3ede43fd77b0f752b5815793589db4befb6aa23"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/grpo-acceptance.json",
+    "bytes": 2095,
+    "sha256": "438ffdacc96948df8b3c0b46c56c8778901139c626cff3a8697270a9d1bd40f9"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/stress-v3.json",
+    "bytes": 419,
+    "sha256": "ea77d939c2237a8a87632e438d2334b6e68d1c5a7184ba6452bea62be9332a6a"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/initial-v0.json",
+    "bytes": 39246,
+    "sha256": "b21eb60633a6eb06e03c832fd0e2563b76bead4adfa63fcc5e7cb667a8790b32"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/post-update-v2.json",
+    "bytes": 39249,
+    "sha256": "0b73226c9ead5c97cb41cb920332881b71cbe33fe1deec987a459708debf468a"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/post-update-v3.json",
+    "bytes": 39252,
+    "sha256": "12e065d384677e61319b10c42925fac98ceff07083cc4ace4ef80e7ade48f4e1"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/post-update-v1.json",
+    "bytes": 39238,
+    "sha256": "ae7bcc94dee26a8366b40bd53f3dc5f88c4423077b011192b08afbe76d8b2767"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/sync-v3-raw.json",
+    "bytes": 41926,
+    "sha256": "1cfc768e0cd524e8749f595612ae322773fb1e0212ad0cbc6a62fd2bb9631968"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/sync-v1.json",
+    "bytes": 27745,
+    "sha256": "7c4d46879b5988a182ba87f5972634b5b9457013df9b2fd4410dc357761e7843"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/sync-v0-raw.json",
+    "bytes": 41926,
+    "sha256": "cb5befd16a650052b092e16bf5de4a5d68258216cbc2d81f9386ed6cb0ebcd91"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/sync-v0.json",
+    "bytes": 27745,
+    "sha256": "c5bc9d8ccbf8f5dc7bfeec5264732ddfc1e92c647114f8dbbad80e2e5a92040a"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/sync-v2-raw.json",
+    "bytes": 41926,
+    "sha256": "04f1b1b1d836758d4231d813ff0d873071988fcbe5ddeca6772763be146aa743"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/sync-v3.json",
+    "bytes": 27745,
+    "sha256": "134fee16ff9961994419c5f63d68be3d52bb14117ed0a0dae7a036050f94a977"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/sync-v2.json",
+    "bytes": 27745,
+    "sha256": "1837ff7ff0bb72521a9173f25a5478a32b27f3bd8e4eecaf46400aff09b842fb"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/sync-v1-raw.json",
+    "bytes": 41926,
+    "sha256": "119453d904356efa9df71bb68ff70ac1920c1537936e634267377120e45e01d0"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/actor-rank-0-v2.json",
+    "bytes": 211798,
+    "sha256": "60a357f3dd61b98923681e9814951d273acc8edc4e28c25e0a7780d29b239999"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/actor-rank-0-v3.json",
+    "bytes": 211798,
+    "sha256": "4aa985d86c23b86a0672b46bf54c6e97df5223cbb1fc366f8b825f628ae5ca4e"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/actor-rank-1-v1.json",
+    "bytes": 83800,
+    "sha256": "08124b6477946dda2d6a43edf1c77a6516cc4661ee7e2e574c8b4bbacf49bf42"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/actor-rank-1-v2.json",
+    "bytes": 99579,
+    "sha256": "096e3ba2ce98d5efd06cfc968611f64f67129c8ff6566b0506cf21c1f6eb525e"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/actor-rank-1-v3.json",
+    "bytes": 99579,
+    "sha256": "5fb7728f9826227b464d9a446182755f3a7a467f52c868c49c29ab61f816186d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/actor-rank-0-v1.json",
+    "bytes": 175744,
+    "sha256": "f8fde700a823a953dd1276b6dd8ac384b4a01b118d9ed83bb619f35346c06113"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/training-batch-step1.json",
+    "bytes": 8716,
+    "sha256": "e1756a4f9d3c701a67485a43550edd52069205c015e9d7ad2d317715b151ca55"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/training-batch-step2.json",
+    "bytes": 8749,
+    "sha256": "2b20f02add3d00e31d05f4fc8f1b5d5c9189de2cb5f7d1d46103442470c266b4"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/training-batch-step3.json",
+    "bytes": 8780,
+    "sha256": "82ccc94b60402f26ebcc96eee17159d8f74aabd10d7c0eba915689d0d1e50676"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/metrics-step3.json",
+    "bytes": 4465,
+    "sha256": "2b59cefb798413aed0643b2d445a28e5e967fbc2b34a786b15504fda1f08e683"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/metrics-step2.json",
+    "bytes": 4447,
+    "sha256": "ba90d471b2bd307cefa834ffe25cdf4b5af5e710d3ce96604b9d0eab5c2a757a"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/metrics-step1.json",
+    "bytes": 4447,
+    "sha256": "8efbdb874ad149214e4f56764f51801c1dabb0b4e8be21eff5135df28c0bb032"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/parity.jsonl",
+    "bytes": 1481,
+    "sha256": "2e700082642824db17c5ff9746d55cebb76e2005771fb54821c7a799e5ad67a9"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/audit-v3-fixed-06-AB-A.pt",
+    "bytes": 6109,
+    "sha256": "4997980aeebd466192438aef02590904ddb4ce6454f8d277b0d6ead667309caa"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/policy-sync/audit-v3-fixed-00-A-A.pt",
+    "bytes": 4501,
+    "sha256": "0185798ea375fd5f6d1306f9c7026539a307ad65b876604fa00930eb71f39024"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress2/driver.log",
+    "bytes": 232835,
+    "sha256": "4e0a4da0b079d9d6b62e7475617ad39c4fd08ff4aa720db162727413ffc20ec4"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/exit-code.json",
+    "bytes": 16,
+    "sha256": "124fd50cb6d223cdd18fedc166d00af7254199b6e6dedf9be82f71db87af6d01"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/job-result.json",
+    "bytes": 5506,
+    "sha256": "611218f2437ec27799222a583e81006aa0529faac393c0870c9d18df150318f1"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/launch.json",
+    "bytes": 5451,
+    "sha256": "9a8dc436890a0ccef7961ec9edb7235ac113a84ce6e167375deebff79125842f"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/device-allocation.json",
+    "bytes": 962,
+    "sha256": "f3ff43ebe089d9973fa9be74520fdb18d338c8d1a95c780494e30f62b27dfc05"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/physical-gpu-processes.txt",
+    "bytes": 604,
+    "sha256": "ad2843cb9ce2737a267c277d4d259f28ec745f552939b6fe12b1991d2799ee2e"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/grpo-acceptance.json",
+    "bytes": 2097,
+    "sha256": "a84cd091850db16d77fe35238ee19282c44ed4f65f9b95ac1ddded18f407d880"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/stress-v3.json",
+    "bytes": 421,
+    "sha256": "26f4fbd182701076b886e4efa61d9f650b48230e6660ae83afd33074b57b0f71"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/initial-v0.json",
+    "bytes": 39246,
+    "sha256": "5653d136800a7d069799ab4f618bab784771d31c7a3f1a794fef410304f8d1d2"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/post-update-v2.json",
+    "bytes": 39251,
+    "sha256": "71b3342452250e6dff0ae3e1a147ebf7e8269f7b83f530a97f180f805c6d9f45"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/post-update-v3.json",
+    "bytes": 39254,
+    "sha256": "524b8b53ec251a24764debceb9b40451f9197d476c15a26122b045fd27088662"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/post-update-v1.json",
+    "bytes": 39255,
+    "sha256": "98c4c7f8acc5b167b3dc49b422625ec2bf986de019f342125580aa22449d98d6"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/sync-v3-raw.json",
+    "bytes": 41926,
+    "sha256": "23a0f6f7795f45f1f013b26ab0beadae161fa6db5b2c7374a0820a2189e1068d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/sync-v1.json",
+    "bytes": 27745,
+    "sha256": "8cc34b40bba36601425e386f2f9f2cdea467ff68a5d43c978824ad1f1ee8c403"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/sync-v0-raw.json",
+    "bytes": 41926,
+    "sha256": "8a128f06984be48824efb0edcb01359783e3991f3a2e1c1bccef3ceadeb28335"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/sync-v0.json",
+    "bytes": 27745,
+    "sha256": "75b3be4cd317aef5bf07fe4939a92bd51e5e5e459cff25796f26b47ded8ea3eb"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/sync-v2-raw.json",
+    "bytes": 41926,
+    "sha256": "f593668b278c288d1e5c77838aa65d2dc9be6a7496fbb1abb67737bbe5dfec48"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/sync-v3.json",
+    "bytes": 27745,
+    "sha256": "c605d9e7212eda448dc2b4c2c67ecfd246e1f604331377409c440c825a61fbb7"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/sync-v2.json",
+    "bytes": 27745,
+    "sha256": "ce47a630d9b9959fc5e313023b036990bf52cbfeb9cee82f8a652ba9f3ec2f90"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/sync-v1-raw.json",
+    "bytes": 41926,
+    "sha256": "c9d27f2b9bb0d7d6e3d6444beaa221481ae4e54b872f8bf30d6cfc46f5cf75ab"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/actor-rank-0-v2.json",
+    "bytes": 211798,
+    "sha256": "8d7fbb6ec27fb88883fd5b97aa517d6f33158cb15c7928116a0b156a779a55d5"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/actor-rank-0-v3.json",
+    "bytes": 211798,
+    "sha256": "3a74e2dbce79a1b1a4a0b57617b655e3aaf245d5629caab4d3e0d4908d73d0ed"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/actor-rank-1-v1.json",
+    "bytes": 83800,
+    "sha256": "1d9cafc480db7426c074741fe32b980052e1f3fbf69e84c5e0a4f77def728c3f"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/actor-rank-1-v2.json",
+    "bytes": 99579,
+    "sha256": "085c4fddafba89e202723895190bc926281f9cec9f32fe5de47c99eec735b5f1"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/actor-rank-1-v3.json",
+    "bytes": 99579,
+    "sha256": "9c3962208871b8d280894bc5f9e79b4b18414035e0d5f27b18bca85c193472a6"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/actor-rank-0-v1.json",
+    "bytes": 175744,
+    "sha256": "c7d0508961072520260df2fd015f9f55228cc81b123a2487e68ca4997d2bd76d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/training-batch-step1.json",
+    "bytes": 8677,
+    "sha256": "f1be38cb23b1bf45cb7fc1e56e2c71b5d93989ef6f4eaed48b2aa1770cf3ac1d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/training-batch-step2.json",
+    "bytes": 8777,
+    "sha256": "e4312855ff018b2846c5f8ee281835675eea471592626286599805dde5b0c960"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/training-batch-step3.json",
+    "bytes": 8781,
+    "sha256": "cbffe7e8f48a444472696d20a4fbfc2d5026cbff6f572dab3182fc929157a458"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/metrics-step3.json",
+    "bytes": 4461,
+    "sha256": "ad5af6f6081b3a5f999b7259d0ff66d953953e6f580a4941aef928e3a8741af0"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/metrics-step2.json",
+    "bytes": 4449,
+    "sha256": "b8272d03a69729a727dd6411619602f010e42284c719cfabdc1689adc35b1f50"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/metrics-step1.json",
+    "bytes": 4392,
+    "sha256": "b38cdd1ea16905a59684e874ab2043a705d6dd6c62fe98a52a58bd1cf710b23e"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/parity.jsonl",
+    "bytes": 1482,
+    "sha256": "6150a69c8609ecdd8a066169891eeb78fa166e1c3ebb6370760c6068e1322c17"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/audit-v3-fixed-06-AB-A.pt",
+    "bytes": 6109,
+    "sha256": "cf29e0f963960e87049d376b7278145176e616ffe8735c716d5fbbe14de9ddab"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/policy-sync/audit-v3-fixed-00-A-A.pt",
+    "bytes": 4501,
+    "sha256": "91ad3bcd4be4d2d3255aa109910c697bb2d9d6b6fe9b889d35ce05102c402087"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress3/driver.log",
+    "bytes": 234210,
+    "sha256": "2459c9f38f4da43b264ce1df92ebbd0cba8062e0d817c04bd22b14dc5eeb9953"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/exit-code.json",
+    "bytes": 16,
+    "sha256": "2618b95f1f6be6bfde8537756f85b83845d039001563135b9d59d817446733eb"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/job-result.json",
+    "bytes": 4244,
+    "sha256": "8b31dbe459eb9240aca3e0d7d45f836e539fe3e5a1a1e587e6d8f6b678d23a69"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/launch.json",
+    "bytes": 4188,
+    "sha256": "b2e51c466666d18ad536f9d00a8f6027ebef019c41e8afe166e3e952c37add88"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/device-allocation.json",
+    "bytes": 962,
+    "sha256": "f3ff43ebe089d9973fa9be74520fdb18d338c8d1a95c780494e30f62b27dfc05"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/physical-gpu-processes.txt",
+    "bytes": 604,
+    "sha256": "365aed79a3f6e3316383481e3ae048c5669a2a0e09ce7475ef2e9454ff660684"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/initial-v0.json",
+    "bytes": 37795,
+    "sha256": "67a1890db4b6fa2e566a26c2e7331283b2c9ef20aeba787ca7fa13f154aa4ae7"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/post-update-v2.json",
+    "bytes": 37794,
+    "sha256": "94f1024d2b122007f77d0060ac0825c972b693e8c677a09b01dcb643435b3b60"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/post-update-v1.json",
+    "bytes": 37793,
+    "sha256": "ad7162e7c6500b5d7bb33ce6a2d75713fc94ff0a39057618064c4205ee946255"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/sync-v3-raw.json",
+    "bytes": 41926,
+    "sha256": "cd65258b11810a9de779de2dda40a8cfe4412849a2d13a45bfcf4b522b395824"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/sync-v1.json",
+    "bytes": 27745,
+    "sha256": "44024fdf9f99f78bdc430831ea10dd7cdaa4dfade57e3528ee591d05c3a0096d"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/sync-v0-raw.json",
+    "bytes": 41926,
+    "sha256": "f1b0400209d5bbad200c4f3894c384c9f663a4f44d7367f898499b1442197716"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/sync-v0.json",
+    "bytes": 27745,
+    "sha256": "09f60880da61d99258e542cbb776b33db17237fd8ad1a9972ee6d0d60e59b8b5"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/sync-v2-raw.json",
+    "bytes": 41926,
+    "sha256": "76be983c938e0c5dce46854d0fb6f99c2550160bedcecdc7ca8fcc7413dabb71"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/sync-v3.json",
+    "bytes": 27745,
+    "sha256": "2d1e470770a27211e1c8562f2d111bee02344dc9ee6cdbefab526df5ce0cfbd7"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/sync-v2.json",
+    "bytes": 27745,
+    "sha256": "385ffdf233592a99d5d5d374e8adac33b4be31dab6f30faefde718895bd38997"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/sync-v1-raw.json",
+    "bytes": 41926,
+    "sha256": "7ece34f002206e8219a02a163067615683044faed03455e47dfb442f94d5b532"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/actor-rank-0-v2.json",
+    "bytes": 211798,
+    "sha256": "a71b7fd56562851c063fd183ac2a02ed39dc387375cf38d5960eb563010369b4"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/actor-rank-0-v3.json",
+    "bytes": 211848,
+    "sha256": "864c2542853e1f3ad8acee46865e3043710565c42165f1ece96a1ce27b54fcff"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/actor-rank-1-v1.json",
+    "bytes": 83800,
+    "sha256": "c643b96b824770e97ee54aed65b1716e05c536a294681417801711e04a432083"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/actor-rank-1-v2.json",
+    "bytes": 99579,
+    "sha256": "ce30c9acc6b44210af993e8000731a13883baba6e6dc0ac7788d74e2aec16a64"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/actor-rank-1-v3.json",
+    "bytes": 99597,
+    "sha256": "4aff8e7da88775036193d6ea87b9355eb925913056b280ddb6fe51a85ba8cb75"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/actor-rank-0-v1.json",
+    "bytes": 175744,
+    "sha256": "c11e599d0e6c959f6e99d963055626ebb102247d7fd8cb742388ba4836081993"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/training-batch-step1.json",
+    "bytes": 8677,
+    "sha256": "07d212fb0b3a57e93a7c415afc1b76c93fbd796fb66b3f2953a0f191ff42bcb2"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/training-batch-step2.json",
+    "bytes": 8780,
+    "sha256": "4ea8b0ea34045760e360c87345a2cc801bb100924b62d422c026ce8bdd611d7a"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/training-batch-step3.json",
+    "bytes": 7755,
+    "sha256": "c6fbe276f44d98f16f9886e7f04644bb38bb33df41de97e45030bbe354cf0078"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/metrics-step2.json",
+    "bytes": 4453,
+    "sha256": "f40f931cba399db796c3f6cf95c31c4c35f68206f759d693269a082b599ac795"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/metrics-step1.json",
+    "bytes": 4384,
+    "sha256": "4376c9e01f4af052f8414856e695240acd9e43c38c6d38f12a9c78f120e2e6cd"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/parity.jsonl",
+    "bytes": 1229,
+    "sha256": "9b475f22c710509323dbda1a29265226cb83fcb2bb6ac50964a50d8cd644ecc4"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/audit-v3-fixed-06-AB-A.pt",
+    "bytes": 6109,
+    "sha256": "6f950b375a858f093d9dfc7937b4dd9431625276d55a7089b1bc72d281066dd5"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/policy-sync/audit-v3-fixed-00-A-A.pt",
+    "bytes": 4501,
+    "sha256": "cbb686e8b03cb68b4996a71f409576aa694438f80556d7e047ebf7de0855f322"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/final-run1/driver.log",
+    "bytes": 216569,
+    "sha256": "76a41480fcd099101eb4fa9029e15d9df8b546c7f9db6cb07bb3fed81994a039"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/launch.json",
+    "bytes": 5451,
+    "sha256": "962502ddad41d2ac0afd6599c89e871b816f32ddade8d910df07ef122ad4dfcc"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/device-allocation.json",
+    "bytes": 962,
+    "sha256": "f3ff43ebe089d9973fa9be74520fdb18d338c8d1a95c780494e30f62b27dfc05"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/physical-gpu-processes.txt",
+    "bytes": 604,
+    "sha256": "a54fba7fb7720be7871c078f06e373740233b5178ff937b7950e6da1b90ac8ed"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/stress-v3.json",
+    "bytes": 420,
+    "sha256": "851aba9ee3dca67d3e30c260ab4e9897dc5cd311639485b3001fdeeddfd62a99"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/initial-v0.json",
+    "bytes": 39246,
+    "sha256": "ef23baa761e9baa860c9e44978c5af53fe68554ae6f9c902ecb1ae0aaa466dce"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/post-update-v2.json",
+    "bytes": 39249,
+    "sha256": "b9a868b9feac962f42a872a498e7f63eef034359408ae4feabdc19c33dbcdbe0"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/post-update-v3.json",
+    "bytes": 39249,
+    "sha256": "7a0743783170c644d4931e55b4d4f7fb38bd65d59277d74dfe78b637369934ac"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/post-update-v1.json",
+    "bytes": 39255,
+    "sha256": "5e33d901973e522011bfabd9366a6ae996897d98b77a72a10febe4b52b4d8bc9"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/sync-v3-raw.json",
+    "bytes": 41926,
+    "sha256": "e014311cf5d51b365597a3e3010ec4a0b4aaab25e197fe1e899a4075219c2906"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/sync-v1.json",
+    "bytes": 27745,
+    "sha256": "42b61da5a5c7b8b20918d535263c6aaf11655977306c913b3986ff8496843da9"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/sync-v0-raw.json",
+    "bytes": 41926,
+    "sha256": "7e6e8adb49b001589355e3aecd85faefc0b189339cea1dd47d48afcd6cb11f2e"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/sync-v0.json",
+    "bytes": 27745,
+    "sha256": "0ecbdf9185bc4f7829f1483dcf4df481d3cbbf4cb3bc7c15a032655938d74981"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/sync-v2-raw.json",
+    "bytes": 41926,
+    "sha256": "3fd8ab1c9d8032bbc8680e76ac79e0e2fc4dd3df8515d95042098db4167f5135"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/sync-v3.json",
+    "bytes": 27745,
+    "sha256": "3b60a12b5aa46c6a2866833c1c8a7801ab89644dd8004d908f554c1f85d29e87"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/sync-v2.json",
+    "bytes": 27745,
+    "sha256": "bf8b4dbfef0429cc94a88ec8e898e2890a8bacf3bf2bbe3dd3e4213ba5683191"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/sync-v1-raw.json",
+    "bytes": 41926,
+    "sha256": "4dfd5baab5a5d2ef065644a652e7fc46111a2179da978c060baacaf68cf47523"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/actor-rank-0-v2.json",
+    "bytes": 211798,
+    "sha256": "d26a2f48966a881bbb06fb13f9e584a4ff4fde89bf5f870aaaf7ddd4e7e051a3"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/actor-rank-0-v3.json",
+    "bytes": 211798,
+    "sha256": "22d5e4e41e53d54774e8e58908117b0933b74050d7895ef8ac0e6c48ebdc68f0"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/actor-rank-1-v1.json",
+    "bytes": 83800,
+    "sha256": "fcf9d5569122db49b8fae52fe2d829880f8064be4f754f77de8049f35f409e1e"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/actor-rank-1-v2.json",
+    "bytes": 99579,
+    "sha256": "cff9b997f4d03c0ac543e1deab882b206b879ff222388f9fad7becb9470a1030"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/actor-rank-1-v3.json",
+    "bytes": 99579,
+    "sha256": "51b1c053dde152f7d7cb3fa9c0a7d1d9b7e5980f82a20714c336c479d597b5b6"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/actor-rank-0-v1.json",
+    "bytes": 175744,
+    "sha256": "7035bc52ab66fbe03f935b6172d6c129bc3db6b821f3e0dde2ef41c463c07ef4"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/training-batch-step1.json",
+    "bytes": 8677,
+    "sha256": "ab6442c81fb702cbe9cbfd3d5e172c14ca65820c2c4862f6404f476f33e692cb"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/training-batch-step2.json",
+    "bytes": 8786,
+    "sha256": "99fe3282083f715c11c9b4b303a0e07c44a2e0ec8b746c92eb63d75155cca1d7"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/training-batch-step3.json",
+    "bytes": 8781,
+    "sha256": "0aaac349660fcffe0359d54c4dd1e9c0b635dd643390e8f4ab10654a255b7d6f"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/metrics-step3.json",
+    "bytes": 4460,
+    "sha256": "7ab0aa773e043b2dae4ac1394a2ff0aa1c0c791d28831a9770e46e689c60a394"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/metrics-step2.json",
+    "bytes": 4447,
+    "sha256": "af49afba49e31a7ebfe393cdbd51abff07785e2a7b848e276edbda691260e561"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/metrics-step1.json",
+    "bytes": 4385,
+    "sha256": "7ec8f18aa2034af3a1a86b5c6d3acfff3ab0f70c8892c13a9637c8aa52689695"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/parity.jsonl",
+    "bytes": 1481,
+    "sha256": "efb8cff1f82a9980b21cb73d250e1a1ef715845dbf62dc438d389d1ce6850ae3"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/audit-v3-fixed-06-AB-A.pt",
+    "bytes": 6109,
+    "sha256": "3eb3db2025c57f894b54e15638f8c83c4f57f2a30ca20ca87617b69f19c2c583"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/policy-sync/audit-v3-fixed-00-A-A.pt",
+    "bytes": 4501,
+    "sha256": "871878ec38bbed7dd320e81565147f03d01c6accd2bc951029a99282857b9875"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/stress1/driver.log",
+    "bytes": 231248,
+    "sha256": "8eaf7aaf746e977d45533fd7674c26615af6aa584dfccaa7034529fe76568955"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/diagnostic-replay4/exit-code.json",
+    "bytes": 52,
+    "sha256": "f49c5dff04658de352834f89a1dfd98b9b2f8104302a113067f083eb64c88196"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/diagnostic-replay4/launch.json",
+    "bytes": 3426,
+    "sha256": "81e29801b7279f72c59c9c6ec5d206da53716f2608cfbdb4d727a1bd8b0ce159"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/diagnostic-replay4/policy-sync/sync-v0-raw.json",
+    "bytes": 41926,
+    "sha256": "7d1238876f9442b73aa3f7a840164649a9839b1262ff65b795f2a33db20f22e8"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/diagnostic-replay4/policy-sync/sync-v0.json",
+    "bytes": 27745,
+    "sha256": "35dfc8ca72afd913a2db57a992968c9e367f7b96ed3dd81143932e4fc0c42323"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/diagnostic-replay4/policy-sync/actor-rank-1-v1.json",
+    "bytes": 83800,
+    "sha256": "3fdb6a116cbf476d141fc30839a11a70fc88b4c1ad41ea1643922c4a8639e573"
+  },
+  {
+    "path": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T125400Z-verl-grpo/outputs/diagnostic-replay4/policy-sync/actor-rank-0-v1.json",
+    "bytes": 175744,
+    "sha256": "00975b139b30d55189eb0ba6df57bb04c892b7161a6e4d8a270f40f88643d45a"
+  }
+]

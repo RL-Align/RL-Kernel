@@ -14,14 +14,29 @@ from rl_engine.integrations.orchestrators.verl.mhc import bind_mhc_worker
 
 
 class RLKDeepSeekV4Worker(Worker):
-    def set_case(self, case_id):
+    def set_case(self, case_id, request_order=()):
+        from examples.operators.dsv4_4l.measurement import memory_snapshot
+
+        memory_snapshot("rollout_memory", case_id=case_id)
         if not case_id or not all(c.isalnum() or c in "-_" for c in case_id):
             raise ValueError("invalid case ID")
         self._rlk_case_id = case_id
+        self._rlk_case_request_order = list(request_order)
+        self.model_runner._rlk_prefill_order_evidence = []
         self._rlk_case_batches = []
         os.environ["DSV4_PHASE"] = "generation"
         return dict(
-            pid=os.getpid(), weight_version=self._dsv4_diagnostic_p1.version, case_id=case_id
+            pid=os.getpid(),
+            weight_version=self._dsv4_diagnostic_p1.version,
+            case_id=case_id,
+            pipeline_stage=self._rlk_pp_rank,
+            device_identity=self._rlk_device_identity,
+            original_layer_ids=list(
+                range(
+                    self.model_runner.get_model().model.start_layer,
+                    self.model_runner.get_model().model.end_layer,
+                )
+            ),
         )
 
     def case_batches(self):
@@ -29,6 +44,7 @@ class RLKDeepSeekV4Worker(Worker):
             case_id=self._rlk_case_id,
             weight_version=self._dsv4_diagnostic_p1.version,
             batches=self._rlk_case_batches,
+            request_order_evidence=self.model_runner._rlk_prefill_order_evidence,
         )
 
     def begin_generation_trace(self):
@@ -37,25 +53,32 @@ class RLKDeepSeekV4Worker(Worker):
 
     def load_actor_update(self, path):
         payload = torch.load(path, map_location="cuda", weights_only=True)
+        from .checkpoint_sync import pipeline_stage_payload, readback_original_tensor
+
+        wrapper = self.model_runner.get_model()
+        payload = pipeline_stage_payload(wrapper, payload)
         p1 = self._dsv4_diagnostic_p1
         version = payload["weight_version"]
+        generation_before = p1._generation
         if version != p1.version + 1:
             raise ValueError("actor update must advance exactly one version")
-        wrapper = self.model_runner.get_model()
 
         def digest(tensor):
             return hashlib.sha256(
                 tensor.detach().cpu().contiguous().view(torch.uint8).numpy().tobytes()
             ).hexdigest()
 
-        before = digest(wrapper.model.norm.weight)
-        expected = digest(payload["weights"]["norm.weight"])
+        before = {
+            name: digest(readback_original_tensor(wrapper, name, value)[2])
+            for name, value in payload["weights"].items()
+        }
+        expected = payload["manifest"].get("norm.weight", {}).get("sha256")
         with p1.updating(version, torch.cuda.synchronize):
             loaded = wrapper.load_weights(payload["weights"].items())
             from .checkpoint_sync import verify_loaded_update
 
             verified = verify_loaded_update(wrapper, payload, loaded)
-            actual = digest(wrapper.model.norm.weight)
+            actual = verified.get("norm.weight", {}).get("sha256")
             if actual != expected:
                 raise RuntimeError("rollout final norm does not match actor update bytes")
         record = dict(
@@ -64,13 +87,24 @@ class RLKDeepSeekV4Worker(Worker):
             loaded_names=sorted(loaded),
             verified_original_tensors=verified,
             parameter_load_completed=True,
+            prior_weight_version=version - 1,
+            cache_generation_before=generation_before,
+            cache_generation_after=p1._generation,
+            prefix_caching_enabled=False,
+            input_update_path=path,
+            cache_policy="prefix caching disabled; fresh requests and reset per-request state",
             pid=os.getpid(),
-            norm_before=before,
+            norm_before=before.get("norm.weight"),
             norm_after=actual,
             norm_expected=expected,
-            weight_changed=before != actual,
+            weight_changed=any(before[name] != value["sha256"] for name, value in verified.items()),
+            pipeline_stage=self._rlk_pp_rank,
+            original_layer_ids=list(range(wrapper.model.start_layer, wrapper.model.end_layer)),
         )
-        Path("/outputs/rollout-update-ack.json").write_text(json.dumps(record, indent=2))
+        (self._rlk_output_root / f"rollout-update-v{version}-ack.json").write_text(
+            json.dumps(record, indent=2)
+        )
+        (self._rlk_output_root / "rollout-update-ack.json").write_text(json.dumps(record, indent=2))
         return record
 
     def load_model(self, **kwargs):
@@ -81,9 +115,35 @@ class RLKDeepSeekV4Worker(Worker):
             hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             flush=True,
         )
+        from vllm.distributed import get_pp_group
+
+        from examples.operators.dsv4_4l.device_allocation import check_selected_identity
+        from rl_engine.integrations.common.device_identity import hip_device_identity
+
+        if Path("/outputs/device-allocation.json").exists():
+            physical = os.environ["DSV4_ROLLOUT_PHYSICAL_GPUS"].split(",")[
+                get_pp_group().rank_in_group
+            ]
+            check_selected_identity(
+                hip_device_identity(),
+                physical,
+                json.loads(Path("/outputs/device-allocation.json").read_text()),
+            )
         super().load_model(**kwargs)
+        from .batch_order import bind_prefill_order
+
+        self._rlk_case_request_order = []
+        bind_prefill_order(self.model_runner, lambda: self._rlk_case_request_order)
         wrapper = self.model_runner.get_model()
         model = wrapper.model
+        self._rlk_device_identity = hip_device_identity()
+        pp = get_pp_group()
+        self._rlk_pp_rank = pp.rank_in_group
+        self._rlk_pp_last = pp.is_last_rank
+        self._rlk_output_root = Path("/outputs")
+        if pp.world_size > 1:
+            self._rlk_output_root /= f"rollout-pp-{self._rlk_pp_rank}"
+            self._rlk_output_root.mkdir(exist_ok=True)
         print(
             "ACTUAL_ROLLOUT_MODEL",
             type(wrapper),
@@ -93,11 +153,11 @@ class RLKDeepSeekV4Worker(Worker):
             flush=True,
         )
         print("ACTUAL_WEIGHT_VERSION", 0, os.environ.get("DSV4_CHECKPOINT_SHA256"), flush=True)
-        root = Path("/outputs/rollout-first-execution")
+        root = self._rlk_output_root / "rollout-first-execution"
         root.mkdir(exist_ok=True)
         context = {"layer": None}
         seen = set()
-        trace_root = Path("/outputs/generation-trace")
+        trace_root = self._rlk_output_root / "generation-trace"
         trace_root.mkdir(exist_ok=True)
         trace_index = [0]
         forward_index = [-1]
@@ -124,12 +184,21 @@ class RLKDeepSeekV4Worker(Worker):
             index = trace_index[0]
             trace_index[0] += 1
             filename = f"{index:04d}.pt"
-            torch.save(snapshot(value), trace_root / filename)
+            from examples.operators.dsv4_4l.trace_store import save_trace
+
+            filename = save_trace(
+                value if os.environ.get("DSV4_TRACE_FORMAT") == "cas-v1" else snapshot(value),
+                trace_root / filename,
+            )
             with (trace_root / "manifest.jsonl").open("a") as f:
                 f.write(
                     json.dumps(
                         dict(
                             index=index,
+                            case_id=getattr(self, "_rlk_case_id", None),
+                            weight_version=self._dsv4_diagnostic_p1.version,
+                            pipeline_rank=self._rlk_pp_rank,
+                            pid=os.getpid(),
                             forward=forward_index[0],
                             layer=context["layer"],
                             name=name,
@@ -139,7 +208,11 @@ class RLKDeepSeekV4Worker(Worker):
                     + "\n"
                 )
 
-        boundaries = [("embedding", model.embed_tokens), ("final_norm", model.norm)] + [
+        boundaries = [
+            (name, module)
+            for name, module in (("embedding", model.embed_tokens), ("final_norm", model.norm))
+            if hasattr(module, "weight")
+        ] + [
             (f"layer.{i}.{part}", getattr(model.layers[i], part))
             for i in range(model.start_layer, model.end_layer)
             for part in ("attn", "ffn")
@@ -209,7 +282,8 @@ class RLKDeepSeekV4Worker(Worker):
             selected_raw_logprobs,
         )
 
-        bind_output_head(wrapper, p1)
+        if self._rlk_pp_last:
+            bind_output_head(wrapper, p1)
         for i in range(model.start_layer, model.end_layer):
 
             def entering(_m, _args, i=i):
@@ -253,7 +327,7 @@ class RLKDeepSeekV4Worker(Worker):
                     use_triton=kernel.use_triton,
                     use_bpreshuffle=kernel.use_bpreshuffle,
                 )
-                torch.save(operands, Path("/outputs") / "decode0-shared-down-operands.pt")
+                torch.save(operands, self._rlk_output_root / "decode0-shared-down-operands.pt")
                 counts = []
                 for _ in range(20):
                     again = original_scaled_mm(kernel, A, B, As, Bs)
@@ -265,7 +339,7 @@ class RLKDeepSeekV4Worker(Worker):
                             ).sum()
                         )
                     )
-                (Path("/outputs") / "decode0-shared-down-replay.json").write_text(
+                (self._rlk_output_root / "decode0-shared-down-replay.json").write_text(
                     json.dumps(
                         dict(
                             scope="rollout self repeat, not actor comparison",
@@ -319,7 +393,7 @@ class RLKDeepSeekV4Worker(Worker):
                         )
                     torch.save(
                         dict(A=A.cpu(), B=B.cpu(), As=As.cpu(), Bs=Bs.cpu(), output=result.cpu()),
-                        Path("/outputs/decode0-shared-down-operands.pt"),
+                        self._rlk_output_root / "decode0-shared-down-operands.pt",
                     )
                     record = dict(
                         scope="rollout self repeat, separate from actor comparison",
@@ -328,7 +402,7 @@ class RLKDeepSeekV4Worker(Worker):
                         replays=20,
                         all_operands_identical=True,
                     )
-                    Path("/outputs/decode0-shared-down-paired.json").write_text(
+                    (self._rlk_output_root / "decode0-shared-down-paired.json").write_text(
                         json.dumps(record, indent=2)
                     )
                     print("SHARED_DOWN_PAIRED_REPLAY", record, flush=True)
@@ -513,21 +587,18 @@ class RLKDeepSeekV4Worker(Worker):
                     raise ValueError("ordinary eager attention metadata is required")
                 batch = next(m for m in metadata.values() if hasattr(m, "num_reqs"))
                 starts = batch.query_start_loc.detach().cpu().tolist()
-                tokens = (
-                    forward_signature.bind(*args, **kwargs)
-                    .arguments["input_ids"]
-                    .detach()
-                    .cpu()
-                    .tolist()
-                )
+                actual_ids = forward_signature.bind(*args, **kwargs).arguments.get("input_ids")
+                tokens = None if actual_ids is None else actual_ids.detach().cpu().tolist()
                 self._rlk_case_batches.append(
                     dict(
                         forward=forward_index[0],
                         num_requests=int(batch.num_reqs),
                         query_start_loc=starts,
-                        input_token_rows=[
-                            tokens[a:b] for a, b in zip(starts[:-1], starts[1:], strict=True)
-                        ],
+                        input_token_rows=(
+                            None
+                            if tokens is None
+                            else [tokens[a:b] for a, b in zip(starts[:-1], starts[1:], strict=True)]
+                        ),
                     )
                 )
             dump("model.input", {"args": args, "kwargs": kwargs})
@@ -540,6 +611,8 @@ class RLKDeepSeekV4Worker(Worker):
         self._dsv4_diagnostic_p1 = p1
         print("RLK_BOUND_AFTER_LOAD_BEFORE_WARMUP", p1.backend, p1.mode, p1.version, flush=True)
 
+        if not self._rlk_pp_last:
+            return
         print("ACTUAL_RAW_LOGPROB_MODE", self.model_runner.sampler.logprobs_mode, flush=True)
         from vllm.v1.worker.gpu.sample import logprob as lp
 

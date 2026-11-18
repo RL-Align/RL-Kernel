@@ -1,0 +1,18 @@
+# All four projects and ROCm dependencies are inherited from the verified image.
+# Bundles contain committed source only; no host source mount is needed at runtime.
+ARG BASE_IMAGE=rlk/dsv4-4l-rocm:306c0ba-verl-grpo-0d5a434
+FROM ${BASE_IMAGE}
+ARG RLK_SHA
+ARG VERL_SHA
+COPY rlk.bundle verl.bundle /tmp/
+RUN git -C /opt/dsv4/RL-Kernel fetch /tmp/rlk.bundle HEAD \
+ && git -C /opt/dsv4/RL-Kernel checkout --detach --force "$RLK_SHA" \
+ && git -C /opt/dsv4/RL-Kernel clean -fd \
+ && git -C /opt/dsv4/verl fetch /tmp/verl.bundle HEAD \
+ && git -C /opt/dsv4/verl checkout --detach --force "$VERL_SHA" \
+ && git -C /opt/dsv4/verl clean -fd \
+ && git -C /opt/dsv4/verl remote set-url origin https://github.com/RL-Align/verl.git \
+ && rm /tmp/rlk.bundle /tmp/verl.bundle
+ENV RLK_ASSEMBLY_SHA=${RLK_SHA} VERL_ASSEMBLY_SHA=${VERL_SHA}
+RUN /opt/dsv4-venv/bin/python /opt/dsv4/RL-Kernel/examples/operators/dsv4_4l/audit_dependencies.py \
+ && /opt/dsv4-venv/bin/python -c 'import verl.experimental.rl_kernel.trainer_engine; import verl.models.mcore'

@@ -1,0 +1,26 @@
+{
+  "path": "/scratch/rl-kernel/vensen/dsv4-4l/models/DeepSeek-V4-Flash-4l",
+  "original_revision": "60d8d70770c6776ff598c94bb586a859a38244f1",
+  "original_layers": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "checkpoint_bytes": 16416050412,
+  "checkpoint_sha256": "1bd423ab1d98f43d40b19617fcb30d973d94436cc7b150fe3f744de79c2de086",
+  "config": {
+    "compress_ratios": [
+      0,
+      0,
+      4,
+      128
+    ],
+    "experts": 256,
+    "top_k": 6,
+    "shared_experts": 1,
+    "hidden_size": 4096,
+    "vocab_size": 129280
+  },
+  "floating_dtypes_preserved": true
+}

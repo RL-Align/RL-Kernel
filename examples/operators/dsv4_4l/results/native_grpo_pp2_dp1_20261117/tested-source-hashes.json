@@ -1,0 +1,39 @@
+{
+  "RL-Kernel": {
+    "examples/operators/dsv4_4l/Dockerfile.grpo": "94ec8b3759efd5bc711a4c061f776f301c152945a7362ead6834c1a2da835172",
+    "examples/operators/dsv4_4l/acceptance-cases.json": "cad28a5d73f240e516cd4925aa0662f61279377fe0dfa87cec437cdd340821b8",
+    "examples/operators/dsv4_4l/audit_dependencies.py": "42ee518bc9685bce186a81f5341adf487e9dbde8b40f96148fa980ed8355d1ae",
+    "examples/operators/dsv4_4l/boundary_trace.py": "b20004e6548f515e8af09179e3956de1b806c5b6bc60f5aa48a9a643a2bd7193",
+    "examples/operators/dsv4_4l/build_grpo.py": "bca9e538da5c73bb88086c5be4762d0e41bc6ab2c8697044e1bb61bcb8f57908",
+    "examples/operators/dsv4_4l/checkpoint_inventory.py": "6105e6191c8e219bad0824f701a158689a1eedc30af6a0709cac37e485936cbb",
+    "examples/operators/dsv4_4l/copy_task.py": "ab2ea9dd5d0501c6e1dfc0c50bb66a08e66f5368b58f2a1995eec5f3d1bc9684",
+    "examples/operators/dsv4_4l/replay_grpo_failure.py": "9bb957cb903eceb6129d957913e5e74d0087ba4730ebd3aabd139dfb39bbf4dd",
+    "examples/operators/dsv4_4l/report_grpo.py": "8b8441d760889538b5db36ef899d28e4c60f6671dcec313d9c054b7942697616",
+    "examples/operators/dsv4_4l/run_grpo.py": "ef27eeb25133d95134ace8a2786ac485375ac9d15518f79f392facae68a480bd",
+    "examples/operators/dsv4_4l/verify_grpo.py": "7329cd7991e5db3381fc2dfda2180193a1f6509a7c576e0290b53f2528e5d4d8",
+    "rl_engine/backends/rocm/attention/compressor_projection.py": "673f9e63afe9ec0755821991a2adc37df3d7d052a7baa8c0e1c53b9b7723ef73",
+    "rl_engine/integrations/engines/rollout/vllm/checkpoint_sync.py": "16b49d10a1696b5004bf27c0bdd94f14cd46ef8420c0a1a0e1c86f9fd7265112",
+    "rl_engine/integrations/engines/rollout/vllm/compressor_projection.py": "d35f8dba2b00044466f6259f25af12d455512d9f3b3246b5b1b307e2823ebe0d",
+    "rl_engine/integrations/engines/train/megatron/native_compressor_projection.py": "4aa69599d9f977bd072c372c752089ba7e32c83a6dedc21960d3ad1d588821f9",
+    "rl_engine/integrations/orchestrators/verl/native_engine.py": "366aaf5d2f7e14211a3d3678a680b8b108b5d3392fe405e263b2683f4aaef1fa",
+    "rl_engine/ops/autograd/canonical_backward.py": "a8c9f8f75d9abefeee21561e3a0635aab96db03efcc1f43f5b18c2223f89fd9a",
+    "tests/integrations/common/test_compressor_projection_checkpoint.py": "58796150430a59db073b1346d5801eb7a7abb8d28250116fb5810e2b9a7f383c",
+    "tests/integrations/common/test_grpo_stress_evidence.py": "e7f42ef5fc386d2b379aad3741f32a4d530c290c4edcb439fc57399d4bede81a",
+    "tests/integrations/common/test_pipeline_rollout_sync.py": "311b75bfa6b077800d7034fb41488f28087073e12d6691083f717f6deb659e09",
+    "tests/ops/autograd/test_canonical_pipeline.py": "f078dafd28cbedf67fffe036a0f8e86d84b279e0af5d2fba610936f744aa16f3"
+  },
+  "verl": {
+    "tests/experimental/rl_kernel/test_contract_on_cpu.py": "44914cfa891d7e6f48f82ab08acec0343ed310c68233da6413570694bad48290",
+    "verl/experimental/rl_kernel/README.md": "8aa384edad8a37236d4081292941aef3de005217f317767ccb5d184375d1cb1b",
+    "verl/experimental/rl_kernel/acceptance.py": "aa612a7d0527023510257b95a1a3bffe22b19c7f349285ece9b701e570107a1d",
+    "verl/experimental/rl_kernel/config/dsv4_grpo.yaml": "1cd8805daae0c1d860189aa05bed86a218f06a1390d06425f87035dd423afa47",
+    "verl/experimental/rl_kernel/main_ppo.py": "6bc03f1d44125e462322bfa4aa7dae40329346e1f1ef7b9e0b11b129ce8cba5b",
+    "verl/experimental/rl_kernel/rollout_worker.py": "a959ce5bdba3102c6759a9ed625c77ab04fd33c13ab16c5f8f398f499342c8f4",
+    "verl/experimental/rl_kernel/runtime.py": "fd2dc4a5c97d0dc23ea1f8e59e52b6dc710e6229d5a72a820956ddd993162f73",
+    "verl/experimental/rl_kernel/trainer.py": "62f3089f0bd99e7a01daef5f022d719c4b6c935045c6a6d0a98ad1f350bf752e",
+    "verl/experimental/rl_kernel/trainer_contract.py": "2337586411c12fcda25019cbab7b4a32f25ec65058a522e0ed3f6109d341152e",
+    "verl/experimental/rl_kernel/trainer_engine.py": "15e17a45028c9168e4f136a0cac940e2f87c5ce7a2592fa6b73a61208dfdca36",
+    "verl/experimental/rl_kernel/trainer_rollout.py": "9fd0ebe6bbdbb82b1eaaa22c6368984ed419fe6d1c87c8c74bcd6c6837e70b2e",
+    "verl/experimental/rl_kernel/trainer_sync.py": "74f8edee8007433e87f02e7591c1cf1bf61fad7f557c50a6735fb5801499f1e2"
+  }
+}

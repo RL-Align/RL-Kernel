@@ -6,6 +6,7 @@ import inspect
 import json
 import os
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 import torch
@@ -30,9 +31,6 @@ def digest(value):
 
 
 def batch(cases):
-    lengths = [len(c["prompt_token_ids"]) + len(c["response_token_ids"]) for c in cases]
-    if len(set(lengths)) != 1:
-        raise ValueError("initial padded-free native batch requires equal full lengths")
     inputs = [
         torch.tensor(c["prompt_token_ids"] + c["response_token_ids"], dtype=torch.int64)
         for c in cases
@@ -65,24 +63,15 @@ def batch(cases):
     return result
 
 
-def main():
-    rendezvous = ROOT / "actor-rendezvous"
-    os.environ.update(
-        WORLD_SIZE="1",
-        RANK="0",
-        LOCAL_WORLD_SIZE="1",
-        LOCAL_RANK="0",
-        MASTER_ADDR="127.0.0.1",
-        MASTER_PORT="29648",
-        DIST_INIT_METHOD=rendezvous.as_uri(),
-    )
+def build_actor_worker():
     cfg = TrainingWorkerConfig(
         model_type="language_model",
         model_config=HFModelConfig(path="/models/4l", use_remove_padding=False),
         engine_config=RLKNativeMcoreEngineConfig(
             rlk_mhc_backend=os.environ.get("DSV4_MHC_BACKEND", "rocm"),
+            rlk_allow_right_padding=int(os.environ.get("DSV4_TRAIN_STEPS", "1")) == 3,
             tensor_model_parallel_size=1,
-            pipeline_model_parallel_size=1,
+            pipeline_model_parallel_size=int(os.environ.get("DSV4_ACTOR_PP", "1")),
             expert_model_parallel_size=1,
             context_parallel_size=1,
             sequence_parallel=False,
@@ -102,10 +91,25 @@ def main():
             },
         ),
         optimizer_config=McoreOptimizerConfig(
-            lr=1e-4, total_training_steps=2, weight_decay=0.0, clip_grad=1.0
+            lr=1e-4,
+            total_training_steps=max(2, int(os.environ.get("DSV4_TRAIN_STEPS", "1")) + 1),
+            weight_decay=0.0,
+            clip_grad=1.0,
         ),
         checkpoint_config=CheckpointConfig(),
         profiler_config=ProfilerConfig(tool=None, save_path="/outputs", tool_config={}),
+    )
+    from examples.operators.dsv4_4l.measurement import emit
+
+    emit(
+        "actor_configuration",
+        optimizer=asdict(cfg.optimizer_config),
+        seed=cfg.engine_config.seed,
+        dtype=cfg.engine_config.dtype,
+        transformer_overrides=cfg.engine_config.override_transformer_config,
+        loss="negative mean response-token raw logprob",
+        normalization="global response loss-mask token count",
+        microbatch_size=1,
     )
     worker = TrainingWorker(cfg)
     worker.reset()
@@ -164,6 +168,21 @@ def main():
     print("ACTUAL_WORKER", type(worker), inspect.getfile(type(worker)), flush=True)
     print("ACTUAL_ENGINE", type(engine), inspect.getfile(type(engine)), flush=True)
     print("ACTUAL_MODEL", type(model), inspect.getfile(type(model)), flush=True)
+    return worker, engine, model
+
+
+def main():
+    rendezvous = ROOT / "actor-rendezvous"
+    os.environ.update(
+        WORLD_SIZE="1",
+        RANK="0",
+        LOCAL_WORLD_SIZE="1",
+        LOCAL_RANK="0",
+        MASTER_ADDR="127.0.0.1",
+        MASTER_PORT="29648",
+        DIST_INIT_METHOD=rendezvous.as_uri(),
+    )
+    worker, engine, model = build_actor_worker()
     (ROOT / "actor-ready.json").write_text(
         json.dumps({"pid": os.getpid(), "version": engine.rlk_weight_version})
     )
@@ -228,7 +247,7 @@ def main():
                     )
                 witness = dict(backward_executed=False)
 
-                def gradient(value):
+                def gradient(value, witness=witness):
                     witness.update(
                         backward_executed=True,
                         tracked_parameter="decoder.final_norm.weight",

@@ -35,6 +35,7 @@ class RLKNativeMcoreEngineConfig(McoreEngineConfig):
     strategy: str = "rlk_megatron"
     rlk_weight_version: int = 0
     rlk_mhc_backend: str = "rocm"
+    rlk_allow_right_padding: bool = False
 
     def __post_init__(self):
         if self.strategy != "rlk_megatron":
@@ -56,12 +57,18 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
             getattr(cfg, key) != 1
             for key in (
                 "tensor_model_parallel_size",
-                "pipeline_model_parallel_size",
                 "expert_model_parallel_size",
                 "context_parallel_size",
             )
         ):
-            raise ValueError("native packed DSV4 engine initially requires TP=PP=EP=CP=1")
+            raise ValueError("native packed DSV4 engine requires TP=EP=CP=1")
+        if cfg.pipeline_model_parallel_size not in (1, 2):
+            raise ValueError("native packed DSV4 engine supports PP=1 or the four-layer PP2 layout")
+        from rl_engine.integrations.engines.train.megatron.native_pipeline import (
+            configure_native_pipeline,
+        )
+
+        configure_native_pipeline(self.provider)
         if self.peft_cls is not None or cfg.use_megatron_fsdp or self.is_value_model:
             raise ValueError("native packed DSV4 engine supports the ordinary actor/DDP path")
         self._rlk_models = []
@@ -91,9 +98,24 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
                 original = model.forward
 
                 def forward(*args, _forward=original, _worker=worker, **kwargs):
+                    valid_lengths = None
+                    if cfg.rlk_allow_right_padding:
+                        from rl_engine.integrations.engines.train.megatron.logical_keys import (
+                            right_padded_lengths,
+                        )
+
+                        valid_lengths = right_padded_lengths(
+                            kwargs["input_ids"], self.rlk_logical_cases
+                        )
+                        if kwargs.get("attention_mask") is None:
+                            raise ValueError(
+                                "declared right padding requires the original BSHD mask"
+                            )
                     if "attention_mask" in kwargs:
                         kwargs["attention_mask"] = normalize_native_causal_mask(
-                            kwargs["attention_mask"], kwargs["input_ids"].shape
+                            kwargs["attention_mask"],
+                            kwargs["input_ids"].shape,
+                            valid_lengths=valid_lengths,
                         )
                     with ExitStack() as scopes:
                         if _worker.backend == "rocm_triton":
@@ -102,7 +124,9 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
                             )
 
                             keys = logical_keys_for_input(
-                                kwargs["input_ids"], self.rlk_logical_cases
+                                kwargs["input_ids"],
+                                self.rlk_logical_cases,
+                                valid_lengths=valid_lengths,
                             )
                             scopes.enter_context(_worker.logical_rows(keys))
                         scopes.enter_context(_worker.request(self.rlk_weight_version))
@@ -189,6 +213,21 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
             )
         return result
 
+    def forward_step(self, batch_iter, model, logits_processor_func, postprocess_micro_batch_func):
+        from verl.utils import tensordict_utils as tu
+        from rl_engine.ops.autograd.canonical_backward import active_session
+
+        batch = next(batch_iter)
+        session = active_session()
+        if session is not None:
+            count = tu.get_non_tensor_data(batch, key="num_micro_batch", default=None)
+            if type(count) is not int:
+                raise RuntimeError("native schedule must declare the actual microbatch count")
+            session.expect_uses(count)
+        return super().forward_step(
+            iter((batch,)), model, logits_processor_func, postprocess_micro_batch_func
+        )
+
     def _lm_head_logits_processor(self, logits, label, temperature, **kwargs):
         model = self._rlk_models[0]
         with model._rlk_p1.request(self.rlk_weight_version):
@@ -215,4 +254,21 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
             export_native_checkpoint_parameters,
         )
 
-        return export_native_checkpoint_parameters(self._rlk_models[0]), None
+        model = self._rlk_models[0]
+        if self.engine_config.pipeline_model_parallel_size == 1:
+            return export_native_checkpoint_parameters(model), None
+        from megatron.core import parallel_state
+
+        from rl_engine.integrations.engines.train.megatron.pipeline_export import (
+            export_pipeline_state,
+        )
+
+        return (
+            export_pipeline_state(
+                dict(export_native_checkpoint_parameters(model)),
+                pp_group=parallel_state.get_pipeline_model_parallel_group(),
+                dp_group=parallel_state.get_data_parallel_group(),
+                weight_version=self.rlk_weight_version,
+            ),
+            None,
+        )

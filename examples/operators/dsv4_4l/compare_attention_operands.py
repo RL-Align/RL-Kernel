@@ -6,6 +6,8 @@ from pathlib import Path
 
 import torch
 
+from examples.operators.dsv4_4l.trace_store import load_capture
+
 root = Path(sys.argv[1])
 ap, rp = root / "actor-trace-v0-A", root / "generation-trace"
 a = json.loads((ap / "manifest.json").read_text())
@@ -16,7 +18,7 @@ def load(events, name, path):
     e = next(
         e for e in events if e["name"] == name and e["layer"] == 0 and e.get("forward", 0) == 0
     )
-    return torch.load(path / e["file"], weights_only=True, map_location="cpu")
+    return load_capture(path / e["file"])
 
 
 def compare(name, x, y):

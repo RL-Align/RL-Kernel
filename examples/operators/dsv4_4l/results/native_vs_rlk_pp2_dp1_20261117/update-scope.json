@@ -1,0 +1,53 @@
+[
+  {
+    "version": 1,
+    "ranks": [
+      {
+        "rank": 0,
+        "trainable_parameters": 58,
+        "changed_parameters": 43,
+        "nonzero_gradient_parameters": 52
+      },
+      {
+        "rank": 1,
+        "trainable_parameters": 25,
+        "changed_parameters": 22,
+        "nonzero_gradient_parameters": 25
+      }
+    ]
+  },
+  {
+    "version": 2,
+    "ranks": [
+      {
+        "rank": 0,
+        "trainable_parameters": 58,
+        "changed_parameters": 46,
+        "nonzero_gradient_parameters": 52
+      },
+      {
+        "rank": 1,
+        "trainable_parameters": 25,
+        "changed_parameters": 23,
+        "nonzero_gradient_parameters": 25
+      }
+    ]
+  },
+  {
+    "version": 3,
+    "ranks": [
+      {
+        "rank": 0,
+        "trainable_parameters": 58,
+        "changed_parameters": 47,
+        "nonzero_gradient_parameters": 52
+      },
+      {
+        "rank": 1,
+        "trainable_parameters": 25,
+        "changed_parameters": 24,
+        "nonzero_gradient_parameters": 25
+      }
+    ]
+  }
+]

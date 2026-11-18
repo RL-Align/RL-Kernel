@@ -35,3 +35,5 @@ docker run --pull=never --rm --init --name "rlk-dsv4-parity-$$" \
   -v "$cache:/cache" -v "$output:/outputs" -v "$model:/models/4l:ro" \
   "$image" bash -c 'mkdir /outputs/tmp; cd /opt/dsv4/RL-Kernel; exec /opt/dsv4-venv/bin/python -m examples.operators.dsv4_4l.cycle' \
   > "$output/container.log" 2>&1
+# Engine completion alone does not establish the numerical acceptance result.
+python3 "$script_dir/verify_result.py" "$output/results.json"

@@ -75,3 +75,65 @@ python -m pytest -q tests/integrations/common/test_mhc_worker.py
 TRITON_INTERPRET=1 python -m pytest -q tests/backends/rocm/test_dsv4_mhc_post_pre.py -k interpreter
 RLK_REQUIRE_ROCM=1 python -m pytest -s -q tests/backends/rocm/test_dsv4_mhc_post_pre.py -k 'not interpreter'
 ```
+
+
+### Native PP2 continuous-update acceptance
+
+The native NVIDIA MCore path keeps the separate Megatron-Lite binder intact.
+The four-layer checkpoint is partitioned as original layers `[0, 1, 2] / [3]`;
+hash layers stay on the embedding stage. TP/EP/CP are one. The actor may use
+PP2/DP1 (two GPUs) or PP2/DP2 (four GPUs); rollout uses PP2/DP1 (two GPUs).
+DP1 does not perform cross-replica gradient reduction. DP2 verification remains
+strict and requires distinct local gradients and native reduction evidence.
+
+Set `DSV4_TRAIN_STEPS=3` for one live worker/optimizer session advancing versions
+0, 1, 2, 3. Each version checks fixed and newly generated A/B/C sequences,
+actual B1 and B2 AB/BA order, repeats and per-engine invariance, using original
+FP32 score bytes. Every update writes its own `steps/vN/` manifest, actual
+optimizer moment hashes/counters, gradients, PP transfers, changed parameters,
+and same-PID rollout readback acknowledgements. The synchronization inventory
+is derived from live stage parameters and buffers, including learned-router
+bias; its size is not hardcoded. The quantized FP4/FP8 base and scales stay
+frozen; this is not full-parameter quantized training.
+
+Build `examples/operators/dsv4_4l/Dockerfile.continuous` with a committed
+`rlk.bundle`, `BASE_IMAGE` set to the existing verified four-project image and
+`RLK_SHA` set to that bundle's commit. GPU IDs are resolved through PCI and KFD
+UUIDs, not inferred from DRM minor numbers. Only the selected render nodes are
+mapped into Docker. The small `isolated_kfd.c` compatibility library filters the
+real KFD aperture query to those devices, avoiding the pinned ROCr runtime's
+attempt to set a memory policy on devices absent from the container. It rejects
+VM acquisition or memory-policy writes for excluded IDs; it does not replace
+model arithmetic or driver computation. Do not preload it without an explicit
+`RLK_ALLOWED_KFD_GPU_IDS` allocation.
+
+```bash
+DSV4_TRAIN_STEPS=3 DSV4_TRACE_FORMAT=cas-v1 DSV4_MHC_BACKEND=rocm \
+  bash examples/operators/dsv4_4l/run_pipeline_cycle.sh \
+  "$IMAGE" 4,5 6,7 "$CHECKPOINT" "$NEW_OUTPUT" "$CACHE"
+python3 examples/operators/dsv4_4l/verify_pipeline.py \
+  "$NEW_OUTPUT" --dp-size 1 --steps 3
+```
+
+Repeat `rocm` and `rocm_triton` in separate fresh containers/output directories.
+The optional `cas-v1` trace format losslessly deduplicates original tensor bytes
+and retains source shape, stride and dtype; `trace_store.load_capture` restores
+captures for the existing first-difference tools. It does not change model
+computation. Per-run same-weight parity and independent-job optimizer trajectory
+reproducibility are separate results; neither implies the other.
+
+Continuous mode uses genuinely different total lengths (A=131, B=130, C=10).
+The native BSHD actor validates every complete input prefix and only permits
+its declared trailing zero-padding. All scored queries causally exclude those
+future padding positions. verl keeps its original mask for trimming outputs
+and response loss masks. Undeclared, left, interior and document padding remain
+rejected; the default native engine still rejects padding. Triton logical keys
+are assigned to original sample/position identities across AB/BA padding.
+
+For the selected eager prefill-only B2 checks, the RLK worker controls the real
+request-state gather order for that worker instance. Native vLLM otherwise
+sorts unequal prefills by length, making both submitted AB and BA execute BA.
+The override requires exactly the scheduled IDs and rejects decode/speculative
+batches. It changes no model arithmetic; actual forward input rows must still
+prove the requested order. CAS captures use lossless Zstandard compression to
+bound logging overhead and data-disk quota use; old gzip captures remain readable.
