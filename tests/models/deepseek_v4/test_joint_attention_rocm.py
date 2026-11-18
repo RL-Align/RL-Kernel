@@ -200,6 +200,12 @@ def test_native_packed_cache_and_contiguous_have_same_arithmetic(encoding, block
     slots = torch.randperm(block_size * 3, device="cuda")[:n].long()
     block_bytes = ((block_size * 584 + 575) // 576) * 576
     cache = torch.zeros((3, block_bytes), dtype=torch.uint8, device="cuda")
+    from vllm.platforms import current_platform
+
+    if encoding == "fnuz" and not current_platform.is_fp8_fnuz():
+        with pytest.raises(ValueError, match="requires a platform using FNUZ"):
+            quantize_and_insert_k_cache(kv, cache, slots, block_size=block_size, use_fnuz=True)
+        return
     quantize_and_insert_k_cache(
         kv, cache, slots, block_size=block_size, use_fnuz=encoding == "fnuz"
     )

@@ -3,6 +3,8 @@
 
 import torch
 
+from rl_engine.backends.rocm.fp8 import fp8_dtype
+
 PROFILE = "dsv4-shared-down-aiter-ck-gfx942-nosplit-v1"
 KERNEL = (
     "a8w8_blockscale_1x128x128_256x16x64x256_16x16_16x16_1x1_"
@@ -13,13 +15,11 @@ KERNEL = (
 def shared_down_fp8(a, b, sa, sb):
     if not torch.version.hip or a.device.type != "cuda":
         raise RuntimeError("shared down profile requires ROCm GPU tensors")
-    arch = torch.cuda.get_device_properties(a.device).gcnArchName.split(":")[0]
-    if arch != "gfx942":
-        raise ValueError(f"{PROFILE} requires gfx942, got {arch}")
+    dtype = fp8_dtype(a.device)
     if a.ndim != 2 or a.shape[1] != 2048 or tuple(b.shape) != (4096, 2048):
         raise ValueError("shared down profile requires [M,2048] and [4096,2048]")
-    if a.dtype != torch.float8_e4m3fnuz or b.dtype != torch.float8_e4m3fnuz:
-        raise TypeError("shared down profile expects post-load FNUZ operands")
+    if a.dtype != dtype or b.dtype != dtype:
+        raise TypeError("shared down profile expects post-load native FP8 operands")
     if sa.dtype != torch.float32 or sb.dtype != torch.float32:
         raise TypeError("shared down profile requires native FP32 scales")
     if sa.shape != (a.shape[0], 16) or sb.shape != (32, 16):

@@ -1,0 +1,51 @@
+{
+  "gpu": "AMD Instinct MI350X",
+  "architecture": "gfx950",
+  "node_count": 1,
+  "actor_physical_gpus": [
+    4,
+    5
+  ],
+  "rollout_physical_gpus": [
+    6,
+    7
+  ],
+  "image": "rlk/dsv4-4l-mi35x:dev-005",
+  "image_id": "sha256:5edaed7137953d36e0370c6fc3554682bd4b2417a3305ba2cb3b9b1f5cf8edaa",
+  "image_published": false,
+  "image_config": "sha256:6a10adacddbccb511343c7d3798db3a239eb6877e0d29e8d2fba376ecba70f1e",
+  "supplied_image": "vensenmu/rl-kernel:pr711-grpo-stress",
+  "supplied_manifest": "sha256:45307c791baa2db3c4fc6f70be960b301fcc390d3a103d07bdd991f479b2396c",
+  "sources": {
+    "RL-Kernel": {
+      "commit": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+      "dirty": true,
+      "diff_sha256": "f5f7636e58c4e568301931c8bce0ad131c092e84ad027af40147715d9f646c73"
+    },
+    "verl": {
+      "commit": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+      "dirty": true,
+      "diff_sha256": "3070e5d2fb9189bc73cca2cad8523891f8d2448d60665238a1f380b962d48337"
+    },
+    "vllm": {
+      "commit": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+      "dirty": false
+    },
+    "Megatron": {
+      "commit": "97b50bdd936022ef58031c35db6d10581c181be0",
+      "dirty": false
+    }
+  },
+  "checkpoint_sha256": "1bd423ab1d98f43d40b19617fcb30d973d94436cc7b150fe3f744de79c2de086",
+  "vllm_extension_sha256": {
+    "_C.abi3.so": "62105782a4eceabe206feb17ef3246ac4b1dd1b1f1f191ab8b178193f2832a97",
+    "_C_stable_libtorch.abi3.so": "28896d144ab8db33fab7dbede6b7310b03a51e86af4d2e94815c2425b55b4ee9",
+    "_moe_C_stable_libtorch.abi3.so": "b1b9d76be016a878ac38a8306650eaf677e4beaab2d7ce74b1f46a37ab960fe9",
+    "_rocm_C.abi3.so": "26ddcd79c0dd21ebaca475ac11f3cd3902a5451aa6a3bc72b68091a5d0e6abb9"
+  },
+  "acceptance_sha256": "70b4d6875d1936109f3423a20bedc8e00f1a0cb8f96551c40688827af95e638f",
+  "private_evidence_bundle_sha256": "5c2d37472082a3dd8ef457fa68576d92766b817211ca3c090db91a4a570608cf",
+  "launched_job_wall_seconds": 594.4945265101269,
+  "training_exit_code": 0,
+  "independent_verifier_exit_code": 0
+}

@@ -54,7 +54,7 @@ whose bytes differ. Per backend it runs:
 
 | Backend | Wrapper | Implementation | Status |
 | --- | --- | --- | --- |
-| ROCm (gfx942) | `TritonMHCPreOp`, `TritonMHCPostOp`, `TritonMHCHeadOp` | `rl_engine/backends/rocm/mhc/triton_mhc.py` (Triton forward copied from aiter `326cffa`; RL-Kernel's own Triton backward) | MI300X / MI355X acceptance not run |
+| ROCm (gfx942/gfx950) | `TritonMHCPreOp`, `TritonMHCPostOp`, `TritonMHCHeadOp` | `rl_engine/backends/rocm/mhc/triton_mhc.py` (Triton forward copied from aiter `326cffa`; RL-Kernel's own Triton backward) | MI350X: 404 operator tests passed; MI355X hardware acceptance not run |
 | Reference | `mhc_pre`, `mhc_post`, `mhc_head` with `"reference"` / `"rocm"` | `rl_engine/ops/mhc/training.py` (task 6), following DeepSeek-V4-Flash-0731 `inference/model.py` | CPU; gfx942 / gfx950 |
 | AITER | — | — | Not used; see **AITER integration boundary** |
 
@@ -80,7 +80,7 @@ contiguous ones.
 
 The mHC entry and `mhc_layer_end` use the backend the caller names; there is no
 default and no fallback, and an unknown or unavailable backend raises. The Triton op
-constructors raise unless the GPU is gfx942 and name the architecture. Inputs outside
+constructors raise unless the GPU is gfx942 or gfx950 and name the architecture. Inputs outside
 the tensor contract raise before any kernel launch. `kernel_registry.get_op("mhc_pre")`
 and the semantic catalog still return the same ops for other callers. The arithmetic
 each backend follows is recorded in `rl_engine/contracts/operators/mhc.py`
@@ -170,8 +170,11 @@ establish correctness.
 
 ## Known Limitations
 
-- gfx942 only; n = 4. `NUM_KSPLIT`, `BLOCK_K` and the launch configs are tuned for
+- gfx942/gfx950 only; n = 4. `NUM_KSPLIT`, `BLOCK_K` and the launch configs are tuned for
   C = 4096; the backward launch config is not tuned.
+- The gfx950 validation here covers the mHC operators. The standalone layer-end
+  helper still uses the gfx942-only `TritonBatchInvariantLinearOp`; the native
+  four-layer GRPO recipe uses a separate vocabulary-head implementation.
 - One GPU, no tensor parallelism.
 - The Sinkhorn backward replays the earlier steps for every step it walks back, trading
   time for memory.

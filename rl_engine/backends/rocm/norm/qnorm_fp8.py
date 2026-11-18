@@ -8,6 +8,8 @@ This does not alter packed checkpoint weights or replace model execution.
 
 import torch
 
+from rl_engine.backends.rocm.fp8 import fp8_dtype
+
 
 def rmsnorm_vjp(x, weight, dy, epsilon):
     dtype = torch.float64 if x.dtype == torch.float64 else torch.float32
@@ -30,10 +32,8 @@ class _FusedQNorm(torch.autograd.Function):
         shape = x.shape
         flat = x.reshape(-1, shape[-1]).contiguous()
         if flat.shape[-1] != 1024:
-            raise ValueError("initial gfx942 QNorm profile supports original DSV4 q_lora_rank=1024")
-        if torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0] != "gfx942":
-            raise ValueError("initial QNorm profile requires gfx942")
-        codes = torch.empty_like(flat, dtype=torch.float8_e4m3fnuz)
+            raise ValueError("QNorm profile supports original DSV4 q_lora_rank=1024")
+        codes = torch.empty_like(flat, dtype=fp8_dtype(x.device))
         scales = torch.empty(
             (flat.shape[0], flat.shape[1] // 128), device=x.device, dtype=torch.float32
         )
@@ -77,6 +77,8 @@ class FusedQNorm(torch.nn.Module):
         y, codes, scales = _FusedQNorm.apply(x, self.weight, self.epsilon)
         self._activation = (y, codes, scales)
         if not hasattr(self, "_executed"):
+            arch = torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0]
+            self.profile = f"dsv4-qnorm-fp32-before-fp8-aiter-{arch}-v1"
             print("RLK_QNORM_FP8_EXECUTED", __file__, self.profile, flush=True)
             self._executed = True
         return y
@@ -106,15 +108,10 @@ class _FusedKVNorm(torch.autograd.Function):
             raise ValueError("original BF16 Q/K norm operands are required")
         if x.shape[:-1] != raw_q.shape[:-1] or x.shape[-1] != 512 or raw_q.shape[-1] != 1024:
             raise ValueError("original aligned 1024-Q / 512-KV geometry is required")
-        if (
-            x.device.type != "cuda"
-            or not torch.version.hip
-            or torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0] != "gfx942"
-        ):
-            raise ValueError("the initial joint KV norm profile requires gfx942")
+        dtype = fp8_dtype(x.device)
         flat = x.reshape(-1, 512).contiguous()
         q = raw_q.reshape(-1, 1024).contiguous()
-        q_codes = torch.empty_like(q, dtype=torch.float8_e4m3fnuz)
+        q_codes = torch.empty_like(q, dtype=dtype)
         q_scales = torch.empty((q.shape[0], 8), device=q.device, dtype=torch.float32)
         out = torch.empty_like(flat)
         # Execute the actual K branch of the loaded rollout's joint kernel.

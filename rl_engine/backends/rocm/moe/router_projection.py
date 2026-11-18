@@ -36,9 +36,8 @@ def router_projection(x, weight):
         or weight.shape != (256, 4096)
     ):
         raise ValueError("original DSV4 BF16 activation and 256x4096 router weight required")
-    if (
-        not torch.version.hip
-        or torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0] != "gfx942"
-    ):
-        raise ValueError("initial original router profile requires gfx942")
+    if not torch.version.hip or torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[
+        0
+    ] not in ("gfx942", "gfx950"):
+        raise ValueError("original router profile requires gfx942/gfx950")
     return _Router.apply(x, weight)

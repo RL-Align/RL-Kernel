@@ -1,0 +1,92 @@
+{
+  "status": "PASS",
+  "scope": "Single-node four-GPU, four-layer actor PP2/DP1 and rollout PP2/DP1; three continuous native verl GRPO/PPO updates.",
+  "versions": [
+    {
+      "version": 0,
+      "global_step": 0,
+      "actual_updates": 0,
+      "expected_tokens": 1188,
+      "compared_tokens": 1188,
+      "mismatch_count": 0,
+      "mean_abs_diff": 0.0,
+      "max_abs_diff": 0.0,
+      "batch_invariance": true,
+      "sync": true,
+      "pids": {
+        "0": 5226,
+        "1": 5227
+      }
+    },
+    {
+      "version": 1,
+      "global_step": 1,
+      "actual_updates": 1,
+      "expected_tokens": 1188,
+      "compared_tokens": 1188,
+      "mismatch_count": 0,
+      "mean_abs_diff": 0.0,
+      "max_abs_diff": 0.0,
+      "batch_invariance": true,
+      "sync": true,
+      "pids": {
+        "0": 5226,
+        "1": 5227
+      }
+    },
+    {
+      "version": 2,
+      "global_step": 2,
+      "actual_updates": 2,
+      "expected_tokens": 1188,
+      "compared_tokens": 1188,
+      "mismatch_count": 0,
+      "mean_abs_diff": 0.0,
+      "max_abs_diff": 0.0,
+      "batch_invariance": true,
+      "sync": true,
+      "pids": {
+        "0": 5226,
+        "1": 5227
+      }
+    },
+    {
+      "version": 3,
+      "global_step": 3,
+      "actual_updates": 3,
+      "expected_tokens": 1188,
+      "compared_tokens": 1188,
+      "mismatch_count": 0,
+      "mean_abs_diff": 0.0,
+      "max_abs_diff": 0.0,
+      "batch_invariance": true,
+      "sync": true,
+      "pids": {
+        "0": 5226,
+        "1": 5227
+      }
+    }
+  ],
+  "dp_gradient_reduction": false,
+  "full_quantized_base_training": false,
+  "additional_v3_stress": {
+    "status": "PASS",
+    "weight_version": 3,
+    "repeats": 1000,
+    "completed_repeats": 1000,
+    "expected_tokens": 14869,
+    "compared_tokens": 14869,
+    "mismatch_count": 0,
+    "seconds": 117.307532527484,
+    "pids": {
+      "0": 5226,
+      "1": 5227
+    },
+    "additional_optimizer_updates": 0,
+    "finite": true,
+    "mean_abs_diff": 0.0,
+    "max_abs_diff": 0.0,
+    "actor_state_unchanged": true,
+    "rollout_state_unchanged": true
+  }
+}

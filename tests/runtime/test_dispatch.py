@@ -289,13 +289,16 @@ def test_rocm_triton_ops_are_the_only_rocm_backend(op_type, backend):
 
 
 @pytest.mark.parametrize("op_type,backend", _ROCM_TRITON_OPS)
-def test_rocm_triton_ops_run_on_gfx942_only(monkeypatch, op_type, backend):
+def test_rocm_triton_ops_supported_architectures(monkeypatch, op_type, backend):
     op_class = _op_class(backend)
     _fake_rocm_gpu(monkeypatch, "gfx942")
     op_class()
 
     _fake_rocm_gpu(monkeypatch, "gfx950")
-    with pytest.raises(RuntimeError, match="validated on gfx942 only; this GPU is gfx950"):
+    if op_type == "batch_invariant_linear":
+        with pytest.raises(RuntimeError, match="validated on gfx942 only; this GPU is gfx950"):
+            op_class()
+    else:
         op_class()
 
 
@@ -312,7 +315,7 @@ def test_get_op_raises_on_an_unvalidated_architecture(monkeypatch, op_type, back
     _op_class(backend)  # imported before the GPU is faked
     registry = KernelRegistry()
     monkeypatch.setattr(registry, "_platform_for_device", lambda device: "rocm")
-    _fake_rocm_gpu(monkeypatch, "gfx950")
+    _fake_rocm_gpu(monkeypatch, "gfx90a")
     with pytest.raises(RuntimeError, match=f"No functional backend found for {op_type} on rocm"):
         registry.get_op(op_type, device="cuda")
 

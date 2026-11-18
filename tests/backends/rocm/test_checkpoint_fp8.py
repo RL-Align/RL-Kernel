@@ -37,7 +37,13 @@ def test_original_projection_forward_input_gradient_and_bytes():
     from aiter import QuantType, get_hip_quant
 
     q, scales = get_hip_quant(QuantType.per_1x128)(
-        x.detach(), quant_dtype=torch.float8_e4m3fnuz, transpose_scale=False
+        x.detach(),
+        quant_dtype=(
+            torch.float8_e4m3fnuz
+            if torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0] == "gfx942"
+            else torch.float8_e4m3fn
+        ),
+        transpose_scale=False,
     )
     a = (q.cpu().float().reshape(2, 32, 128) * scales.cpu()[..., None]).reshape(2, 4096)
     w = weight.float() * scale.float().repeat_interleave(128, 0).repeat_interleave(128, 1)
