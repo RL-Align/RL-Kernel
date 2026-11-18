@@ -311,6 +311,36 @@ class OffloadedDenoiser(fc.TransformerDenoiser):
         return scope()
 
 
+def stream_blocks(model: torch.nn.Module, device: str) -> None:
+    """Keep the blocks in pinned host memory; each moves to ``device`` for its own forward.
+
+    Everything else of the model lives on ``device``. A block's parameters are replaced by a
+    device copy right before its forward and by the host tensors right after: the same weight
+    bytes and the same kernels as a resident model, at the memory cost of one block.
+    """
+
+    for name, child in model.named_children():
+        if name != "transformer_blocks":
+            child.to(device)
+    for block in model.transformer_blocks:
+        if any(True for _ in block.buffers()):
+            raise ValueError("block streaming assumes blocks without buffers")
+        host = [(p, p.data.pin_memory()) for p in block.parameters()]
+        for p, h in host:
+            p.data = h
+
+        def before(module: torch.nn.Module, args: Any, host=host) -> None:
+            for p, h in host:
+                p.data = h.to(device, non_blocking=True)
+
+        def after(module: torch.nn.Module, args: Any, output: Any, host=host) -> None:
+            for p, h in host:
+                p.data = h
+
+        block.register_forward_pre_hook(before)
+        block.register_forward_hook(after)
+
+
 def build_components(args: argparse.Namespace, variant: str) -> tuple[fc.ChainComponents, dict]:
     from diffusers.models.autoencoders.autoencoder_kl_minimax_h3 import AutoencoderKLMiniMaxH3
 
@@ -336,13 +366,18 @@ def build_components(args: argparse.Namespace, variant: str) -> tuple[fc.ChainCo
         raise pl.VariantMismatch(f"{args.transformer_dir} holds {identified}, request is {variant}")
     t0 = time.time()
     model = load_transformer(Path(args.transformer_dir), args.layers)
-    if not args.offload:
+    if args.stream_blocks:
+        stream_blocks(model, device)
+    elif not args.offload:
         model = model.to(device)
     info["transformer_load_s"] = round(time.time() - t0, 1)
     identity = {
         "transformer_dir_identified_as": identified,
         "layers_loaded": len(model.transformer_blocks),
         "layer_truncated": len(model.transformer_blocks) != 50,
+        "placement": (
+            "stream-blocks" if args.stream_blocks else "offload" if args.offload else "resident"
+        ),
     }
     mode = None if args.mode == "provider" else args.mode
     denoiser: fc.TransformerDenoiser
@@ -572,6 +607,11 @@ def main() -> None:
     p.add_argument("--label", default="run")
     p.add_argument("--device", default="cuda")
     p.add_argument("--offload", action="store_true", help="keep idle models on the CPU")
+    p.add_argument(
+        "--stream-blocks",
+        action="store_true",
+        help="blocks in pinned host memory, each moved to the GPU for its forward only",
+    )
     p.add_argument("--keep-tensors", action="store_true")
     p.add_argument("--capture", help='"all" or "step:module,..." transformer outputs to keep')
     p.add_argument("--inject", help="DriftInjection as JSON")
@@ -590,6 +630,8 @@ def main() -> None:
     p.add_argument("--report", required=True)
 
     args = parser.parse_args()
+    if getattr(args, "offload", False) and getattr(args, "stream_blocks", False):
+        parser.error("--offload and --stream-blocks are alternatives")
     handler = {"pin-text": pin_text, "run": run, "compare": compare, "toy": toy}[args.command]
     report = handler(args)
     Path(args.report).write_text(json.dumps(report, indent=1, sort_keys=True, default=str) + "\n")

@@ -150,6 +150,16 @@ class _NormOut(nn.Module):
         return x * (1 + (temb @ self.scale)[timestep_indices])
 
 
+class _Config(dict):
+    """A mapping with attribute access, like Diffusers' ``FrozenDict`` config."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+
 class ToyH3Transformer(nn.Module):
     """``MiniMaxH3Transformer3DModel``'s signature and module names at toy width, FP32."""
 
@@ -157,7 +167,7 @@ class ToyH3Transformer(nn.Module):
         super().__init__()
         g = _gen(seed)
         torch.manual_seed(seed)
-        self.config = {"toy": True, "hidden_size": hidden, "num_layers": layers}
+        self.config = _Config(toy=True, hidden_size=hidden, num_layers=layers)
         self.proj_in = nn.Linear(vv.LATENT_CHANNELS * 4, hidden)
         self.audio_proj_in = nn.Linear(av.LATENT_CHANNELS, hidden)
         self.context_embedder = nn.Linear(TEXT_DIM, hidden)

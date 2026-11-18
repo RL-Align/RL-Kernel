@@ -308,6 +308,20 @@ def test_variant_mismatch_is_refused_before_any_forward() -> None:
     assert comps.denoiser.model.calls == 0
 
 
+@pytest.mark.parametrize("mode", ["strict", "audit"])
+def test_bound_modes_fail_closed_on_a_model_that_is_not_the_full_h3(mode: str) -> None:
+    """The strict graph binds the 50 released blocks only: a toy or layer-truncated model is
+    refused before any forward, never silently run on provider arithmetic."""
+
+    comps = toy.components("FL2VA")
+    model = comps.denoiser.model
+    comps.denoiser = fc.TransformerDenoiser(model, variant="FL2VA", mode=mode)
+    refused = "full H3 requires|50 distinct|strict H3 needs CUDA parameters"
+    with pytest.raises((ValueError, RuntimeError), match=refused):
+        fc.run_chain(toy.fl2va_request(), comps, label=mode, decode=False)
+    assert model.calls == 0
+
+
 def test_pinned_text_features_replay_and_refuse_other_inputs(tmp_path: Path) -> None:
     clean = clean_run("fl2va")
     text = {s["stage"]: s for s in clean.artifact["stages"]}["text_conditions"]
