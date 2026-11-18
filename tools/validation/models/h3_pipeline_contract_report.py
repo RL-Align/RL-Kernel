@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Evidence for the RFC #420 Phase B rows ``fl2va_pipeline_contract`` / ``ref2va_pipeline_contract``.
+"""Evidence for RFC #420 Phase B ``fl2va_pipeline_contract`` / ``ref2va_pipeline_contract``.
 
     python tools/validation/models/h3_pipeline_contract_report.py --row fl2va \
         --out fl2va-report.json --png fl2va-report.png [--transformer-dir <.../transformer>]

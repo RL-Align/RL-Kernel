@@ -65,7 +65,9 @@ def preprocess(case: str) -> dict[str, Any]:
 
     height, width, num_frames = ref2va.resolve_ref2va_plan(num_frames=124)
     normalized = ref2va.normalize_references(_references(case), num_frames=num_frames)
-    sampled = [ref2va.sample_video_condition_frames(r.frames) for r in normalized if r.kind == "video"]
+    sampled = [
+        ref2va.sample_video_condition_frames(r.frames) for r in normalized if r.kind == "video"
+    ]
     image_counts = [
         (r.image.size[0] // 32) * (r.image.size[1] // 32) for r in normalized if r.kind == "image"
     ]
@@ -201,7 +203,9 @@ def reference() -> dict[str, Any]:
             equal += all(
                 torch.equal(getattr(ours, n), t) and getattr(ours, n).dtype == t.dtype
                 for n, t in zip(names, theirs[:5], strict=True)
-            ) and (ours.num_condition_video_rows, ours.num_condition_audio_rows) == tuple(theirs[5:])
+            ) and (ours.num_condition_video_rows, ours.num_condition_audio_rows) == tuple(
+                theirs[5:]
+            )
         out["diffusers_static"] = {
             "cases": cases,
             "bitwise_equal": equal,
