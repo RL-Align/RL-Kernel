@@ -123,7 +123,10 @@ def reference() -> dict[str, Any]:
                         same = all(
                             torch.equal(getattr(ours, n), t) and getattr(ours, n).dtype == t.dtype
                             for n, t in zip(names + ("text_indices",), theirs[:5], strict=True)
-                        ) and (ours.num_condition_video_rows, ours.num_condition_audio_rows) == tuple(
+                        ) and (
+                            ours.num_condition_video_rows,
+                            ours.num_condition_audio_rows,
+                        ) == tuple(
                             theirs[5:]
                         )
                         cases += 1
