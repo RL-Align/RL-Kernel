@@ -484,6 +484,7 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
                 xytext=(8, 0),
                 textcoords="offset points",
                 va="center",
+                annotation_clip=False,
                 fontsize=8,
                 color=INK,
             )
