@@ -279,6 +279,23 @@ def timed(fn: Callable[[], Any], warmup: int, repeats: int) -> dict[str, Any]:
     return {"median_ms": statistics.median(samples), "min_ms": min(samples), "samples_ms": samples}
 
 
+def source_state() -> dict[str, Any]:
+    """Commit and cleanliness of the checkout this script runs from (None outside git)."""
+
+    import subprocess
+
+    def git(*cmd: str) -> str | None:
+        try:
+            return subprocess.run(
+                ["git", "-C", str(ROOT), *cmd], capture_output=True, text=True, check=True
+            ).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            return None
+
+    status = git("status", "--porcelain", "--untracked-files=no")
+    return {"commit": git("rev-parse", "HEAD"), "clean": None if status is None else status == ""}
+
+
 def cold_start(
     paths: list[Path_], strict: av.H3AudioVAEContract, frames: int, offset: int
 ) -> dict[str, Any]:
@@ -313,7 +330,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "component": "FL2VA/audio_vae",
             "model_safetensors_sha256": ckpt.sha256,
         },
-        "provenance": strict.provenance(),
+        "provenance": {**strict.provenance(), "source": source_state()},
         "paths": {p.name: p.source for p in paths},
         "cold_start": cold_start(paths, strict, args.frames[0], args.sample_offset),
         "cases": [],
