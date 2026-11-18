@@ -73,7 +73,29 @@ their outputs as inputs.
 
 ## FL2VA
 
-The `fl2va_pipeline_contract` row (`rl_engine/models/minimax_h3/fl2va.py`).
+`rl_engine/models/minimax_h3/fl2va.py`, workflows `t2va` (zero keyframes) and `fl2va` (first,
+last, first-and-last), all on `transformer/`.
+
+- **`prepare_keyframes`.**
+  - The canvas comes from the first keyframe's aspect ratio, unless `height` / `width` are
+    given. Without keyframes it is 16:9.
+  - The first keyframe is stretched with PIL LANCZOS.
+  - A follower is cover-cropped with the reference's arithmetic: `round` sizing,
+    `(src - w) // 2` centring. `VaeImageProcessor`'s `crop` mode differs by a pixel on about
+    half of all aspect ratios.
+- **`fl2va_presentation`.**
+  - Each keyframe adds `"<Picture i>: "` (text tag) followed by `<|vision_start|>`,
+    `<|image_pad|> * n` and `<|vision_end|>` (video tag).
+  - The prompt follows verbatim, with no chat template and no special tokens.
+- **`build_fl2va_layout`.**
+  - Layout: `[text | keyframes | target audio | target video]`.
+  - A `first` keyframe sits at the target's first frame time.
+  - A `last` keyframe sits on the last *pixel* frame: the pairwise span minus `5/3`, which is
+    the last latent frame's time plus three pixel frames.
+  - Anchor tuples other than `()`, `("first",)`, `("last",)` and `("first", "last")` are
+    refused.
+- **`fl2va_initial_rows`.** Draws one noise per keyframe, then the target video, then the
+  target audio. It checks the keyframe latents fill exactly the rows the layout reserved.
 
 ## Variant Identity (H16)
 
