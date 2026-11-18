@@ -288,6 +288,11 @@ def test_the_vdn_attention_variants_are_refused_in_strict_mode():
         ({"quantization": "fp8"}, "quantization"),
         ({"component_quantizations": {"transformer": "fp8"}}, "quantization"),
         ({"lora_path": "adapter"}, "lora_path"),
+        ({"dit_cpu_offload": True}, "dit_cpu_offload"),
+        ({"dit_layerwise_offload": True}, "dit_layerwise_offload"),
+        ({"use_fsdp_inference": True}, "use_fsdp_inference"),
+        ({"cpu_offload_components": ["transformer"]}, "cpu_offload_components"),
+        ({"layerwise_offload_components": ["transformer"]}, "layerwise_offload_components"),
     ],
 )
 def test_server_settings_that_change_the_dit_are_refused(settings, match):
@@ -299,6 +304,11 @@ def test_server_settings_that_change_the_dit_are_refused(settings, match):
         quantization=None,
         component_quantizations={},
         lora_path=None,
+        dit_cpu_offload=False,
+        dit_layerwise_offload=False,
+        use_fsdp_inference=False,
+        cpu_offload_components=["text_encoder"],
+        layerwise_offload_components=None,
     )
     adapter.check_sglang_server_args(SimpleNamespace(**defaults))
     with pytest.raises(RuntimeError, match=match):
@@ -426,6 +436,22 @@ def test_the_bound_adaln_paths_and_norms_are_the_training_operators():
         with pytest.raises(RuntimeError, match="precomputed AdaLN tables"):
             block(x, adaln_input=adaln_input, combined_indices=index, adaln_params=t)
     assert _no_forward_changed(model)
+
+
+def test_the_sglang_plugin_is_declared_and_inactive_unless_enabled(monkeypatch):
+    from pathlib import Path
+
+    from rl_engine.integrations.engines.rollout.sglang import plugin
+
+    pyproject = (Path(__file__).resolve().parents[3] / "pyproject.toml").read_text()
+    assert '[project.entry-points."sglang.multimodal_gen.plugins"]' in pyproject
+    entry = f"{plugin.register_sglang_plugin.__module__}:{plugin.register_sglang_plugin.__name__}"
+    assert f'rl_kernel_h3 = "{entry}"' in pyproject
+    monkeypatch.delenv(plugin.ENABLE, raising=False)
+    assert not plugin.enabled()
+    plugin.register_sglang_plugin()  # inactive: imports nothing of SGLang (absent in CI)
+    monkeypatch.setenv(plugin.ENABLE, "1")
+    assert plugin.enabled()
 
 
 @needs_gpu
@@ -556,3 +582,34 @@ def test_the_adapter_binds_sglangs_whole_dit_and_every_bound_forward_runs(tp):
         assert report["sglang"] == TESTED and len(report["overrides"]) == 1
         assert rank["bound_finite"] and rank["bound_repeatable"]
         assert rank["restored_equals_native"] and rank["batching_restored"]
+
+
+@pytest.mark.parametrize(
+    "tp",
+    [
+        pytest.param(
+            t, marks=pytest.mark.skipif(torch.cuda.device_count() < t, reason=f"needs {t} GPUs")
+        )
+        for t in (1, 2)
+    ],
+)
+def test_the_sglang_plugin_installs_the_adapter_in_sglangs_worker_lifecycle(tmp_path, tp):
+    """RL-Kernel's entry point, found by SGLang's own ``load_plugins()`` / ``apply_plugin_hooks()``,
+    hooks ``TransformerLoader.load_customized`` (its body returns the seeded whole DiT: no H3
+    checkpoint here). The guard refuses Spectrum before a forward and stops a forward whose bound
+    path SGLang went around."""
+
+    _sglang_dit()
+    from rl_engine.validation.distributed.h3_ws2 import run_world
+    from rl_engine.validation.models import h3_sglang_rollout as hs
+
+    plugin_dir = hs.write_plugin_dist(str(tmp_path))
+    for rank in run_world(tp, hs.plugin_target, {}, plugin_dir=plugin_dir, forwards=2):
+        assert rank["hooked"] and rank["installed"], rank
+        assert rank["forwards"] == 2 and rank["readback"] == [] and rank["repeatable"]
+        assert rank["readback_file_forwards"] == 2 and rank["readback_file_calls"] == [2]
+        assert len(rank["overrides"]) == 2
+        assert "enable_spectrum is set" in rank["spectrum_refused"]
+        assert rank["forwards_after_refusal"] == 2
+        assert "final_layer: ran 2 times in 3 forwards" in rank["bypass_caught"]
+        assert rank["forward_restored"]

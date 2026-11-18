@@ -31,7 +31,9 @@ every bound forward ran once per model forward, so no path of SGLang's model wen
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 
 import torch
 
@@ -361,22 +363,14 @@ def _server_args():
         )
 
 
-def full_model_target(collective, *, layers: int = 2, forwards: int = 2, seed: int = 0):
-    """One rank: SGLang's whole H3 DiT with the adapter installed (see the module docstring).
-
-    Returns the adapter's report and readback (``forwards`` model forwards), whether the bound
-    forwards are finite and repeat bitwise, and whether ``remove()`` restores SGLang's output.
-    The weights are seeded per rank (each rank's own shards), so outputs are not compared across
-    TP sizes; the operators' bytes are compared by ``rollout_target``.
-    """
+def _whole_model(layers: int, seed: int):
+    """SGLang's ``MiniMaxH3DiTModel`` with ``layers`` blocks at H3's widths, seeded per rank, and
+    one denoising step's forward kwargs packed by SGLang's own request builder."""
 
     import torch.distributed as dist
     from sglang.multimodal_gen.configs.models.dits.minimax_h3 import (
         MiniMaxH3DiTArchConfig,
         MiniMaxH3DiTConfig,
-    )
-    from sglang.multimodal_gen.runtime.distributed.parallel_state import (
-        maybe_init_distributed_environment_and_model_parallel,
     )
     from sglang.multimodal_gen.runtime.models.dits import minimax_h3 as sm
     from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.denoise_loop import (  # noqa: E501
@@ -386,17 +380,11 @@ def full_model_target(collective, *, layers: int = 2, forwards: int = 2, seed: i
         minimax_h3_packed_sequence,
     )
 
-    from rl_engine.integrations.engines.rollout.sglang import h3 as adapter
-
-    rank, world = dist.get_rank(), dist.get_world_size()
-    os.environ.update(RANK=str(rank), LOCAL_RANK=str(rank), WORLD_SIZE=str(world))
-    maybe_init_distributed_environment_and_model_parallel(tp_size=world, sp_size=1)
-    _server_args()
     device = torch.device("cuda", torch.cuda.current_device())
     config = MiniMaxH3DiTConfig(arch_config=MiniMaxH3DiTArchConfig(num_layers=layers))
     with torch.device(device):
         model = sm.MiniMaxH3DiTModel(config=config, hf_config={}, quant_config=None)
-    gen = torch.Generator(device=device).manual_seed(seed + rank)
+    gen = torch.Generator(device=device).manual_seed(seed + dist.get_rank())
     with torch.no_grad():
         for param in model.parameters():
             noise = torch.randn(param.shape, generator=gen, device=device, dtype=torch.float32)
@@ -429,6 +417,35 @@ def full_model_target(collective, *, layers: int = 2, forwards: int = 2, seed: i
         video, audio = model(**kwargs)
         return torch.cat((video.flatten(), audio.flatten())).cpu()
 
+    return model, run
+
+
+def _init_rank():
+    import torch.distributed as dist
+    from sglang.multimodal_gen.runtime.distributed.parallel_state import (
+        maybe_init_distributed_environment_and_model_parallel,
+    )
+
+    rank, world = dist.get_rank(), dist.get_world_size()
+    os.environ.update(RANK=str(rank), LOCAL_RANK=str(rank), WORLD_SIZE=str(world))
+    maybe_init_distributed_environment_and_model_parallel(tp_size=world, sp_size=1)
+    _server_args()
+    return rank, world
+
+
+def full_model_target(collective, *, layers: int = 2, forwards: int = 2, seed: int = 0):
+    """One rank: SGLang's whole H3 DiT with the adapter installed (see the module docstring).
+
+    Returns the adapter's report and readback (``forwards`` model forwards), whether the bound
+    forwards are finite and repeat bitwise, and whether ``remove()`` restores SGLang's output.
+    The weights are seeded per rank (each rank's own shards), so outputs are not compared across
+    TP sizes; the operators' bytes are compared by ``rollout_target``.
+    """
+
+    from rl_engine.integrations.engines.rollout.sglang import h3 as adapter
+
+    _, world = _init_rank()
+    model, run = _whole_model(layers, seed)
     out: dict = {"tp": world, "layers": layers, "forwards": forwards}
     with torch.no_grad():
         native = run()
@@ -444,3 +461,104 @@ def full_model_target(collective, *, layers: int = 2, forwards: int = 2, seed: i
     out["batching_restored"] = "_can_batch_block_adaln" not in model.__dict__
     out["native_max_abs_diff"] = (bound[0].double() - native.double()).abs().max().item()
     return out
+
+
+def plugin_target(
+    collective, *, plugin_dir: str, layers: int = 2, forwards: int = 2, seed: int = 0
+):
+    """One rank: the SGLang plugin (``plugin.py``) as SGLang's worker bootstrap runs it.
+
+    ``plugin_dir`` holds a ``*.dist-info`` that declares RL-Kernel's entry point in the group
+    ``sglang.multimodal_gen.plugins``, as an install of RL-Kernel does. With
+    ``RL_KERNEL_SGLANG_H3_STRICT=1`` this rank runs SGLang's own ``load_plugins()`` and
+    ``apply_plugin_hooks()``, then calls the hooked ``TransformerLoader.load_customized``. Only the
+    loader's body is replaced, by one that returns the seeded whole DiT (``_whole_model``): there is
+    no H3 checkpoint here. ``collective`` is unused: the plugin builds its own collective over
+    SGLang's TP group.
+
+    Then: ``forwards`` guarded forwards, the readback file, a request with Spectrum on (refused
+    before the forward), and a bound forward put back to SGLang's own (the guard's readback stops
+    the forward).
+    """
+
+    import importlib
+    import sys
+    from types import SimpleNamespace
+
+    from rl_engine.integrations.engines.rollout.sglang import plugin
+
+    rank, world = _init_rank()
+    sys.path.insert(0, plugin_dir)
+    importlib.invalidate_caches()
+    os.environ[plugin.ENABLE] = "1"
+    readback = os.path.join(plugin_dir, f"readback-tp{world}")
+    os.environ[plugin.READBACK_DIR] = readback
+
+    from sglang.multimodal_gen.runtime.loader.component_loaders import transformer_loader as tl
+    from sglang.multimodal_gen.runtime.managers.forward_context import set_forward_context
+    from sglang.multimodal_gen.runtime.platforms import plugins as sp
+
+    built: dict = {}
+
+    def load_customized(
+        self, component_model_path, server_args, component_name, cpu_offload_flag=False
+    ):
+        model, run = _whole_model(layers, seed)
+        built["run"] = run
+        return model
+
+    tl.TransformerLoader.load_customized = load_customized
+    sp.load_plugins()
+    sp.apply_plugin_hooks()
+    out: dict = {"tp": world, "hooked": plugin.TARGET in sp.HookRegistry._patched}
+    loader = object.__new__(tl.TransformerLoader)
+    server_args = SimpleNamespace(dit_cpu_offload=False, use_fsdp_inference=False)
+    with torch.no_grad():
+        model = loader.load_customized("unused", server_args, "transformer")
+        handle = getattr(model, plugin.HANDLE, None)
+        out["installed"] = handle is not None
+        if handle is None:
+            return out
+        run = built["run"]
+        outputs = [run() for _ in range(forwards)]
+        out["forwards"] = handle.forwards
+        out["readback"] = handle.readback(forwards)
+        out["repeatable"] = all(torch.equal(o, outputs[0]) for o in outputs)
+        written = json.loads(Path(readback, f"rank{rank}.json").read_text())
+        out["readback_file_forwards"] = written["forwards"]
+        out["readback_file_calls"] = sorted(set(written["calls"].values()))
+        out["overrides"] = written["overrides"]
+        with set_forward_context(0, None, SimpleNamespace(enable_spectrum=True)):
+            try:
+                run()
+                out["spectrum_refused"] = None
+            except RuntimeError as error:
+                out["spectrum_refused"] = str(error)
+        out["forwards_after_refusal"] = handle.forwards
+        # A bound forward that SGLang's model would bypass: put SGLang's own back on one module.
+        del model.final_layer.__dict__["forward"]
+        try:
+            run()
+            out["bypass_caught"] = None
+        except RuntimeError as error:
+            out["bypass_caught"] = str(error)
+        handle.remove()
+        out["forward_restored"] = "forward" not in model.__dict__
+    return out
+
+
+def write_plugin_dist(directory: str) -> str:
+    """A ``*.dist-info`` declaring RL-Kernel's SGLang entry point, as ``pyproject.toml`` does."""
+
+    root = Path(directory)
+    info = root / "rl_kernel_sglang_plugin_test-0.0.dist-info"
+    info.mkdir(parents=True, exist_ok=True)
+    (info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: rl-kernel-sglang-plugin-test\nVersion: 0.0\n"
+    )
+    (info / "entry_points.txt").write_text(
+        "[sglang.multimodal_gen.plugins]\n"
+        "rl_kernel_h3 = "
+        "rl_engine.integrations.engines.rollout.sglang.plugin:register_sglang_plugin\n"
+    )
+    return str(root)

@@ -56,7 +56,9 @@ Before any forward changes, it refuses what SGLang can put in the way of a bound
 
 ``check_sglang_server_args`` refuses the server settings that change what the DiT computes or
 bypass a bound forward: ``enable_torch_compile`` / ``regional_compile``,
-``enable_breakable_cuda_graph``, ``cache_dit_config``, quantization and an unmerged LoRA.
+``enable_breakable_cuda_graph``, ``cache_dit_config``, quantization and an unmerged LoRA, and the
+ones that move or shard the DiT's weights: CPU or layerwise offload of the transformer and FSDP
+inference.
 ``check_sglang_sampling_params`` refuses the per-request step skipping of Spectrum and TeaCache.
 
 Under TP, ``MiniMaxH3DiTModel`` batches the AdaLN projections of all blocks and hands each block
@@ -145,6 +147,8 @@ class H3SGLangRolloutHandle(H3RolloutHandle):
 
     # Calls of each bound forward since install (or ``calls.clear()``), by module path.
     calls: Counter = field(default_factory=Counter)
+    # Model forwards seen by the SGLang plugin's forward guard (``plugin.py``).
+    forwards: int = 0
     implementations: dict[str, str] = field(default_factory=dict)
     overrides: list[str] = field(default_factory=list)
     _attributes: list = field(default_factory=list)  # (object, attribute, its own value or _ABSENT)
@@ -175,6 +179,7 @@ class H3SGLangRolloutHandle(H3RolloutHandle):
     def report(self) -> dict:
         out = super().report()
         out["calls"] = {name: self.calls[name] for name in self.patched}
+        out["forwards"] = self.forwards
         out["implementations"] = dict(self.implementations)
         out["overrides"] = list(self.overrides)
         return out
@@ -414,6 +419,12 @@ def check_sglang_server_args(server_args: Any) -> None:
         refusals.append("quantization is set")
     if getattr(server_args, "lora_path", None):
         refusals.append("lora_path is set (load a checkpoint with the adapter merged)")
+    for flag in ("dit_cpu_offload", "dit_layerwise_offload", "use_fsdp_inference"):
+        if getattr(server_args, flag, False):
+            refusals.append(f"{flag} is set (the strict kernels read resident CUDA weights)")
+    for flag in ("cpu_offload_components", "layerwise_offload_components"):
+        if "transformer" in (getattr(server_args, flag, None) or ()):
+            refusals.append(f"{flag} names the transformer")
     if refusals:
         raise RuntimeError("strict H3 rollout on SGLang: " + "; ".join(refusals))
 

@@ -11,7 +11,9 @@ and output, and the refiner norms) it records whether SGLang's native forward an
 equal the training arithmetic bitwise, whether each gives the same rows when it sees only a prefix
 of them, and whether each TP size equals TP1 (the reference). At each TP size it also runs
 SGLang's whole DiT (``full_model_target``: 2 blocks at H3's widths, seeded weights) and records the
-adapter's readback: whether every bound forward ran once per model forward.
+adapter's readback: whether every bound forward ran once per model forward. And it runs the
+SGLang plugin through SGLang's own plugin lifecycle (``plugin_target``): entry point, hook,
+install, guarded forwards, the Spectrum refusal and a caught bypass.
 
     python tools/validation/models/h3_sglang_rollout_report.py --out report.json \
         [--rows 261] [--prefix-rows 37] [--tp 1 2 4]
@@ -90,6 +92,22 @@ def full_model(ranks: list[dict]) -> dict:
     return out
 
 
+PLUGIN_KEYS = (
+    "hooked",
+    "installed",
+    "forwards",
+    "readback",
+    "repeatable",
+    "readback_file_forwards",
+    "readback_file_calls",
+    "overrides",
+    "spectrum_refused",
+    "forwards_after_refusal",
+    "bypass_caught",
+    "forward_restored",
+)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, required=True)
@@ -131,6 +149,11 @@ def main() -> None:
         report["tp"][str(tp)]["full_model"] = full_model(
             run_world(tp, hs.full_model_target, {}, layers=2, forwards=2, seed=args.seed)
         )
+        plugin_dir = hs.write_plugin_dist(str(args.out.parent / "plugin-dist"))
+        ranks = run_world(tp, hs.plugin_target, {}, plugin_dir=plugin_dir, seed=args.seed)
+        report["tp"][str(tp)]["plugin"] = {
+            f"rank{rank}": {k: r.get(k) for k in PLUGIN_KEYS} for rank, r in enumerate(ranks)
+        }
     if 1 in results:
         base = results[1][0]
         for tp in (t for t in results if t > 1):

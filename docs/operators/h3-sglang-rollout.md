@@ -7,7 +7,8 @@ RFC #420 row `sglang_runtime_adapter_h3`: the strict H3 operators inside SGLang'
 
 | Where | What |
 | --- | --- |
-| `integrations/engines/rollout/sglang/h3.py` | `install_h3_sglang_rollout`, `check_sglang_server_args`, `report` |
+| `integrations/engines/rollout/sglang/h3.py` | `install_h3_sglang_rollout`, `check_sglang_server_args`, `check_sglang_sampling_params`, `report` |
+| `integrations/engines/rollout/sglang/plugin.py` | the SGLang diffusion plugin: the adapter inside SGLang's own workers |
 | `validation/models/h3_sglang_rollout.py` | block 0, the final layer and the refiner norms on SGLang's modules: native, bound and training arithmetic; SGLang's whole DiT with the readback |
 | `tools/validation/models/h3_sglang_rollout_report.py` | the JSON report at any TP sizes (TP1 is the reference) |
 
@@ -76,7 +77,10 @@ or change what it computes. In strict mode one error names every refused module:
 Without `strict`, a refused module keeps SGLang's forward and is listed in `handle.skipped`.
 
 `check_sglang_server_args(server_args)` refuses `enable_torch_compile`, `regional_compile`,
-`enable_breakable_cuda_graph`, `cache_dit_config`, quantization and `lora_path`.
+`enable_breakable_cuda_graph`, `cache_dit_config`, quantization and `lora_path`, and the settings
+that move or shard the DiT's weights: `dit_cpu_offload`, `dit_layerwise_offload`,
+`use_fsdp_inference`, and `cpu_offload_components` / `layerwise_offload_components` naming the
+transformer.
 `check_sglang_sampling_params(sampling_params)` refuses a request's `enable_spectrum` and
 `enable_teacache`: both skip transformer steps.
 
@@ -92,6 +96,33 @@ The handle reads back what ran, not only what was installed:
 - `handle.assert_ran(forwards)`: raises on any of those.
 
 `report(model, handle)` includes all of these.
+
+## In an SGLang server
+
+RL-Kernel declares an SGLang diffusion plugin (`pyproject.toml`, entry-point group
+`sglang.multimodal_gen.plugins`, `rl_kernel_h3`). SGLang runs its plugins in every worker before
+the worker loads a model. The plugin does nothing unless `RL_KERNEL_SGLANG_H3_STRICT=1`:
+
+```bash
+RL_KERNEL_SGLANG_H3_STRICT=1 RL_KERNEL_SGLANG_H3_READBACK_DIR=/path/to/readback \
+  sglang serve --model-path <MiniMax-H3> --dit-cpu-offload false ...
+```
+
+Then, in every worker, each `MiniMaxH3DiTModel` that `TransformerLoader.load_customized` returns
+gets:
+
+- `check_sglang_server_args` on the worker's settings (SGLang may turn `dit_cpu_offload` on by
+  itself on small GPUs; the strict path refuses it);
+- `install_h3_sglang_rollout` in strict mode at SGLang's TP size, with a `DeterministicCollective`
+  over SGLang's TP group (`RL_KERNEL_SGLANG_H3_COLLECTIVE_BYTES` sizes its buffer, default 512 MiB:
+  a row-parallel reduction exchanges FP32 partials of rows x 5376);
+- a forward guard. Before each DiT forward it refuses the request's Spectrum / TeaCache. After it,
+  it asserts the readback: every bound forward ran once per DiT forward so far. A bound forward
+  that SGLang went around, or a step it skipped, stops the worker instead of serving a non-strict
+  result. With `RL_KERNEL_SGLANG_H3_READBACK_DIR`, each worker writes its report to
+  `rank<global rank>.json` after every forward.
+
+The handle is `model.rl_kernel_h3_handle`.
 
 ## Evidence
 
@@ -121,6 +152,15 @@ MLP outputs; the refiner blocks' norm weights are seeded (not in the pinned extr
   Over two forwards each bound forward ran exactly twice on every rank, the output is finite and repeats
   bitwise, and `remove()` restores SGLang's output and its batching switch. The weights are seeded,
   so this checks that every bound path runs, not the bytes; the bytes are the table above.
+- **The plugin in SGLang's worker lifecycle** (`plugin_target`), at TP1 and TP2: RL-Kernel's entry
+  point, declared in a `dist-info` as an install declares it, is found by SGLang's own
+  `load_plugins()` / `apply_plugin_hooks()` and hooks `TransformerLoader.load_customized`. The
+  loader's body is replaced by one that returns the seeded whole DiT, since there is no H3
+  checkpoint here. The adapter is installed with the collective over SGLang's TP group; two guarded
+  forwards read back clean and write the readback file; a request with Spectrum is refused before
+  the forward; with one bound forward put back to SGLang's own, the next forward is stopped
+  (`final_layer: ran 2 times in 3 forwards`); `remove()` restores the model's forward. Not run: a
+  server launched on the released checkpoint.
 - **Row invariance.** Every bound output gives the same rows on a prefix of the rows. SGLang's
   own `out_proj` / `fc2` do not at TP1.
 - **`remove()`** restores SGLang's forward bitwise.
