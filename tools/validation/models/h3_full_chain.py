@@ -617,6 +617,69 @@ def toy(args: argparse.Namespace) -> dict[str, Any]:
     return out
 
 
+# --- text-check ---------------------------------------------------------------------------
+
+
+def text_check(args: argparse.Namespace) -> dict[str, Any]:
+    """qwen3vl_layer50_contract features of a fixture request against a pinned features file."""
+
+    from safetensors import safe_open
+
+    request = fixture_request(args.workflow, args.steps)
+    text_request = fc.prepare(request).text_request
+    t0 = time.time()
+    conditioner = fc.Qwen3VLLayer50Conditioner.from_release(args.text_root, device=args.device)
+    load_s = time.time() - t0
+    t0 = time.time()
+    ours = conditioner.encode(text_request)
+    encode_s = time.time() - t0
+    with safe_open(args.pinned, framework="pt") as handle:
+        meta = json.loads(handle.metadata()["rlkernel.h3.text_features"])
+        pinned_embeds = handle.get_tensor("prompt_embeds")
+        pinned_tags = handle.get_tensor("text_token_tags")
+    a, b = ours.prompt_embeds.detach().cpu(), pinned_embeds
+    same_shape = a.shape == b.shape and a.dtype == b.dtype
+    report: dict[str, Any] = {
+        "schema": SCHEMA,
+        "kind": "text-check",
+        "workflow": args.workflow,
+        "device": args.device,
+        "pinned": {
+            "file_sha256": _sha_file(Path(args.pinned)),
+            "producer_device": meta["producer"].get("device"),
+            "producer_block": meta["producer"].get("block"),
+            "conditioner_input_sha256": meta["conditioner_input_sha256"],
+        },
+        "contract": {k: v for k, v in ours.provenance.items() if k not in ("runtime",)},
+        "runtime": ours.provenance.get("runtime"),
+        "same_conditioner_input": meta["conditioner_input_sha256"] == text_request.input_sha256,
+        "tags_equal": torch.equal(ours.text_token_tags, pinned_tags.long()),
+        "shape": list(a.shape),
+        "pinned_shape": list(b.shape),
+        "bitwise_equal": bool(same_shape and torch.equal(a, b)),
+        "seconds": {"load": round(load_s, 1), "encode": round(encode_s, 1)},
+        "source": source_state(),
+    }
+    if same_shape and not report["bitwise_equal"]:
+        diff = (a.double() - b.double()).abs()
+        rows = (a != b).reshape(a.shape[1], -1).any(dim=1)
+        first = int(torch.nonzero(rows)[0, 0])
+        tags = ours.text_token_tags
+        report.update(
+            max_abs_diff=float(diff.max()),
+            mean_abs_diff=float(diff.mean()),
+            differing_elements=int((a != b).sum()),
+            numel=int(a.numel()),
+            differing_tokens=int(rows.sum()),
+            first_differing_token=first,
+            first_differing_token_tag=int(tags[first]),
+            differing_text_tokens=int(rows[tags == pl.TEXT_TAG].sum()),
+            differing_vision_tokens=int(rows[tags == pl.VIDEO_TAG].sum()),
+            relative_l2=float((a.double() - b.double()).norm() / b.double().norm()),
+        )
+    return report
+
+
 # --- plot ---------------------------------------------------------------------------------
 
 EQUAL, DIFFERS, INK, INK2, SURFACE = "#d9d8d3", "#2a78d6", "#0b0b0b", "#52514e", "#fcfcfb"
@@ -772,6 +835,16 @@ def main() -> None:
     p.add_argument("--allow-text-source-change", action="store_true")
     p.add_argument("--report", required=True)
 
+    p = sub.add_parser("text-check")
+    p.add_argument("--workflow", choices=("fl2va", "ref2va"), required=True)
+    p.add_argument(
+        "--text-root", required=True, help="dir with text_encoder/ tokenizer/ processor/"
+    )
+    p.add_argument("--pinned", required=True, help="pinned features (pin-text output)")
+    p.add_argument("--device", default="cuda")
+    p.add_argument("--steps", type=int, default=4)
+    p.add_argument("--report", required=True)
+
     p = sub.add_parser("plot")
     p.add_argument("lhs")
     p.add_argument("rhs")
@@ -785,9 +858,14 @@ def main() -> None:
     args = parser.parse_args()
     if getattr(args, "offload", False) and getattr(args, "stream_blocks", False):
         parser.error("--offload and --stream-blocks are alternatives")
-    handler = {"pin-text": pin_text, "run": run, "compare": compare, "toy": toy, "plot": plot}[
-        args.command
-    ]
+    handler = {
+        "pin-text": pin_text,
+        "run": run,
+        "compare": compare,
+        "toy": toy,
+        "plot": plot,
+        "text-check": text_check,
+    }[args.command]
     report = handler(args)
     Path(args.report).write_text(json.dumps(report, indent=1, sort_keys=True, default=str) + "\n")
     print(json.dumps({k: report[k] for k in report if k in ("kind", "summary", "first_drift")}))
