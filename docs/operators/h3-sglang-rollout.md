@@ -9,7 +9,7 @@ RFC #420 row `sglang_runtime_adapter_h3`: the strict H3 operators inside SGLang'
 | --- | --- |
 | `integrations/engines/rollout/sglang/h3.py` | `install_h3_sglang_rollout`, `check_sglang_server_args`, `report` |
 | `validation/models/h3_sglang_rollout.py` | block 0, the final layer and the refiner norms on SGLang's modules: native, bound and training arithmetic |
-| `tools/validation/models/h3_sglang_rollout_report.py` | the JSON report at TP1 and TP2 |
+| `tools/validation/models/h3_sglang_rollout_report.py` | the JSON report at any TP sizes (TP1 is the reference) |
 
 ## What is bound
 
@@ -49,6 +49,11 @@ embeddings, time embedder, output heads). The report lists them as `external`.
 Before any forward changes, `install_h3_sglang_rollout` refuses what would bypass a bound forward
 or change what it computes. In strict mode one error names every refused module:
 
+- an SGLang version other than those in `TESTED_SGLANG_VERSIONS` (0.5.21), or no SGLang, also
+  without `strict`: the bound block and final-layer forwards replace SGLang's own and call its
+  `adaln_proj`, `attn`, `mlp` and `_project` with the signatures they were validated on, so a
+  changed SGLang module would otherwise be bypassed without an error. A version is added after
+  the report tool passes on it;
 - a compiled module (`torch.compile` or `nn.Module.compile`), also without `strict`;
 - a LoRA wrapper at a bound linear (it adds the LoRA output in its own forward);
 - a quantized linear; a block with quantized `qkv_proj` / `fc1` (SGLang's mxfp8 modulation path);
@@ -67,24 +72,24 @@ Without `strict`, a refused module keeps SGLang's forward and is listed in `hand
 
 ## Evidence
 
-NVIDIA B200, torch 2.13.0+cu130, SGLang 0.5.21 (`sglang-kernel` 0.4.7), pinned
-`MiniMax-H3@42ed227` block 0, final layer and refiner final norm loaded through SGLang's loader,
-261 rows, a prefix of 37 rows, two timesteps. The block runs with stand-ins for its attention and
+NVIDIA B200 (one GPU per TP rank), torch 2.13.0+cu130, SGLang 0.5.21 (`sglang-kernel` 0.4.7),
+pinned `MiniMax-H3@42ed227` block 0, final layer and refiner final norm loaded through SGLang's
+loader, 261 rows, a prefix of 37 rows, two timesteps. The block runs with stand-ins for its attention and
 MLP outputs; the refiner blocks' norm weights are seeded (not in the pinned extract).
 
-| Output | Bound = training, TP1 / TP2 | Bound TP2 = TP1 | SGLang native = training, TP1 / TP2 (max abs diff) | Native TP2 = TP1 |
+| Output | Bound = training, TP1 / TP2 / TP4 | Bound TP2, TP4 = TP1 | SGLang native = training, TP1 / TP2 / TP4 (max abs diff) | Native TP2, TP4 = TP1 |
 | --- | --- | --- | --- | --- |
-| `qkv_proj` | yes / yes | yes | yes / yes | yes |
-| `out_proj` | yes / yes | yes | no (0.0625) / no (0.125) | no |
-| `fc1` | yes / yes | yes | yes / yes | yes |
-| `fc2` | yes / yes | yes | no (0.25) / no (0.25) | no |
-| block AdaLN table | yes / yes | yes | no (0.03125) / no (0.03125) | yes |
-| block norm1 (modulated) | yes / yes | yes | no (0.125) / no (0.125) | yes |
-| block norm2 (modulated) | yes / yes | yes | no (0.25) / no (0.25) | yes |
-| block output | yes / yes | yes | no (0.0625) / no (0.0625) | yes |
-| final AdaLN table | yes / yes | yes | no (0.03125) / no (0.03125) | no |
-| final layer output | yes / yes | yes | no (0.0078) / no (0.0234) | no |
-| refiner norms (3) | yes / yes | yes | yes / yes | yes |
+| `qkv_proj` | yes / yes / yes | yes | yes / yes / yes | yes |
+| `out_proj` | yes / yes / yes | yes | no (0.0625) / no (0.125) / no (0.125) | no |
+| `fc1` | yes / yes / yes | yes | yes / yes / yes | yes |
+| `fc2` | yes / yes / yes | yes | no (0.25) / no (0.25) / no (0.25) | no |
+| block AdaLN table | yes / yes / yes | yes | no (0.03125) at every TP size | yes |
+| block norm1 (modulated) | yes / yes / yes | yes | no (0.125) at every TP size | yes |
+| block norm2 (modulated) | yes / yes / yes | yes | no (0.25) at every TP size | yes |
+| block output | yes / yes / yes | yes | no (0.0625) at every TP size | yes |
+| final AdaLN table | yes / yes / yes | yes | no (0.03125) at every TP size | no |
+| final layer output | yes / yes / yes | yes | no (0.0078) / no (0.0234) / no (0.0234) | no |
+| refiner norms (3) | yes / yes / yes | yes | yes / yes / yes | yes |
 
 - **Row invariance.** Every bound output gives the same rows on a prefix of the rows. SGLang's
   own `out_proj` / `fc2` do not at TP1.
@@ -95,6 +100,26 @@ MLP outputs; the refiner blocks' norm weights are seeded (not in the pinned extr
   norms, the block output and the final layer comes from SGLang's AdaLN projection (a cuBLAS GEMM).
   Like the native Q/K/V and gate/up, the native norm and gate equalities are measured, not
   guaranteed; the adapter binds them so they do not depend on SGLang's kernels.
+
+### What the equality covers
+
+A bound module runs the training operator's own kernel, whose reduction order is fixed and does not
+depend on the row count, the row position or the TP shard. So it gives the training bytes for the
+same inputs, under these conditions:
+
+- **The same inputs.** Some inputs of the bound operators come from external ones: `out_proj`
+  takes the attention output, `fc2` the SwiGLU output, the gated residuals the attention and MLP
+  outputs, and the AdaLN projections `adaln_input`, which SGLang computes from its time embedder.
+  Where those differ from training, so do the bound outputs; this is not yet a bitwise SGLang
+  trajectory.
+- **The same GPU architecture.** The accumulation order inside one BF16 tensor-core instruction is
+  the architecture's, so training and rollout are compared on the same architecture. The adapter
+  was run on B200 only.
+- **`strict`**, a validated SGLang version, and server settings that pass
+  `check_sglang_server_args` (the adapter does not run a server).
+
+TP8 is not measured. The bound kernels' TP layouts (whole weight rows per column shard, the fixed
+8-unit row-parallel reduction) do not depend on the TP size, which TP2 and TP4 confirm.
 
 Tests: `tests/models/minimax_h3/test_h3_sglang_rollout.py`. The refusal and server-setting tests
 run on CPU; a CUDA test checks the bound AdaLN paths against the training operators on stand-in
