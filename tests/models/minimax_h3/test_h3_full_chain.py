@@ -58,6 +58,7 @@ def clean_run(workflow: str, decode: bool = False) -> fc.ChainRun:
             _request(workflow),
             comps,
             label=f"{workflow}-clean",
+            text_source=toy.TEXT_SOURCE,
             keep_tensors=True,
             decode=decode,
         )
@@ -70,6 +71,7 @@ def injected(workflow: str, inject: fc.DriftInjection, decode: bool = False) -> 
         _request(workflow),
         comps,
         label="injected",
+        text_source=toy.TEXT_SOURCE,
         keep_tensors=True,
         inject=inject,
         decode=decode,
@@ -83,7 +85,11 @@ def injected(workflow: str, inject: fc.DriftInjection, decode: bool = False) -> 
 def test_repeat_run_is_bitwise_equal_at_every_stage(workflow: str) -> None:
     first = clean_run(workflow, decode=True)
     again = fc.run_chain(
-        _request(workflow), toy.components(_variant(workflow)), label="again", keep_tensors=True
+        _request(workflow),
+        toy.components(_variant(workflow)),
+        label="again",
+        keep_tensors=True,
+        text_source=toy.TEXT_SOURCE,
     )
     report = fc.compare(
         first.artifact, again.artifact, tensors_lhs=first.tensors, tensors_rhs=again.tensors
@@ -295,6 +301,7 @@ def test_capture_keeps_only_the_selected_probe_tensors() -> None:
         toy.fl2va_request(),
         toy.components("FL2VA"),
         label="capture",
+        text_source=toy.TEXT_SOURCE,
         capture=lambda step, path: step == 1 and path == "transformer_blocks.2",
         decode=False,
     )
@@ -307,7 +314,7 @@ def test_capture_keeps_only_the_selected_probe_tensors() -> None:
 def test_variant_mismatch_is_refused_before_any_forward() -> None:
     comps = toy.components("FL2VA", denoiser_variant="Ref2VA")
     with pytest.raises(pl.VariantMismatch):
-        fc.run_chain(toy.fl2va_request(), comps, label="mixed")
+        fc.run_chain(toy.fl2va_request(), comps, label="mixed", text_source=toy.TEXT_SOURCE)
     assert comps.denoiser.model.calls == 0
 
 
@@ -321,8 +328,21 @@ def test_bound_modes_fail_closed_on_a_model_that_is_not_the_full_h3(mode: str) -
     comps.denoiser = fc.TransformerDenoiser(model, variant="FL2VA", mode=mode)
     refused = "full H3 requires|50 distinct|strict H3 needs CUDA parameters"
     with pytest.raises((ValueError, RuntimeError), match=refused):
-        fc.run_chain(toy.fl2va_request(), comps, label=mode, decode=False)
+        fc.run_chain(
+            toy.fl2va_request(), comps, label=mode, decode=False, text_source=toy.TEXT_SOURCE
+        )
     assert model.calls == 0
+
+
+def test_declared_text_source_must_match_the_conditioner() -> None:
+    with pytest.raises(fc.TextSourceMismatch, match="declared text source"):
+        fc.run_chain(
+            toy.fl2va_request(),
+            toy.components("FL2VA"),
+            label="lie",
+            text_source=fc.TEXT_SOURCE_QWEN3VL,  # the synthetic conditioner is not the contract
+            decode=False,
+        )
 
 
 def test_pinned_text_features_replay_and_refuse_other_inputs(tmp_path: Path) -> None:
@@ -341,17 +361,26 @@ def test_pinned_text_features_replay_and_refuse_other_inputs(tmp_path: Path) -> 
         toy.fl2va_request(),
         toy.components("FL2VA", text=pinned),
         label="pinned",
+        text_source=fc.TEXT_SOURCE_PINNED,
         keep_tensors=True,
         decode=False,
     )
-    report = fc.compare(clean.artifact, run.artifact)
+    with pytest.raises(fc.TextSourceMismatch):
+        fc.compare(clean.artifact, run.artifact)  # a replay with another source is refused
+    report = fc.compare(clean.artifact, run.artifact, allow_text_source_change=True)
     assert report["first_drift"] is None and report["gate"]["hard_gate"] == "pass"
+    assert report["text_sources"] == ["synthetic (tests)", fc.TEXT_SOURCE_PINNED]
     stage = {s["stage"]: s for s in run.artifact["stages"]}["text_conditions"]
     assert stage["provenance"]["source"] == fc.TEXT_SOURCE_PINNED
     assert stage["provenance"]["file_sha256"] == file_sha
     other = fc.FL2VARequest(**{**toy.fl2va_request().__dict__, "prompt": "another prompt"})
     with pytest.raises(fc.PinnedFeaturesMismatch, match="another prompt|other media"):
-        fc.run_chain(other, toy.components("FL2VA", text=pinned), label="x")
+        fc.run_chain(
+            other,
+            toy.components("FL2VA", text=pinned),
+            label="x",
+            text_source=fc.TEXT_SOURCE_PINNED,
+        )
     with pytest.raises(fc.PinnedFeaturesMismatch, match="expected"):
         fc.PinnedTextFeatures(path, expected_sha256="0" * 64).encode(
             fc.TextRequest("fl2va", "p", (), (), "0" * 64)
@@ -449,8 +478,8 @@ def test_tiny_diffusers_transformer_chain_localizes_a_block_drift() -> None:
         return c
 
     req = toy.ref2va_request(steps=3)
-    a = fc.run_chain(req, comps(), label="a", keep_tensors=True)
-    b = fc.run_chain(req, comps(), label="b", keep_tensors=True)
+    a = fc.run_chain(req, comps(), label="a", keep_tensors=True, text_source=toy.TEXT_SOURCE)
+    b = fc.run_chain(req, comps(), label="b", keep_tensors=True, text_source=toy.TEXT_SOURCE)
     assert fc.compare(a.artifact, b.artifact)["first_drift"] is None
     names = [name for name, _ in a.artifact["transformer_probe"]["steps"][0]]
     assert names[:5] == [
@@ -462,10 +491,111 @@ def test_tiny_diffusers_transformer_chain_localizes_a_block_drift() -> None:
     ]
     assert names[5:7] == ["transformer_blocks.0", "transformer_blocks.1"]
     inject = fc.DriftInjection("denoise", step=1, module="transformer_blocks.1", row=40)
-    c = fc.run_chain(req, comps(), label="c", keep_tensors=True, inject=inject)
+    c = fc.run_chain(
+        req, comps(), label="c", keep_tensors=True, inject=inject, text_source=toy.TEXT_SOURCE
+    )
     drift = fc.first_drift(a.artifact, c.artifact, tensors_lhs=a.tensors, tensors_rhs=c.tensors)
     assert drift["step"] == 1 and drift["transformer"]["module"] == "transformer_blocks.1"
     assert drift["transformer"]["row"]["packed_row"] == 40
+
+
+# --- qwen3vl_layer50_contract as the text source ------------------------------------------
+
+
+QWEN3VL_DIR_ENV = "RL_KERNEL_H3_QWEN3VL_DIR"
+
+
+@pytest.fixture(scope="module")
+def tiny_qwen3vl_conditioner():
+    """The contract on a tiny random Qwen3-VL (53 layers) with the released tokenizer/processor."""
+
+    transformers = pytest.importorskip("transformers")
+    if not hasattr(transformers, "Qwen3VLForConditionalGeneration"):
+        pytest.skip("transformers without Qwen3-VL")
+    root = os.environ.get(QWEN3VL_DIR_ENV)
+    if not root:
+        pytest.skip(f"{QWEN3VL_DIR_ENV} not set (tokenizer/ and processor/ of the release)")
+    from rl_engine.models.minimax_h3 import qwen3vl_text as qt
+    from tests.models.minimax_h3.test_h3_qwen3vl_layer50 import _tiny_config
+
+    torch.manual_seed(0)
+    model = transformers.Qwen3VLForConditionalGeneration(_tiny_config()).eval()
+    return fc.Qwen3VLLayer50Conditioner(
+        qt.Qwen3VLLayer50Encoder(model, check_release=False),
+        transformers.AutoTokenizer.from_pretrained(str(Path(root) / "tokenizer")),
+        transformers.AutoProcessor.from_pretrained(str(Path(root) / "processor")),
+    )
+
+
+def _diffusers_text_step(conditioner, workflow: str, prepared: fc.PreparedMedia):
+    """Diffusers' own text-encoder block on the same model, tokenizer and processor."""
+
+    from types import SimpleNamespace
+
+    encoders = pytest.importorskip("diffusers.modular_pipelines.minimax_h3.encoders")
+    from diffusers.modular_pipelines.modular_pipeline import PipelineState
+
+    components = SimpleNamespace(
+        text_encoder=conditioner.encoder.text_encoder,
+        processor=conditioner.processor,
+        tokenizer=conditioner.tokenizer,
+        text_tag=pl.TEXT_TAG,
+        video_tag=pl.VIDEO_TAG,
+        text_encoder_layer=50,
+        fps=pl.FPS,
+        _execution_device=torch.device("cpu"),
+    )
+    state = PipelineState()
+    state.set("prompt", prepared.text_request.prompt)
+    if workflow == "fl2va":
+        block = encoders.MiniMaxH3FL2VATextEncoderStep()
+        state.set("keyframes", list(prepared.text_request.media))
+    else:
+        block = encoders.MiniMaxH3Ref2VATextEncoderStep()
+        state.set("normalized_references", list(prepared.normalized))
+    with torch.no_grad():
+        block(components, state)
+    return state.get("prompt_embeds"), state.get("text_token_tags")
+
+
+@pytest.mark.parametrize("workflow", ["fl2va", "ref2va"])
+def test_qwen3vl_source_matches_the_diffusers_text_step(tiny_qwen3vl_conditioner, workflow):
+    prepared = fc.prepare(_request(workflow))
+    ours = tiny_qwen3vl_conditioner.encode(prepared.text_request)
+    assert ours.provenance["source"] == fc.TEXT_SOURCE_QWEN3VL
+    assert ours.provenance["contract_id"] == "h3-qwen3vl-layer50-v1"
+    assert ours.provenance["feature_sha256"] == fc.tensor_digest(ours.prompt_embeds)
+    ids, tags, _ = tiny_qwen3vl_conditioner.presentation(prepared.text_request)
+    assert ours.text_token_tags.tolist() == tags and len(ids) == len(tags)
+    assert (ours.text_token_tags == pl.VIDEO_TAG).sum() > 0  # vision blocks are tagged video
+    embeds, ref_tags = _diffusers_text_step(tiny_qwen3vl_conditioner, workflow, prepared)
+    assert torch.equal(ours.text_token_tags, ref_tags.long())
+    assert torch.equal(ours.prompt_embeds, embeds), "contract features differ from Diffusers"
+
+
+def test_chain_with_the_qwen3vl_source_records_the_contract(tiny_qwen3vl_conditioner) -> None:
+    comps = toy.components("FL2VA", text=tiny_qwen3vl_conditioner, text_dim=64)
+    run = fc.run_chain(
+        toy.fl2va_request(),
+        comps,
+        label="qwen3vl",
+        text_source=fc.TEXT_SOURCE_QWEN3VL,
+        keep_tensors=True,
+        decode=False,
+    )
+    stage = {s["stage"]: s for s in run.artifact["stages"]}["text_conditions"]
+    assert stage["provenance"]["source"] == fc.TEXT_SOURCE_QWEN3VL
+    assert stage["provenance"]["contract_id"] == "h3-qwen3vl-layer50-v1"
+    assert dict(stage["components"])["prompt_embeds"] == stage["provenance"]["feature_sha256"]
+    assert fc.text_source(run.artifact) == fc.TEXT_SOURCE_QWEN3VL
+    with pytest.raises(fc.TextSourceMismatch, match="declared text source"):
+        fc.run_chain(
+            toy.fl2va_request(),
+            comps,
+            label="pinned-claim",
+            text_source=fc.TEXT_SOURCE_PINNED,
+            decode=False,
+        )
 
 
 # --- sealed fixtures ----------------------------------------------------------------------
@@ -482,7 +612,10 @@ def test_sealed_fixture_replays(workflow: str) -> None:
     torch.set_num_threads(FIXTURE_THREADS)
     try:
         run = fc.run_chain(
-            _request(workflow), toy.components(_variant(workflow)), label=f"{workflow}-fixture"
+            _request(workflow),
+            toy.components(_variant(workflow)),
+            label=f"{workflow}-fixture",
+            text_source=toy.TEXT_SOURCE,
         )
     finally:
         torch.set_num_threads(threads)

@@ -397,9 +397,24 @@ def build_components(args: argparse.Namespace, variant: str) -> tuple[fc.ChainCo
         denoiser = fc.TransformerDenoiser(
             model, variant=variant, mode=mode, identity=identity, ops=ops
         )
-    text = fc.PinnedTextFeatures(args.text, expected_sha256=args.text_sha256)
+    text: Any
+    if args.text_source == "pinned":
+        if not args.text:
+            raise SystemExit("--text-source pinned needs --text")
+        text = fc.PinnedTextFeatures(args.text, expected_sha256=args.text_sha256)
+    else:
+        if not args.text_root:
+            raise SystemExit("--text-source qwen3vl needs --text-root")
+        t0 = time.time()
+        text = fc.Qwen3VLLayer50Conditioner.from_release(
+            args.text_root, device=args.text_device or device
+        )
+        info["text_encoder_load_s"] = round(time.time() - t0, 1)
     info["identity"] = identity
     return fc.ChainComponents(text, denoiser, visual, audio, device), info
+
+
+TEXT_SOURCES = {"pinned": fc.TEXT_SOURCE_PINNED, "qwen3vl": fc.TEXT_SOURCE_QWEN3VL}
 
 
 def _parse_injection(spec: str | None) -> fc.DriftInjection | None:
@@ -427,6 +442,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         request,
         components,
         label=args.label,
+        text_source=TEXT_SOURCES[args.text_source],
         keep_tensors=args.keep_tensors,
         capture=_capture(args.capture),
         inject=_parse_injection(args.inject),
@@ -464,7 +480,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def compare(args: argparse.Namespace) -> dict[str, Any]:
     lhs = fc.loads(Path(args.lhs).read_text())
     rhs = fc.loads(Path(args.rhs).read_text())
-    report = fc.compare(lhs, rhs, tensors_lhs=args.tensors_lhs, tensors_rhs=args.tensors_rhs)
+    report = fc.compare(
+        lhs,
+        rhs,
+        tensors_lhs=args.tensors_lhs,
+        tensors_rhs=args.tensors_rhs,
+        allow_text_source_change=args.allow_text_source_change,
+    )
     return {"schema": SCHEMA, "kind": "compare", **report}
 
 
@@ -526,10 +548,18 @@ def toy(args: argparse.Namespace) -> dict[str, Any]:
         make = toy_chain.fl2va_request if workflow == "fl2va" else toy_chain.ref2va_request
         request = make()
         clean = fc.run_chain(
-            request, toy_chain.components(variant), label="clean", keep_tensors=True
+            request,
+            toy_chain.components(variant),
+            label="clean",
+            keep_tensors=True,
+            text_source=toy_chain.TEXT_SOURCE,
         )
         again = fc.run_chain(
-            request, toy_chain.components(variant), label="again", keep_tensors=True
+            request,
+            toy_chain.components(variant),
+            label="again",
+            keep_tensors=True,
+            text_source=toy_chain.TEXT_SOURCE,
         )
         rep = fc.compare(
             clean.artifact, again.artifact, tensors_lhs=clean.tensors, tensors_rhs=again.tensors
@@ -558,6 +588,7 @@ def toy(args: argparse.Namespace) -> dict[str, Any]:
                 request,
                 toy_chain.components(variant),
                 label="injected",
+                text_source=toy_chain.TEXT_SOURCE,
                 keep_tensors=True,
                 inject=inject,
             )
@@ -699,8 +730,16 @@ def main() -> None:
     p.add_argument("--transformer-dir", required=True)
     p.add_argument("--vae-dir", required=True)
     p.add_argument("--audio-vae-dir", required=True)
-    p.add_argument("--text", required=True, help="pinned text features (pin-text output)")
+    p.add_argument(
+        "--text-source",
+        choices=sorted(TEXT_SOURCES),
+        required=True,
+        help="pinned: replay --text; qwen3vl: run qwen3vl_layer50_contract from --text-root",
+    )
+    p.add_argument("--text", help="pinned text features (pin-text output)")
     p.add_argument("--text-sha256")
+    p.add_argument("--text-root", help="dir with text_encoder/ tokenizer/ processor/")
+    p.add_argument("--text-device", help="device of the text encoder (default: --device)")
     p.add_argument("--layers", type=int, default=None, help="first K blocks (default: all 50)")
     p.add_argument("--mode", choices=("provider", "strict", "audit"), default="provider")
     p.add_argument("--steps", type=int, default=4, help="num_inference_steps (grid points)")
@@ -730,6 +769,7 @@ def main() -> None:
     p.add_argument("rhs")
     p.add_argument("--tensors-lhs")
     p.add_argument("--tensors-rhs")
+    p.add_argument("--allow-text-source-change", action="store_true")
     p.add_argument("--report", required=True)
 
     p = sub.add_parser("plot")

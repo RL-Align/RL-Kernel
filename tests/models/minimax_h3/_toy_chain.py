@@ -31,6 +31,7 @@ from rl_engine.models.minimax_h3 import ref2va
 from rl_engine.models.minimax_h3 import visual_vae as vv
 
 TEXT_DIM = 16
+TEXT_SOURCE = "synthetic (tests)"
 CANVAS = {"canvas_short_edge": 64, "canvas_max_pixels": 64 * 128}
 
 
@@ -163,14 +164,16 @@ class _Config(dict):
 class ToyH3Transformer(nn.Module):
     """``MiniMaxH3Transformer3DModel``'s signature and module names at toy width, FP32."""
 
-    def __init__(self, hidden: int = 32, layers: int = 3, seed: int = 0) -> None:
+    def __init__(
+        self, hidden: int = 32, layers: int = 3, seed: int = 0, text_dim: int = TEXT_DIM
+    ) -> None:
         super().__init__()
         g = _gen(seed)
         torch.manual_seed(seed)
         self.config = _Config(toy=True, hidden_size=hidden, num_layers=layers)
         self.proj_in = nn.Linear(vv.LATENT_CHANNELS * 4, hidden)
         self.audio_proj_in = nn.Linear(av.LATENT_CHANNELS, hidden)
-        self.context_embedder = nn.Linear(TEXT_DIM, hidden)
+        self.context_embedder = nn.Linear(text_dim, hidden)
         self.token_refiner = nn.Sequential(nn.Linear(hidden, hidden), nn.Tanh())
         self.time_embedder = nn.Linear(16, hidden)
         self.transformer_blocks = nn.ModuleList([ToyBlock(hidden, g) for _ in range(layers)])
@@ -236,7 +239,7 @@ class SyntheticTextConditioner:
         tags += [1] * 6
         embeds = torch.randn(1, len(tags), TEXT_DIM, generator=_gen(seed)).to(self.dtype)
         return fc.TextConditions(
-            embeds, torch.tensor(tags, dtype=torch.long), {"source": "synthetic (tests)"}
+            embeds, torch.tensor(tags, dtype=torch.long), {"source": TEXT_SOURCE}
         )
 
 
@@ -285,7 +288,7 @@ def ref2va_request(steps: int = 4) -> fc.Ref2VARequest:
 
 
 def components(variant: str, device: str = "cpu", **kwargs: Any) -> fc.ChainComponents:
-    model = ToyH3Transformer().to(device)
+    model = ToyH3Transformer(text_dim=kwargs.pop("text_dim", TEXT_DIM)).to(device)
     return fc.ChainComponents(
         text=kwargs.pop("text", SyntheticTextConditioner()),
         denoiser=fc.TransformerDenoiser(model, variant=kwargs.pop("denoiser_variant", variant)),

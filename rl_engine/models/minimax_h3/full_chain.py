@@ -88,6 +88,8 @@ AUDIO_SHIFT = 3.0
 NUM_INFERENCE_STEPS = 50  # Diffusers' modular default; the released recipe
 
 TEXT_SOURCE_PINNED = "pinned-precomputed"
+TEXT_SOURCE_QWEN3VL = "qwen3vl_layer50_contract"
+TEXT_SOURCES = (TEXT_SOURCE_PINNED, TEXT_SOURCE_QWEN3VL)
 _PINNED_METADATA_KEY = "rlkernel.h3.text_features"
 _TAG_NAMES = {pl.VIDEO_TAG: "video", pl.TEXT_TAG: "text", pl.AUDIO_TAG: "audio"}
 
@@ -341,6 +343,158 @@ class PinnedTextFeatures:
                 "file_sha256": file_sha256,
                 "conditioner_input_sha256": meta["conditioner_input_sha256"],
                 "producer": meta["producer"],
+            },
+        )
+
+
+class TextSourceMismatch(ValueError):
+    """The text conditions do not come from the source the run declared."""
+
+
+class Qwen3VLLayer50Conditioner:
+    """Text conditions from ``qwen3vl_layer50_contract`` (``qwen3vl_text``), computed at run time.
+
+    It builds the released presentation exactly as Diffusers' ``MiniMaxH3FL2VATextEncoderStep`` /
+    ``MiniMaxH3Ref2VATextEncoderStep`` do, with the contract's tokenization: labels and prompt
+    through ``tokenize_prompt`` (verbatim, no specials, refusing a prompt that spells one),
+    vision blocks sized from the processor's grids. Then it runs ``Qwen3VLLayer50Encoder``, one
+    presentation per forward, stopping at ``hidden_states[50]``. The provenance names the
+    contract, its fingerprint and the feature and token-id digests.
+    """
+
+    def __init__(
+        self,
+        encoder: Any,
+        tokenizer: Any,
+        processor: Any,
+        *,
+        load_report: Mapping[str, Any] | None = None,
+        check_release: bool = True,
+    ) -> None:
+        from rl_engine.models.minimax_h3 import qwen3vl_text as qt
+
+        if check_release:
+            qt.verify_release_tokenizer(tokenizer)
+            qt.verify_release_processor(processor)
+        self.encoder, self.tokenizer, self.processor = encoder, tokenizer, processor
+        self.load_report = dict(load_report or {})
+        self.check_release = check_release
+
+    @classmethod
+    def from_release(
+        cls, root: str | Path, *, device: str | torch.device = "cuda"
+    ) -> Qwen3VLLayer50Conditioner:
+        """Load ``text_encoder/`` (50 layers), ``tokenizer/`` and ``processor/`` under ``root``."""
+
+        from transformers import AutoProcessor, AutoTokenizer
+
+        from rl_engine.models.minimax_h3 import qwen3vl_text as qt
+
+        root = Path(root)
+        model, report = qt.load_release_text_encoder(root / "text_encoder", device=device)
+        return cls(
+            qt.Qwen3VLLayer50Encoder(model),
+            AutoTokenizer.from_pretrained(str(root / "tokenizer")),
+            AutoProcessor.from_pretrained(str(root / "processor")),
+            load_report=report,
+        )
+
+    def _tokenize(self, text: str) -> list[int]:
+        from rl_engine.models.minimax_h3 import qwen3vl_text as qt
+
+        return qt.tokenize_prompt(self.tokenizer, text)
+
+    def _token_id(self, token: str) -> int:
+        from rl_engine.models.minimax_h3 import qwen3vl_text as qt
+
+        return qt.vision_token_ids()[token]
+
+    def presentation(self, request: TextRequest) -> tuple[list[int], list[int], dict[str, Any]]:
+        """``(token ids, modality tags, vision inputs)`` of the released presentation."""
+
+        from rl_engine.models.minimax_h3 import fl2va, ref2va
+
+        merge = int(self.processor.image_processor.merge_size) ** 2
+        vision: dict[str, Any] = {}
+        if request.workflow in ("fl2va", "t2va"):
+            counts: list[int] = []
+            if request.media:
+                features = self.processor.image_processor(
+                    images=list(request.media), return_tensors="pt"
+                )
+                vision = {
+                    "pixel_values": features["pixel_values"],
+                    "image_grid_thw": features["image_grid_thw"],
+                }
+                counts = [int(g.prod()) // merge for g in features["image_grid_thw"]]
+            ids, tags = fl2va.fl2va_presentation(
+                self._tokenize, self._token_id, request.prompt, counts
+            )
+            return ids, tags, vision
+        references = list(request.media)
+        image_counts: list[int] = []
+        images = [r.image for r in references if isinstance(r, ref2va.ImageReference)]
+        if images:
+            features = self.processor.image_processor(images=images, return_tensors="pt")
+            vision["pixel_values"] = features["pixel_values"]
+            vision["image_grid_thw"] = features["image_grid_thw"]
+            image_counts = [int(g.prod()) // merge for g in features["image_grid_thw"]]
+        block_counts: list[int] = []
+        block_times: list[list[float]] = []
+        videos = [r for r in references if isinstance(r, ref2va.VideoReference)]
+        if videos:
+            patch = int(self.processor.video_processor.temporal_patch_size)
+            sampled = [
+                ref2va.sample_video_condition_frames(v.frames, fps=pl.FPS, temporal_patch=patch)
+                for v in videos
+            ]
+            block_times = [times for _, times in sampled]
+            features = self.processor.video_processor(
+                videos=[np.stack(frames) for frames, _ in sampled],
+                do_sample_frames=False,
+                return_tensors="pt",
+            )
+            vision["pixel_values_videos"] = features["pixel_values_videos"]
+            vision["video_grid_thw"] = features["video_grid_thw"]
+            block_counts = [int(g[1]) * int(g[2]) // merge for g in features["video_grid_thw"]]
+            for times, grid in zip(block_times, features["video_grid_thw"], strict=True):
+                if int(grid[0]) != len(times):
+                    raise ValueError(
+                        f"processor merged a reference video into {int(grid[0])} blocks, "
+                        f"the presentation labels {len(times)}"
+                    )
+        ids, tags = ref2va.ref2va_presentation(
+            self._tokenize,
+            self._token_id,
+            request.prompt,
+            [(r.kind, bool(r.has_audio)) for r in references],
+            image_counts,
+            block_counts,
+            block_times,
+        )
+        return ids, tags, vision
+
+    def encode(self, request: TextRequest) -> TextConditions:
+        from rl_engine.models.minimax_h3 import qwen3vl_text as qt
+
+        ids, tags, vision = self.presentation(request)
+        out = self.encoder.encode(ids, vision or None)
+        return TextConditions(
+            out.feature,
+            torch.tensor(tags, dtype=torch.long),
+            {
+                "source": TEXT_SOURCE_QWEN3VL,
+                "contract_id": qt.CONTRACT_ID,
+                "fingerprint_sha256": _file_sha256(qt.FINGERPRINT_PATH),
+                "release_checked": self.check_release,
+                "text_encoder_layer": self.encoder.layer,
+                "feature_sha256": out.feature_digest,
+                "token_ids_sha256": out.token_ids_digest,
+                "num_tokens": len(ids),
+                "device": str(self.encoder.device),
+                "dtype": str(self.encoder.dtype),
+                "runtime": out.runtime,
+                "load": self.load_report,
             },
         )
 
@@ -743,7 +897,14 @@ def _component_digest(value: Any) -> str:
 class ChainRecorder:
     """Stage records in :data:`STAGES` order, hash-chained; optional CPU tensor copies."""
 
-    def __init__(self, *, keep_tensors: bool = False, inject: DriftInjection | None = None):
+    def __init__(
+        self,
+        *,
+        keep_tensors: bool = False,
+        inject: DriftInjection | None = None,
+        text_source: str = TEXT_SOURCE_PINNED,
+    ):
+        self.text_source = text_source
         self.records: list[dict[str, Any]] = []
         self.keep_tensors = keep_tensors
         self.inject = inject
@@ -1091,6 +1252,11 @@ def _text_stage(
 ) -> TextConditions:
     text = conditioner.encode(request)
     text.validate()
+    source = text.provenance.get("source")
+    if source != rec.text_source:
+        raise TextSourceMismatch(
+            f"run declared text source {rec.text_source!r}, the conditioner reports {source!r}"
+        )
     embeds = rec.apply("text_conditions", "prompt_embeds", text.prompt_embeds, 1)
     tags = text.text_token_tags.long().cpu()
     rec.record(
@@ -1157,6 +1323,7 @@ def run_chain(
     components: ChainComponents,
     *,
     label: str,
+    text_source: str,
     probe: bool = True,
     keep_tensors: bool = False,
     capture: Callable[[int, str], bool] | None = None,
@@ -1166,13 +1333,16 @@ def run_chain(
 ) -> ChainRun:
     """Run one request through every stage and seal the result.
 
+    ``text_source`` is the declared origin of the text conditions (``TEXT_SOURCES``, or a test
+    source): the run is refused when the conditioner reports another one, so pinned features are
+    never passed off as contract features or the other way round.
     ``keep_tensors`` keeps a CPU copy of every stage output, every step's velocity and latent
     and the layout index tensors (for row localization); ``capture(step, module)`` keeps
     transformer module outputs (default: all of them when ``keep_tensors``).
     """
 
     device = torch.device(components.device)
-    rec = ChainRecorder(keep_tensors=keep_tensors, inject=inject)
+    rec = ChainRecorder(keep_tensors=keep_tensors, inject=inject, text_source=text_source)
     if isinstance(request, FL2VARequest):
         variant = "FL2VA"
         text, layout, conditions, layout_inputs = _fl2va_front(request, components, rec)
@@ -1599,8 +1769,13 @@ def compare(
     *,
     tensors_lhs: TensorSource = None,
     tensors_rhs: TensorSource = None,
+    allow_text_source_change: bool = False,
 ) -> dict[str, Any]:
     """Stage-by-stage comparison of two sealed runs of the same request.
+
+    Two runs whose text conditions come from different sources (``text_source``) are refused
+    unless ``allow_text_source_change``: replaying a fixture with the other source is not a
+    replay. Allowed, the comparison localizes the difference the source makes.
 
     ``first_drift`` is the first differing (stage, component), refined inside ``denoise`` to
     the step, kind, modality and transformer module (and row, with tensors). ``gate`` holds
@@ -1611,6 +1786,12 @@ def compare(
     verify(rhs)
     if lhs["request"] != rhs["request"] or lhs["variant"] != rhs["variant"]:
         raise ValueError("the two runs are of different requests or variants")
+    sources = (text_source(lhs), text_source(rhs))
+    if sources[0] != sources[1] and not allow_text_source_change:
+        raise TextSourceMismatch(
+            f"text sources differ ({sources[0]!r} vs {sources[1]!r}); pass "
+            "allow_text_source_change=True to compare them on purpose"
+        )
     ta, tb = _load_tensors(tensors_lhs), _load_tensors(tensors_rhs)
     stages: list[dict[str, Any]] = []
     first: dict[str, Any] | None = None
@@ -1653,6 +1834,7 @@ def compare(
         "variant": lhs["variant"],
         "workflow": lhs["workflow"],
         "first_drift": first,
+        "text_sources": list(sources),
         "stages": stages,
         "trajectory": _trajectory_report(lhs, rhs),
         "gate": {
@@ -1677,16 +1859,32 @@ def _trajectory_report(lhs: Mapping[str, Any], rhs: Mapping[str, Any]) -> dict[s
     return report
 
 
+def text_source(artifact: Mapping[str, Any]) -> str | None:
+    """Where an artifact's text conditions came from (its ``text_conditions`` provenance)."""
+
+    for record in artifact["stages"]:
+        if record["stage"] == "text_conditions":
+            return record["provenance"].get("source")
+    return None
+
+
 def first_drift(
     lhs: Mapping[str, Any],
     rhs: Mapping[str, Any],
     *,
     tensors_lhs: TensorSource = None,
     tensors_rhs: TensorSource = None,
+    allow_text_source_change: bool = False,
 ) -> dict[str, Any] | None:
     """The first drift of :func:`compare`, or ``None`` when every stage is byte-equal."""
 
-    return compare(lhs, rhs, tensors_lhs=tensors_lhs, tensors_rhs=tensors_rhs)["first_drift"]
+    return compare(
+        lhs,
+        rhs,
+        tensors_lhs=tensors_lhs,
+        tensors_rhs=tensors_rhs,
+        allow_text_source_change=allow_text_source_change,
+    )["first_drift"]
 
 
 def gate(lhs: Mapping[str, Any], rhs: Mapping[str, Any]) -> dict[str, Any]:
