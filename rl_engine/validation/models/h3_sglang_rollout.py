@@ -22,6 +22,11 @@ row outputs are the full reduced rows. The block runs with stand-ins for its att
 external; the final layer's FP32 output heads are replaced by the identity for the same reason.
 The refiner blocks' norm weights are not in the pinned block-0 extract and are seeded inputs.
 Only CUDA BF16 is meaningful here; ``sglang`` must be importable in the worker.
+
+``full_model_target`` is the whole ``MiniMaxH3DiTModel`` instead: ``layers`` blocks at H3's
+widths with seeded weights, one denoising step's packed inputs from SGLang's own request builder
+(``minimax_h3_packed_sequence`` and ``MiniMaxH3DenoiseBranch``), and the adapter's readback: that
+every bound forward ran once per model forward, so no path of SGLang's model went around it.
 """
 
 from __future__ import annotations
@@ -327,3 +332,115 @@ def norm_inputs(rows: int, *, timesteps: int = 2, seed: int = 0) -> dict[str, to
         "refiner_norm1": (1 + torch.randn(hidden, generator=gen) * 0.1).bfloat16(),
         "refiner_norm2": (1 + torch.randn(hidden, generator=gen) * 0.1).bfloat16(),
     }
+
+
+def _server_args():
+    """The process-wide server settings SGLang's model reads; SGLang picks the attention backend."""
+
+    from types import SimpleNamespace
+
+    from sglang.multimodal_gen.runtime import server_args as sa
+
+    if sa._global_server_args is None:
+        sa.set_global_server_args(
+            SimpleNamespace(
+                attention_backend=None,
+                attention_backend_config=None,
+                comfyui_mode=False,
+                disable_autocast=False,
+                enable_cfg_parallel=False,
+                enable_breakable_cuda_graph=False,
+                enable_layerwise_nvtx_marker=False,
+                enable_torch_compile=False,
+                kv_gather_degree=1,
+                sp_split_auto=False,
+                model_loaded={},
+                model_paths={},
+                pipeline_config=SimpleNamespace(dit_precision="bfloat16", vae_precision="bfloat16"),
+            )
+        )
+
+
+def full_model_target(collective, *, layers: int = 2, forwards: int = 2, seed: int = 0):
+    """One rank: SGLang's whole H3 DiT with the adapter installed (see the module docstring).
+
+    Returns the adapter's report and readback (``forwards`` model forwards), whether the bound
+    forwards are finite and repeat bitwise, and whether ``remove()`` restores SGLang's output.
+    The weights are seeded per rank (each rank's own shards), so outputs are not compared across
+    TP sizes; the operators' bytes are compared by ``rollout_target``.
+    """
+
+    import torch.distributed as dist
+    from sglang.multimodal_gen.configs.models.dits.minimax_h3 import (
+        MiniMaxH3DiTArchConfig,
+        MiniMaxH3DiTConfig,
+    )
+    from sglang.multimodal_gen.runtime.distributed.parallel_state import (
+        maybe_init_distributed_environment_and_model_parallel,
+    )
+    from sglang.multimodal_gen.runtime.models.dits import minimax_h3 as sm
+    from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.denoise_loop import (  # noqa: E501
+        MiniMaxH3DenoiseBranch,
+    )
+    from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.packed_sequence import (  # noqa: E501
+        minimax_h3_packed_sequence,
+    )
+
+    from rl_engine.integrations.engines.rollout.sglang import h3 as adapter
+
+    rank, world = dist.get_rank(), dist.get_world_size()
+    os.environ.update(RANK=str(rank), LOCAL_RANK=str(rank), WORLD_SIZE=str(world))
+    maybe_init_distributed_environment_and_model_parallel(tp_size=world, sp_size=1)
+    _server_args()
+    device = torch.device("cuda", torch.cuda.current_device())
+    config = MiniMaxH3DiTConfig(arch_config=MiniMaxH3DiTArchConfig(num_layers=layers))
+    with torch.device(device):
+        model = sm.MiniMaxH3DiTModel(config=config, hf_config={}, quant_config=None)
+    gen = torch.Generator(device=device).manual_seed(seed + rank)
+    with torch.no_grad():
+        for param in model.parameters():
+            noise = torch.randn(param.shape, generator=gen, device=device, dtype=torch.float32)
+            param.copy_((noise * 0.02).to(param.dtype))
+
+    # One denoising step of a small text-to-video+audio request, as SGLang's pipeline packs it.
+    cpu = torch.Generator().manual_seed(seed)
+    packed = minimax_h3_packed_sequence(
+        text_len=3, latent_t=2, latent_h=4, latent_w=4, audio_t=3, include_keyframe_cond=False
+    )
+    branch = MiniMaxH3DenoiseBranch(
+        packed=packed,
+        text_embeddings=torch.randn(3, 5120, generator=cpu).to(device),
+        token_tags=packed["token_tags"],
+        device=device,
+    )
+    (step,) = branch.prepare_timestep_plan(
+        video_timesteps=[500.0],
+        audio_timesteps=[500.0],
+        imgvid_cond_noise_aug=0.0,
+        audio_ref_cond_noise_aug=0.0,
+    )
+    kwargs = branch.forward_kwargs(
+        video_rows=torch.randn(packed["img_pos"].numel(), 96, generator=cpu).to(device),
+        audio_rows=torch.randn(packed["audio_pos"].numel(), 32, generator=cpu).to(device),
+        step_timesteps=step,
+    )
+
+    def run():
+        video, audio = model(**kwargs)
+        return torch.cat((video.flatten(), audio.flatten())).cpu()
+
+    out: dict = {"tp": world, "layers": layers, "forwards": forwards}
+    with torch.no_grad():
+        native = run()
+        coll = collective if world > 1 else None
+        with adapter.install_h3_sglang_rollout(model, collective=coll, tp=world) as handle:
+            bound = [run() for _ in range(forwards)]
+            out["report"] = adapter.report(model, handle)
+            out["readback"] = handle.readback(forwards)
+        restored = run()
+    out["bound_finite"] = bool(torch.isfinite(bound[0]).all())
+    out["bound_repeatable"] = all(torch.equal(b, bound[0]) for b in bound)
+    out["restored_equals_native"] = bool(torch.equal(restored, native))
+    out["batching_restored"] = "_can_batch_block_adaln" not in model.__dict__
+    out["native_max_abs_diff"] = (bound[0].double() - native.double()).abs().max().item()
+    return out

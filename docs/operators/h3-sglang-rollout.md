@@ -8,7 +8,7 @@ RFC #420 row `sglang_runtime_adapter_h3`: the strict H3 operators inside SGLang'
 | Where | What |
 | --- | --- |
 | `integrations/engines/rollout/sglang/h3.py` | `install_h3_sglang_rollout`, `check_sglang_server_args`, `report` |
-| `validation/models/h3_sglang_rollout.py` | block 0, the final layer and the refiner norms on SGLang's modules: native, bound and training arithmetic |
+| `validation/models/h3_sglang_rollout.py` | block 0, the final layer and the refiner norms on SGLang's modules: native, bound and training arithmetic; SGLang's whole DiT with the readback |
 | `tools/validation/models/h3_sglang_rollout_report.py` | the JSON report at any TP sizes (TP1 is the reference) |
 
 ## What is bound
@@ -41,6 +41,14 @@ the AdaLN path and the norms:
   as SGLang's modules. The final layer's FP32 output heads (`video_out` / `audio_out`) stay
   SGLang's.
 
+- **SGLang's TP batching of the AdaLN projections.** Under TP, `MiniMaxH3DiTModel` projects the
+  AdaLN tables of all blocks in one batch and hands each block its precomputed table, which a
+  bound block refuses: without a change, every TP > 1 forward of the whole model fails. The
+  adapter turns that batching off on the model (`_can_batch_block_adaln`, put back by `remove()`),
+  so each block runs its bound projection. The bytes are the same: the batched path calls the same
+  bound `adaln_proj.linear` and all-gathers the same column shards, once for all blocks instead of
+  once per block.
+
 Attention, rotary, QK norm and SwiGLU stay SGLang's, as do the FP32 boundary projections (patch
 embeddings, time embedder, output heads). The report lists them as `external`.
 
@@ -69,6 +77,21 @@ Without `strict`, a refused module keeps SGLang's forward and is listed in `hand
 
 `check_sglang_server_args(server_args)` refuses `enable_torch_compile`, `regional_compile`,
 `enable_breakable_cuda_graph`, `cache_dit_config`, quantization and `lora_path`.
+`check_sglang_sampling_params(sampling_params)` refuses a request's `enable_spectrum` and
+`enable_teacache`: both skip transformer steps.
+
+## Readback
+
+The handle reads back what ran, not only what was installed:
+
+- `handle.calls`: how often each bound forward ran since install (or `handle.calls.clear()`);
+- `handle.implementations`: the training kernel each bound module runs;
+- `handle.overrides`: the model-level change (the batching switch above);
+- `handle.readback(forwards)`: every bound module that did not run exactly once per DiT forward. A
+  path of SGLang's model that goes around a bound forward, or a step it skips, shows up here;
+- `handle.assert_ran(forwards)`: raises on any of those.
+
+`report(model, handle)` includes all of these.
 
 ## Evidence
 
@@ -91,6 +114,13 @@ MLP outputs; the refiner blocks' norm weights are seeded (not in the pinned extr
 | final layer output | yes / yes / yes / yes | yes | no (0.0078) / no (0.0234) / no (0.0234) / no (0.0234) | no |
 | refiner norms (3) | yes / yes / yes / yes | yes | yes / yes / yes / yes | yes |
 
+- **The whole DiT.** SGLang's `MiniMaxH3DiTModel` with 2 blocks at H3's widths and seeded weights
+  (`full_model_target`), on one denoising step packed by SGLang's own request builder
+  (`minimax_h3_packed_sequence`, `MiniMaxH3DenoiseBranch`), at TP1 and TP2. The adapter binds 27
+  forwards (2 blocks x 6, 2 refiner blocks x 6, the final layer's 2, the refiner's final norm).
+  Over two forwards each bound forward ran exactly twice, the output is finite and repeats
+  bitwise, and `remove()` restores SGLang's output and its batching switch. The weights are seeded,
+  so this checks that every bound path runs, not the bytes; the bytes are the table above.
 - **Row invariance.** Every bound output gives the same rows on a prefix of the rows. SGLang's
   own `out_proj` / `fc2` do not at TP1.
 - **`remove()`** restores SGLang's forward bitwise.

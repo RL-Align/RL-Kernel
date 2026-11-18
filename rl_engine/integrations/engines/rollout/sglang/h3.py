@@ -57,6 +57,18 @@ Before any forward changes, it refuses what SGLang can put in the way of a bound
 ``check_sglang_server_args`` refuses the server settings that change what the DiT computes or
 bypass a bound forward: ``enable_torch_compile`` / ``regional_compile``,
 ``enable_breakable_cuda_graph``, ``cache_dit_config``, quantization and an unmerged LoRA.
+``check_sglang_sampling_params`` refuses the per-request step skipping of Spectrum and TeaCache.
+
+Under TP, ``MiniMaxH3DiTModel`` batches the AdaLN projections of all blocks and hands each block
+its precomputed table; a bound block refuses precomputed tables. The adapter turns that batching
+off on the model, so every block runs its bound projection. The bytes are the same: the batched
+path calls the same bound ``adaln_proj.linear`` and all-gathers the same column shards, once for
+all blocks instead of once per block.
+
+Readback: the handle counts the calls of every bound forward (``handle.calls``) and names the
+training kernel each one runs (``handle.implementations``). ``handle.readback(forwards)`` lists
+every bound module that did not run exactly once per DiT forward (a forward SGLang bypassed, or a
+step it skipped), and ``handle.assert_ran(forwards)`` raises on any.
 
 Attention, rotary, QK norm and SwiGLU stay SGLang's and are reported ``external``, as are the
 FP32 boundary projections (patch embeddings, time embedder, output heads). ``handle.remove()``
@@ -67,7 +79,9 @@ from __future__ import annotations
 
 import importlib.metadata
 import re
+from collections import Counter
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -90,6 +104,16 @@ EXTERNAL = [
     "time_embedder",
     "output_heads",
 ]
+# What each bound forward runs, by the kind of module (``handle.implementations``).
+IMPLEMENTATIONS = {
+    "column": "h3-projection-gemm-v1 (Triton)",
+    "row": "h3-parallel-v1 canonical row-parallel reduction",
+    "adaln": "adaln_projection_3mod / final_adaln_out GEMV: rl_engine._C.h3_det_linear_forward",
+    "block": "h3_rmsnorm (modulated) + adaln_gate_residual: rl_engine._C.h3_rmsnorm_forward, "
+    "rl_engine._C.h3_gate_residual_forward",
+    "final": "final_adaln_out norm: rl_engine._C.h3_rmsnorm_forward (modulated)",
+    "norm": "h3_rmsnorm: rl_engine._C.h3_rmsnorm_forward",
+}
 _REFINER_NORM = re.compile(r"(?:^|\.)token_refiner\.(?:blocks\.\d+\.norm[12]|final_norm)$")
 _ADALN_MODULES = {"MiniMaxH3DiTBlock": "block", "MiniMaxH3FinalLayer": "final"}
 
@@ -113,6 +137,70 @@ def _version_refusal() -> str | None:
         "tools/validation/models/h3_sglang_rollout_report.py on the new version and add it to "
         "TESTED_SGLANG_VERSIONS"
     )
+
+
+@dataclass
+class H3SGLangRolloutHandle(H3RolloutHandle):
+    """``H3RolloutHandle`` with SGLang's model-level override and the execution readback."""
+
+    # Calls of each bound forward since install (or ``calls.clear()``), by module path.
+    calls: Counter = field(default_factory=Counter)
+    implementations: dict[str, str] = field(default_factory=dict)
+    overrides: list[str] = field(default_factory=list)
+    _attributes: list = field(default_factory=list)  # (object, attribute, its own value or _ABSENT)
+
+    def remove(self) -> None:
+        for obj, name, previous in reversed(self._attributes):
+            if previous is _ABSENT:
+                obj.__dict__.pop(name, None)
+            else:
+                setattr(obj, name, previous)
+        self._attributes.clear()
+        super().remove()
+
+    def readback(self, forwards: int) -> list[str]:
+        """Every bound module that did not run exactly ``forwards`` times (empty: all did)."""
+
+        return [
+            f"{name}: ran {self.calls[name]} times in {forwards} forwards"
+            for name in self.patched
+            if self.calls[name] != forwards
+        ]
+
+    def assert_ran(self, forwards: int) -> None:
+        problems = self.readback(forwards)
+        if problems:
+            raise RuntimeError("strict H3 rollout on SGLang: " + "; ".join(problems))
+
+    def report(self) -> dict:
+        out = super().report()
+        out["calls"] = {name: self.calls[name] for name in self.patched}
+        out["implementations"] = dict(self.implementations)
+        out["overrides"] = list(self.overrides)
+        return out
+
+
+def _kind(name: str, module: torch.nn.Module) -> str:
+    leaf = name.rsplit(".", 1)[-1]
+    if leaf in ("qkv_proj", "fc1"):
+        return "column"
+    if leaf in ("out_proj", "fc2"):
+        return "row"
+    if name.endswith("adaln_proj.linear"):
+        return "adaln"
+    return _ADALN_MODULES.get(type(module).__name__, "norm")
+
+
+def _counted(forward: Callable[..., Any], calls: Counter, name: str) -> Callable[..., Any]:
+    def counted(*args, **kwargs):
+        calls[name] += 1
+        return forward(*args, **kwargs)
+
+    return counted
+
+
+def _never() -> bool:
+    return False
 
 
 def _compiled(module: torch.nn.Module) -> bool:
@@ -330,9 +418,21 @@ def check_sglang_server_args(server_args: Any) -> None:
         raise RuntimeError("strict H3 rollout on SGLang: " + "; ".join(refusals))
 
 
+def check_sglang_sampling_params(sampling_params: Any) -> None:
+    """Raise if a request's sampling settings skip DiT steps (the blocks would not run)."""
+
+    refusals = [
+        f"{flag} is set (it skips transformer steps)"
+        for flag in ("enable_spectrum", "enable_teacache")
+        if getattr(sampling_params, flag, False)
+    ]
+    if refusals:
+        raise RuntimeError("strict H3 rollout on SGLang: " + "; ".join(refusals))
+
+
 def install_h3_sglang_rollout(
     model: torch.nn.Module, *, collective=None, tp: int = 1, strict: bool = True
-) -> H3RolloutHandle:
+) -> H3SGLangRolloutHandle:
     """Bind the strict projections, AdaLN paths and norms of SGLang's H3 DiT.
 
     ``tp`` is SGLang's TP size and ``collective`` a deterministic collective over SGLang's TP
@@ -351,7 +451,7 @@ def install_h3_sglang_rollout(
         raise RuntimeError("H3 rollout on SGLang: " + "; ".join(refusals))
     selected, refused = _select(model, tp)
     try:
-        handle = install_h3_rollout(
+        base = install_h3_rollout(
             model, collective=collective, tp=tp, strict=strict, check=_check_projection(tp)
         )
     except RuntimeError as error:
@@ -359,20 +459,38 @@ def install_h3_sglang_rollout(
             raise RuntimeError("; ".join([str(error), *refused])) from None
         raise
     if strict and refused:
-        handle.remove()  # the projections were bound; nothing stays changed
+        base.remove()  # the projections were bound; nothing stays changed
         raise RuntimeError("; ".join(refused))
-    handle.skipped.extend(refused)
+    handle = H3SGLangRolloutHandle(
+        patched=base.patched, skipped=base.skipped + refused, _restore=base._restore
+    )
     if selected:
         ops = _Ops()
         for name, module, bind in selected:
             handle._restore.append((module, module.__dict__.get("forward", _ABSENT)))
             module.forward = bind(module, ops)
             handle.patched.append(name)
+    if any(bind is _bind_block for _, _, bind in selected) and callable(
+        getattr(model, "_can_batch_block_adaln", None)
+    ):
+        # The batched path hands the blocks precomputed tables, which a bound block refuses.
+        handle._attributes.append(
+            (model, "_can_batch_block_adaln", model.__dict__.get("_can_batch_block_adaln", _ABSENT))
+        )
+        setattr(model, "_can_batch_block_adaln", _never)
+        handle.overrides.append(
+            "_can_batch_block_adaln: off (each block runs its bound AdaLN projection)"
+        )
+    for name in handle.patched:
+        module = model.get_submodule(name)
+        handle.implementations[name] = IMPLEMENTATIONS[_kind(name, module)]
+        module.forward = _counted(module.forward, handle.calls, name)
     return handle
 
 
 def report(model: torch.nn.Module, handle: H3RolloutHandle) -> dict:
-    """The handle's report for SGLang: what is bound, skipped and still SGLang's own."""
+    """The handle's report for SGLang: what is bound, skipped and still SGLang's own, and (for an
+    ``H3SGLangRolloutHandle``) how often each bound forward ran and which kernel it runs."""
 
     out = handle.report()
     out["engine"] = ENGINE

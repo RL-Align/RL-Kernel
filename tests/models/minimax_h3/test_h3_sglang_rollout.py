@@ -167,9 +167,16 @@ class MiniMaxH3FinalLayer(torch.nn.Module):
         raise AssertionError("SGLang's final layer forward")
 
 
+class _DiT(torch.nn.Module):
+    """A stand-in for ``MiniMaxH3DiTModel``'s switch for batching the blocks' AdaLN under TP."""
+
+    def _can_batch_block_adaln(self):
+        return True
+
+
 def _model(device="cpu", dtype=torch.float32):
     kw = dict(device=device, dtype=dtype)
-    model = torch.nn.Module()
+    model = _DiT()
     model.blocks = torch.nn.ModuleList([MiniMaxH3DiTBlock(**kw)])
     model.final_layer = MiniMaxH3FinalLayer(**kw)
     model.token_refiner = torch.nn.Module()
@@ -240,6 +247,15 @@ def test_an_sglang_version_the_bound_forwards_were_not_validated_on_is_refused(
         with pytest.raises(RuntimeError, match=f"{match}, but the bound forwards are validated"):
             adapter.install_h3_sglang_rollout(model, strict=strict)
     assert _no_forward_changed(model)
+
+
+def test_sampling_settings_that_skip_dit_steps_are_refused():
+    adapter.check_sglang_sampling_params(
+        SimpleNamespace(enable_spectrum=False, enable_teacache=False)
+    )
+    for flag in ("enable_spectrum", "enable_teacache"):
+        with pytest.raises(RuntimeError, match=f"{flag} is set"):
+            adapter.check_sglang_sampling_params(SimpleNamespace(**{flag: True}))
 
 
 def test_a_compiled_module_is_refused_even_without_strict():
@@ -412,6 +428,37 @@ def test_the_bound_adaln_paths_and_norms_are_the_training_operators():
     assert _no_forward_changed(model)
 
 
+@needs_gpu
+def test_the_readback_counts_every_bound_forward_and_the_batching_switch_is_put_back():
+    pytest.importorskip("triton")
+    model = _model("cuda", torch.bfloat16)
+    x = torch.randn(5, HIDDEN, device="cuda").bfloat16()
+    with adapter.install_h3_sglang_rollout(model) as handle:
+        assert model._can_batch_block_adaln() is False and len(handle.overrides) == 1
+        assert handle.readback(0) == []
+        model.token_refiner.final_norm(x)
+        model.blocks[0].attn.qkv_proj(x)
+        model.blocks[0].attn.qkv_proj(x)
+        assert handle.calls["token_refiner.final_norm"] == 1
+        assert handle.calls["blocks.0.attn.qkv_proj"] == 2
+        missing = handle.readback(1)
+        assert len(missing) == len(handle.patched) - 1
+        assert "blocks.0.attn.qkv_proj: ran 2 times in 1 forwards" in missing
+        with pytest.raises(RuntimeError, match="blocks.0: ran 0 times in 1 forwards"):
+            handle.assert_ran(1)
+        report = adapter.report(model, handle)
+        implementations = report["implementations"]
+        assert report["calls"]["blocks.0.attn.qkv_proj"] == 2
+        assert implementations["blocks.0.attn.qkv_proj"] == adapter.IMPLEMENTATIONS["column"]
+        assert implementations["blocks.0.mlp.fc2"] == adapter.IMPLEMENTATIONS["row"]
+        assert implementations["blocks.0.adaln_proj.linear"] == adapter.IMPLEMENTATIONS["adaln"]
+        assert implementations["blocks.0"] == adapter.IMPLEMENTATIONS["block"]
+        assert implementations["final_layer"] == adapter.IMPLEMENTATIONS["final"]
+        assert report["overrides"] == handle.overrides
+    assert model._can_batch_block_adaln() is True
+    assert "_can_batch_block_adaln" not in model.__dict__ and _no_forward_changed(model)
+
+
 # --- SGLang's own modules ---------------------------------------------------------------------
 
 
@@ -481,3 +528,31 @@ def test_bound_sglang_operators_at_tp_n_equal_tp1(h3_block_weights_cuda, tp):
             assert torch.equal(whole, one[f"bound_{name}"]), name
         else:
             assert all(torch.equal(r[f"bound_{name}"], one[f"bound_{name}"]) for r in ranks), name
+
+
+@pytest.mark.parametrize(
+    "tp",
+    [
+        pytest.param(
+            t, marks=pytest.mark.skipif(torch.cuda.device_count() < t, reason=f"needs {t} GPUs")
+        )
+        for t in (1, 2)
+    ],
+)
+def test_the_adapter_binds_sglangs_whole_dit_and_every_bound_forward_runs(tp):
+    """SGLang's ``MiniMaxH3DiTModel`` (2 blocks at H3's widths, seeded weights) on one denoising
+    step packed by SGLang's request builder: all 27 bound forwards run once per model forward.
+    Under TP this needs the batching switch off: SGLang's batched AdaLN path would hand the blocks
+    precomputed tables."""
+
+    _sglang_dit()
+    from rl_engine.validation.distributed.h3_ws2 import run_world
+    from rl_engine.validation.models import h3_sglang_rollout as hs
+
+    for rank in run_world(tp, hs.full_model_target, {}, layers=2, forwards=2):
+        report = rank["report"]
+        assert rank["readback"] == [] and set(report["calls"].values()) == {2}
+        assert len(report["patched"]) == 27 and report["skipped"] == []
+        assert report["sglang"] == TESTED and len(report["overrides"]) == 1
+        assert rank["bound_finite"] and rank["bound_repeatable"]
+        assert rank["restored_equals_native"] and rank["batching_restored"]

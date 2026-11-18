@@ -9,7 +9,9 @@ rank (``rl_engine.validation.models.h3_sglang_rollout``). For each bound output 
 projections, the block's AdaLN table, both modulated norms and its output, the final layer's table
 and output, and the refiner norms) it records whether SGLang's native forward and the bound forward
 equal the training arithmetic bitwise, whether each gives the same rows when it sees only a prefix
-of them, and whether each TP size equals TP1 (the reference).
+of them, and whether each TP size equals TP1 (the reference). At each TP size it also runs
+SGLang's whole DiT (``full_model_target``: 2 blocks at H3's widths, seeded weights) and records the
+adapter's readback: whether every bound forward ran once per model forward.
 
     python tools/validation/models/h3_sglang_rollout_report.py --out report.json \
         [--rows 261] [--prefix-rows 37] [--tp 1 2 4]
@@ -69,6 +71,25 @@ def summarize(results: list[dict], prefix_rows: int) -> dict:
     return out
 
 
+def full_model(ranks: list[dict]) -> dict:
+    """The whole-DiT run of one TP size: readback and checks per rank."""
+
+    keys = ("bound_finite", "bound_repeatable", "restored_equals_native", "batching_restored")
+    out: dict = {"layers": ranks[0]["layers"], "forwards": ranks[0]["forwards"]}
+    for rank, r in enumerate(ranks):
+        report = r["report"]
+        out[f"rank{rank}"] = {
+            "patched": len(report["patched"]),
+            "skipped": report["skipped"],
+            "readback": r["readback"],
+            "calls": report["calls"],
+            "overrides": report["overrides"],
+            **{k: r[k] for k in keys},
+        }
+    out["implementations"] = ranks[0]["report"]["implementations"]
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, required=True)
@@ -107,6 +128,9 @@ def main() -> None:
     for tp in args.tp:
         results[tp] = run_world(tp, hs.rollout_target, inputs, prefix_rows=args.prefix_rows)
         report["tp"][str(tp)] = summarize(results[tp], args.prefix_rows)
+        report["tp"][str(tp)]["full_model"] = full_model(
+            run_world(tp, hs.full_model_target, {}, layers=2, forwards=2, seed=args.seed)
+        )
     if 1 in results:
         base = results[1][0]
         for tp in (t for t in results if t > 1):
