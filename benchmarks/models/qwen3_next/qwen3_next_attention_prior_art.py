@@ -74,9 +74,18 @@ def merge(base: dict, extra: dict) -> dict:
             raise SystemExit(f"Reports differ in {field}; they cannot be merged")
     if base["environment"]["gpu"] != extra["environment"]["gpu"]:
         raise SystemExit("Reports were measured on different GPUs")
-    keys = {c["key"] for c in base["candidates"]}
+    measured = {c["key"]: c for c in extra["candidates"] if "unavailable" not in c}
+    twice = sorted(
+        k for k in measured for c in base["candidates"] if c["key"] == k and "unavailable" not in c
+    )
+    if twice:
+        raise SystemExit(f"Both reports measured {twice}; merge reports with disjoint candidates")
+    # A candidate the base could not run is replaced by the extra report's measurement, so its
+    # entry and its latency come from the same process.
+    kept = [c for c in base["candidates"] if c["key"] not in measured]
+    keys = {c["key"] for c in kept}
     added = [c for c in extra["candidates"] if c["key"] not in keys]
-    merged = dict(base, candidates=base["candidates"] + added)
+    merged = dict(base, candidates=kept + added)
     merged["latency"] = _merge_latency(base["latency"], extra["latency"])
     merged["environments"] = {"main": base["environment"], "extra": extra["environment"]}
     return merged

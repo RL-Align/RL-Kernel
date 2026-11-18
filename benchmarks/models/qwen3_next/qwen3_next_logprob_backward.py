@@ -324,6 +324,10 @@ def main():
     parser.add_argument("--merge", nargs="+", type=Path)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
+    if args.merge and args.out is None:
+        parser.error("--merge needs --out")
+    if not args.merge and (args.checkpoint is None or args.output is None):
+        parser.error("a measurement needs --checkpoint and --output")
     if args.merge:
         report = merge(args.merge)
         args.out.write_text(json.dumps(report, indent=2) + "\n")
