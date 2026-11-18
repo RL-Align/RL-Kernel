@@ -246,12 +246,21 @@ def test_pad_to_chunk_pads_a_width_that_is_not_a_multiple_of_32(N):
     CPU-visible half: the padding branch has to pad, has to copy, and has to change
     the arithmetic.
 
-    The last assertion is the regression detector. Restoring the fallback makes
-    ``shape_invariant_meansq`` exactly ``x.pow(2).sum(-1) / N``, and a two-stage sum
-    over 32-wide chunks associates the additions differently from a single sum over
-    N, so the two disagree in the last bits: measured on CPU with ``randn`` inputs,
-    1.19e-07 at widths 33 and 100 and 5.96e-08 at 129. Asserting they differ pins
-    the chunked path without asserting any particular bit pattern.
+    The detector is the shape and the copy, which are structural. Restoring the
+    fallback makes ``_pad_to_chunk`` return ``x_f.unsqueeze(-2)``, so the shape
+    becomes (4, 1, N) and the result shares its input's storage, and both assertions
+    go red: measured on CPU with no device visible, all three widths fail.
+
+    An earlier version of this test also asserted that the chunked statistic differs
+    bitwise from ``x.pow(2).sum(-1) / N``, on the grounds that restoring the fallback
+    makes the two identical. That assertion is removed rather than kept, because it
+    was the weakest kind of test: it depended on two summation orders disagreeing in
+    the last bits for these particular seeded inputs, which is a property of this
+    torch version's reduction on this machine and not of the contract. A different
+    reduction implementation could make them coincide and turn correct code red. It
+    also added nothing: with it deleted, the fallback still fails all three widths
+    here, and the exactness of the padding is already pinned bitwise by the manual
+    recomputation above.
     """
     x = _rand((4, N), seed=11)
     assert N % 32 != 0, "this test is about the widths that need padding"
@@ -268,13 +277,6 @@ def test_pad_to_chunk_pads_a_width_that_is_not_a_multiple_of_32(N):
     padded[:, :N] = x
     manual = padded.pow(2).reshape(4, -1, 32).sum(dim=-1).sum(dim=-1) / float(N)
     assert torch.equal(shape_invariant_meansq(x), manual), "the padding is not exact"
-
-    plain = x.pow(2).sum(dim=-1) / float(N)
-    assert not torch.equal(shape_invariant_meansq(x), plain), (
-        f"width {N}: the chunked statistic equals a plain mean bitwise, which is what "
-        "the removed fallback did, so either the fallback is back or this input no "
-        "longer distinguishes the two associations"
-    )
 
 
 @pytest.mark.parametrize("device", ["cpu"] + (["cuda"] if torch.cuda.is_available() else []))
