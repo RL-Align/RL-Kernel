@@ -199,6 +199,58 @@ def test_forward_differs_from_the_composition_without_the_pre_add_cast(dtype):
     )
 
 
+def test_the_model_constants_match_the_merged_fingerprint():
+    """The literals here against #558's fingerprint, now that it has landed.
+
+    This module carries ``HIDDEN_SIZE``, ``RMS_NORM_EPS`` and ``POST_NORM_EPS`` as
+    literals, and the PR that introduced them said their source of truth is #558's
+    ``OFFICIAL_FINGERPRINT`` and that nothing here would fail if the two drifted,
+    because #558 was not merged. It is merged now, so this is that check.
+
+    Measured when the foundation landed: ``hidden_size`` 6656, ``rms_norm_eps``
+    1e-05 and ``post_norm_eps`` 1e-08, all three equal to the literals below, and
+    ``OFFICIAL_FROZEN_SEMANTICS`` agrees with what this operator implements --
+    ``decoder_norm.form`` is ``centered_rmsnorm_one_plus_weight`` with
+    ``rsqrt_form`` ``rsqrt``, ``final_norm.form`` is ``rmsnorm_times_weight`` with
+    ``pow_neg_half``, the post-norm eps governs ``post_attention_layernorm`` and
+    ``post_feedforward_layernorm``, and ``residual_add`` has BF16 operands and
+    output, which is the narrowing this row freezes.
+
+    Importing those values instead of asserting them would make the operator layer
+    depend on the model layer, and nothing under ``reference/``, ``backends/`` or
+    ``kernels/`` does that today. So the literals stay and this fails if either
+    side moves.
+
+    The skip is for the window where this branch has not been merged with the base
+    that carries the foundation; it is not a permanent escape hatch. Verified live
+    rather than only in theory: with the base merged in a scratch worktree, this
+    test passes, and changing any one of the three literals fails it.
+    """
+    workload = pytest.importorskip(
+        "rl_engine.models.muse_glimmer.workload",
+        reason="#558's foundation is not on this branch's base yet; this check goes "
+        "live when it is merged",
+    )
+    fingerprint = workload.OFFICIAL_FINGERPRINT
+    assert HIDDEN_SIZE == fingerprint["hidden_size"]
+    assert RMS_NORM_EPS == fingerprint["rms_norm_eps"]
+    assert POST_NORM_EPS == fingerprint["post_norm_eps"]
+
+    semantics = workload.OFFICIAL_FROZEN_SEMANTICS
+    decoder = semantics["decoder_norm"]
+    assert decoder["form"] == "centered_rmsnorm_one_plus_weight"
+    assert decoder["rsqrt_form"] == "rsqrt"
+    assert decoder["compute_dtype"] == "float32"
+    # The two eps are not interchangeable, and this is where that is declared.
+    assert decoder["eps"]["post_attention_layernorm"] == "post_norm_eps"
+    assert decoder["eps"]["pre_feedforward_layernorm"] == "rms_norm_eps"
+    final = semantics["final_norm"]
+    assert final["form"] == "rmsnorm_times_weight"
+    assert final["rsqrt_form"] == "pow_neg_half"
+    # The residual add is in the model dtype, which is the first narrowing point.
+    assert semantics["residual_add"] == {"operand_dtype": "bfloat16", "output_dtype": "bfloat16"}
+
+
 @pytest.mark.parametrize(
     "mutate, exc, match",
     [

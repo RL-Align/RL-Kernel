@@ -45,7 +45,17 @@ from torch import Tensor, nn
 
 from rl_engine.reference.norm.rms_norm import shape_invariant_meansq, shape_invariant_rowsum
 
-# Muse-Glimmer-30B text config; see the #558 manifest.
+# Muse-Glimmer-30B text config. #558 has landed on test-museglimmer, so these three
+# now have a source of truth to be checked against: OFFICIAL_FINGERPRINT in
+# rl_engine/models/muse_glimmer/workload.py gives hidden_size 6656, rms_norm_eps
+# 1e-05 and post_norm_eps 1e-08, all three equal to the literals below, and
+# OFFICIAL_FROZEN_SEMANTICS agrees with the forms this module implements.
+#
+# Still literals rather than an import, because nothing under reference/, backends/
+# or kernels/ imports from rl_engine.models and this row should not be the first to.
+# test_the_model_constants_match_the_merged_fingerprint is what makes the duplication
+# safe: it skips while a branch predates the foundation and fails if either side
+# moves afterwards.
 HIDDEN_SIZE = 6656
 RMS_NORM_EPS = 1e-5
 POST_NORM_EPS = 1e-8

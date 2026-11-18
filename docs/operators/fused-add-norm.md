@@ -33,6 +33,11 @@ residual_out, pre_normed = fused(hidden, residual, post_weight, pre_weight)
 
 Every rule below comes from the `frozen_semantics` block of the #558 architecture
 fingerprint, not from the HF config, because the config does not state most of it.
+That fingerprint is merged on `test-museglimmer` now, as
+`OFFICIAL_FROZEN_SEMANTICS` and `OFFICIAL_FINGERPRINT` in
+`rl_engine/models/muse_glimmer/workload.py`, and this row's three model constants are
+checked against it by `test_the_model_constants_match_the_merged_fingerprint` rather
+than imported from it, since the operator layers do not depend on the model layer.
 
 | Item | Value |
 | --- | --- |
