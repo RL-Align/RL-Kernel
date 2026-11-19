@@ -166,6 +166,15 @@ def test_prepare_stereo_waveform_matches_diffusers(channels, rate):
     assert torch.equal(out, expected)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_prepare_stereo_waveform_resamples_a_cuda_waveform_on_the_cpu():
+    pytest.importorskip("torchaudio")
+    wave = torch.randn(2, 48_000 // 3, generator=torch.Generator().manual_seed(3))
+    out = av.prepare_stereo_waveform(wave.cuda(), 48_000, allow_resample=True)
+    assert out.is_cuda
+    assert torch.equal(out.cpu(), av.prepare_stereo_waveform(wave, 48_000, allow_resample=True))
+
+
 # --- contract on a reduced-width module ------------------------------------------------------
 
 
@@ -226,6 +235,8 @@ def test_contract_rejects_bad_inputs(tiny_model, tiny_stats, contract):
         contract.encode_latents(stereo(800).double())
     with pytest.raises(ValueError):
         contract.decode_latents(torch.zeros(2, 32, 3, dtype=torch.float64))
+    with pytest.raises(ValueError, match=r"\[B, 32, T\]"):
+        contract.decode_latents(torch.zeros(2, 16, 3))
     with pytest.raises(ValueError):
         contract.decode_rows(torch.zeros(7, 32), 3)
     with pytest.raises(ValueError):
@@ -341,16 +352,14 @@ def test_rows_and_waveform_match_diffusers_pipeline_blocks(diffusers_pair):
 
 
 def test_strict_policy_is_close_to_diffusers(diffusers_pair, contract):
-    _, library = diffusers_pair
+    ref, _ = diffusers_pair
     wave = stereo(800 * 6, seed=5)
-    strict, lib = contract.encode_stereo(wave), library.encode_stereo(wave)
-    torch.testing.assert_close(strict.latents, lib.latents, rtol=1e-4, atol=1e-5)
-    torch.testing.assert_close(
-        contract.decode_rows(lib.rows, lib.num_latents).waveform,
-        library.decode_rows(lib.rows, lib.num_latents).waveform,
-        rtol=1e-4,
-        atol=1e-5,
-    )
+    strict = contract.encode_stereo(wave)
+    with torch.inference_mode():
+        latents = ref.encode(wave[:, None]).latent_dist.mode()
+        audio = ref.decode(latents).sample[:, 0]
+    torch.testing.assert_close(strict.latents, latents, rtol=1e-4, atol=1e-5)
+    torch.testing.assert_close(contract.decode_latents(latents), audio, rtol=1e-4, atol=1e-5)
 
 
 # --- checkpoint reader ----------------------------------------------------------------------
@@ -436,6 +445,28 @@ def test_benchmark_no_remote_encode_runs_on_the_port(tiny_model):
         got = bench.dac_encode_mean(tiny_model, x)
         want = tiny_model.encode_mean(x[:, None])
     assert got.shape[-1] == 3 and torch.equal(got, want)
+
+
+def test_benchmark_log_bars_raise_the_axis_over_the_largest_value():
+    pytest.importorskip("matplotlib")
+    import importlib.util
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    script = Path(__file__).resolve().parents[3] / "benchmarks/models/benchmark_h3_audio_vae.py"
+    spec = importlib.util.spec_from_file_location("benchmark_h3_audio_vae_under_test", script)
+    assert spec is not None and spec.loader is not None
+    bench = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bench)
+    fig, ax = plt.subplots()
+    bench._grouped_log_bars(ax, ["encode", "decode"], {"ours": [0.0, 5e-6]}, 1e-3)
+    assert ax.get_ylim()[1] == 1e-3  # values under the cap keep it
+    bench._grouped_log_bars(ax, ["encode", "decode"], {"ours": [0.0, 5e-3]}, 1e-3)
+    assert ax.get_ylim()[1] > 5e-3
+    plt.close(fig)
 
 
 # --- released weights on CUDA ----------------------------------------------------------------
