@@ -10,13 +10,14 @@ import platform
 import statistics
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 
 from rl_engine.backends.cuda.gemm.det_gemm import DetGemmOp, det_gemm_backend
 from rl_engine.backends.extension import _C
 
-if __package__:
+if __package__ or TYPE_CHECKING:
     from benchmarks.operators.gemm.projection_provenance import source_provenance
 else:
     # The before/after harness also runs this file from a baseline checkout.
