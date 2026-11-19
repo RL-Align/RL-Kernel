@@ -470,6 +470,78 @@ def test_the_sglang_plugin_is_declared_and_inactive_unless_enabled(monkeypatch):
     assert plugin.enabled()
 
 
+class _Step(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fail = False
+
+    def forward(self, x):
+        if self.fail:
+            raise torch.OutOfMemoryError("CUDA out of memory")
+        return x + 1
+
+
+class _TwoSteps(torch.nn.Module):
+    """A model whose forward runs two bound modules in turn."""
+
+    def __init__(self):
+        super().__init__()
+        self.first, self.second = _Step(), _Step()
+
+    def forward(self, x):
+        return self.second(self.first(x))
+
+
+def _guarded(monkeypatch, tmp_path):
+    """The plugin's guarded forward on a CPU model; SGLang's TP size and forward context are
+    stubbed, and the install binds the two modules as ``install_h3_sglang_rollout`` does."""
+
+    import sys
+
+    from rl_engine.integrations.engines.rollout.sglang import plugin
+
+    state = "sglang.multimodal_gen.runtime.distributed.parallel_state"
+    monkeypatch.setitem(sys.modules, state, SimpleNamespace(get_tp_world_size=lambda: 1))
+    monkeypatch.setattr(plugin, "_forward_batch", lambda: None)
+
+    def install(model, *, collective, tp):
+        handle = adapter.H3SGLangRolloutHandle()
+        for name in ("first", "second"):
+            module = model.get_submodule(name)
+            handle._restore.append((module, module.__dict__.get("forward", adapter._ABSENT)))
+            module.forward = adapter._counted(module.forward, handle.calls, name)
+            handle.patched.append(name)
+        return handle
+
+    monkeypatch.setattr(adapter, "install_h3_sglang_rollout", install)
+    model = _TwoSteps()
+    handle = plugin.install_in_worker(model, SimpleNamespace(), readback_dir=str(tmp_path))
+    return plugin, model, handle
+
+
+def test_a_failed_forward_does_not_fail_the_readback_of_later_forwards(monkeypatch, tmp_path):
+    """SGLang's worker logs a failed request (an OOM, say) and serves the next one: the calls of
+    the bound modules that ran before the failure are not counted."""
+
+    _, model, handle = _guarded(monkeypatch, tmp_path)
+    x = torch.zeros(2)
+    model(x)
+    model.second.fail = True
+    with pytest.raises(torch.OutOfMemoryError):
+        model(x)
+    assert handle.forwards == 1 and dict(handle.calls) == {"first": 1, "second": 1}
+    model.second.fail = False
+    model(x)
+    assert handle.forwards == 2 and handle.readback(2) == []
+
+
+def test_the_handle_leaves_the_model_with_remove(monkeypatch, tmp_path):
+    plugin, model, handle = _guarded(monkeypatch, tmp_path)
+    assert getattr(model, plugin.HANDLE) is handle
+    handle.remove()
+    assert not hasattr(model, plugin.HANDLE) and _no_forward_changed(model)
+
+
 @needs_gpu
 def test_the_readback_counts_every_bound_forward_and_the_batching_switch_is_put_back():
     pytest.importorskip("triton")

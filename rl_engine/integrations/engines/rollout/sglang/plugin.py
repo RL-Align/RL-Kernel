@@ -21,7 +21,8 @@ With ``RL_KERNEL_SGLANG_H3_READBACK_DIR`` each worker writes its report (``repor
 counts and the kernels) to ``<dir>/rank<global rank>.json`` at install and after every forward.
 ``RL_KERNEL_SGLANG_H3_COLLECTIVE_BYTES`` sizes the collective's staging buffer (default 512 MiB;
 a row-parallel reduction exchanges FP32 partials of ``rows x 5376``). The handle is
-``model.rl_kernel_h3_handle``; ``handle.remove()`` restores SGLang's forwards.
+``model.rl_kernel_h3_handle``; ``handle.remove()`` restores SGLang's forwards and removes it.
+A forward that raises is not counted: neither the model forward nor the bound forwards it ran.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from __future__ import annotations
 import inspect
 import json
 import os
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -122,7 +124,15 @@ def install_in_worker(
         batch = _forward_batch()
         if batch is not None:
             adapter.check_sglang_sampling_params(batch)
-        out = original(*args, **kwargs)
+        before = Counter(handle.calls)
+        try:
+            out = original(*args, **kwargs)
+        except BaseException:
+            # A failed forward serves nothing, and SGLang's worker goes on to the next request:
+            # uncount the bound forwards it ran, or every later forward would fail the readback.
+            handle.calls.clear()
+            handle.calls.update(before)
+            raise
         handle.forwards += 1
         write()
         handle.assert_ran(handle.forwards)
@@ -131,6 +141,7 @@ def install_in_worker(
     handle._restore.append((model, model.__dict__.get("forward", adapter._ABSENT)))
     model.forward = forward
     handle.overrides.append("forward: guarded (sampling settings, readback after every forward)")
+    handle._attributes.append((model, HANDLE, model.__dict__.get(HANDLE, adapter._ABSENT)))
     setattr(model, HANDLE, handle)
     write()
     return handle
