@@ -15,6 +15,9 @@ Subcommands (each writes JSON; nothing is uploaded):
               ``--mode strict`` binds the RL-Kernel graph, which needs all 50 and Hopper).
 ``compare``   Stage-by-stage comparison and first drift of two runs.
 ``toy``       The CPU toy matrix (repeat runs, every injection) for both workflows.
+``plot*``     Charts, each with a Markdown table of the same numbers: ``plot`` (drift map of two
+              runs), ``plot-stages``, ``plot-text``, ``plot-text-hosts`` (text check on several
+              hosts), ``plot-time`` and ``plot-memory`` (peak GPU memory from nvidia-smi traces).
 
 Fixture requests use procedural media (no downloads): FL2VA with first and last keyframes,
 Ref2VA with an image, a video with a soundtrack and an audio reference, both on a 256x448
@@ -1158,6 +1161,190 @@ def plot_time(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _label_path(item: str) -> tuple[str, str]:
+    label, sep, path = item.partition("=")
+    if not sep or not label or not path:
+        raise SystemExit(f"expected LABEL=PATH, got {item!r}")
+    return label, path
+
+
+def plot_text_hosts(args: argparse.Namespace) -> dict[str, Any]:
+    """Contract text features against the pinned file on several hosts: CPU and CUDA.
+
+    Only what each ``text-check`` report holds (no per-token analysis, which needs the
+    feature tensors): relative L2 over all tokens, max |Δ| and the differing tokens.
+    """
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    hosts = [_label_path(item) for item in args.host]
+    checks = {
+        (host, wf, dev): load_report(str(Path(d) / f"{wf}-{dev}.json"))
+        for host, d in hosts
+        for wf in ("fl2va", "ref2va")
+        for dev in ("cpu", "cuda")
+    }
+    rows = []
+    for host, _ in hosts:
+        for wf in ("fl2va", "ref2va"):
+            for dev in ("cpu", "cuda"):
+                c = checks[host, wf, dev]
+                if c["workflow"] != wf or c["device"] != dev:
+                    raise SystemExit(f"{host} {wf}-{dev}.json holds {c['workflow']}/{c['device']}")
+                rows.append(
+                    [
+                        host,
+                        "FL2VA" if wf == "fl2va" else "Ref2VA",
+                        dev.upper(),
+                        c["shape"][1],
+                        "yes" if c["bitwise_equal"] else "no",
+                        _fmt(0.0 if c["bitwise_equal"] else c["relative_l2"]),
+                        _fmt(c.get("max_abs_diff", 0.0)),
+                        f"{c.get('differing_text_tokens', 0)} / "
+                        f"{c.get('differing_vision_tokens', 0)} (of {c['shape'][1]})",
+                        _fmt(c.get("first_differing_token", "none")),
+                    ]
+                )
+    fig, axes = plt.subplots(1, 2, figsize=(11, 0.55 * 2 * len(hosts) + 1.9), sharex=True)
+    fig.patch.set_facecolor(SURFACE)
+    floor = 1e-4
+    colors = {"cuda": SERIES[0], "cpu": SERIES[1]}
+    for ax, wf in zip(axes, ("fl2va", "ref2va"), strict=True):
+        ax.set_facecolor(SURFACE)
+        labels = []
+        for h, (host, _) in enumerate(hosts):
+            for d, dev in enumerate(("cuda", "cpu")):
+                y = h * 2.6 + d
+                c = checks[host, wf, dev]
+                v = 0.0 if c["bitwise_equal"] else float(c["relative_l2"])
+                if v == 0.0:
+                    ax.plot([floor], [y], marker="o", ms=6, color=colors[dev])
+                    ax.text(floor * 1.4, y, "= 0, bitwise", va="center", fontsize=8, color=INK)
+                else:
+                    ax.barh(y, v - floor, height=0.8, color=colors[dev], left=floor)  # ends at v
+                    ax.text(v * 1.08, y, f"{v:.3g}", va="center", fontsize=8, color=INK)
+                labels.append((y, f"{host}, contract on {dev.upper()}"))
+        ax.set_xscale("log")
+        ax.set_xlim(floor, 3.0)
+        ax.set_yticks([y for y, _ in labels])
+        ax.set_yticklabels([text for _, text in labels], fontsize=7.5, color=INK2)
+        ax.invert_yaxis()
+        tokens = checks[hosts[0][0], wf, "cpu"]["shape"][1]
+        name = "FL2VA" if wf == "fl2va" else "Ref2VA"
+        ax.set_title(f"{name} ({tokens:,} tokens)", loc="left", fontsize=9.5, color=INK)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        ax.grid(axis="x", color=EQUAL, linewidth=0.6)
+        ax.set_axisbelow(True)
+        ax.tick_params(colors=INK2, labelsize=7.5)
+        ax.set_xlabel(
+            "relative L2 vs the pinned features, all tokens (log)", fontsize=8, color=INK2
+        )
+    fig.suptitle(args.title, x=0.01, ha="left", fontsize=11, color=INK)
+    _save(fig, args.png)
+    headers = [
+        "Host",
+        "Workflow",
+        "Contract on",
+        "Tokens",
+        "Bitwise equal",
+        "relative L2, all tokens",
+        "max |Δ|",
+        "Differing tokens (text / vision)",
+        "First differing token",
+    ]
+    return {
+        "schema": SCHEMA,
+        "kind": "plot-text-hosts",
+        "png": Path(args.png).name,
+        "tables": {"text_check_hosts": {"headers": headers, "rows": rows}},
+        "markdown": _md(headers, rows),
+        "source": source_state(),
+    }
+
+
+def plot_memory(args: argparse.Namespace) -> dict[str, Any]:
+    """Peak GPU memory per run from ``nvidia-smi`` traces (``unix_time,MiB`` per line)."""
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    traces = []
+    for item in args.trace:
+        label, path = _label_path(item)
+        used = [
+            int(line.split(",")[1])
+            for line in Path(path).read_text().splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        traces.append((label, max(used), min(used), len(used)))
+    capacity = args.capacity_mib
+    fig, ax = plt.subplots(figsize=(9, 0.55 * len(traces) + 1.7))
+    fig.patch.set_facecolor(SURFACE)
+    ax.set_facecolor(SURFACE)
+    rows = []
+    for r, (label, peak, low, samples) in enumerate(traces):
+        ax.barh(r, peak / 1024, height=0.6, color=SERIES[0])
+        share = f", {100 * peak / capacity:.1f} % of the card" if capacity else ""
+        ax.text(
+            peak / 1024 - 1.0,
+            r,
+            f"{peak / 1024:.1f} GiB{share}",
+            va="center",
+            ha="right",
+            fontsize=7.5,
+            color=SURFACE,
+        )  # inside the bar: a bar near the card line leaves no room after it
+        rows.append(
+            [
+                label,
+                peak,
+                f"{peak / 1024:.1f}",
+                f"{100 * peak / capacity:.1f}" if capacity else "n/a",
+                low,
+                samples,
+            ]
+        )
+    if capacity:
+        ax.axvline(capacity / 1024, color=INK2, linewidth=1, linestyle="--")
+        ax.text(
+            capacity / 1024 + 1.0,
+            0,
+            f"card:\n{capacity / 1024:.1f} GiB",
+            fontsize=7.5,
+            color=INK2,
+            ha="left",
+            va="center",
+        )
+    ax.set_yticks(range(len(traces)))
+    ax.set_yticklabels([label for label, *_ in traces], fontsize=8, color=INK2)
+    ax.invert_yaxis()
+    ax.set_xlim(0, max([peak for _, peak, *_ in traces] + [capacity]) / 1024 * 1.18)
+    ax.set_xlabel("peak memory used on the card (GiB, nvidia-smi samples)", fontsize=8, color=INK2)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    ax.grid(axis="x", color=EQUAL, linewidth=0.6)
+    ax.set_axisbelow(True)
+    ax.tick_params(colors=INK2, labelsize=8)
+    ax.set_title(args.title, loc="left", fontsize=11, color=INK, pad=14)
+    _save(fig, args.png)
+    headers = ["Trace", "Peak (MiB)", "Peak (GiB)", "% of card", "Lowest sample (MiB)", "Samples"]
+    return {
+        "schema": SCHEMA,
+        "kind": "plot-memory",
+        "png": Path(args.png).name,
+        "capacity_mib": capacity,
+        "tables": {"memory": {"headers": headers, "rows": rows}},
+        "markdown": _md(headers, rows),
+        "source": source_state(),
+    }
+
+
 # --- main ---------------------------------------------------------------------------------
 
 
@@ -1261,6 +1448,24 @@ def main() -> None:
     p.add_argument("--title", required=True)
     p.add_argument("--report", required=True)
 
+    p = sub.add_parser("plot-text-hosts")
+    p.add_argument(
+        "--host",
+        action="append",
+        required=True,
+        help="LABEL=dir with {fl2va,ref2va}-{cpu,cuda}.json",
+    )
+    p.add_argument("--png", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--report", required=True)
+
+    p = sub.add_parser("plot-memory")
+    p.add_argument("--trace", action="append", required=True, help="LABEL=nvidia-smi trace CSV")
+    p.add_argument("--capacity-mib", type=int, default=0, help="card memory, for the % column")
+    p.add_argument("--png", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--report", required=True)
+
     p = sub.add_parser("toy")
     p.add_argument("--report", required=True)
 
@@ -1276,6 +1481,8 @@ def main() -> None:
         "plot-stages": plot_stages,
         "plot-text": plot_text,
         "plot-time": plot_time,
+        "plot-text-hosts": plot_text_hosts,
+        "plot-memory": plot_memory,
         "text-check": text_check,
     }[args.command]
     report = handler(args)
