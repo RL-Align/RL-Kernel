@@ -456,6 +456,9 @@ def _grouped_log_bars(
                     fontsize=7,
                     color=INK,
                 )
+    peak = max((v for vals in series.values() for v in vals), default=0.0)
+    while peak >= top:  # never clip a bar: raise the cap by decades over the largest value
+        top *= 10
     ax.set_yscale("log")
     ax.set_ylim(LOG_FLOOR, top)
     ax.set_xticks(range(len(groups)), groups)

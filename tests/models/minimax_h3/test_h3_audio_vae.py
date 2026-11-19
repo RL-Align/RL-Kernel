@@ -449,6 +449,28 @@ def test_benchmark_no_remote_encode_runs_on_the_port(tiny_model):
     assert got.shape[-1] == 3 and torch.equal(got, want)
 
 
+def test_benchmark_log_bars_raise_the_axis_over_the_largest_value():
+    pytest.importorskip("matplotlib")
+    import importlib.util
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    script = Path(__file__).resolve().parents[3] / "benchmarks/models/benchmark_h3_audio_vae.py"
+    spec = importlib.util.spec_from_file_location("benchmark_h3_audio_vae_under_test", script)
+    assert spec is not None and spec.loader is not None
+    bench = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bench)
+    fig, ax = plt.subplots()
+    bench._grouped_log_bars(ax, ["encode", "decode"], {"ours": [0.0, 5e-6]}, 1e-3)
+    assert ax.get_ylim()[1] == 1e-3  # values under the cap keep it
+    bench._grouped_log_bars(ax, ["encode", "decode"], {"ours": [0.0, 5e-3]}, 1e-3)
+    assert ax.get_ylim()[1] > 5e-3
+    plt.close(fig)
+
+
 # --- released weights on CUDA ----------------------------------------------------------------
 
 
