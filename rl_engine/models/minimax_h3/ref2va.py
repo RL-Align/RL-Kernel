@@ -20,7 +20,7 @@ presentation, the reference geometry of ``MiniMaxH3Ref2VAReferenceEncoderStep``,
    stereo, resampled once to 32 kHz;
 3. :func:`sample_video_condition_frames` and :func:`ref2va_presentation`: what the Qwen3-VL
    conditioner reads (2 fps, merged pairs labelled ``"<x.x seconds>"`` with round-half-even);
-4. :func:`vae_video_frame_count`: a video reference snaps *down* to ``17 * n + 5`` frames;
+4. :func:`vae_video_frame_count`: the frame bound a video reference is sliced to before the VAE;
 5. :func:`build_ref2va_layout`: ``[text | reference blocks | target audio | target video]``;
    an image advances the clock by one slot, an audio by its latent count, a video (with its
    soundtrack packed just before it) by ``max(audio latents, sequential video span)``;
@@ -390,7 +390,15 @@ def vae_video_frame_count(
     frames_per_chunk: int = pl.VAE_FRAMES_PER_CHUNK,
     latents_per_chunk: int = pl.VAE_LATENTS_PER_CHUNK,
 ) -> int:
-    """A reference video snaps *down* to ``17 * n + 5`` (n >= 1) so the VAE needs no padding."""
+    """The pinned pipeline's frame bound for a video reference, ``max(1, (n-5) // 17) * 17 + 5``.
+
+    From 22 frames on, the reference snaps *down* to ``17 * k + 5`` frames and the VAE encodes
+    it without padding. A shorter reference (the conditioner needs at least 13 frames at
+    24 fps) gets the bound 22, so it keeps all its frames, exactly as in the release; the VAE
+    then repeats its last frame up to a multiple of 17, and 13-17 frames encode to 2 latent
+    frames, 18-21 to 7. The layout reads latent frame counts from the encoder output
+    (:func:`reference_blocks`), not from this bound.
+    """
 
     return (
         max(1, (num_frames - latents_per_chunk) // frames_per_chunk) * frames_per_chunk

@@ -123,7 +123,9 @@ The `fl2va_pipeline_contract` row (`rl_engine/models/minimax_h3/fl2va.py`).
   - merged pairs labelled `"<x.x seconds>"` with round-half-even;
   - `"<Audio j>: "` before `"<Video k>: "` for a video with sound, labels numbered per
     modality.
-- **`vae_video_frame_count`.** A video reference snaps *down* to `17n + 5`.
+- **`vae_video_frame_count`.** The frame bound a video reference is sliced to, as in the
+  pinned pipeline: from 22 frames on it snaps *down* to `17n + 5`; a shorter reference keeps
+  all its frames, and the VAE repeats the last one up to a multiple of 17.
 - **`reference_blocks`, `build_ref2va_layout`.**
   - Layout: `[text | references | target audio | target video]`.
   - How each reference advances the clock:
