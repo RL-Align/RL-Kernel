@@ -21,7 +21,8 @@ SUCCESS = {"setup": "passed", "call": "passed", "teardown": "passed"}
 
 
 @pytest.mark.parametrize(
-    "fault", ["missing", "extra", "duplicate", "skipped", "teardown", "incomplete"]
+    "fault",
+    ["missing", "extra", "duplicate", "skipped", "xfail", "xpass", "teardown", "incomplete"],
 )
 def test_declared_case_must_complete_all_phases(fault):
     collected = [CASE]
@@ -32,8 +33,8 @@ def test_declared_case_must_complete_all_phases(fault):
         collected.append("tests/example.py::test_undeclared")
     elif fault == "duplicate":
         collected.append(CASE)
-    elif fault == "skipped":
-        outcomes[CASE]["call"] = "skipped"
+    elif fault in ("skipped", "xfail", "xpass"):
+        outcomes[CASE]["call"] = fault
     elif fault == "teardown":
         outcomes[CASE]["teardown"] = "failed"
     else:
@@ -65,7 +66,7 @@ def test_diagnostics_cannot_enter_required_case_set(tmp_path):
     assert load_cases(path, "all") == sorted([CASE, "tests/example.py::test_core"])
 
 
-@pytest.mark.parametrize("outcome", ["pass", "skip", "xfail", "deselected"])
+@pytest.mark.parametrize("outcome", ["pass", "skip", "xfail", "xpass", "deselected"])
 def test_plugin_enforces_real_pytest_outcomes(tmp_path, outcome):
     test_file = tmp_path / "test_acceptance.py"
     body = "pass"
@@ -73,7 +74,8 @@ def test_plugin_enforces_real_pytest_outcomes(tmp_path, outcome):
         body = "pytest.skip('missing CUDA')"
     elif outcome == "xfail":
         body = "pytest.xfail('unimplemented')"
-    test_file.write_text(f"import pytest\ndef test_required():\n    {body}\n")
+    marker = "@pytest.mark.xfail(strict=False)\n" if outcome == "xpass" else ""
+    test_file.write_text(f"import pytest\n{marker}def test_required():\n    {body}\n")
     case = "test_acceptance.py::test_required"
     manifest = tmp_path / "cases.json"
     manifest.write_text(json.dumps({"schema_version": 1, "suites": {"core": [case]}}))
@@ -111,3 +113,6 @@ def test_plugin_enforces_real_pytest_outcomes(tmp_path, outcome):
     report = json.loads(report_path.read_text())
     assert report["passed"] is (outcome == "pass")
     assert report["expected_case_ids"] == [case]
+    if outcome in ("xfail", "xpass"):
+        assert report["outcomes"][case]["call"] == outcome
+        assert report["counts"]["skipped" if outcome == "xfail" else "failures"] == 1

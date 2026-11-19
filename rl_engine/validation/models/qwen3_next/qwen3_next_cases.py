@@ -36,11 +36,11 @@ def execution_verdict(expected: list[str], collected: list[str], outcomes: dict)
     incomplete = []
     for case in expected:
         phases = outcomes.get(case, {})
-        if any(value == "skipped" for value in phases.values()):
+        if any(value in ("skipped", "xfail") for value in phases.values()):
             counts["skipped"] += 1
         elif phases.get("setup") == "failed" or phases.get("teardown") == "failed":
             counts["errors"] += 1
-        elif phases.get("call") == "failed":
+        elif phases.get("call") in ("failed", "xpass"):
             counts["failures"] += 1
         elif phases != {"setup": "passed", "call": "passed", "teardown": "passed"}:
             incomplete.append(case)
