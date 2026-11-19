@@ -162,6 +162,32 @@ def test_preprocess_is_a_gather() -> None:
         vv.preprocess_pixels(pixels[:, :2])
 
 
+def test_preprocess_chunks_match_one_gather() -> None:
+    gen = torch.Generator().manual_seed(1)
+    frames = 2 * vv.PREPROCESS_FRAME_CHUNK + 3  # a partial last chunk
+    pixels = torch.randint(0, 256, (1, 3, frames, 4, 8), generator=gen, dtype=torch.uint8)
+    channel = torch.arange(3).view(1, 3, 1, 1, 1)
+    assert torch.equal(vv.preprocess_pixels(pixels), vv.pixel_lut()[channel, pixels.long()])
+
+
+@needs_cuda
+def test_preprocess_peak_memory_is_bounded() -> None:
+    """The int64 gather index is 8x the input; it must not be built for the whole clip."""
+
+    pixels = torch.randint(0, 256, (1, 3, 64, 256, 256), dtype=torch.uint8, device="cuda")
+    out_bytes = pixels.numel() * 4
+    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats()
+    base = torch.cuda.memory_allocated()
+    out = vv.preprocess_pixels(pixels)
+    torch.cuda.synchronize()
+    peak = torch.cuda.max_memory_allocated() - base
+    assert out.shape == pixels.shape
+    # The output plus a few frames of index (1.6x here); the whole-clip index made it 5x.
+    assert peak < 2 * out_bytes
+    del out
+
+
 @needs_cuda
 def test_pixel_lut_matches_diffusers_cuda_preprocessing() -> None:
     values = torch.arange(256, dtype=torch.uint8, device="cuda")
@@ -235,6 +261,40 @@ def test_pinned_runtime_restores_flags() -> None:
     assert (cudnn.deterministic, cudnn.benchmark, cudnn.allow_tf32) == before
 
 
+def test_pinned_runtime_serializes_threads() -> None:
+    """A second thread's scope must not start inside the first one's: interleaved scopes
+    save each other's pinned flags and leave the process pinned after both return."""
+
+    import threading
+
+    cudnn = torch.backends.cudnn
+    before = cudnn.deterministic
+    policy = vv.RuntimePolicy(cudnn_deterministic=not before)
+    first_in, second_in, first_out = threading.Event(), threading.Event(), threading.Event()
+
+    def first() -> None:
+        with vv.pinned_runtime(policy):
+            first_in.set()
+            second_in.wait(timeout=0.5)  # times out when the second scope is held back
+        first_out.set()
+
+    def second() -> None:
+        first_in.wait()
+        with vv.pinned_runtime(policy):
+            second_in.set()
+            first_out.wait(timeout=5)
+
+    threads = [threading.Thread(target=first), threading.Thread(target=second)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    try:
+        assert cudnn.deterministic is before
+    finally:
+        cudnn.deterministic = before
+
+
 def test_manifest_is_reproducible() -> None:
     a, b = vv.contract_manifest(), vv.contract_manifest()
     assert a == b
@@ -263,6 +323,32 @@ def test_output_digests_strided_and_empty_rows() -> None:
     assert vv.output_digests(empty)[0] == tensor_digest(torch.cat(empty))
     with pytest.raises(ValueError):
         vv.output_digests([])
+
+
+def test_load_release_vae_reads_only_the_pinned_shards(tmp_path, monkeypatch) -> None:
+    from safetensors.torch import save_file
+
+    class Tiny(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.zeros(4))
+
+        @classmethod
+        def from_config(cls, config):
+            return cls()
+
+    (tmp_path / "config.json").write_text(json.dumps({"k": 1}))
+    save_file({"w": torch.ones(4)}, str(tmp_path / "model.safetensors"))
+    # Same key, not in the fingerprint, sorted after the pinned shard.
+    save_file({"w": torch.full((4,), 7.0)}, str(tmp_path / "zzz.safetensors"))
+    files = [
+        {"path": f"vae/{name}", "size": (tmp_path / name).stat().st_size}
+        for name in ("config.json", "model.safetensors")
+    ]
+    fingerprint = {"config": {"k": 1}, "checkpoint": {"files": files}}
+    monkeypatch.setattr(vv, "release_fingerprint", lambda: fingerprint)
+    vae = vv.load_release_vae(Tiny, tmp_path)
+    assert torch.equal(vae.w.detach(), torch.ones(4))
 
 
 # --- encode/decode with a small Diffusers model -------------------------------------------
@@ -451,6 +537,59 @@ def test_contract_rejects_non_release_vae() -> None:
     vae.use_slicing = True
     with pytest.raises(ValueError):
         vv.VisualVAEContract(vae)
+
+
+def test_contract_rechecks_the_release_before_every_call() -> None:
+    vae = _tiny_vae("cpu")
+    vae.enable_tiling(256, 256, 64, 64)
+    contract = vv.VisualVAEContract(vae)
+    latents = torch.zeros(1, 24, 2, 4, 3)
+    vae.disable_tiling()
+    with pytest.raises(ValueError, match="release tiling"):
+        contract.encode(_pixels(1, 1))
+    with pytest.raises(ValueError, match="release tiling"):
+        contract.decode(latents)
+    # Opting out still allows untiled runs (the evidence tool's tiled-vs-untiled check).
+    untiled = vv.VisualVAEContract(vae, require_release=False)
+    assert untiled.encode(_pixels(1, 1)).tile_plan is None
+
+
+def test_contract_follows_a_non_release_latent_width() -> None:
+    """``require_release=False`` takes the layout from the VAE config, latent channels too."""
+
+    module = _diffusers()
+    torch.manual_seed(0)
+    vae = module.AutoencoderKLMiniMaxH3(
+        latent_channels=8,
+        block_out_channels=(8,) * 6,
+        layers_per_block=1,
+        norm_num_groups=4,
+        decoder_num_layers=1,
+        decoder_num_attention_heads=2,
+        decoder_attention_head_dim=8,
+        decoder_num_register_tokens=1,
+        decoder_ffn_mult=2,
+        latents_mean=(0.1,) * 8,
+        latents_std=(2.0,) * 8,
+    ).eval()
+    contract = vv.VisualVAEContract(vae, require_release=False)
+    assert contract.layout.latent_channels == 8
+    latents = contract.encode(_pixels(1, 22, 32, 32)).tensor
+    assert latents.shape == (1, 8, 7, 2, 2)
+    assert contract.decode(latents).tensor.shape == (1, 3, 22, 32, 32)
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_encode_ignores_ambient_autocast(device: str) -> None:
+    """The release encodes in FP32; a caller's autocast must not reach the encoder."""
+
+    contract = vv.VisualVAEContract(_tiny_vae(device), require_release=False)
+    pixels = _pixels(1, 1)
+    expected = contract.encode(pixels, round_fp16=False)
+    dtype = torch.bfloat16 if device == "cpu" else torch.float16
+    with torch.autocast(device_type=device, dtype=dtype):
+        ours = contract.encode(pixels, round_fp16=False)
+    assert torch.equal(ours.tensor, expected.tensor)
 
 
 # --- released checkpoint ------------------------------------------------------------------

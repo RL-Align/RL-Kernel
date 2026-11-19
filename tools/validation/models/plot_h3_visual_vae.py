@@ -89,10 +89,18 @@ def source_line(reports: list[tuple[str, dict]], field: str) -> str:
 def write_table(path: Path, header: list[str], rows: list[list[str]], source: str) -> None:
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     lines += ["| " + " | ".join(row) + " |" for row in rows]
-    path.write_text("\n".join(lines) + "\n\n" + source + "\n")
+    path.write_text("\n".join(lines) + "\n\n" + source + "\n", encoding="utf-8")
 
 
 # --- data extraction --------------------------------------------------------------------------
+
+
+def max_abs(entry: dict) -> float:
+    """``max_abs`` of a comparison; NaN when the report has none (``null``, or ``NaN`` in
+    reports written before the evidence tool switched to strict JSON)."""
+
+    value = entry["max_abs"]
+    return math.nan if value is None else float(value)
 
 
 def accuracy_rows(report: dict) -> list[tuple[str, float]]:
@@ -119,22 +127,22 @@ def accuracy_rows(report: dict) -> list[tuple[str, float]]:
         rows.append(
             (
                 f"vs Diffusers recipe, pinned flags, {label}",
-                parity["diffusers_pinned"][key]["max_abs"],
+                max_abs(parity["diffusers_pinned"][key]),
             )
         )
     for key, label in OPS:
-        value = parity["diffusers_default_flags"][key]["max_abs"]
+        value = max_abs(parity["diffusers_default_flags"][key])
         rows.append((f"vs Diffusers recipe, default flags, {label}", value))
     for key, label in OPS:
         rows.append((f"batch row vs same row alone, {label}", zero_if(per_row[key])))
     rows.append(
         (
             "tiled vs untiled, keyframe encode*",
-            tiling["tiled_vs_untiled_encode_keyframe"]["max_abs"],
+            max_abs(tiling["tiled_vs_untiled_encode_keyframe"]),
         )
     )
     rows.append(
-        ("tiled vs untiled, 22-frame decode*", tiling["tiled_vs_untiled_decode_video"]["max_abs"])
+        ("tiled vs untiled, 22-frame decode*", max_abs(tiling["tiled_vs_untiled_decode_video"]))
     )
     return rows
 
@@ -144,15 +152,21 @@ def batch_cases(report: dict) -> list[tuple[str, float, float, float]]:
 
     bi = report["checks"]["batch_invariance"]
     default, pinned = bi["diffusers_batched_default_flags"], bi["diffusers_batched_pinned_flags"]
+    contract = bi.get("contract_cases")
     rows = []
     for key, label in OPS:
-        # The contract records one verdict per step, covering every row of every batch size.
-        ours = 0.0 if bi["contract_per_row"][key] else math.nan
-        pinned_cases = {(c["batch"], c["row"]): c["max_abs"] for c in pinned[key]["cases"]}
+        pinned_cases = {(c["batch"], c["row"]): max_abs(c) for c in pinned[key]["cases"]}
+        if contract is not None:
+            ours = {(c["batch"], c["row"]): max_abs(c) for c in contract[key]["cases"]}
+        else:
+            # Reports without per-case contract results carry one verdict per step (every
+            # row of the full batch vs the same row alone); it is shown on each case.
+            verdict = 0.0 if bi["contract_per_row"][key] else math.nan
+            ours = {(c["batch"], c["row"]): verdict for c in default[key]["cases"]}
         for case in default[key]["cases"]:
             b, r = case["batch"], case["row"]
             rows.append(
-                (f"{label}, batch {b} row {r}", ours, case["max_abs"], pinned_cases[(b, r)])
+                (f"{label}, batch {b} row {r}", ours[(b, r)], max_abs(case), pinned_cases[(b, r)])
             )
     return rows
 
@@ -416,7 +430,10 @@ def main() -> None:
     args = parser.parse_args()
     if len(args.reports) > 2:
         parser.error("at most two reports")
-    loaded = [(p.name, json.loads(p.read_text())) for p in args.reports]
+    loaded = [(p.name, json.loads(p.read_text(encoding="utf-8"))) for p in args.reports]
+    tags = [gpu_tag(r) for _, r in loaded]
+    if len(set(tags)) != len(tags):
+        parser.error(f"both reports are from the same GPU ({tags[0]}); their charts would collide")
     out_dir = args.out_dir or args.reports[0].parent
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, report in loaded:
