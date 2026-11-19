@@ -151,7 +151,30 @@ needs one.
 
 ## Results
 
-Filled in from `tools/validation/models/h3_qwen3vl_evidence.py` on B200 (see the PR).
+From `tools/validation/models/h3_qwen3vl_evidence.py` with the released weights (all 34 file
+hashes verified), torch 2.13.0+cu130, transformers 5.17.0, Diffusers `f53d5520`. Inputs: 6 text
+prompts of 1-288 tokens and 2 FL2VA-style presentations with 1 and 2 synthetic 480x832
+keyframes. The PR carries the evidence JSONs and charts.
+
+| Property | B200 (sm100) | H100 (sm90) |
+| --- | --- | --- |
+| Contract (50-layer stack) vs Diffusers `get_qwen3vl_prompt_embeds`, 8 cases | bitwise equal | bitwise equal |
+| Contract hook on the full 64-layer model vs Diffusers | bitwise equal | bitwise equal |
+| `hidden_states[50]` is the Diffusers feature; `[49]`/`[50]`/`[51]` distinct | yes | yes |
+| Run to run | 1 digest per case | 1 digest per case |
+| `encode_many`, 7 rotations of the 8 cases vs each case alone | 7/7 bitwise | 7/7 bitwise |
+| HF padded batch (6 prompts, right or left pad) vs per row | not bitwise | not bitwise |
+| Prompts spelling one of the 21 special tokens | 21/21 rejected | 21/21 rejected |
+
+Prior-art padded batching changes the layer-50 feature by up to 1.09e+04 (B200) and 5.44e+03
+(H100) max abs on the 288-token prompt; the contract's per-row feature is bitwise equal to
+Diffusers on every case. On both GPUs the default selection matches forced cuDNN attention
+bitwise, while forcing FlashAttention or the math backend changes the feature, which is why the
+policy keeps the default backend priority.
+
+Median latency per presentation, contract vs Diffusers (64 layers): 22.5-79.6 ms vs
+29.6-89.6 ms on B200, 47.3-126.2 ms vs 62.5-141.7 ms on H100. Weights: 49.42 GiB (50 layers)
+vs 62.13 GiB (64 layers).
 
 ## Tests
 
