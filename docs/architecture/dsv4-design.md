@@ -607,14 +607,16 @@ Open, needs the multi-GPU machine:
       and actor EP 4 / rollout DP 4 on H100, real checkpoint's first 4 layers, 3 GRPO steps:
       `rollout_logprobs_mismatch_count` and `actor/old_logprobs_mismatch_count` 0 at every
       step (2026-11-17). Actor EP 8 / rollout DP 8 on 8 x H200: the same, 3 steps
-      (2026-11-19).
+      (2026-11-19), with the first 4, 8 and 16 layers and the full 43 (recompute on;
+      43 layers with `RL_KERNEL_DSV4_PERSIST_W8=0`, peak 95 GB per GPU, 65 s per step on
+      the 8 x 4 workload, 61 s of it the eager rollout).
 - [x] verl on 8 GPUs of one node: it peaks at about 2730 threads of the user (64 CPUs),
       over a per-user limit of 2048 (`ulimit -u`). On cluster u4478697 that limit reaches
       Slurm job steps from the login node; a shell reached by ssh into the allocated node
       has the node's own limit, and the run goes there.
-- [ ] Parameter offload, CUDA graphs in the rollout; persisted W8 expert weights cost
-      E x N x K bytes per weight in both the actor and the rollout (check the memory
-      budget on the real checkpoint).
+- [ ] Parameter offload, CUDA graphs in the rollout. Persisted W8 expert weights cost
+      E x N x K bytes per weight in both the actor and the rollout, about 0.8 GB per layer
+      per GPU at EP 8; `RL_KERNEL_DSV4_PERSIST_W8=0` expands them per call instead.
 - [x] Rollout plugin at EP > 1 (vLLM DP attention + EP MoE, `--dp N` in
       `scripts/check_dsv4_vllm_gate.py`) on the real checkpoint's first 4 layers: DP 2 and
       DP 4 bitwise equal to `Dsv4Model`, with and without LoRA (2026-11-17); DP 8 the same

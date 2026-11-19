@@ -69,8 +69,8 @@ Design doc 10.1 has the pieces. Things that cost time:
 - Log-prob targets are `roll(ids, -1)`. A packed sequence's last position is meaningless and
   verl never reads it; exclude it from byte comparisons.
 - `persist_w8` keeps E4M3 expert weights expanded: about 6.4 GB per layer extra, in both
-  the actor and the rollout. With a data-parallel-only engine this caps the layer count per
-  GPU (4 layers on H200).
+  the actor and the rollout (the rollout's copy is outside vLLM's memory budget). The full
+  43 layers at EP 8 need it off: `RL_KERNEL_DSV4_PERSIST_W8=0` (same bytes).
 - The attention backward is not deterministic, so grad norms differ slightly run to run.
 
 ## Status (2026-11-19) and next
@@ -97,7 +97,8 @@ Design doc 10.1 has the pieces. Things that cost time:
 - Open, roughly in order:
   - verl GRPO at EP 2, 4 and 8 is bitwise (3 steps). 8 GPUs pass the per-user thread
     limit of Slurm job steps (2048) here, so they run over ssh in an salloc (design doc
-    section 12). Next: 8 / 16 layers, then the full 43-layer model on H200 (100 steps);
+    section 12). 8, 16 and all 43 layers (8 x H200, EP 8, recompute, persist_w8 off)
+    are bitwise too (3 steps, 2026-11-19); a 100-step run of the full model is next;
   - CUDA graphs in the rollout (eager today);
   - the layerwise gate on the real checkpoint beyond the first 4 layers;
   - the older `scripts/verl_e2e/README.md` guide (verl #7688 baseline, full-parameter).
