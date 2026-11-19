@@ -32,11 +32,26 @@ def model_provider(pre_process=True, post_process=True, vp_stage=None):
     return model
 
 
-def runtime_argv(checkpoint, *, training, ep=1):
-    """Use native argument parsing/validation; no precision-policy overrides."""
+# Stock VIME's own Qwen3-Next model spec (scripts/models/qwen3-next-80B-A3B.sh).
+STOCK_SPEC = ("vime_plugins.models.qwen3_next", "get_qwen3_next_spec")
+SHARED_SPEC = (
+    "rl_engine.integrations.orchestrators.vime.providers.qwen3_next_vime",
+    "get_qwen3_next_shared_spec",
+)
+
+
+def runtime_argv(checkpoint, *, training, ep=1, providers=True, seq_length=1040):
+    """Use native argument parsing/validation; no precision-policy overrides.
+
+    ``providers=False`` builds the same actor on stock VIME: its own Qwen3-Next spec and
+    model provider, with the MoE fusion its recipe enables. Only speed comparisons use
+    it; every acceptance stage runs the RL-Kernel providers.
+    """
     checkpoint = str(Path(checkpoint).absolute())
     if ep not in (1, 4) or (training and ep != 1):
         raise ValueError("Native VIME runs EP4 for recompute only; training stays EP1")
+    if type(seq_length) is not int or seq_length < 1040:
+        raise ValueError("The actor sequence budget cannot be below the certified 1040 tokens")
     values = {
         "hf-checkpoint": checkpoint,
         "load": checkpoint,
@@ -73,7 +88,7 @@ def runtime_argv(checkpoint, *, training, ep=1):
         "moe-token-dispatcher-type": "alltoall",
         "hidden-dropout": 0,
         "attention-dropout": 0,
-        "seq-length": 1040,
+        "seq-length": seq_length,
         "max-position-embeddings": 262144,
         "global-batch-size": 4,
         "micro-batch-size": 1,
@@ -123,22 +138,22 @@ def runtime_argv(checkpoint, *, training, ep=1):
         # ship; the unfused path accumulates the same GEMM result into main_grad.
         "no-gradient-accumulation-fusion",
     ]
+    if not providers:
+        del values["custom-model-provider-path"]
+        switches.append("moe-permute-fusion")
     argv = ["qwen3-next-native-actor"]
     for name, value in values.items():
         argv.extend((f"--{name}", str(value)))
     argv.extend(f"--{name}" for name in switches)
-    argv.extend(
-        (
-            "--spec",
-            "rl_engine.integrations.orchestrators.vime.providers.qwen3_next_vime",
-            "get_qwen3_next_shared_spec",
-        )
-    )
+    argv.extend(("--spec", *(SHARED_SPEC if providers else STOCK_SPEC)))
     return argv
 
 
-def create_actor(checkpoint, *, training, ep=1):
-    """Call real native setup/load after the caller initializes Torch distributed."""
+def create_actor(checkpoint, *, training, ep=1, providers=True, seq_length=1040):
+    """Call real native setup/load after the caller initializes Torch distributed.
+
+    ``providers`` and ``seq_length`` are documented on :func:`runtime_argv`.
+    """
     import torch
     import torch.distributed as dist
     from vime.backends.megatron_utils.initialize import init
@@ -150,7 +165,9 @@ def create_actor(checkpoint, *, training, ep=1):
         raise ValueError("Native VIME actor requires four initialized ranks and visible GPUs")
     saved_argv = sys.argv
     try:
-        sys.argv = runtime_argv(checkpoint, training=training, ep=ep)
+        sys.argv = runtime_argv(
+            checkpoint, training=training, ep=ep, providers=providers, seq_length=seq_length
+        )
         args = parse_args()
     finally:
         sys.argv = saved_argv
@@ -201,7 +218,8 @@ def create_actor(checkpoint, *, training, ep=1):
         load_checkpoint(
             model, None, None, checkpointing_context={}, skip_load_to_model_and_opt=False
         )
-        install_vime_logprob_provider()
+        if providers:
+            install_vime_logprob_provider()
         return args, model, None, None
 
     from vime.backends.megatron_utils.model import setup_model_and_optimizer
@@ -210,5 +228,6 @@ def create_actor(checkpoint, *, training, ep=1):
     load_checkpoint(
         model, optimizer, scheduler, checkpointing_context={}, skip_load_to_model_and_opt=False
     )
-    install_vime_logprob_provider()
+    if providers:
+        install_vime_logprob_provider()
     return args, model, optimizer, scheduler
