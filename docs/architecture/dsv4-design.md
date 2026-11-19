@@ -9,7 +9,7 @@ table; this page links to them.
 - Hardware: NVIDIA H100 / H200 (SM90). ROCm and SM100 are out of scope.
 - Reference architecture: vLLM #54955 (`ISEEKYAN/vllm@1a6542c`, batch-invariant mode)
 - Integration target: verl. Rollout and actor recompute must run this kernel set.
-- Last updated: 2026-11-19
+- Last updated: 2026-11-20
 
 Contents:
 1. Goal and guarantees
@@ -610,6 +610,11 @@ Open, needs the multi-GPU machine:
       (2026-11-19), with the first 4, 8 and 16 layers and the full 43 (recompute on;
       43 layers with `RL_KERNEL_DSV4_PERSIST_W8=0`, peak 95 GB per GPU, 65 s per step on
       the 8 x 4 workload, 61 s of it the eager rollout).
+- [x] verl GRPO on the full model, 100 steps (8 x H200, EP 8 / DP 8, recompute,
+      persist_w8 off, 2026-11-20): DAPO-Math-17k with verl's DAPO math reward, 32 prompts
+      x 8 responses, prompt 1024 + response 2048 tokens, LoRA rank 16. Both mismatch
+      counts 0 at all 100 steps; about 420 s per step; checkpoints every 25 steps; score
+      mean 0.27 over steps 1-10 to 0.44 over 91-100. The run continues to 200 steps.
 - [x] verl on 8 GPUs of one node: it peaks at about 2730 threads of the user (64 CPUs),
       over a per-user limit of 2048 (`ulimit -u`). On cluster u4478697 that limit reaches
       Slurm job steps from the login node; a shell reached by ssh into the allocated node

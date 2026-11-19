@@ -3,7 +3,7 @@
 Notes for an assistant (or developer) continuing the DSv4 SM90 batch-invariant work. The
 design of record is `docs/architecture/dsv4-design.md`: goal, environment, how to build
 and test, module map, decisions, the reduction order of every module, status and open
-work. Read it first and keep its status section current. Last updated 2026-11-19.
+work. Read it first and keep its status section current. Last updated 2026-11-20.
 
 ## Working rules
 
@@ -73,7 +73,7 @@ Design doc 10.1 has the pieces. Things that cost time:
   43 layers at EP 8 need it off: `RL_KERNEL_DSV4_PERSIST_W8=0` (same bytes).
 - The attention backward is not deterministic, so grad norms differ slightly run to run.
 
-## Status (2026-11-19) and next
+## Status (2026-11-20) and next
 
 - Done:
   - The kernel set (forward BI, LoRA training end to end; EP = 2 bitwise to EP = 1).
@@ -98,7 +98,9 @@ Design doc 10.1 has the pieces. Things that cost time:
   - verl GRPO at EP 2, 4 and 8 is bitwise (3 steps). 8 GPUs pass the per-user thread
     limit of Slurm job steps (2048) here, so they run over ssh in an salloc (design doc
     section 12). 8, 16 and all 43 layers (8 x H200, EP 8, recompute, persist_w8 off)
-    are bitwise too (3 steps, 2026-11-19); a 100-step run of the full model is next;
+    are bitwise too (3 steps, 2026-11-19). The full model with the DAPO math reward
+    (32 x 8, 1024 + 2048 tokens) is bitwise at all of 100 steps (2026-11-20); the same
+    run continues to 200;
   - CUDA graphs in the rollout (eager today);
   - the layerwise gate on the real checkpoint beyond the first 4 layers;
   - the older `scripts/verl_e2e/README.md` guide (verl #7688 baseline, full-parameter).
