@@ -61,3 +61,18 @@ def test_charts_without_providers_draw_what_ran(tmp_path):
     compared = {**SKIPPED, "diffusers_static": {"cases": 3, "bitwise_equal": 3}}
     written = tool.charts(_report(compared), str(tmp_path / "one"))
     assert written == ["fl2va-equality.png", "fl2va-timing.png", "fl2va-repeatability.png"]
+
+
+def test_an_empty_comparison_is_not_a_pass():
+    tool = _tool()
+    # A reference that imported but ran no case compared nothing.
+    empty = {**SKIPPED, "diffusers_static": {"cases": 0, "bitwise_equal": 0}}
+    assert tool.verdict(_report(empty)) is False
+    # Next to a real comparison it still means the harness broke.
+    mixed = {**empty, "sglang_prefix": {"cases": 3, "bitwise_equal": 3}}
+    assert tool.verdict(_report(mixed)) is False
+    # No repeatability case is no H-C7 evidence.
+    report = _report({**SKIPPED, "diffusers_static": {"cases": 3, "bitwise_equal": 3}})
+    assert tool.verdict(report) is True
+    report["repeatability"] = {}
+    assert tool.verdict(report) is False
