@@ -127,7 +127,9 @@ def verify_before_model_load(manifest, output):
         if checkpoint_identity(manifest["checkpoint"]) != manifest["checkpoint_identity"]:
             raise RuntimeError("checkpoint_mismatch: official weight snapshot changed")
         reference = json.loads(
-            (ROOT / "rl_engine/validation/models/qwen3_next_norm_manifest.json").read_text()
+            (
+                ROOT / "rl_engine/validation/models/qwen3_next/qwen3_next_norm_manifest.json"
+            ).read_text()
         )["model_identity"]
         verified = verify_checkpoint(Path(manifest["checkpoint"]), reference)
     atomic_json(output / "weight-verification.json", verified)

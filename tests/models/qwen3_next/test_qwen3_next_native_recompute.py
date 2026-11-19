@@ -11,7 +11,6 @@ from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next.native_rec
 )
 from rl_engine.integrations.orchestrators.vime.providers.qwen3_next_vime_runtime import runtime_argv
 from rl_engine.models.qwen3_next.qwen3_next_subnode import SUBNODES, subnode_layout
-from rl_engine.validation.common.file_digest import file_sha256
 
 
 @pytest.mark.parametrize("batch", [1, 4])
@@ -57,6 +56,7 @@ def test_recompute_batch_loads_once_and_keeps_verifiable_original_rank_traces(
     from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next import (
         native_recompute as recompute,
     )
+    from rl_engine.validation.common.file_digest import file_sha256
     from rl_engine.validation.models.qwen3_next.qwen3_next_l2 import (
         load_tensor_artifact,
         save_tensor_artifact,

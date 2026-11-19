@@ -194,7 +194,9 @@ def main():
             progress["phase"] = "checkpoint-integrity"
             atomic_json(output / "progress.json", progress)
             identity = json.loads(
-                Path("rl_engine/validation/models/qwen3_next_norm_manifest.json").read_text()
+                Path(
+                    "rl_engine/validation/models/qwen3_next/qwen3_next_norm_manifest.json"
+                ).read_text()
             )
             checkpoint = verify_checkpoint(Path(manifest["checkpoint"]), identity["model_identity"])
             atomic_json(output / "checkpoint.json", checkpoint)

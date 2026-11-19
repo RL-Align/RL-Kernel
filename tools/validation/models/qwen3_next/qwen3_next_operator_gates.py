@@ -76,7 +76,7 @@ def run_suite(out: Path, suite: str) -> dict:
                             sys.executable,
                             f"tools/validation/operators/check_{gate}_invariance.py",
                             "--manifest",
-                            "rl_engine/validation/models/qwen3_next_norm_manifest.json",
+                            "rl_engine/validation/models/qwen3_next/qwen3_next_norm_manifest.json",
                             "--op",
                             op,
                             "--candidate",

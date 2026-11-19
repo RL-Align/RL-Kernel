@@ -20,7 +20,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from rl_engine.config.workload import load_manifest, workload_report  # noqa: E402
 from rl_engine.contracts.numerical import resolve_dtype_policy  # noqa: E402
-from rl_engine.validation.models.qwen3_next_workload import validate_norm_dimensions  # noqa: E402
+from rl_engine.validation.models.qwen3_next.qwen3_next_workload import (  # noqa: E402
+    validate_norm_dimensions,
+)
 from rl_engine.validation.operators import (  # noqa: E402
     BackendProvenance,
     assert_forward_batch_invariant,
