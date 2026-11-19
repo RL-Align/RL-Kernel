@@ -39,6 +39,11 @@ PROMPTS = (
     "Close-up of a barista pouring latte art, warm light, shallow depth of field, 24 fps.",
 )
 IDS = q.vision_token_ids()
+VISION_ROPE = {"rope_theta": 10_000.0, "rope_type": "axial"}
+SGLANG_MODULE = (
+    "sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages."
+    "minimax_h3.packed_sequence"
+)
 
 
 # --- tiny model -------------------------------------------------------------------------------
@@ -72,6 +77,9 @@ def _tiny_config(num_layers: int = 53) -> Any:
             "temporal_patch_size": 2,
             "deepstack_visual_indexes": [0, 1],
             "num_position_embeddings": 2304,
+            # What transformers derives for the release; explicit so an SGLang import cannot
+            # leave it at "default" (see q.restore_vision_rope).
+            "rope_parameters": dict(VISION_ROPE),
         },
         image_token_id=IDS[q.IMAGE_PAD],
         video_token_id=IDS[q.VIDEO_PAD],
@@ -408,6 +416,63 @@ def test_evidence_rejects_repeats_below_one(
         ev.main()
     assert exc.value.code == 2
     assert "--repeats must be at least 1" in capsys.readouterr().err
+
+
+# --- loading in a process that imported SGLang ------------------------------------------------
+
+
+@pytest.fixture(params=["simulated", "sglang"])
+def sglang_rope_patch(request: Any, monkeypatch: Any) -> None:
+    """transformers as SGLang 0.5.21 leaves it after import: ``standardize_rope_params`` returns
+    early for configs without ``max_position_embeddings``, such as Qwen3-VL's vision config.
+    ``simulated`` installs the same guard; ``sglang`` imports SGLang. Undone after the test."""
+
+    config_cls = transformers.PretrainedConfig
+    original = config_cls.standardize_rope_params
+    monkeypatch.setattr(config_cls, "standardize_rope_params", original)
+    if request.param == "sglang":
+        pytest.importorskip(SGLANG_MODULE, reason="needs SGLang")
+    else:
+
+        def skip_without_max_positions(self: Any) -> None:
+            if hasattr(self, "max_position_embeddings"):
+                original(self)
+
+        monkeypatch.setattr(config_cls, "standardize_rope_params", skip_without_max_positions)
+        rope = transformers.Qwen3VLVisionConfig().rope_parameters or {}
+        assert rope.get("rope_type") != "axial"
+
+
+def test_loader_restores_vision_rope_under_sglang_patch(
+    sglang_rope_patch: None, tmp_path: Path
+) -> None:
+    torch.manual_seed(0)
+    model = transformers.Qwen3VLForConditionalGeneration(_tiny_config(num_layers=50)).eval()
+    model.save_pretrained(tmp_path)
+    # Like the released config.json: no RoPE fields in vision_config.
+    config_file = tmp_path / "config.json"
+    saved = json.loads(config_file.read_text())
+    saved["vision_config"].pop("rope_parameters", None)
+    config_file.write_text(json.dumps(saved))
+    loaded, report = q.load_release_text_encoder(tmp_path, device="cpu", dtype=torch.float32)
+    assert report["num_layers"] == 50 and report["skipped_keys"] == 0
+    assert loaded.config.vision_config.rope_parameters == VISION_ROPE
+    grids = [(1, 4, 4)]
+    ids, vision = _image_presentation(grids), _image_inputs(grids)
+    assert torch.equal(
+        _encoder(loaded).encode(ids, vision).feature, _encoder(model).encode(ids, vision).feature
+    )
+
+
+def test_restore_vision_rope_changes_nothing_without_the_patch(monkeypatch: Any) -> None:
+    # Drop a patch installed by an earlier SGLang import in this process, if any.
+    if "standardize_rope_params" in vars(transformers.PretrainedConfig):
+        monkeypatch.delattr(transformers.PretrainedConfig, "standardize_rope_params")
+    config = transformers.Qwen3VLConfig(vision_config={"depth": 2})
+    before = config.vision_config.rope_parameters
+    assert before == VISION_ROPE
+    q.restore_vision_rope(config)
+    assert config.vision_config.rope_parameters is before
 
 
 # --- released tokenizer / processor files -----------------------------------------------------

@@ -613,6 +613,32 @@ class Qwen3VLLayer50Encoder:
 # --- loading ----------------------------------------------------------------------------------
 
 
+def restore_vision_rope(config: Any) -> None:
+    """Give ``config.vision_config`` the RoPE parameters transformers itself derives.
+
+    The released ``vision_config`` has no RoPE fields. transformers' ``standardize_rope_params``
+    fills in ``rope_theta`` and maps ``rope_type`` ``"default"`` to the class's
+    ``default_rope_type`` (``"axial"``, the only type the vision rotary embedding accepts).
+    SGLang 0.5.21 patches that method on import to return early for configs without
+    ``max_position_embeddings``, which includes the vision config, so after any SGLang import
+    the type stays ``"default"`` and building the model fails. This repeats transformers'
+    mapping; without the patch the parameters are already standardized and nothing changes.
+    """
+
+    vision = getattr(config, "vision_config", None)
+    axial = getattr(type(vision), "default_rope_type", "default")
+    if vision is None or axial == "default":
+        return
+    current = getattr(vision, "rope_parameters", None)
+    rope = dict(current or {})
+    rope.setdefault("rope_theta", getattr(vision, "rope_theta", None) or vision.default_theta)
+    rope.setdefault("rope_type", rope.get("type", "default"))
+    if rope["rope_type"] == "default":
+        rope["rope_type"] = axial
+    if rope != current:
+        vision.rope_parameters = rope
+
+
 def load_release_text_encoder(
     path: str | Path,
     *,
@@ -630,6 +656,7 @@ def load_release_text_encoder(
     from transformers import AutoConfig, Qwen3VLForConditionalGeneration
 
     config = AutoConfig.from_pretrained(str(path))
+    restore_vision_rope(config)
     full_layers = int(config.text_config.num_hidden_layers)
     if not TEXT_ENCODER_LAYER <= num_layers <= full_layers:
         raise ValueError(f"num_layers={num_layers} outside [{TEXT_ENCODER_LAYER}, {full_layers}]")
