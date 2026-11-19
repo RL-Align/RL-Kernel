@@ -37,6 +37,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import time
 
 import torch
 
@@ -287,10 +288,15 @@ def run_dp(args, base: list[str]) -> None:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
+    # Cap each rank's CPU thread pools, as torchrun does: unset, OpenBLAS / OpenMP start one
+    # thread per CPU in every rank, and 8 ranks pass a per-user thread limit (ulimit -u 2048
+    # on some Slurm sites), failing with "Resource temporarily unavailable".
+    threads = {k: os.environ.get(k, "4") for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS")}
     procs = []
     for r in range(args.dp):
         env = dict(
             os.environ,
+            **threads,
             VLLM_DP_RANK=str(r),
             VLLM_DP_RANK_LOCAL=str(r),
             VLLM_DP_SIZE=str(args.dp),
@@ -299,6 +305,14 @@ def run_dp(args, base: list[str]) -> None:
         )
         cmd = base + ["--phase", "vllm", "--dp-rank", str(r)]
         procs.append(subprocess.Popen(cmd, env=env))
+    # A rank that dies leaves the others blocked in collectives: stop them on the first failure.
+    while any(p.poll() is None for p in procs):
+        if any(p.poll() for p in procs):
+            for p in procs:
+                if p.poll() is None:
+                    p.terminate()
+            break
+        time.sleep(1)
     codes = [p.wait() for p in procs]
     if any(codes):
         raise RuntimeError(f"vLLM data-parallel ranks exited with {codes}")
