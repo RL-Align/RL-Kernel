@@ -395,6 +395,22 @@ def test_a_strict_refusal_of_an_adaln_path_unbinds_the_projections_it_had_bound(
 
 
 @needs_gpu
+def test_an_operator_that_cannot_be_built_leaves_no_forward_changed(monkeypatch):
+    """``_Ops()`` raises when ``rl_engine._C`` lacks the H3 norm or gate symbols."""
+
+    pytest.importorskip("triton")
+
+    def missing():
+        raise RuntimeError("rl_engine._C lacks h3_gate_residual_*")
+
+    monkeypatch.setattr(adapter, "_Ops", missing)
+    model = _model("cuda", torch.bfloat16)
+    with pytest.raises(RuntimeError, match="lacks h3_gate_residual"):
+        adapter.install_h3_sglang_rollout(model)
+    assert _no_forward_changed(model)
+
+
+@needs_gpu
 def test_the_bound_adaln_paths_and_norms_are_the_training_operators():
     pytest.importorskip("triton")
     from rl_engine.backends.cuda.model_specific.minimax_h3.det_linear import det_linear_forward

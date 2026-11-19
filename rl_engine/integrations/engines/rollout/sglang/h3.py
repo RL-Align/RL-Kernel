@@ -461,6 +461,8 @@ def install_h3_sglang_rollout(
     if refusals:
         raise RuntimeError("H3 rollout on SGLang: " + "; ".join(refusals))
     selected, refused = _select(model, tp)
+    # Built before any forward changes: it raises if rl_engine._C lacks the H3 norm or gate.
+    ops = _Ops() if selected else None
     try:
         base = install_h3_rollout(
             model, collective=collective, tp=tp, strict=strict, check=_check_projection(tp)
@@ -475,12 +477,10 @@ def install_h3_sglang_rollout(
     handle = H3SGLangRolloutHandle(
         patched=base.patched, skipped=base.skipped + refused, _restore=base._restore
     )
-    if selected:
-        ops = _Ops()
-        for name, module, bind in selected:
-            handle._restore.append((module, module.__dict__.get("forward", _ABSENT)))
-            module.forward = bind(module, ops)
-            handle.patched.append(name)
+    for name, module, bind in selected:
+        handle._restore.append((module, module.__dict__.get("forward", _ABSENT)))
+        module.forward = bind(module, ops)
+        handle.patched.append(name)
     if any(bind is _bind_block for _, _, bind in selected) and callable(
         getattr(model, "_can_batch_block_adaln", None)
     ):
