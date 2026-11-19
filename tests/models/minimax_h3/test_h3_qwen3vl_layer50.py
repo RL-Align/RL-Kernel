@@ -418,6 +418,31 @@ def test_evidence_rejects_repeats_below_one(
     assert "--repeats must be at least 1" in capsys.readouterr().err
 
 
+def test_evidence_sdpa_cell_records_only_unsupported_backends() -> None:
+    from tools.validation.models import h3_qwen3vl_evidence as ev
+
+    x = torch.randn(1, 2, 4, 8, generator=torch.Generator().manual_seed(0))
+
+    def attend() -> torch.Tensor:
+        return torch.nn.functional.scaled_dot_product_attention(x, x, x)
+
+    ref = attend()
+    assert "error" not in ev.sdpa_backend_cell("MATH", attend, ref)
+    # No CUDNN kernel takes CPU tensors: recorded as unsupported.
+    cell = ev.sdpa_backend_cell("CUDNN_ATTENTION", attend, ref)
+    assert cell["error"].startswith("RuntimeError: No viable backend")
+
+    def broken() -> torch.Tensor:
+        raise TypeError("bad call")
+
+    def out_of_memory() -> torch.Tensor:
+        raise torch.OutOfMemoryError("CUDA out of memory")
+
+    for run, error in ((broken, TypeError), (out_of_memory, torch.OutOfMemoryError)):
+        with pytest.raises(error):
+            ev.sdpa_backend_cell("MATH", run, ref)
+
+
 # --- loading in a process that imported SGLang ------------------------------------------------
 
 
