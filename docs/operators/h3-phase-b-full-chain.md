@@ -114,9 +114,11 @@ They use a 64x64 canvas, 124 frames, a toy VAE with the release layout, the smal
 specific. A second host with the same torch, ATen CPU capability, machine and thread count gave
 other bytes in two places:
 
-- FL2VA at `media_preprocess`, the stretched keyframe from Pillow's LANCZOS resize (every PyPI
-  Pillow wheel from 10.4 to 12.3 gives the committed bytes on the sealing host, so the other
-  host's Pillow build differs);
+- FL2VA at `media_preprocess`, the keyframe stretched with Pillow's LANCZOS resize (80x48 to
+  64x64). The raw keyframes were equal. Every PyPI Pillow wheel from 10.4 to 12.3 gives the
+  committed bytes on the sealing host, and the released-weight runs' 2x LANCZOS resize gave the
+  same bytes on both hosts, so the Pillow on the other host (version, build or CPU path; not
+  recorded) computes this non-integer resize differently;
 - Ref2VA at `audio_vae_encode`, the CPU convolutions of the audio VAE. oneDNN picks its kernels
   from the CPU's ISA, which torch's `cpu_capability` does not show: on the AVX512 sealing host,
   `ONEDNN_MAX_CPU_ISA=AVX2` gives the same first drift.

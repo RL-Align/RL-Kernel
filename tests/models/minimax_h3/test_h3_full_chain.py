@@ -607,13 +607,15 @@ def test_chain_with_the_qwen3vl_source_records_the_contract(tiny_qwen3vl_conditi
 # --- sealed fixtures ----------------------------------------------------------------------
 #
 # The toy fixtures' bytes are host specific, even with the same torch, ATen CPU capability,
-# machine and thread count: on another host, Pillow's LANCZOS resize (media_preprocess,
-# FL2VA's stretched keyframe) and the oneDNN convolutions of the audio VAE (audio_vae_encode)
-# gave other bytes. oneDNN picks its kernels from the CPU's ISA, which torch's
-# ``cpu_capability`` does not show (ONEDNN_MAX_CPU_ISA=AVX2 reproduces the audio drift on an
-# AVX512 host). So the committed fixtures are checked for their seal and structure on every
-# host, byte determinism is checked by sealing and replaying in two processes on this host,
-# and the bitwise replay of the committed bytes is opt-in, for the host that sealed them.
+# machine and thread count. On another host, two stages gave other bytes:
+# - media_preprocess: Pillow's LANCZOS resize of FL2VA's keyframe (80x48 -> 64x64); that
+#   host's Pillow version or build is not recorded;
+# - audio_vae_encode: the oneDNN convolutions of the audio VAE. oneDNN picks its kernels from
+#   the CPU's ISA, which torch's ``cpu_capability`` does not show (ONEDNN_MAX_CPU_ISA=AVX2
+#   reproduces this drift on an AVX512 host).
+# So the committed fixtures are checked for their seal and structure on every host, byte
+# determinism is checked by sealing and replaying in two processes on this host, and the
+# bitwise replay of the committed bytes is opt-in, for the host that sealed them.
 
 
 def _profile(runtime: dict) -> dict:
