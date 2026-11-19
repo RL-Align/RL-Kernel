@@ -38,6 +38,7 @@ the slot-ordered fan-in plus the shared expert's ``dx``, plus the router's ``dx`
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -53,9 +54,13 @@ from rl_engine.moe.mx_format import MXTensor
 
 
 def _routed_backend():
+    """``RL_KERNEL_DSV4_PERSIST_W8=0``: expand the E4M3 expert weights per call instead of
+    keeping every expert expanded (same bytes). Keeping them costs E x N x K bytes per
+    weight, about 0.8 GB per layer per GPU at EP 8 on the real checkpoint, in the actor and
+    in the rollout; 43 layers do not fit an H200 next to the rollout with it."""
     from rl_engine.moe.backends.sm90_fused_mlp import Sm90FusedMoeMlp
 
-    return Sm90FusedMoeMlp()
+    return Sm90FusedMoeMlp(persist_w8=os.environ.get("RL_KERNEL_DSV4_PERSIST_W8", "1") != "0")
 
 
 def _shared_backend():
