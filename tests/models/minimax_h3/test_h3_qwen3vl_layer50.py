@@ -316,10 +316,12 @@ def test_required_shards_skip_late_layers() -> None:
         "model.language_model.norm.weight": "d",
         "lm_head.weight": "e",
     }
-    assert q.required_shards(weight_map) == ["a", "b"]
-    assert "model.language_model.layers.50.mlp.up_proj.weight" not in q.required_weight_keys(
-        weight_map
-    )
+    # The truncated model still has the final norm and lm_head, and the loader fails on a
+    # missing key, so their shards are required even when they hold no early layer.
+    assert q.required_shards(weight_map) == ["a", "b", "d", "e"]
+    keys = q.required_weight_keys(weight_map)
+    assert "model.language_model.norm.weight" in keys and "lm_head.weight" in keys
+    assert not any(".layers.50." in k or ".layers.63." in k for k in keys)
 
 
 def test_release_policy_is_torch_default_and_restored() -> None:
@@ -560,6 +562,18 @@ def test_evidence_full_model_stages_release_the_model(
         assert entry["hidden_states_50_sha256"] == entry["diffusers_sha256"]
 
 
+def test_release_required_shards() -> None:
+    weight_map = json.loads(
+        (_release_dir() / "text_encoder" / "model.safetensors.index.json").read_text()
+    )["weight_map"]
+    shards = q.required_shards(weight_map)
+    assert len(shards) == 12
+    assert "model-00012-of-00014.safetensors" not in shards
+    assert "model-00013-of-00014.safetensors" not in shards
+    for key in ("model.language_model.norm.weight", "lm_head.weight"):
+        assert weight_map[key] in shards
+
+
 # --- released weights (CUDA) ------------------------------------------------------------------
 
 
@@ -574,15 +588,6 @@ def release_encoder() -> q.Qwen3VLLayer50Encoder:
     model, report = q.load_release_text_encoder(root / "text_encoder", device="cuda")
     assert report["num_layers"] == 50 and report["skipped_keys"] > 0
     return q.Qwen3VLLayer50Encoder(model)
-
-
-def test_release_required_shards(release_encoder: q.Qwen3VLLayer50Encoder) -> None:
-    index = json.loads(
-        (_release_dir() / "text_encoder" / "model.safetensors.index.json").read_text()
-    )
-    shards = q.required_shards(index["weight_map"])
-    assert "model-00012-of-00014.safetensors" not in shards
-    assert "model-00013-of-00014.safetensors" not in shards
 
 
 def test_release_feature_repeatable_and_batch_invariant(

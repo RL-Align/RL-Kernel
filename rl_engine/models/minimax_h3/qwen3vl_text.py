@@ -150,15 +150,17 @@ _LAYER_KEY = re.compile(r"language_model\.layers\.(\d+)\.")
 def required_weight_keys(
     weight_map: Mapping[str, str], num_layers: int = TEXT_ENCODER_LAYER
 ) -> list[str]:
-    """Checkpoint keys a ``num_layers``-deep stack reads (vision tower, embeddings, layers < n)."""
+    """Checkpoint keys a ``num_layers``-deep stack loads: every key but decoder layers >= n.
+
+    This is the complement of what :func:`load_release_text_encoder` skips, so it includes the
+    final norm and ``lm_head``: the truncated ``Qwen3VLForConditionalGeneration`` has both as
+    parameters and fails on a missing key, although the feature never uses them.
+    """
 
     keys = []
     for key in weight_map:
         match = _LAYER_KEY.search(key)
-        if match is not None:
-            if int(match.group(1)) < num_layers:
-                keys.append(key)
-        elif key.startswith("model.visual.") or key == "model.language_model.embed_tokens.weight":
+        if match is None or int(match.group(1)) < num_layers:
             keys.append(key)
     return sorted(keys)
 
@@ -166,7 +168,11 @@ def required_weight_keys(
 def required_shards(
     weight_map: Mapping[str, str], num_layers: int = TEXT_ENCODER_LAYER
 ) -> list[str]:
-    """Shard files that hold :func:`required_weight_keys`: a layer-truncated download."""
+    """Shard files that hold :func:`required_weight_keys`.
+
+    ``from_pretrained`` opens every shard the index lists, so :func:`load_release_text_encoder`
+    still needs the full ``text_encoder/`` download; the other shards are opened, not read.
+    """
 
     return sorted({weight_map[key] for key in required_weight_keys(weight_map, num_layers)})
 
