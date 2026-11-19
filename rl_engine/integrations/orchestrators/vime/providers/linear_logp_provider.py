@@ -121,9 +121,7 @@ def to_training_logp_inputs(request: Any) -> TrainingLogpInputs:
                 else metadata.get("padded_vocab_size")
             ),
         ),
-        vocab_start_index=(
-            getattr(partition, "local_start", None) or 0 if partition is not None else None
-        ),
+        vocab_start_index=getattr(partition, "local_start", None),
         local_vocab_size=getattr(partition, "local_size", None),
         cp_rank=cast(int, getattr(layout, "rank", None)),
         cp_world_size=cast(int, getattr(layout, "world_size", None)),

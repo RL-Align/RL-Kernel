@@ -224,11 +224,12 @@ def _metric_entropy_from_strict_lse(
         0,
         min(local_logits.size(1), int(real_vocab_size) - int(vocab_start_index)),
     )
-    centered = local_logits[:, :local_real].float()
-    centered.sub_(lse.reshape(-1, 1).float())
+    centered = local_logits[:, :local_real].float() - lse.reshape(-1, 1).float()
     probabilities = centered.exp()
     centered.neg_()
     local_entropy = torch.einsum("ij,ij->i", probabilities, centered).contiguous()
+    if tp_group is None:
+        return local_entropy
     _rank, world = _tp_coordinates(tp_group)
     if world == 1:
         return local_entropy
@@ -361,9 +362,16 @@ def compute_training_logp(
             if local_logits_temperature is not None and not _is_identity_temperature(
                 local_logits_temperature
             ):
-                entropy_inputs = replace(
-                    inputs, logits=inputs.logits.float() / local_logits_temperature
-                )
+                divisor = local_logits_temperature
+                if isinstance(divisor, torch.Tensor):
+                    from rl_engine.integrations.common.linear_logp import LinearLogpWrapper
+
+                    temperatures = LinearLogpWrapper._temperature_tensor(
+                        divisor, rows=inputs.logits.size(0), device=inputs.logits.device
+                    )
+                    assert temperatures is not None
+                    divisor = temperatures.unsqueeze(1)
+                entropy_inputs = replace(inputs, logits=inputs.logits.float() / divisor)
             entropy_contract, entropy_tiles = _contract_for_inputs(entropy_inputs)
             entropy_dispatch = kernel_registry.get_logprob_op(
                 entropy_contract, requested_backend=BACKEND_ID

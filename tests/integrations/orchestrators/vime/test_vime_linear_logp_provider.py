@@ -437,3 +437,39 @@ def test_legacy_provider_exports_shared_result_and_exception():
     assert legacy.LinearLogpResult is training_logp.LinearLogpResult
     assert legacy.LinearLogpProviderUnavailable is training_logp.LinearLogpProviderUnavailable
     assert legacy.provider is provider
+
+
+@pytest.mark.parametrize("reuse_logits", [False, True])
+def test_strict_provider_rejects_missing_vocab_start_on_nonzero_tp_rank(monkeypatch, reuse_logits):
+    from rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider import (
+        _provider_impl,
+    )
+
+    monkeypatch.setenv("VIME_RL_KERNEL_STRICT", "1")
+    request = _structural_request()
+    request.metadata.update(tp_rank=1, tp_world_size=2, padded_vocab_size=16, real_vocab_size=15)
+    request.tensor_parallel_group = SimpleNamespace(rank=lambda: 1, size=lambda: 2)
+    request.context.vocab_partition.local_start = None
+    request.context.vocab_partition.padded_size = 16
+    request.context.vocab_partition.real_size = 15
+    request.context.reuse_local_logits = reuse_logits
+    request.context.local_logits = request.logits
+
+    class MustNotScore:
+        def __call__(self, *args, **kwargs):
+            raise AssertionError("invalid partition reached the scorer")
+
+        def from_local_logits(self, *args, **kwargs):
+            raise AssertionError("invalid partition reached the scorer")
+
+    with pytest.raises(RuntimeError, match="vocabulary shard start"):
+        _provider_impl(request, linear_logp=MustNotScore())
+
+
+def test_vime_preserves_tile_environment_override(monkeypatch):
+    monkeypatch.setenv("RL_KERNEL_LOGPROB_NUM_VOCAB_TILES", "2")
+    request = _request()
+    del request.metadata["num_vocab_tiles"]
+    assert provider(request).provenance["num_vocab_tiles"] == 2
+    request.metadata["num_vocab_tiles"] = 4
+    assert provider(request).provenance["num_vocab_tiles"] == 4

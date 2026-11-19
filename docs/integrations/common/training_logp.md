@@ -50,5 +50,11 @@ and legacy temperature markers remain in that adapter. Existing provider import
 paths and result/exception exports remain available. Other orchestrators should
 construct `TrainingLogpInputs` from their own request formats.
 
+The shared scorer uses the supplied `num_vocab_tiles` (or its documented default).
+Vime resolves `RL_KERNEL_LOGPROB_NUM_VOCAB_TILES` in request conversion, with
+request metadata taking precedence. Other adapters must resolve their own
+configuration before calling the scorer; the common layer does not read
+orchestrator environment settings.
+
 This interface does not install verl, add NPU operators, or establish hardware
 consistency. Those integrations still require device tests.

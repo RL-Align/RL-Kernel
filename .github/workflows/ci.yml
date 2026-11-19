@@ -123,6 +123,8 @@ jobs:
             tests/integrations/engines/train/megatron/test_cp_attention_transformer_engine.py
 
       - name: Run Shared Training Logprob Tests (CPU-safe)
+        # These suites use only built-in pytest fixtures; keep optional plugins
+        # out of the subprocess import-isolation check.
         run: |
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q \
             tests/integrations/common/test_training_logp.py \

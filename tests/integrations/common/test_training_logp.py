@@ -7,6 +7,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -14,6 +15,7 @@ import torch
 from rl_engine.integrations.common.training_logp import (
     LinearLogpProviderUnavailable,
     TrainingLogpInputs,
+    _metric_entropy_from_strict_lse,
     compute_training_logp,
 )
 
@@ -94,13 +96,26 @@ class _CPUScorer:
     def from_local_logits(self, logits, targets, **kwargs):
         values = logits[:, : kwargs["real_vocab_size"]].float()
         if kwargs.get("temperature") is not None:
-            values = values / kwargs["temperature"]
+            temperature = kwargs["temperature"]
+            divisor = (
+                temperature.reshape(-1, 1) if isinstance(temperature, torch.Tensor) else temperature
+            )
+            values = values / divisor
         logp = values.log_softmax(-1)[torch.arange(len(targets)), targets]
         return (logp, values.logsumexp(-1)) if kwargs.get("return_lse") else logp
 
 
 @pytest.mark.parametrize("reuse_logits", [False, True])
-@pytest.mark.parametrize("temperature", [1.0, 0.7])
+@pytest.mark.parametrize(
+    "temperature",
+    [
+        1.0,
+        0.7,
+        torch.tensor(0.7),
+        torch.tensor([0.5, 0.75, 1.25]),
+        torch.tensor([[0.5], [0.75], [1.25]]),
+    ],
+)
 def test_projection_and_reused_logits_preserve_autograd(reuse_logits, temperature):
     generator = torch.Generator().manual_seed(35)
     hidden = torch.randn(3, 4, generator=generator, requires_grad=True)
@@ -121,7 +136,8 @@ def test_projection_and_reused_logits_preserve_autograd(reuse_logits, temperatur
     result = compute_training_logp(inputs, linear_logp=_CPUScorer())
     reference_hidden = hidden.detach().clone().requires_grad_(True)
     reference_weight = weight.detach().clone().requires_grad_(True)
-    values = (reference_hidden @ reference_weight.T)[:, :7] / temperature
+    divisor = temperature.reshape(-1, 1) if isinstance(temperature, torch.Tensor) else temperature
+    values = (reference_hidden @ reference_weight.T)[:, :7] / divisor
     log_probs = values.log_softmax(-1)
     logp = log_probs[torch.arange(3), inputs.target_ids]
     entropy = -(log_probs.exp() * log_probs).sum(-1)
@@ -143,9 +159,14 @@ def test_metric_entropy_reuses_lse_without_gradients():
         with_entropy=True,
     )
     inputs = replace(inputs, local_logits=inputs.logits)
+    before = inputs.logits.detach().clone()
     probabilities = inputs.logits[:, :7].log_softmax(-1)
     result = compute_training_logp(inputs, linear_logp=_CPUScorer())
     torch.testing.assert_close(result.entropy, -(probabilities.exp() * probabilities).sum(-1))
+    assert torch.equal(inputs.logits, before)
+    repeated = compute_training_logp(inputs, linear_logp=_CPUScorer())
+    assert torch.equal(result.logp, repeated.logp)
+    assert torch.equal(result.entropy, repeated.entropy)
     assert not result.entropy.requires_grad
     assert result.provenance["execution"]["entropy"]["strict_lse_reused"] is True
     result.logp.sum().backward()
@@ -172,3 +193,52 @@ from rl_engine.integrations.engines.train.megatron.runtime import install_megatr
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("group", [None, SimpleNamespace(rank=lambda: 0, size=lambda: 1)])
+def test_metric_entropy_does_not_use_unrelated_distributed_ranks(monkeypatch, group):
+    import torch.distributed as dist
+
+    monkeypatch.setattr(dist, "is_available", lambda: True)
+    monkeypatch.setattr(dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(dist, "get_rank", lambda group=None: 1)
+    monkeypatch.setattr(dist, "get_world_size", lambda group=None: 4)
+
+    def unexpected_gather(*args, **kwargs):
+        raise AssertionError("entropy must not gather over DP/CP ranks")
+
+    monkeypatch.setattr(dist, "all_gather", unexpected_gather)
+    logits = torch.tensor([[0.0, 1.0], [0.5, -0.5]])
+    entropy = _metric_entropy_from_strict_lse(
+        logits, logits.logsumexp(-1), vocab_start_index=0, real_vocab_size=2, tp_group=group
+    )
+    log_probs = logits.log_softmax(-1)
+    torch.testing.assert_close(entropy, -(log_probs.exp() * log_probs).sum(-1))
+
+
+def test_metric_entropy_reduces_only_the_explicit_tp_group(monkeypatch):
+    import torch.distributed as dist
+
+    group = SimpleNamespace(rank=lambda: 1, size=lambda: 2)
+    logits = torch.tensor([[0.1, 0.2, 0.3, 0.4], [1.0, -1.0, 0.0, 0.5]])
+    log_probs = logits.log_softmax(-1)
+    partials = [-(log_probs[:, i : i + 2].exp() * log_probs[:, i : i + 2]).sum(-1) for i in (0, 2)]
+
+    def gather(outputs, local, *, group):
+        assert group is expected_group
+        torch.testing.assert_close(local, partials[1])
+        for output, partial in zip(outputs, partials):
+            output.copy_(partial)
+
+    expected_group = group
+    monkeypatch.setattr(dist, "all_gather", gather)
+    result = _metric_entropy_from_strict_lse(
+        logits[:, 2:], logits.logsumexp(-1), vocab_start_index=2, real_vocab_size=4, tp_group=group
+    )
+    assert torch.equal(result, partials[0] + partials[1])
+
+
+def test_shared_scorer_uses_explicit_tiles_not_orchestrator_environment(monkeypatch):
+    monkeypatch.setenv("RL_KERNEL_LOGPROB_NUM_VOCAB_TILES", "3")
+    result = compute_training_logp(_inputs(num_vocab_tiles=4))
+    assert result.provenance["num_vocab_tiles"] == 4
