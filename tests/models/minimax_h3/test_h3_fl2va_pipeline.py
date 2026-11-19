@@ -139,6 +139,17 @@ def test_keyframes_resolve_canvas_and_resize_like_the_reference():
     assert fl2va.keyframe_pixels(kf.images[0]).shape == (1, 3, 1, 768, 1344)
 
 
+def test_keyframe_pixels_refuse_images_that_are_not_three_channel():
+    # The pinned pipeline packs np.array(image) unconverted: a gray or palette image has no
+    # channel axis, an RGBA / LA one has 4 / 2 channels. All are refused, not converted.
+    for mode in ("L", "P", "RGBA", "LA"):
+        with pytest.raises(ValueError, match="3-channel"):
+            fl2va.keyframe_pixels(Image.new(mode, (8, 4)))
+    pixels = fl2va.keyframe_pixels(Image.new("RGB", (8, 4), (1, 2, 3)))
+    assert pixels.shape == (1, 3, 1, 4, 8) and pixels.dtype == torch.uint8
+    assert pixels[0, :, 0, 0, 0].tolist() == [1, 2, 3]
+
+
 def test_presentation_tags_vision_blocks_as_video():
     tok = FakeTokenizer()
     ids, tags = fl2va.fl2va_presentation(tok.tokenize, tok.token_id, "go", [3, 2])
