@@ -421,6 +421,23 @@ def test_pinned_weights_hash():
         av.pinned_audio_vae_sha256("T2VA")
 
 
+def test_benchmark_no_remote_encode_runs_on_the_port(tiny_model):
+    """``--no-remote`` feeds the rl_engine port to the engines' encode: it has no ``preprocess``."""
+
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[3] / "benchmarks/models/benchmark_h3_audio_vae.py"
+    spec = importlib.util.spec_from_file_location("benchmark_h3_audio_vae_under_test", script)
+    assert spec is not None and spec.loader is not None
+    bench = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bench)
+    x = torch.randn(2, 3 * tiny_model.hop_length - 123, generator=torch.Generator().manual_seed(0))
+    with torch.inference_mode():
+        got = bench.dac_encode_mean(tiny_model, x)
+        want = tiny_model.encode_mean(x[:, None])
+    assert got.shape[-1] == 3 and torch.equal(got, want)
+
+
 # --- released weights on CUDA ----------------------------------------------------------------
 
 
