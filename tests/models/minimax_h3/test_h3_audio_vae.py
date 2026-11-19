@@ -352,16 +352,14 @@ def test_rows_and_waveform_match_diffusers_pipeline_blocks(diffusers_pair):
 
 
 def test_strict_policy_is_close_to_diffusers(diffusers_pair, contract):
-    _, library = diffusers_pair
+    ref, _ = diffusers_pair
     wave = stereo(800 * 6, seed=5)
-    strict, lib = contract.encode_stereo(wave), library.encode_stereo(wave)
-    torch.testing.assert_close(strict.latents, lib.latents, rtol=1e-4, atol=1e-5)
-    torch.testing.assert_close(
-        contract.decode_rows(lib.rows, lib.num_latents).waveform,
-        library.decode_rows(lib.rows, lib.num_latents).waveform,
-        rtol=1e-4,
-        atol=1e-5,
-    )
+    strict = contract.encode_stereo(wave)
+    with torch.inference_mode():
+        latents = ref.encode(wave[:, None]).latent_dist.mode()
+        audio = ref.decode(latents).sample[:, 0]
+    torch.testing.assert_close(strict.latents, latents, rtol=1e-4, atol=1e-5)
+    torch.testing.assert_close(contract.decode_latents(latents), audio, rtol=1e-4, atol=1e-5)
 
 
 # --- checkpoint reader ----------------------------------------------------------------------
