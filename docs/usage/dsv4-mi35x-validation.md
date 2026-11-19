@@ -5,7 +5,7 @@ recipe in [PR #711](https://github.com/RL-Align/RL-Kernel/pull/711). Hardware
 validation below uses **MI350X**. It does not establish MI355X hardware acceptance,
 long-context training, full-model training, or arbitrary parallel layouts.
 
-The [MI300X measured report](../../examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_20261117/README.md)
+The [MI300X measured report](https://github.com/RL-Align/RL-Kernel/blob/93cb9714e223e17e06b63fe721da6a8204751c04/examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_20261117/README.md)
 remains the authority for its original results and remaining failures. These
 changes do not rewrite that report or its acceptance thresholds.
 
@@ -32,7 +32,7 @@ and [HIP low-precision types](https://rocm.docs.amd.com/projects/HIP/en/latest/r
   retain upstream selection; the selector is restored when loading ends.
 
 The last item requires the accompanying
-[`verl-mi35x-w4a16.patch`](../../examples/operators/dsv4_4l/patches/verl-mi35x-w4a16.patch)
+[`verl-mi35x-w4a16.patch`](https://github.com/a1021223029-lgtm/RL-Kernel/blob/1fbe516b1b499e454728f8d0c8ef5fbba33eddba/examples/operators/dsv4_4l/patches/verl-mi35x-w4a16.patch)
 at verl's native worker loading entry point. It is a scoped integration change
 against the pinned verl commit, not a change to the training configuration.
 Its MI350X end-to-end validation is recorded below. The same hook is submitted
@@ -63,9 +63,9 @@ inside that image are not the same as the later Git revisions used for review.
 
 The checkpoint file SHA256 is
 `1bd423ab1d98f43d40b19617fcb30d973d94436cc7b150fe3f744de79c2de086`.
-The [provenance](../../examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_mi350x_20261118/provenance.json),
-[runtime source manifest](../../examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_mi350x_20261118/tested-source-sha256.json)
-and [TE binary record](../../examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_mi350x_20261118/te-binaries.json)
+The [provenance](https://github.com/a1021223029-lgtm/RL-Kernel/blob/1fbe516b1b499e454728f8d0c8ef5fbba33eddba/examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_mi350x_20261118/provenance.json),
+[runtime source manifest](https://github.com/a1021223029-lgtm/RL-Kernel/blob/1fbe516b1b499e454728f8d0c8ef5fbba33eddba/examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_mi350x_20261118/tested-source-sha256.json)
+and [TE binary record](https://github.com/a1021223029-lgtm/RL-Kernel/blob/1fbe516b1b499e454728f8d0c8ef5fbba33eddba/examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_mi350x_20261118/te-binaries.json)
 retain patch and rebuilt-binary hashes. The derived image is local and **cannot
 be pulled from a public registry**. A fresh build must include both source
 changes and both gfx950 library rebuilds below; record its new image ID.
@@ -277,7 +277,7 @@ MI350X passes.
 ### End-to-end status
 
 Attempt 005 completed the native three-update run and passed the unchanged
-independent verifier. See the [MI350X run report](../../examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_mi350x_20261118/README.md)
+independent verifier. See the [MI350X run report](https://github.com/a1021223029-lgtm/RL-Kernel/blob/1fbe516b1b499e454728f8d0c8ef5fbba33eddba/examples/operators/dsv4_4l/results/native_grpo_pp2_dp1_mi350x_20261118/README.md)
 for the original acceptance JSON and image/source provenance. Versions 0–3 each
 passed 1,188 audit token observations with zero FP32 bit mismatches and zero
 mean/max absolute difference. The final 1,000 stress requests passed 14,869
