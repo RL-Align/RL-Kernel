@@ -108,18 +108,18 @@ def capture_steps() -> Iterator[dict[str, dict[str, Any]]]:
     modules = (before_denoise, before_encoder, encoders)
     captured: dict[str, dict[str, Any]] = {}
     originals = []
-    for name, fields in CAPTURE.items():
-        cls = next(getattr(m, name) for m in modules if hasattr(m, name))
-        original = cls.__call__
+    try:  # a step missing mid-loop must not leave the earlier ones wrapped
+        for name, fields in CAPTURE.items():
+            cls = next(getattr(m, name) for m in modules if hasattr(m, name))
+            original = cls.__call__
 
-        def wrapped(self, components, state, _original=original, _name=name, _fields=fields):
-            out = _original(self, components, state)
-            captured[_name] = {f: copy.deepcopy(state.get(f)) for f in _fields}
-            return out
+            def wrapped(self, components, state, _original=original, _name=name, _fields=fields):
+                out = _original(self, components, state)
+                captured[_name] = {f: copy.deepcopy(state.get(f)) for f in _fields}
+                return out
 
-        originals.append((cls, original))
-        cls.__call__ = wrapped
-    try:
+            originals.append((cls, original))
+            cls.__call__ = wrapped
         yield captured
     finally:
         for cls, original in originals:
