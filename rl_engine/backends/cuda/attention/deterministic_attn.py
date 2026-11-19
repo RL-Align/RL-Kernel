@@ -27,8 +27,8 @@ from rl_engine.contracts.operators.attention import (
 )
 from rl_engine.utils.logger import logger
 
-_HEAD_DIM = 128
 _IS_ROCM = torch.version.hip is not None
+_HEAD_DIMS = (128,) if _IS_ROCM else (128, 256)
 _GPU_PLATFORM = "ROCm" if _IS_ROCM else "CUDA"
 
 
@@ -201,8 +201,10 @@ class DeterministicAttentionOp:
                 f"k/v shape mismatch: k={tuple(k.shape)}, v={tuple(v.shape)}, "
                 f"expected k/v [B={b}, Hkv, Skv, D={d}]"
             )
-        if d != _HEAD_DIM:
-            raise ValueError(f"head dim D must be {_HEAD_DIM}, got {d}")
+        if d not in _HEAD_DIMS:
+            raise ValueError(f"head dim D must be one of {_HEAD_DIMS}, got {d}")
+        if b < 1 or hq < 1 or hkv < 1:
+            raise ValueError("batch size and query/key head counts must be positive")
         if hq % hkv != 0:
             raise ValueError(f"Hq={hq} not divisible by Hkv={hkv} (GQA group)")
         if q.dtype not in (torch.float16, torch.bfloat16):
@@ -211,7 +213,11 @@ class DeterministicAttentionOp:
             raise ValueError("q, k, v must share the same dtype")
         if not (q.is_cuda and k.is_cuda and v.is_cuda):
             raise ValueError("q, k, v must be GPU tensors")
+        if not (q.device == k.device == v.device):
+            raise ValueError("q, k, v must be on the same device")
         if key_padding_mask is not None:
+            if key_padding_mask.device != q.device:
+                raise ValueError("key_padding_mask must be on the input device")
             if key_padding_mask.dtype != torch.bool:
                 raise ValueError("key_padding_mask must be bool")
             if key_padding_mask.shape != (b, skv):

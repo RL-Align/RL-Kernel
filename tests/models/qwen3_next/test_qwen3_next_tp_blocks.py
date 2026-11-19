@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""HF mappings, replica checks and official Qwen3-Next MoE dimensions."""
+"""HF mappings, KV replica ownership and official Qwen3-Next attention/MoE dimensions."""
 
 import pytest
 import torch
@@ -18,6 +18,32 @@ def pattern(shape):
         .to(torch.bfloat16)
         .reshape(shape)
     )
+
+
+@pytest.fixture(scope="module")
+def attention_weights():
+    return {name: pattern(shape) for name, shape in blocks.ATTENTION_HF_SHAPES.items()}
+
+
+def test_attention_hf_roundtrip_and_kv_pair_layout(attention_weights):
+    shards = [blocks.shard_attention_weights(attention_weights, rank) for rank in range(4)]
+    for name, value in blocks.assemble_attention_weights(shards).items():
+        exact(value, attention_weights[name], name=name)
+    for rank, shard in enumerate(shards):
+        exact(
+            shard["q_proj.weight"],
+            attention_weights["q_proj.weight"][rank * 2048 : (rank + 1) * 2048],
+        )
+        begin = rank // 2 * 256
+        exact(shard["k_proj.weight"], attention_weights["k_proj.weight"][begin : begin + 256])
+
+
+def test_attention_export_rejects_disagreeing_kv_replica(attention_weights):
+    shards = [blocks.shard_attention_weights(attention_weights, rank) for rank in range(4)]
+    shards[1]["k_proj.weight"] = shards[1]["k_proj.weight"].clone()
+    shards[1]["k_proj.weight"][0, 0] = -1
+    with pytest.raises(ValueError, match="Replicated KV"):
+        blocks.assemble_attention_weights(shards)
 
 
 @pytest.mark.parametrize(
@@ -91,3 +117,46 @@ def test_tp4_moe_parameter_ownership(monkeypatch):
     assert not getattr(module.gate.weight, "tensor_model_parallel", False)
     assert not getattr(module.shared_expert_gate.weight, "tensor_model_parallel", False)
     assert module.gate.weight.shape == (512, 2048)
+
+
+@pytest.fixture
+def fake_tp(monkeypatch):
+    group = object()
+    monkeypatch.setattr(blocks.dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(blocks.dist, "get_world_size", lambda group: 4)
+    monkeypatch.setattr(blocks, "_kv_replica_groups", lambda group: (object(), object()))
+    return group
+
+
+@pytest.mark.parametrize("rank", [0, 1, 2, 3])
+def test_attention_parameter_ownership_and_actual_hf_storage(
+    fake_tp, monkeypatch, rank, attention_weights
+):
+    monkeypatch.setattr(blocks.dist, "get_rank", lambda group: rank)
+    module = blocks.TP4FullAttention(group=fake_tp, device="cpu")
+    module.load_hf_weights(attention_weights)
+    expected = blocks.shard_attention_weights(attention_weights, rank)
+    for name, value in module.export_local_hf_weights().items():
+        exact(value, expected[name], name=name)
+    assert module.q_proj.weight.tensor_model_parallel
+    assert module.o_proj.weight.partition_dim == 1
+    assert module.k_proj.weight.shared == (rank % 2 == 1)
+    assert module.v_proj.weight.shared == (rank % 2 == 1)
+    assert not getattr(module.q_norm.weight, "tensor_model_parallel", False)
+    state = module.initial_state(3)
+    assert len(state.keys) == len(state.values) == 3
+    assert all(value.shape == (1, 1, 0, 256) for value in state.keys)
+
+
+def test_rope_uses_absolute_positions_and_preserves_unrotated_tail(fake_tp, monkeypatch):
+    monkeypatch.setattr(blocks.dist, "get_rank", lambda group: 0)
+    module = blocks.TP4FullAttention(group=fake_tp, device="cpu")
+    x = torch.randn(8, 4, 256, dtype=torch.bfloat16)
+    positions = torch.arange(61, 69)
+    whole = module._rotate(x, positions)
+    exact(whole[..., 64:], x[..., 64:])
+    exact(
+        torch.cat([module._rotate(x[:3], positions[:3]), module._rotate(x[3:], positions[3:])]),
+        whole,
+    )
+    assert not torch.equal(module._rotate(x, torch.arange(8)), whole)
