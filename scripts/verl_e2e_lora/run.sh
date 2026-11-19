@@ -35,18 +35,29 @@ export MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-2048}
 export LORA_RANK=${LORA_RANK:-16} LORA_ALPHA=${LORA_ALPHA:-32}
 TOKENS_PER_GPU=${TOKENS_PER_GPU:-4096}               # micro-batch token budget (dynamic bsz)
 OVERLONG=${OVERLONG:-512}
-# Both runs: DAPO-Math prompts through #7483's DSv4 tokenization, the synthetic dense reward
-# (a few-layer model scores 0 on math; this one moves the adapters every step) under the
-# DAPO reward manager with the same overlong penalty.
+# Both runs: DAPO-Math prompts through #7483's DSv4 tokenization under the DAPO reward manager
+# with the same overlong penalty. REWARD picks the score:
+# - synthetic (default): the fraction of digits in the response (scripts/verl_e2e/
+#   custom_reward.py). A few-layer model scores 0 on math; this one moves the adapters every
+#   step, which is what the bitwise check needs.
+# - math: verl's own scorer for the data's data_source (math_dapo: the "Answer:" line
+#   against the ground truth), for the full model.
+REWARD=${REWARD:-synthetic}
 COMMON=(
   data.prompt_key=prompt
   data.trust_remote_code=True
   +data.apply_chat_template_kwargs.enable_thinking=False
   +data.continuous_token.enable=True
   +data.continuous_token.model_family=deepseekv4
-  reward.custom_reward_function.path=$RLK_ROOT/scripts/verl_e2e/custom_reward.py
-  reward.custom_reward_function.name=compute_score
 )
+case $REWARD in
+  synthetic) REWARD_FN=(
+      reward.custom_reward_function.path=$RLK_ROOT/scripts/verl_e2e/custom_reward.py
+      reward.custom_reward_function.name=compute_score) ;;
+  math) REWARD_FN=(reward.custom_reward_function.path=null) ;;
+  *) echo "REWARD must be synthetic or math"; exit 64 ;;
+esac
+COMMON+=("${REWARD_FN[@]}")
 DAPO_REWARD=(
   reward.reward_manager.name=dapo
   +reward.reward_kwargs.overlong_buffer_cfg.enable=True
@@ -76,7 +87,8 @@ info() {
     echo "variant=$VARIANT model=$MODEL_CUT layers=$LAYERS steps=$STEPS"
     echo "batch=$TRAIN_BATCH_SIZE x $ROLLOUT_N prompt<=$MAX_PROMPT_LENGTH" \
       "response<=$MAX_RESPONSE_LENGTH"
-    echo "lora rank=$LORA_RANK alpha=$LORA_ALPHA tokens/gpu=$TOKENS_PER_GPU overrides: $*"
+    echo "lora rank=$LORA_RANK alpha=$LORA_ALPHA tokens/gpu=$TOKENS_PER_GPU reward=$REWARD" \
+      "overrides: $*"
     echo "verl $(git -C "$VERL_DIR" rev-parse HEAD) rl-kernel $(git -C "$RLK_ROOT" rev-parse HEAD)"
     python3 -c 'import importlib.metadata as m
 for p in ("torch","vllm","verl","deep_gemm","flash_mla","megatron-core","megatron-bridge"):
@@ -160,8 +172,7 @@ case $VARIANT in
     TOTAL_TRAINING_STEPS=$STEPS TEST_FREQ=-1 SAVE_FREQ=-1 \
     EXPERIMENT_NAME=$VARIANT CKPTS_DIR=$RUN/ckpt \
       bash "$RUN/launcher.sh" \
-        reward.custom_reward_function.path="$RLK_ROOT/scripts/verl_e2e/custom_reward.py" \
-        reward.custom_reward_function.name=compute_score \
+        "${REWARD_FN[@]}" \
         ray_kwargs.ray_init.num_cpus="${RAY_NUM_CPUS:-$(nproc)}" "$@" 2>&1 | tee "$RUN/train.log"
     ;;
   *) echo "unknown variant $VARIANT"; return 64 ;;
