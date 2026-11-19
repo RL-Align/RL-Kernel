@@ -235,6 +235,40 @@ def test_pinned_runtime_restores_flags() -> None:
     assert (cudnn.deterministic, cudnn.benchmark, cudnn.allow_tf32) == before
 
 
+def test_pinned_runtime_serializes_threads() -> None:
+    """A second thread's scope must not start inside the first one's: interleaved scopes
+    save each other's pinned flags and leave the process pinned after both return."""
+
+    import threading
+
+    cudnn = torch.backends.cudnn
+    before = cudnn.deterministic
+    policy = vv.RuntimePolicy(cudnn_deterministic=not before)
+    first_in, second_in, first_out = threading.Event(), threading.Event(), threading.Event()
+
+    def first() -> None:
+        with vv.pinned_runtime(policy):
+            first_in.set()
+            second_in.wait(timeout=0.5)  # times out when the second scope is held back
+        first_out.set()
+
+    def second() -> None:
+        first_in.wait()
+        with vv.pinned_runtime(policy):
+            second_in.set()
+            first_out.wait(timeout=5)
+
+    threads = [threading.Thread(target=first), threading.Thread(target=second)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    try:
+        assert cudnn.deterministic is before
+    finally:
+        cudnn.deterministic = before
+
+
 def test_manifest_is_reproducible() -> None:
     a, b = vv.contract_manifest(), vv.contract_manifest()
     assert a == b
@@ -263,6 +297,32 @@ def test_output_digests_strided_and_empty_rows() -> None:
     assert vv.output_digests(empty)[0] == tensor_digest(torch.cat(empty))
     with pytest.raises(ValueError):
         vv.output_digests([])
+
+
+def test_load_release_vae_reads_only_the_pinned_shards(tmp_path, monkeypatch) -> None:
+    from safetensors.torch import save_file
+
+    class Tiny(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.zeros(4))
+
+        @classmethod
+        def from_config(cls, config):
+            return cls()
+
+    (tmp_path / "config.json").write_text(json.dumps({"k": 1}))
+    save_file({"w": torch.ones(4)}, str(tmp_path / "model.safetensors"))
+    # Same key, not in the fingerprint, sorted after the pinned shard.
+    save_file({"w": torch.full((4,), 7.0)}, str(tmp_path / "zzz.safetensors"))
+    files = [
+        {"path": f"vae/{name}", "size": (tmp_path / name).stat().st_size}
+        for name in ("config.json", "model.safetensors")
+    ]
+    fingerprint = {"config": {"k": 1}, "checkpoint": {"files": files}}
+    monkeypatch.setattr(vv, "release_fingerprint", lambda: fingerprint)
+    vae = vv.load_release_vae(Tiny, tmp_path)
+    assert torch.equal(vae.w.detach(), torch.ones(4))
 
 
 # --- encode/decode with a small Diffusers model -------------------------------------------
@@ -451,6 +511,34 @@ def test_contract_rejects_non_release_vae() -> None:
     vae.use_slicing = True
     with pytest.raises(ValueError):
         vv.VisualVAEContract(vae)
+
+
+def test_contract_rechecks_the_release_before_every_call() -> None:
+    vae = _tiny_vae("cpu")
+    vae.enable_tiling(256, 256, 64, 64)
+    contract = vv.VisualVAEContract(vae)
+    latents = torch.zeros(1, 24, 2, 4, 3)
+    vae.disable_tiling()
+    with pytest.raises(ValueError, match="release tiling"):
+        contract.encode(_pixels(1, 1))
+    with pytest.raises(ValueError, match="release tiling"):
+        contract.decode(latents)
+    # Opting out still allows untiled runs (the evidence tool's tiled-vs-untiled check).
+    untiled = vv.VisualVAEContract(vae, require_release=False)
+    assert untiled.encode(_pixels(1, 1)).tile_plan is None
+
+
+@pytest.mark.parametrize("device", DEVICES)
+def test_encode_ignores_ambient_autocast(device: str) -> None:
+    """The release encodes in FP32; a caller's autocast must not reach the encoder."""
+
+    contract = vv.VisualVAEContract(_tiny_vae(device), require_release=False)
+    pixels = _pixels(1, 1)
+    expected = contract.encode(pixels, round_fp16=False)
+    dtype = torch.bfloat16 if device == "cpu" else torch.float16
+    with torch.autocast(device_type=device, dtype=dtype):
+        ours = contract.encode(pixels, round_fp16=False)
+    assert torch.equal(ours.tensor, expected.tensor)
 
 
 # --- released checkpoint ------------------------------------------------------------------

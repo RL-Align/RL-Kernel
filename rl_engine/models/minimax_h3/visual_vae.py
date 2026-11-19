@@ -42,6 +42,7 @@ import hashlib
 import json
 import math
 import struct
+import threading
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -141,8 +142,11 @@ def load_release_vae(
             raise ValueError(f"{path.name}: sha256 differs from the pinned checkpoint")
     vae = vae_cls.from_config(config)
     state: dict[str, torch.Tensor] = {}
-    for shard in sorted(root.glob("*.safetensors")):
-        state.update(load_file(str(shard), device="cpu"))
+    # Only the pinned shards: another *.safetensors in the folder must not replace a
+    # verified tensor (``strict=True`` cannot see a replaced value, only missing keys).
+    for entry in pinned["checkpoint"]["files"]:
+        if entry["path"].endswith(".safetensors"):
+            state.update(load_file(str(root / Path(entry["path"]).name), device="cpu"))
     vae.load_state_dict(state, strict=True)
     del state  # one device copy of the 10 GB of weights, not two
     vae = vae.to(device).eval()
@@ -573,21 +577,31 @@ def runtime_readback() -> dict[str, Any]:
     return info
 
 
+# The backend flags are process-global, so one pinned scope runs at a time (re-entrant for
+# nested scopes in one thread): concurrent scopes would save and restore each other's flags.
+_RUNTIME_LOCK = threading.RLock()
+
+
 @contextlib.contextmanager
 def pinned_runtime(policy: RuntimePolicy = RELEASE_POLICY) -> Iterator[dict[str, Any]]:
-    """Apply ``policy`` for the duration of the block and restore the previous flags."""
+    """Apply ``policy`` for the duration of the block and restore the previous flags.
+
+    Scopes in different threads are serialized; a thread waits until the scope in another
+    thread has restored its flags.
+    """
 
     cudnn = torch.backends.cudnn
     matmul = torch.backends.cuda.matmul
-    saved = (cudnn.deterministic, cudnn.benchmark, cudnn.allow_tf32, matmul.allow_tf32)
-    cudnn.deterministic = policy.cudnn_deterministic
-    cudnn.benchmark = policy.cudnn_benchmark
-    cudnn.allow_tf32 = policy.cudnn_allow_tf32
-    matmul.allow_tf32 = policy.matmul_allow_tf32
-    try:
-        yield runtime_readback()
-    finally:
-        cudnn.deterministic, cudnn.benchmark, cudnn.allow_tf32, matmul.allow_tf32 = saved
+    with _RUNTIME_LOCK:
+        saved = (cudnn.deterministic, cudnn.benchmark, cudnn.allow_tf32, matmul.allow_tf32)
+        try:
+            cudnn.deterministic = policy.cudnn_deterministic
+            cudnn.benchmark = policy.cudnn_benchmark
+            cudnn.allow_tf32 = policy.cudnn_allow_tf32
+            matmul.allow_tf32 = policy.matmul_allow_tf32
+            yield runtime_readback()
+        finally:
+            cudnn.deterministic, cudnn.benchmark, cudnn.allow_tf32, matmul.allow_tf32 = saved
 
 
 # --- contract driver ----------------------------------------------------------------------
@@ -654,7 +668,9 @@ class VisualVAEContract:
     hold the tile geometry.
 
     With ``require_release=True`` (the default) the VAE's layout, statistics and tile
-    geometry must equal the pinned release; tests pass ``False`` to use small models.
+    geometry must equal the pinned release, checked again before every ``encode`` and
+    ``decode`` (the VAE can be changed after construction, e.g. ``disable_tiling()``); tests
+    pass ``False`` to use small models.
     """
 
     def __init__(
@@ -672,6 +688,7 @@ class VisualVAEContract:
         )
         self.mean = torch.tensor(_config_value(vae, "latents_mean"), dtype=torch.float32)
         self.std = torch.tensor(_config_value(vae, "latents_std"), dtype=torch.float32)
+        self.require_release = require_release
         if require_release:
             self.check_release()
 
@@ -759,6 +776,8 @@ class VisualVAEContract:
         if pixels.ndim != 5 or pixels.shape[1] != 3:
             raise ValueError("pixels must have shape (B, 3, F, H, W)")
         batch, _, frames, height, width = pixels.shape
+        if self.require_release:
+            self.check_release()
         plan = self.tile_plan(height, width)
         expected = self.layout.latent_shape(1, frames, height, width)
         device = self._device()
@@ -766,11 +785,14 @@ class VisualVAEContract:
         with pinned_runtime(self.policy) as runtime:
             for row in pixels.split(1):
                 x = preprocess_pixels(row.to(device))
-                dist = self.vae.encode(x, return_dict=False)[0]
-                if posterior == "sample":
-                    z = dist.sample(generator=torch.Generator().manual_seed(seed))
-                else:
-                    z = dist.mode()
+                # The release encodes in FP32 with no autocast; an ambient autocast must not
+                # lower the precision of the encoder.
+                with torch.autocast(device_type=device.type, enabled=False):
+                    dist = self.vae.encode(x, return_dict=False)[0]
+                    if posterior == "sample":
+                        z = dist.sample(generator=torch.Generator().manual_seed(seed))
+                    else:
+                        z = dist.mode()
                 if tuple(z.shape) != expected:
                     raise RuntimeError(f"latent shape {tuple(z.shape)} != layout {expected}")
                 if round_fp16:
@@ -797,6 +819,8 @@ class VisualVAEContract:
         over the FP32 weights on CUDA, as released.
         """
 
+        if self.require_release:
+            self.check_release()
         validate_latent_stats(latents, self.mean, self.std, self.layout)
         if not self.layout.decodable(latents.shape[2]):
             raise ValueError(f"{latents.shape[2]} latent frames cannot be decoded")
