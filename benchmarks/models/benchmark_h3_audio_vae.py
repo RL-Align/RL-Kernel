@@ -124,6 +124,8 @@ def load_remote(remote_src: Path) -> torch.nn.Module:
 def dac_encode_mean(model: Any, x: torch.Tensor) -> torch.Tensor:
     """The engines' encode on ``[B, samples]``: preprocess, encoder, pre_block, mean_proj."""
 
+    if isinstance(model, av.H3AudioVAE):  # --no-remote: the port has no preprocess; same ops
+        return model.encode_mean(x[:, None])
     audio = model.preprocess(x[:, None], av.SAMPLE_RATE)
     z = model.encoder(audio)
     z = model.pre_block(z.transpose(1, 2)).transpose(1, 2)
