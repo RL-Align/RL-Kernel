@@ -579,6 +579,30 @@ def test_image_processor_is_batch_invariant_and_matches_presentation(
     q.check_presentation(ids, dict(batch))
 
 
+def test_video_presentation_from_the_release_processor(release_processor: Any) -> None:
+    """transformers' own expansion of one ``<|video_pad|>`` for a video with ``t > 1``."""
+
+    np = pytest.importorskip("numpy")
+    frames = np.random.default_rng(0).integers(0, 256, (8, 128, 160, 3), dtype=np.uint8)
+    out = release_processor(
+        text=["<Video 1>: <|video_pad|>" + PROMPTS[0]],
+        videos=[frames],
+        video_metadata=[{"fps": 2.0, "total_num_frames": 8, "frames_indices": list(range(8))}],
+        do_sample_frames=False,
+        return_tensors="pt",
+    )
+    t, h, w = (int(x) for x in out["video_grid_thw"][0])
+    assert t > 1
+    ids = out["input_ids"][0].tolist()
+    merge = release_processor.video_processor.merge_size**2
+    assert q._pad_runs(ids) == [("video", h * w // merge)] * t
+    vision = {k: out[k] for k in ("pixel_values_videos", "video_grid_thw")}
+    q.check_presentation(ids, vision)
+    one_block = q.vision_block("video", t * h * w // merge)
+    with pytest.raises(q.PresentationError, match="video blocks hold"):
+        q.check_presentation(one_block, vision)
+
+
 def test_evidence_full_model_stages_release_the_model(
     tiny_fresh: Any, release_tokenizer: Any, release_processor: Any, monkeypatch: Any
 ) -> None:
