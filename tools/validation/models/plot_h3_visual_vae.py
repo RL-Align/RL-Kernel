@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -64,8 +65,12 @@ def fmt_ms(value: float | None) -> str:
 
 
 def gpu_tag(report: dict) -> str:
-    name = str(report["environment"].get("device_name") or "gpu")
-    return name.split()[-1].lower()
+    """File-name tag from the whole device name, without the vendor prefix:
+    ``NVIDIA B200`` -> ``b200``, ``NVIDIA H100 80GB HBM3`` -> ``h100-80gb-hbm3``."""
+
+    name = str(report["environment"].get("device_name") or "gpu").lower()
+    name = re.sub(r"^nvidia\s+", "", name)
+    return re.sub(r"[^a-z0-9]+", "-", name).strip("-") or "gpu"
 
 
 def gpu_name(report: dict) -> str:
@@ -106,7 +111,10 @@ def accuracy_rows(report: dict) -> list[tuple[str, float]]:
 
     rows: list[tuple[str, float]] = []
     for key, label in OPS:
-        rows.append((f"run to run (3 repeats), {label}", zero_if(run[key]["bitwise_equal"])))
+        repeats = len(run[key]["digests"])
+        rows.append(
+            (f"run to run ({repeats} repeats), {label}", zero_if(run[key]["bitwise_equal"]))
+        )
     for key, label in OPS:
         rows.append(
             (

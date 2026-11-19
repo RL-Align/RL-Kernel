@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import math
 import platform
 import statistics
 import subprocess
@@ -83,7 +84,12 @@ def _pixels(shape: tuple[int, ...], seed: int) -> torch.Tensor:
 def _cmp(a: torch.Tensor, b: torch.Tensor) -> dict[str, Any]:
     a, b = a.float().cpu(), b.float().cpu()
     if a.shape != b.shape:
-        return {"bitwise_equal": False, "shape_a": list(a.shape), "shape_b": list(b.shape)}
+        return {
+            "bitwise_equal": False,
+            "shape_a": list(a.shape),
+            "shape_b": list(b.shape),
+            "max_abs": math.nan,  # no max for a shape mismatch; the plots print "differs"
+        }
     diff = (a - b).abs()
     return {
         "bitwise_equal": bool(torch.equal(a, b)),
@@ -113,15 +119,14 @@ def _time(fn: Callable[[], Any], repeats: int, warmup: int = 1) -> dict[str, flo
     }
 
 
-@contextlib.contextmanager
-def _flags(deterministic: bool, benchmark: bool = False):
-    cudnn = torch.backends.cudnn
-    saved = (cudnn.deterministic, cudnn.benchmark)
-    cudnn.deterministic, cudnn.benchmark = deterministic, benchmark
-    try:
-        yield
-    finally:
-        cudnn.deterministic, cudnn.benchmark = saved
+# PyTorch's default backend flags (the release policy keeps PyTorch's TF32 defaults).
+DEFAULT_FLAGS = vv.RuntimePolicy(cudnn_deterministic=False, cudnn_benchmark=False)
+
+
+def _flags(deterministic: bool) -> contextlib.AbstractContextManager[dict[str, Any]]:
+    """Set all four backend flags: the contract's pinned policy, or PyTorch's defaults."""
+
+    return vv.pinned_runtime(vv.RELEASE_POLICY if deterministic else DEFAULT_FLAGS)
 
 
 def _kernels(fn: Callable[[], Any]) -> list[dict[str, Any]]:
@@ -279,9 +284,10 @@ def main() -> int:
             out = fn(x[:size])
             for i in range(size):
                 cases.append({"batch": size, "row": i, **_cmp(out[i : i + 1], alone[i])})
+        values = [c["max_abs"] for c in cases]
         return {
             "bitwise_equal": all(c["bitwise_equal"] for c in cases),
-            "max_abs": max(c["max_abs"] for c in cases),
+            "max_abs": math.nan if any(v != v for v in values) else max(values),
             "differing_cases": sum(not c["bitwise_equal"] for c in cases),
             "cases": cases,
         }
