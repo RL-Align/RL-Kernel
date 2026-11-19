@@ -3,6 +3,36 @@
 Updated 2026-11-19 UTC. Owner: Nankago. CUDA/Hopper forward projection only;
 Task 13 gradients and MUSA qualification remain separate.
 
+## GitHub backup verified — 2026-11-19
+
+- CLI web device authorization completed as **Nankago**; `gh auth setup-git`
+  configured HTTPS Git authentication. Reuse this login; do not request another
+  login while `gh auth status` succeeds. No credential files are in this checkout.
+- Verified `Nankago/RL-Kernel` is a writable fork of `RL-Align/RL-Kernel`.
+- The initial remote checkpoint is
+  **`fb311aead85f6f4cf0d3ebe4943187b3882ffb03`**, confirmed by `git ls-remote`
+  after an ordinary push. It includes the implementation, tests, reports and PR
+  draft. This documentation follow-up is pushed to the same branch; the branch
+  tip is the latest documentation checkpoint.
+- Branch: https://github.com/Nankago/RL-Kernel/tree/codex/task12-deterministic-gemm
+- Reports: `reports/experiments/task12-projection-gemm.md` and `.json`.
+  English PR draft: `reports/experiments/task12-pr-draft.md`.
+- `origin` still points to the personal fork; `upstream` still points to
+  RL-Align and its push URL remains DISABLED. No force/default-branch/upstream
+  push, PR, comment or merge was performed.
+- Verified local incremental bundle (base prerequisite is 49941801 below):
+  `/gemini-0/space/private/lmx/temp-restore/Vllm-Omni/task12-artifacts/task12-deterministic-gemm.bundle`.
+  Regenerated after the documentation commit; the prior checkpoint is retained
+  as a separate bundle. Latest local/remote SHAs are also recorded outside Git in
+  `../task12-artifacts/GITHUB_BACKUP_STATE.json` and `FINAL_STATE.json`.
+- CLI executable is outside this checkout at
+  `../task12-artifacts/github-cli/root/usr/bin/gh`; Git's credential helper uses
+  that executable. The official Ubuntu package was checked against APT SHA256.
+- MUSA remains pending. This backup operation changes documentation only;
+  passing CUDA tests were not restarted.
+
+## Implementation and validation record
+
 - Recovered `../task12-preflight.md`, the unrelated root handoff and three runtime
   repair reports. No prior Task 12 implementation, checkout or test was found.
 - Isolated checkout: `RL-Kernel-task12`, branch
@@ -34,14 +64,14 @@ Task 13 gradients and MUSA qualification remain separate.
 - Fixed model config downloaded at HF revision
   `345d467b117d1fd5eda9b879a5988de9ae5f47a7`; official Transformers v5.13.1
   call-chain source in `../task12-artifacts/`. Do not commit downloaded sources.
-- GitHub connector identity confirmed Nankago. Fork GET remains 404; no CLI gh
-  or authenticated HTTPS push established. Never push upstream/default branch.
-  No available connector fork-creation endpoint. Continue local delivery if
-  publication is unavailable; preserve commit/bundle for later push.
+- Original publication attempt: connector identity was Nankago, fork GET was
+  404 and CLI authentication was unavailable. This blocker is now resolved by
+  the verified backup above. Never push upstream/default branch.
   `origin=https://github.com/Nankago/RL-Kernel.git`; upstream push URL is DISABLED.
-  Authorized task-branch push was attempted and failed with
+  The original task-branch push failed with
   `fatal: could not read Username for 'https://github.com': terminal prompts disabled`;
-  log `../task12-artifacts/push-code.log`. No upstream write or PR/comment occurred.
+  log `../task12-artifacts/push-code.log`. Successful authenticated push log:
+  `../task12-artifacts/push-authenticated.log`. No upstream write or PR/comment occurred.
 - Baseline build completed successfully. Preserved original binary at
   `../task12-artifacts/baseline-extension.so`. Cast regressions on unmodified
   main: 4 failed, 4 profile-inapplicable skips, 144 deselected, 3.97 s; log/XML
@@ -49,7 +79,7 @@ Task 13 gradients and MUSA qualification remain separate.
   CUDA pybind exports for `det_gemm_fwd_fp32` and `det_gemm_rowwise_fwd_fp32`.
   The first benchmark attempt failed on that missing API, without timing claims.
   Updated bounded benchmark records missing API explicitly and times BF16 plus
-  output-equivalent BF16-tree-to-FP32 widening. Baseline timing running now.
+  output-equivalent BF16-tree-to-FP32 widening. Baseline timing subsequently completed.
 - Incremental fix build succeeded. Changes: expose existing CUDA tree-FP32 and
   SM90 rowwise-FP32 entry points; select the already implemented float store;
   document BF16 tree versus full-FP32 profiles; restore stale Triton test imports
@@ -88,18 +118,18 @@ Task 13 gradients and MUSA qualification remain separate.
   Dev tools installed only in `../.venv-task12`; no global/project environments
   altered. All test processes above have exited; no duplicate GPU suite running.
 - English PR draft: `reports/experiments/task12-pr-draft.md`; no PR created.
-- Remaining blockers: fork visibility/CLI authentication (publication only) and
-  MUSA hardware/collaborator qualification. The report gives single-device MUSA
+- Remaining hardware work: MUSA/collaborator qualification. Publication is
+  verified above. The report gives single-device MUSA
   commands with a CPU FP64 oracle and excludes CUDA-specific tree probes.
   H200, cuBLASLt, non-finites, zero dimensions, large K, engine/full-model,
   distributed and gradient acceptance remain outside the measured scope.
 - All Task 12 build/test/benchmark processes have exited; no live task to resume.
-  Next: make fork accessible or create it through an authenticated Nankago
-  connection, then `git push -u origin codex/task12-deterministic-gemm` without
-  force. Existing authorization covers the task branch; no new approval needed.
-  Do not rerun passing tests unless code/stack changes. Latest pushed commit: none.
+  Future task updates can use `git push origin codex/task12-deterministic-gemm`
+  without force after checking remote history. Existing authorization covers
+  task-branch backup; no new approval needed. Do not rerun passing tests unless
+  code/stack changes. Verified initial pushed commit: fb311aead85f (see above).
   A portable bundle is saved after final commit at
   `../task12-artifacts/task12-deterministic-gemm.bundle`; restore/fetch its branch
   before pushing if this workspace is lost. Large logs, binaries, synthetic
   tensors, downloaded model sources and the venv are not committed.
-  No upstream comments/PR/merge authorized. Latest pushed commit: none.
+  No upstream comments/PR/merge authorized.
