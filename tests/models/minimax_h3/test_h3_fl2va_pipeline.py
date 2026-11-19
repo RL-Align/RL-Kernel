@@ -224,6 +224,14 @@ def test_repeated_preprocessing_in_a_fresh_process_is_byte_identical():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_initial_rows_on_cuda_equal_cpu_bytes():
+    """``device="cuda"`` with a CPU generator.
+
+    ``randn_tensor`` draws on the generator's device, so every noise tensor here is a CPU draw
+    moved to the GPU and only the condition blend runs there. This checks that the blend and
+    the transfers keep the CPU bytes; it does not compare CUDA RNG with CPU RNG (a CUDA
+    generator draws other numbers by design), nor VAE or transformer kernels (other rows).
+    """
+
     cpu = fl2va_preprocess(("first", "last"))
     cuda = fl2va_preprocess(("first", "last"), device="cuda")
     assert cpu == cuda
@@ -455,7 +463,8 @@ def test_layout_matches_sglang_packed_sequence_prefix():
                 frame_count=g["num_frames"] if anchors else None,
             )
             used = layout.sequence_length
-            assert packed["seq_len"] % 64 == 0 and packed["seq_len"] >= used
+            # SGLang pads to the next multiple of 64 rows: exactly -used % 64 rows tagged -1.
+            assert packed["seq_len"] == used + (-used % 64)
             assert torch.equal(packed["img_position_ids"][:used], layout.position_ids)
             assert bool((packed["token_tags"][used:] == -1).all())  # SGLang pads to 64 rows
             assert torch.equal(packed["token_tags"][:used], layout.token_tags)
