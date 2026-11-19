@@ -162,6 +162,32 @@ def test_preprocess_is_a_gather() -> None:
         vv.preprocess_pixels(pixels[:, :2])
 
 
+def test_preprocess_chunks_match_one_gather() -> None:
+    gen = torch.Generator().manual_seed(1)
+    frames = 2 * vv.PREPROCESS_FRAME_CHUNK + 3  # a partial last chunk
+    pixels = torch.randint(0, 256, (1, 3, frames, 4, 8), generator=gen, dtype=torch.uint8)
+    channel = torch.arange(3).view(1, 3, 1, 1, 1)
+    assert torch.equal(vv.preprocess_pixels(pixels), vv.pixel_lut()[channel, pixels.long()])
+
+
+@needs_cuda
+def test_preprocess_peak_memory_is_bounded() -> None:
+    """The int64 gather index is 8x the input; it must not be built for the whole clip."""
+
+    pixels = torch.randint(0, 256, (1, 3, 64, 256, 256), dtype=torch.uint8, device="cuda")
+    out_bytes = pixels.numel() * 4
+    torch.cuda.synchronize()
+    torch.cuda.reset_peak_memory_stats()
+    base = torch.cuda.memory_allocated()
+    out = vv.preprocess_pixels(pixels)
+    torch.cuda.synchronize()
+    peak = torch.cuda.max_memory_allocated() - base
+    assert out.shape == pixels.shape
+    # The output plus a few frames of index (1.6x here); the whole-clip index made it 5x.
+    assert peak < 2 * out_bytes
+    del out
+
+
 @needs_cuda
 def test_pixel_lut_matches_diffusers_cuda_preprocessing() -> None:
     values = torch.arange(256, dtype=torch.uint8, device="cuda")
@@ -526,6 +552,31 @@ def test_contract_rechecks_the_release_before_every_call() -> None:
     # Opting out still allows untiled runs (the evidence tool's tiled-vs-untiled check).
     untiled = vv.VisualVAEContract(vae, require_release=False)
     assert untiled.encode(_pixels(1, 1)).tile_plan is None
+
+
+def test_contract_follows_a_non_release_latent_width() -> None:
+    """``require_release=False`` takes the layout from the VAE config, latent channels too."""
+
+    module = _diffusers()
+    torch.manual_seed(0)
+    vae = module.AutoencoderKLMiniMaxH3(
+        latent_channels=8,
+        block_out_channels=(8,) * 6,
+        layers_per_block=1,
+        norm_num_groups=4,
+        decoder_num_layers=1,
+        decoder_num_attention_heads=2,
+        decoder_attention_head_dim=8,
+        decoder_num_register_tokens=1,
+        decoder_ffn_mult=2,
+        latents_mean=(0.1,) * 8,
+        latents_std=(2.0,) * 8,
+    ).eval()
+    contract = vv.VisualVAEContract(vae, require_release=False)
+    assert contract.layout.latent_channels == 8
+    latents = contract.encode(_pixels(1, 22, 32, 32)).tensor
+    assert latents.shape == (1, 8, 7, 2, 2)
+    assert contract.decode(latents).tensor.shape == (1, 3, 22, 32, 32)
 
 
 @pytest.mark.parametrize("device", DEVICES)

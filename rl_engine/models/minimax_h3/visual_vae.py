@@ -62,6 +62,7 @@ CLIP_LENGTH = 17
 TOKEN_DROP = 3
 
 TILE_SAMPLE_SIZE = 256
+PREPROCESS_FRAME_CHUNK = 8
 TILE_SAMPLE_MIN_OVERLAP = 64
 
 PIXEL_MEAN = (0.485, 0.456, 0.406)
@@ -482,7 +483,13 @@ def preprocess_pixels(pixels: torch.Tensor) -> torch.Tensor:
         raise ValueError("pixels must have shape (B, 3, F, H, W)")
     lut = pixel_lut(pixels.device)
     channel = torch.arange(3, device=pixels.device).view(1, 3, 1, 1, 1)
-    return lut[channel, pixels.long()].contiguous()
+    out = torch.empty(pixels.shape, dtype=torch.float32, device=pixels.device)
+    # The int64 index is 8x the uint8 input; build it a few frames at a time so it never
+    # spans a whole clip.
+    for start in range(0, pixels.shape[2], PREPROCESS_FRAME_CHUNK):
+        frames = slice(start, start + PREPROCESS_FRAME_CHUNK)
+        out[:, :, frames] = lut[channel, pixels[:, :, frames].long()]
+    return out
 
 
 def postprocess_pixels(video: torch.Tensor) -> torch.Tensor:
@@ -521,19 +528,27 @@ def _stat_view(stat: torch.Tensor, latents: torch.Tensor) -> torch.Tensor:
     return stat.to(latents.device).view(1, -1, 1, 1, 1)
 
 
-def normalize_latents(latents: torch.Tensor, mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
+def normalize_latents(
+    latents: torch.Tensor,
+    mean: torch.Tensor,
+    std: torch.Tensor,
+    layout: VisualVAELayout = RELEASE_LAYOUT,
+) -> torch.Tensor:
     """``(z - mean) / std`` in FP32: one subtraction kernel, then one true-division kernel."""
 
-    validate_latent_stats(latents, mean, std)
+    validate_latent_stats(latents, mean, std, layout)
     return (latents.float() - _stat_view(mean, latents)) / _stat_view(std, latents)
 
 
 def denormalize_latents(
-    latents: torch.Tensor, mean: torch.Tensor, std: torch.Tensor
+    latents: torch.Tensor,
+    mean: torch.Tensor,
+    std: torch.Tensor,
+    layout: VisualVAELayout = RELEASE_LAYOUT,
 ) -> torch.Tensor:
     """``z * std + mean`` in FP32: one multiply kernel, then one add kernel (no FMA)."""
 
-    validate_latent_stats(latents, mean, std)
+    validate_latent_stats(latents, mean, std, layout)
     return latents.float() * _stat_view(std, latents) + _stat_view(mean, latents)
 
 
@@ -797,7 +812,7 @@ class VisualVAEContract:
                     raise RuntimeError(f"latent shape {tuple(z.shape)} != layout {expected}")
                 if round_fp16:
                     z = round_condition_latents(z)
-                rows.append(normalize_latents(z.float().cpu(), self.mean, self.std))
+                rows.append(normalize_latents(z.float().cpu(), self.mean, self.std, self.layout))
         latents = torch.cat(rows)
         record = self._record("encode", runtime, plan)
         record.update(posterior=posterior, seed=seed, round_fp16=round_fp16, batch=batch)
@@ -831,7 +846,7 @@ class VisualVAEContract:
         rows = []
         with pinned_runtime(self.policy) as runtime:
             for row in latents.split(1):
-                z = denormalize_latents(row.to(device), self.mean, self.std)
+                z = denormalize_latents(row.to(device), self.mean, self.std, self.layout)
                 enabled = autocast_fp16 and device.type == "cuda"
                 with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=enabled):
                     video = self.vae.decode(z, return_dict=False)[0]
