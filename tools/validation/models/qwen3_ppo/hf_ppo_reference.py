@@ -172,6 +172,85 @@ class HFModel(torch.nn.Module):
         return result
 
 
+class ReferenceAdamW:
+    """AdamW over FP32 parameters, with FP32 masters for BF16 models.
+
+    The update is ``torch.optim.AdamW(..., foreach=False, fused=False)`` applied on the GPU one
+    parameter at a time, the per-tensor path a single resident optimizer takes, so where the
+    state lives does not change any value. With ``state_device="cpu"`` the moments and the
+    BF16 masters stay in host memory between steps and only one parameter's state is on the
+    GPU at a time: the GPU then holds the model and its FP32 gradients, which lets Qwen3-8B
+    train on an 80-94 GB GPU. ``state_device="cuda"`` keeps everything resident.
+    """
+
+    def __init__(self, named, dtype, state_device):
+        """Track ``named`` model parameters; BF16 models get FP32 masters on ``state_device``."""
+        self.named = named
+        self.state_device = torch.device(state_device)
+        self.masters = (
+            {n: p.detach().float().to(self.state_device, copy=True) for n, p in named.items()}
+            if dtype == torch.bfloat16
+            else None
+        )
+        self.master_grads = {}
+        self.state = {}
+
+    def zero_grad(self):
+        """Drop the model gradients and the accumulated FP32 master gradients."""
+        self.master_grads.clear()
+        for p in self.named.values():
+            p.grad = None
+
+    def accumulate(self):
+        """Add BF16 model gradients into FP32 master gradients after each backward.
+
+        FP32 models accumulate in ``.grad`` directly. Raises ``ValueError`` if a BF16
+        parameter has no gradient.
+        """
+        if self.masters is None:
+            return
+        for n, p in self.named.items():
+            if p.grad is None:
+                raise ValueError(f"missing HF gradient: {n}")
+            g = p.grad.float()
+            if n in self.master_grads:
+                self.master_grads[n].add_(g)
+            else:
+                self.master_grads[n] = g.clone()
+            p.grad = None
+
+    def gradients(self):
+        """Return the FP32 gradient the optimizer will apply, by canonical name."""
+        if self.masters is None:
+            return {n: p.grad for n, p in self.named.items()}
+        return {n: self.master_grads.get(n) for n in self.named}
+
+    def step(self):
+        """Apply one AdamW step to every parameter, then copy BF16 masters into the model."""
+        for n, p in self.named.items():
+            if self.masters is None:
+                target = p
+            else:
+                target = torch.nn.Parameter(self.masters[n].cuda())
+                target.grad = self.master_grads[n]
+            optimizer = torch.optim.AdamW([target], **OPTIMIZER, foreach=False, fused=False)
+            if n in self.state:
+                optimizer.state[target] = {
+                    k: v.cuda() if k != "step" else v for k, v in self.state[n].items()
+                }
+            optimizer.step()
+            self.state[n] = {
+                k: v.to(self.state_device) if k != "step" else v
+                for k, v in optimizer.state[target].items()
+            }
+            if self.masters is not None:
+                with torch.no_grad():
+                    self.masters[n].copy_(target)
+                    p.copy_(target)
+                target.grad = None
+            del optimizer, target
+
+
 def independent_targets(packet, values, reference):
     """Recompute PPO targets with explicit per-token GAE loops from critic ``values``.
 
@@ -248,6 +327,8 @@ def main():
     Training runs ``CONFIG.epochs`` AdamW steps, each accumulating per-row microbatch
     gradients into FP32 parameters (FP32 masters for BF16) and clipping to ``max_grad_norm``,
     and writes scores, loss, gradients, norms and parameter updates as evidence tensors.
+    ``--optimizer-state`` (default ``cpu``) says where :class:`ReferenceAdamW` keeps the
+    moments and BF16 masters between steps; the values are the same either way.
     Once the provenance checks before the main ``try`` pass, ``report.json`` is written to
     ``--output`` on success and on failure.
     """
@@ -260,6 +341,7 @@ def main():
     p.add_argument("--precision", choices=["fp32", "bf16"], default="fp32")
     p.add_argument("--score-only", action="store_true")
     p.add_argument("--implementation-control", action="store_true")
+    p.add_argument("--optimizer-state", choices=["cpu", "cuda"], default="cpu")
     a = p.parse_args()
     if a.score_only and a.implementation_control:
         raise ValueError("frozen targets always use the reference implementation")
@@ -271,6 +353,8 @@ def main():
         rollout_manifest_sha256=sha(a.rollout / "manifest.json"),
         implementation_control=IMPLEMENTATION_CONTROL if a.implementation_control else None,
     )
+    if not a.score_only:
+        report["optimizer_state"] = a.optimizer_state
     started = time.perf_counter()
     try:
         verify_checkpoint(a.checkpoint)
@@ -308,18 +392,11 @@ def main():
             model = HFModel(a.checkpoint, a.role, dtype, a.implementation_control)
             named = model.canonical()
             # Independent FP32 master optimizer for both precision controls.
-            masters = (
-                {n: torch.nn.Parameter(p.detach().float().clone()) for n, p in named.items()}
-                if dtype == torch.bfloat16
-                else named
-            )
-            optimizer = torch.optim.AdamW(masters.values(), **OPTIMIZER, foreach=False, fused=False)
+            optimizer = ReferenceAdamW(named, dtype, a.optimizer_state)
             artifacts = {}
             for update in range(CONFIG.epochs):
                 before = {n: p.detach().float().cpu().clone() for n, p in named.items()}
-                optimizer.zero_grad(set_to_none=True)
-                for p0 in named.values():
-                    p0.grad = None
+                optimizer.zero_grad()
                 total_loss = 0.0
                 all_scores = []
                 for row in range(len(packet["input_ids"])):
@@ -338,16 +415,7 @@ def main():
                     loss = independent_loss(a.role, scores, micro, t) * fraction
                     total_loss += float(loss.detach())
                     loss.backward()
-                    if dtype == torch.bfloat16:
-                        for n, p0 in named.items():
-                            if p0.grad is None:
-                                raise ValueError(f"missing HF gradient: {n}")
-                            g = p0.grad.float()
-                            if masters[n].grad is None:
-                                masters[n].grad = g.clone()
-                            else:
-                                masters[n].grad.add_(g)
-                            p0.grad = None
+                    optimizer.accumulate()
                     del loss, scores
                 mask = (
                     packet["action_mask"].cpu()
@@ -361,30 +429,28 @@ def main():
                     a.output, f"{update}/loss", torch.tensor(total_loss, dtype=torch.float64)
                 )
                 norm = torch.zeros((), device="cuda", dtype=torch.float64)
-                for n, p0 in masters.items():
-                    if p0.grad is None or not torch.isfinite(p0.grad).all():
+                gradients = optimizer.gradients()
+                for n, g in gradients.items():
+                    if g is None or not torch.isfinite(g).all():
                         raise ValueError(f"invalid HF gradient: {n}")
-                    norm += p0.grad.double().square().sum()
+                    norm += g.double().square().sum()
                     artifacts[f"{update}/gradient/{n}"] = write_tensor(
-                        a.output, f"{update}/gradient/{n}", p0.grad
+                        a.output, f"{update}/gradient/{n}", g
                     )
                 norm = norm.sqrt()
                 artifacts[f"{update}/grad_norm"] = write_tensor(
                     a.output, f"{update}/grad_norm", norm
                 )
                 scale = (CONFIG.max_grad_norm / (norm + 1e-6)).clamp(max=1)
-                for p0 in masters.values():
-                    p0.grad.mul_(scale)
+                for g in gradients.values():
+                    g.mul_(scale)
                 artifacts[f"{update}/clipped_norm"] = write_tensor(
                     a.output,
                     f"{update}/clipped_norm",
-                    sum(p0.grad.double().square().sum() for p0 in masters.values()).sqrt(),
+                    sum(g.double().square().sum() for g in gradients.values()).sqrt(),
                 )
+                del gradients
                 optimizer.step()
-                if dtype == torch.bfloat16:
-                    with torch.no_grad():
-                        for n, p0 in named.items():
-                            p0.copy_(masters[n])
                 for n, p0 in named.items():
                     artifacts[f"{update}/update/{n}"] = write_tensor(
                         a.output, f"{update}/update/{n}", p0.detach().float().cpu() - before[n]

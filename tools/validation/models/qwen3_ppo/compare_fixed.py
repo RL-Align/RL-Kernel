@@ -112,9 +112,11 @@ def main():
         if sha(a.thresholds) not in frozen["files"].values():
             raise ValueError("thresholds not pinned in acceptance manifest")
         if a.tp_comparison:
+            tp = frozen["matrix"]["tp"]
             if (
-                left.get("tp") != 1
-                or right.get("tp") != 2
+                left.get("tp") not in tp
+                or right.get("tp") not in tp
+                or not left["tp"] < right["tp"]
                 or left["precision"] != right["precision"]
                 or left["framework"] != right["framework"]
             ):

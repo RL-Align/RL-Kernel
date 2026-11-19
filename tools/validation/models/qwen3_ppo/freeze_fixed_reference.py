@@ -31,6 +31,7 @@ def main():
     load_packet(a.reference_root / "rollout")
     load_targets(a.reference_root / "targets")
     files = {}
+    states = set()
     for name in [
         "rollout/manifest.json",
         "rollout/rollout.pt",
@@ -48,6 +49,7 @@ def main():
                     raise ValueError("reference incomplete")
                 if (report.get("implementation_control") is None) != (run != "impl"):
                     raise ValueError(f"wrong implementation for control {directory}")
+                states.add(report.get("optimizer_state"))
                 files[f"{directory}/report.json"] = sha(path)
                 for row in report["artifacts"].values():
                     files[f'{directory}/{row["path"]}'] = row["sha256"]
@@ -55,6 +57,8 @@ def main():
             files[name] = sha(a.reference_root / name)
         name = f"{role}-cross-precision-bounds.json"
         files[name] = sha(a.reference_root / name)
+    if len(states) != 1:
+        raise ValueError(f"reference runs disagree on optimizer state placement: {states}")
     bounds = json.loads((a.reference_root / "actor-cross-precision-bounds.json").read_text())
     result = dict(
         status="frozen",
@@ -64,6 +68,7 @@ def main():
         targets_manifest_sha256=files["targets/targets.json"],
         fp32_reference_sha256=files["actor-fp32-0/report.json"],
         behavior_logprob={"atol": bounds["bounds"]["0/scores"]["max_abs"], "rtol": 0.0},
+        reference_optimizer_state=states.pop(),
         controls=dict(
             repeat="the same HF run repeated (repeat 1 against repeat 0)",
             implementation=IMPLEMENTATION_CONTROL,
@@ -76,10 +81,8 @@ def main():
         matrix={
             "frameworks": ["megatron", "deepspeed"],
             "precisions": ["fp32", "bf16"],
-            "tp": [1, 2],
+            "tp": [2, 4],
             "roles": ["actor", "critic"],
-            "rounds": 2,
-            "topologies": [[1, 1, 2], [2, 1, 1]],
         },
     )
     a.output.write_text(json.dumps(result, indent=2) + "\n")

@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=test
-#SBATCH --partition=overflow
-#SBATCH --account=wrd
+#SBATCH --job-name=qwen3-ppo
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gres=gpu:b200:4
+#SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=512G
 #SBATCH --time=24:00:00
@@ -19,12 +17,13 @@ acceptance_manifest=$7
 result_root=$8
 cd "$source_dir"
 [[ -z $(git status --porcelain) ]]
-result_dir="$result_root/job-$SLURM_JOB_ID-attempt-${SLURM_RESTART_COUNT:-0}"
+run_id=${SLURM_JOB_ID:+job-$SLURM_JOB_ID-attempt-${SLURM_RESTART_COUNT:-0}}
+result_dir="$result_root/${run_id:-run-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir "$result_dir"
 export PYTHONPATH="$source_dir:$framework_overlay"
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 USE_TF=0 USE_FLAX=0
 export HF_HUB_OFFLINE=1 TOKENIZERS_PARALLELISM=false
-scontrol show job "$SLURM_JOB_ID" > "$result_dir/slurm.txt"
+if [[ -n ${SLURM_JOB_ID:-} ]]; then scontrol show job "$SLURM_JOB_ID" > "$result_dir/slurm.txt"; fi
 nvidia-smi -q > "$result_dir/device.txt"
 git rev-parse HEAD > "$result_dir/commit.txt"
 "$python_bin" -m pip freeze > "$result_dir/dependencies.txt"
@@ -33,7 +32,7 @@ git rev-parse HEAD > "$result_dir/commit.txt"
 for engine in megatron deepspeed; do
   for precision in fp32 bf16; do
     for role in actor critic; do
-      for tp in 1 2; do
+      for tp in 2 4; do
         run="$result_dir/$engine-$precision-$role-tp$tp"
         "$python_bin" -m torch.distributed.run --standalone --nproc_per_node="$tp" \
           -m tests.distributed.tp.check_qwen3_fixed --framework "$engine" --precision "$precision" \
@@ -47,19 +46,13 @@ for engine in megatron deepspeed; do
           --reference-root "$reference_root" --output "$run/comparison.json"
       done
       "$python_bin" -m tools.validation.models.qwen3_ppo.compare_fixed --tp-comparison \
-        --reference "$result_dir/$engine-$precision-$role-tp1" --other "$result_dir/$engine-$precision-$role-tp2" \
+        --reference "$result_dir/$engine-$precision-$role-tp2" --other "$result_dir/$engine-$precision-$role-tp4" \
         --thresholds "$reference_root/$role-$precision-repeat-bounds.json" --acceptance-manifest "$acceptance_manifest" \
         --reference-root "$reference_root" --output "$result_dir/$engine-$precision-$role-tp-comparison.json"
     done
   done
-  for actor_tp in 1 2; do
-    vllm_tp=$((3-actor_tp))
-    run="$result_dir/$engine-actor$actor_tp-vllm$vllm_tp"
-    "$python_bin" -m torch.distributed.run --standalone --nproc_per_node="$((actor_tp+2))" \
-      -m tests.distributed.tp.check_qwen3_ppo_rollout --framework "$engine" --actor-tp "$actor_tp" \
-      --critic-tp 1 --vllm-tp "$vllm_tp" --checkpoint "$checkpoint" --thresholds "$acceptance_manifest" \
-      --vllm-python "$vllm_python" --gpu-layout dedicated --output "$run" > "$run.log" 2>&1
-  done
+  # The pretrained two-round vLLM topologies (actor, critic and vLLM on dedicated GPUs) are not
+  # run here: at TP2 each trainer needs about 80 GB, so they need more than four 80-94 GB GPUs.
   "$python_bin" -m torch.distributed.run --standalone --nproc_per_node=4 \
     -m tests.distributed.tp.check_tp_ppo_rollout --framework "$engine" --actor-tp 2 --critic-tp 1 \
     --vllm-python "$vllm_python" --gpu-layout dedicated --output "$result_dir/$engine-tiny" > "$result_dir/$engine-tiny.log" 2>&1

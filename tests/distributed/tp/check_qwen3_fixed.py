@@ -36,10 +36,15 @@ from tools.validation.models.qwen3_ppo.fixed_contract import (
 
 
 def canonical(model, group, config, role, buffers=None):
-    """Gather actual optimizer buffers using parameter partition metadata."""
+    """Gather actual optimizer buffers using parameter partition metadata.
+
+    Every rank takes part in the gathers and replica checks; only the group's rank 0 keeps the
+    full tensors (in host memory) and gets them back, the other ranks get ``{}``.
+    """
     named = dict(model.named_parameters())
     result = {}
     size = dist.get_world_size(group)
+    keep = dist.get_rank(group) == 0
     for name, p in model.state_dict().items():
         if not isinstance(p, torch.Tensor):
             continue
@@ -72,7 +77,11 @@ def canonical(model, group, config, role, buffers=None):
             dist.all_reduce(mismatch, op=dist.ReduceOp.MAX, group=group)
             if mismatch.item():
                 raise ValueError(f"replicated TP tensor differs: {name}")
-        result[name] = value.cpu().clone()
+        if keep:
+            result[name] = value.cpu().clone()
+        del value
+    if not keep:
+        return {}
     prefix = "model." if role == "actor" else "backbone."
     backbone = {n.removeprefix(prefix): v for n, v in result.items() if n.startswith(prefix)}
     result_hf = megatron_to_hf([backbone], config, policy=role == "actor")
@@ -82,26 +91,33 @@ def canonical(model, group, config, role, buffers=None):
 
 
 def main():
-    """Replay the frozen rollout through one actor or critic ``worker.train`` call at TP1 or TP2.
+    """Replay the frozen rollout through one actor or critic ``worker.train`` call at TP1/2/4.
 
     The acceptance manifest must be frozen and match the rollout/targets SHA-256s, and the
     targets must be unchanged after training. Rank 0 saves per-update scores, loss, gradients,
     norms and parameter deltas plus the report; every rank writes ``rank{rank}.json``.
+
+    ``--probe`` runs the same training without an acceptance manifest and writes no tensors,
+    only the reports with peak memory and time (status ``probe_complete``). A probe report
+    records no acceptance manifest, so ``compare_fixed`` rejects it as a candidate.
     """
     p = argparse.ArgumentParser()
     p.add_argument("--checkpoint", type=Path, required=True)
     p.add_argument("--rollout", type=Path, required=True)
     p.add_argument("--targets", type=Path, required=True)
-    p.add_argument("--acceptance-manifest", type=Path, required=True)
+    p.add_argument("--acceptance-manifest", type=Path)
+    p.add_argument("--probe", action="store_true")
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--framework", choices=["megatron", "deepspeed"], required=True)
     p.add_argument("--precision", choices=["fp32", "bf16"], required=True)
     p.add_argument("--role", choices=["actor", "critic"], required=True)
     a = p.parse_args()
+    if a.probe == (a.acceptance_manifest is not None):
+        raise ValueError("pass exactly one of --acceptance-manifest and --probe")
     rank = int(os.environ["RANK"])
     size = int(os.environ["WORLD_SIZE"])
-    if size not in (1, 2):
-        raise ValueError("fixed rollout matrix uses TP1/TP2")
+    if size not in (1, 2, 4):
+        raise ValueError("fixed rollout matrix uses TP1/TP2/TP4")
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
     dist.init_process_group("nccl", timeout=timedelta(hours=2))
     from megatron.core import parallel_state
@@ -120,15 +136,23 @@ def main():
         tp=size,
         rollout_manifest_sha256=sha(a.rollout / "manifest.json"),
         targets_manifest_sha256=sha(a.targets / "targets.json"),
-        acceptance_manifest_sha256=sha(a.acceptance_manifest),
+        acceptance_manifest_sha256=None if a.probe else sha(a.acceptance_manifest),
+        probe=a.probe,
     )
+
+    def record(name, value):
+        """Write one evidence tensor on rank 0 and return its artifact row (probe: nothing)."""
+        return None if a.probe else write_tensor(a.output, name, value)
+
     started = time.perf_counter()
     try:
-        contract = json.loads(a.acceptance_manifest.read_text())
-        if contract["status"] != "frozen" or any(
-            contract[k] != report[k] for k in ("rollout_manifest_sha256", "targets_manifest_sha256")
-        ):
-            raise ValueError("wrong frozen rollout/target contract")
+        if not a.probe:
+            contract = json.loads(a.acceptance_manifest.read_text())
+            if contract["status"] != "frozen" or any(
+                contract[k] != report[k]
+                for k in ("rollout_manifest_sha256", "targets_manifest_sha256")
+            ):
+                raise ValueError("wrong frozen rollout/target contract")
         verify_checkpoint(a.checkpoint)
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
@@ -235,21 +259,19 @@ def main():
                 valid_ids = packet["input_ids"][packet["attention_mask"]].unique().cpu()
                 if any(int(v) in valid_ids.tolist() for v in padding_ids):
                     raise ValueError("padding gradient probe needs distinct padding IDs")
-                if padding_ids.numel() and torch.count_nonzero(
-                    grads["model.embed_tokens.weight"][padding_ids]
+                if (
+                    padding_ids.numel()
+                    and grads
+                    and torch.count_nonzero(grads["model.embed_tokens.weight"][padding_ids])
                 ):
                     raise ValueError("padding polluted the embedding gradients")
                 if rank == 0:
-                    artifacts[f"{update}/scores"] = write_tensor(
-                        a.output, f"{update}/scores", scores[selected]
-                    )
-                    artifacts[f"{update}/loss"] = write_tensor(
-                        a.output, f"{update}/loss", torch.tensor(value, dtype=torch.float64)
+                    artifacts[f"{update}/scores"] = record(f"{update}/scores", scores[selected])
+                    artifacts[f"{update}/loss"] = record(
+                        f"{update}/loss", torch.tensor(value, dtype=torch.float64)
                     )
                     for n, g in grads.items():
-                        artifacts[f"{update}/gradient/{n}"] = write_tensor(
-                            a.output, f"{update}/gradient/{n}", g
-                        )
+                        artifacts[f"{update}/gradient/{n}"] = record(f"{update}/gradient/{n}", g)
                 del grads
             elif event == "after_clip":
                 squared = torch.zeros((), device="cuda", dtype=torch.float64)
@@ -263,11 +285,11 @@ def main():
                         squared += grad.double().square().sum()
                 dist.all_reduce(squared, group=group)
                 if rank == 0:
-                    artifacts[f"{update}/grad_norm"] = write_tensor(
-                        a.output, f"{update}/grad_norm", torch.tensor(value, dtype=torch.float64)
+                    artifacts[f"{update}/grad_norm"] = record(
+                        f"{update}/grad_norm", torch.tensor(value, dtype=torch.float64)
                     )
-                    artifacts[f"{update}/clipped_norm"] = write_tensor(
-                        a.output, f"{update}/clipped_norm", squared.sqrt()
+                    artifacts[f"{update}/clipped_norm"] = record(
+                        f"{update}/clipped_norm", squared.sqrt()
                     )
             elif event == "after_step":
                 optimizer = worker.optimizer
@@ -284,8 +306,8 @@ def main():
                 after = canonical(model, group, config, a.role)
                 if rank == 0:
                     for n, v in after.items():
-                        artifacts[f"{update}/update/{n}"] = write_tensor(
-                            a.output, f"{update}/update/{n}", v.float() - before[n].float()
+                        artifacts[f"{update}/update/{n}"] = record(
+                            f"{update}/update/{n}", v.float() - before[n].float()
                         )
                 before = {}
 
@@ -295,8 +317,8 @@ def main():
         for k, v in frozen.items():
             torch.testing.assert_close(v, batch.targets()[k], atol=0, rtol=0)
         report.update(
-            status="fixed_candidate_complete",
-            artifacts=artifacts,
+            status="probe_complete" if a.probe else "fixed_candidate_complete",
+            artifacts={} if a.probe else artifacts,
             metrics=metrics,
             effective_action_tokens=int(packet["action_mask"].sum()),
             padding_invariant=True,

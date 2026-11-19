@@ -295,6 +295,74 @@ def test_recomputed_control_keeps_only_inputs(dtype):
         assert torch.equal(got, want)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("state_device", ["cpu", "cuda"])
+def test_reference_adamw_matches_one_resident_adamw(dtype, state_device):
+    """Two steps match one resident AdamW over FP32 masters bitwise, wherever state is kept.
+
+    With ``state_device="cpu"`` the moments and BF16 masters are in host memory between steps.
+    """
+    from tools.validation.models.qwen3_ppo.fixed_contract import OPTIMIZER
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import ReferenceAdamW
+
+    g = torch.Generator().manual_seed(11)
+    shapes = {"a": (33, 17), "b": (17,), "c": (5, 3, 2)}
+    initial = {n: torch.randn(s, generator=g) for n, s in shapes.items()}
+    steps = [
+        [{n: torch.randn(s, generator=g).to("cuda", dtype) for n, s in shapes.items()}] * 2
+        for _ in range(2)
+    ]
+    named = {n: torch.nn.Parameter(v.to("cuda", dtype)) for n, v in initial.items()}
+    resident = {n: torch.nn.Parameter(v.to("cuda", dtype)) for n, v in initial.items()}
+    # The previous reference: one AdamW over FP32 masters (BF16) or the FP32 parameters.
+    owners = (
+        {n: torch.nn.Parameter(p.detach().float().clone()) for n, p in resident.items()}
+        if dtype == torch.bfloat16
+        else resident
+    )
+    expected = torch.optim.AdamW(owners.values(), **OPTIMIZER, foreach=False, fused=False)
+    optimizer = ReferenceAdamW(named, dtype, state_device)
+    for step in steps:
+        optimizer.zero_grad()
+        expected.zero_grad(set_to_none=True)
+        for micro in step:
+            for n, p in named.items():
+                p.grad = micro[n].clone() if p.grad is None else p.grad.add_(micro[n])
+            optimizer.accumulate()
+            for n, p in owners.items():
+                add = micro[n].float()
+                p.grad = add.clone() if p.grad is None else p.grad.add_(add)
+        assert set(optimizer.gradients()) == set(named)
+        optimizer.step()
+        expected.step()
+        if dtype == torch.bfloat16:
+            with torch.no_grad():
+                for n, p in resident.items():
+                    p.copy_(owners[n])
+        for n in named:
+            assert torch.equal(named[n], resident[n])
+            state = expected.state[owners[n]]
+            for k in ("exp_avg", "exp_avg_sq"):
+                assert optimizer.state[n][k].device.type == state_device
+                assert torch.equal(optimizer.state[n][k].cuda(), state[k])
+            assert torch.equal(optimizer.state[n]["step"], state["step"])
+            if dtype == torch.bfloat16:
+                assert optimizer.masters[n].device.type == state_device
+                assert torch.equal(optimizer.masters[n].cuda(), owners[n])
+
+
+def test_reference_adamw_requires_every_bf16_gradient():
+    """A BF16 parameter without a gradient after backward is an error, not a skipped update."""
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import ReferenceAdamW
+
+    named = {n: torch.nn.Parameter(torch.zeros(2, dtype=torch.bfloat16)) for n in "ab"}
+    optimizer = ReferenceAdamW(named, torch.bfloat16, "cpu")
+    named["a"].grad = torch.ones(2, dtype=torch.bfloat16)
+    with pytest.raises(ValueError, match="missing HF gradient: b"):
+        optimizer.accumulate()
+
+
 def _fixed_run(root, values, **report):
     from tools.validation.models.qwen3_ppo.fixed_contract import save_report, write_tensor
 
@@ -350,6 +418,57 @@ def test_bounds_take_the_largest_independent_control(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(ValueError, match="only independent HF controls"):
         compare_fixed.main()
+
+
+def test_tp_comparison_uses_the_frozen_tp_sizes(tmp_path, monkeypatch):
+    """A TP comparison runs the smaller frozen TP size against the larger one, nothing else."""
+    import sys
+
+    from tools.validation.models.qwen3_ppo import compare_fixed
+    from tools.validation.models.qwen3_ppo.fixed_contract import REVISION, sha
+
+    root = tmp_path / "reference"
+    root.mkdir()
+    thresholds = root / "actor-fp32-repeat-bounds.json"
+    thresholds.write_text(json.dumps({"bounds": {"0/loss": {"max_abs": 1.0}}}))
+    manifest = tmp_path / "acceptance.json"
+    manifest.write_text(
+        json.dumps(
+            dict(
+                status="frozen",
+                model_revision=REVISION,
+                files={thresholds.name: sha(thresholds)},
+                matrix={"tp": [2, 4]},
+            )
+        )
+    )
+
+    def candidate(tp):
+        return _fixed_run(
+            tmp_path / f"tp{tp}",
+            {"0/loss": torch.tensor(tp / 10)},
+            status="fixed_candidate_complete",
+            tp=tp,
+            precision="fp32",
+            framework="megatron",
+            acceptance_manifest_sha256=sha(manifest),
+        )
+
+    runs = {tp: candidate(tp) for tp in (1, 2, 4)}
+
+    def compare(left, right):
+        out = tmp_path / f"cmp-{left}-{right}.json"
+        argv = ["compare_fixed", "--tp-comparison", "--reference", str(runs[left])]
+        argv += ["--other", str(runs[right]), "--thresholds", str(thresholds)]
+        argv += ["--acceptance-manifest", str(manifest), "--reference-root", str(root)]
+        monkeypatch.setattr(sys, "argv", argv + ["--output", str(out)])
+        compare_fixed.main()
+        return json.loads(out.read_text())
+
+    assert compare(2, 4)["status"] == "passed"
+    for left, right in [(1, 2), (4, 2), (2, 2)]:
+        with pytest.raises(ValueError, match="invalid same-precision TP comparison"):
+            compare(left, right)
 
 
 def test_fixed_evidence_rejects_corruption_and_inventory_shape(tmp_path):

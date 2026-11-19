@@ -30,12 +30,20 @@ Formal matrix, still awaiting hardware qualification:
 
 | Engine | Training precision | Training TP | Rollout |
 |---|---|---|---|
-| Megatron and DeepSpeed | FP32/BF16 | 1/2 | Same frozen vLLM TP2 rollout |
-| Megatron and DeepSpeed | BF16 | Actor 1, Critic 1 | Actual vLLM TP2, two PPO rounds |
-| Megatron and DeepSpeed | BF16 | Actor 2, Critic 1 | Actual vLLM TP1, two PPO rounds |
+| Megatron and DeepSpeed | FP32/BF16 | 2/4 | Same frozen vLLM TP2 rollout |
 | Megatron and DeepSpeed | FP32 tiny GPT | Actor 2, Critic 1 | Existing vLLM TP1 regression |
 
-The pretrained four-GPU entry is `tests.distributed.tp.check_qwen3_ppo_rollout`.
+The matrix is sized for four 80-94 GB GPUs. Qwen3-8B with FP32 AdamW state needs about
+131 GB at TP1 and about 82 GB at TP2 BF16, so TP1 is not part of it. The HF reference runs
+on one GPU; `hf_ppo_reference` keeps the AdamW moments and the BF16 FP32 masters in host
+memory between steps (`--optimizer-state cpu`, the default) and applies the same per-tensor
+`torch.optim.AdamW` update on the GPU one parameter at a time, so the values match a
+resident optimizer bit for bit. The frozen manifest records where the reference kept it.
+
+The pretrained two-round vLLM topologies (`tests.distributed.tp.check_qwen3_ppo_rollout`,
+actor 1 or 2, critic 1, vLLM 2 or 1 on dedicated GPUs) are not part of this matrix: a TP1
+trainer does not fit an 80-94 GB GPU, and a TP2 actor plus a TP2 critic plus vLLM needs more
+than four GPUs.
 It requires frozen FP32-reference thresholds, uses real safetensors and sampler
 logprobs, preserves reference/reward weights, and requires versions 0/1/2.
 vLLM checks each rank's loaded QKV/gate-up/vocabulary shard against the actor
@@ -43,7 +51,7 @@ weights, rejects stale versions/missing rank confirmations, resets prefix cache
 and checks cold/replay cache behavior. Rank memory and round timing are recorded.
 
 Remaining: actual native checkpoint load validation; fixed-rollout HF controls;
-FP32/BF16 TP1/TP2 fixed-rollout loss/gradient/update comparison; actual two-round
+FP32/BF16 TP2/TP4 fixed-rollout loss/gradient/update comparison; actual two-round
 Megatron/DeepSpeed/vLLM TP2 and TP1 runs; GPU negative controls; immutable raw
 artifacts and final threshold/acceptance report. CPU mapping and buffer tests
 alone do not resolve PR #548's experiment gap.
@@ -53,8 +61,9 @@ uses actual vLLM TP2 sampling and independent HF scoring/GAE/PPO updates. Both H
 precisions repeat on the same immutable rollout and targets. `freeze_fixed_reference`
 produces an acceptance manifest and per-tensor error bounds, which must be committed
 before submitting `qualify_candidate.sbatch`. The candidate job checks all eight
-engine/precision/TP combinations for both roles, then runs both four-GPU topologies
-and the tiny-GPT regression. AdamW settings match in every precision. Evidence uses
+engine/precision/TP combinations for both roles, then the tiny-GPT regression.
+`probe_trainer_memory.sh` measures trainer peak memory on the frozen rollout first; a probe
+writes no evidence tensors and needs no acceptance manifest. AdamW settings match in every precision. Evidence uses
 actual FP32 optimizer gradients, measured clipping norms and parameter deltas.
 
 The rule for max-absolute errors is four times the largest independent control difference
@@ -71,6 +80,6 @@ Relative L2 errors are also reported. Same-precision TP comparisons use independ
 same-precision repeat bounds. No candidate result may establish or widen a bound.
 Large per-parameter evidence stays outside Git; the committed manifests anchor its
 hashes. Missing inputs, tampering, invalid tensor inventories and skipped GPU stages
-are failures, not completed qualification. All jobs use `overflow`, `test`, 4 B200,
-512 GB host memory and a 24-hour limit. Threshold publication is a stage boundary;
+are failures, not completed qualification. The batch scripts also run without Slurm; the
+reference needs about 256 GB of free host memory and about 1.4 TB of disk. Threshold publication is a stage boundary;
 no formal PPO GPU acceptance is claimed until that candidate job actually passes.
