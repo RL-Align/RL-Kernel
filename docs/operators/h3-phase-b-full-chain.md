@@ -110,11 +110,29 @@ localized.
 
 `tests/models/minimax_h3/fixtures/h3_full_chain_{fl2va,ref2va}_toy.json` are sealed toy runs.
 They use a 64x64 canvas, 124 frames, a toy VAE with the release layout, the small audio VAE of
-`audio_vae_contract` and a toy H3-shaped transformer, all on CPU. The test replays them at 4
-intra-op threads when the runtime profile (torch, CPU capability, machine) matches. The
-thread count is pinned because CPU convolutions (the audio VAE) change bytes with it. Bytes
-are only claimed within one profile; set `RL_KERNEL_H3_REGEN_CHAIN_FIXTURES=1` to reseal. The released-weight
-fixtures are produced by the runner and kept with the evidence, not in the repository.
+`audio_vae_contract` and a toy H3-shaped transformer, all on CPU. Their bytes are host
+specific. A second host with the same torch, ATen CPU capability, machine and thread count gave
+other bytes in two places:
+
+- FL2VA at `media_preprocess`, the stretched keyframe from Pillow's LANCZOS resize (every PyPI
+  Pillow wheel from 10.4 to 12.3 gives the committed bytes on the sealing host, so the other
+  host's Pillow build differs);
+- Ref2VA at `audio_vae_encode`, the CPU convolutions of the audio VAE. oneDNN picks its kernels
+  from the CPU's ISA, which torch's `cpu_capability` does not show: on the AVX512 sealing host,
+  `ONEDNN_MAX_CPU_ISA=AVX2` gives the same first drift.
+
+The tests therefore check:
+
+- on every host: the committed fixtures' seal (hash chain, architecture fingerprint) and
+  structure (stages, components, provenance keys, steps, probed modules) against a fresh run;
+- on every host: byte determinism, by sealing in the test process and replaying in a fresh
+  process, all 12 stages equal;
+- with `RL_KERNEL_H3_REPLAY_CHAIN_FIXTURES=1`, on the host that sealed them: the committed
+  bytes, bit for bit.
+
+Runs are at 4 intra-op threads, because CPU convolutions also change bytes with the thread
+count. Set `RL_KERNEL_H3_REGEN_CHAIN_FIXTURES=1` to reseal. The released-weight fixtures are
+produced by the runner and kept with the evidence, not in the repository.
 
 ## Reproduce
 

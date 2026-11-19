@@ -7,9 +7,12 @@ Everything runs on CPU with the stand-ins of ``_toy_chain`` (seconds). Diffusers
 checks (the scheduler step against ``MiniMaxH3Scheduler``, a tiny real
 ``MiniMaxH3Transformer3DModel``) skip when Diffusers with MiniMax-H3 is not importable.
 
-The two sealed fixtures under ``fixtures/`` are replayed at 4 intra-op threads when the
-runtime profile (torch version, CPU capability, machine) matches the one they were sealed on; set
-``RL_KERNEL_H3_REGEN_CHAIN_FIXTURES=1`` to reseal them.
+The two sealed fixtures under ``fixtures/`` are checked for their seal and structure on every
+host. Their bytes are host specific (Pillow's LANCZOS resize and the oneDNN convolutions of the
+audio VAE differ between hosts with the same torch and CPU capability), so byte determinism is
+checked by sealing and replaying in two processes on the same host, at 4 intra-op threads. The
+bitwise replay of the committed bytes runs with ``RL_KERNEL_H3_REPLAY_CHAIN_FIXTURES=1`` on the
+host that sealed them; ``RL_KERNEL_H3_REGEN_CHAIN_FIXTURES=1`` reseals them.
 """
 
 from __future__ import annotations
@@ -17,6 +20,8 @@ from __future__ import annotations
 import copy
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,6 +33,7 @@ from tests.models.minimax_h3 import _toy_chain as toy
 
 FIXTURES = Path(__file__).with_name("fixtures")
 REGEN_ENV = "RL_KERNEL_H3_REGEN_CHAIN_FIXTURES"
+REPLAY_ENV = "RL_KERNEL_H3_REPLAY_CHAIN_FIXTURES"
 PROFILE_KEYS = ("torch", "cpu_capability", "platform_machine", "num_threads")
 # CPU convolutions (the audio VAE) change bytes with the intra-op thread count, so the
 # fixtures are sealed and replayed at a fixed one.
@@ -599,19 +605,26 @@ def test_chain_with_the_qwen3vl_source_records_the_contract(tiny_qwen3vl_conditi
 
 
 # --- sealed fixtures ----------------------------------------------------------------------
+#
+# The toy fixtures' bytes are host specific, even with the same torch, ATen CPU capability,
+# machine and thread count: on another host, Pillow's LANCZOS resize (media_preprocess,
+# FL2VA's stretched keyframe) and the oneDNN convolutions of the audio VAE (audio_vae_encode)
+# gave other bytes. oneDNN picks its kernels from the CPU's ISA, which torch's
+# ``cpu_capability`` does not show (ONEDNN_MAX_CPU_ISA=AVX2 reproduces the audio drift on an
+# AVX512 host). So the committed fixtures are checked for their seal and structure on every
+# host, byte determinism is checked by sealing and replaying in two processes on this host,
+# and the bitwise replay of the committed bytes is opt-in, for the host that sealed them.
 
 
 def _profile(runtime: dict) -> dict:
     return {key: runtime.get(key) for key in PROFILE_KEYS}
 
 
-@pytest.mark.parametrize("workflow", ["fl2va", "ref2va"])
-def test_sealed_fixture_replays(workflow: str) -> None:
-    path = FIXTURES / f"h3_full_chain_{workflow}_toy.json"
+def _fixture_run(workflow: str) -> fc.ChainRun:
     threads = torch.get_num_threads()
     torch.set_num_threads(FIXTURE_THREADS)
     try:
-        run = fc.run_chain(
+        return fc.run_chain(
             _request(workflow),
             toy.components(_variant(workflow)),
             label=f"{workflow}-fixture",
@@ -619,15 +632,85 @@ def test_sealed_fixture_replays(workflow: str) -> None:
         )
     finally:
         torch.set_num_threads(threads)
+
+
+def _structure(artifact: dict) -> dict:
+    """What a fixture fixes independently of the host: stages, components, provenance keys."""
+
+    return {
+        "workflow": artifact["workflow"],
+        "variant": artifact["variant"],
+        "contract": artifact["contract"],
+        "text_source": fc.text_source(artifact),
+        "stages": [
+            [s["stage"], [c[0] for c in s["components"]], sorted(s["provenance"])]
+            for s in artifact["stages"]
+        ],
+        "trajectory_steps": [
+            artifact["trajectory"]["steps"],
+            len(artifact["trajectory"]["step_records"]),
+        ],
+        "modalities": artifact["trajectory"]["modalities"],
+        "probe_modules": [
+            [name for name, _ in step] for step in artifact["transformer_probe"]["steps"]
+        ],
+    }
+
+
+_FRESH_PROCESS_RUN = """
+import sys
+from pathlib import Path
+from rl_engine.models.minimax_h3 import full_chain as fc
+from tests.models.minimax_h3 import test_h3_full_chain as t
+Path(sys.argv[2]).write_text(fc.dumps(t._fixture_run(sys.argv[1]).artifact))
+"""
+
+
+@pytest.mark.parametrize("workflow", ["fl2va", "ref2va"])
+def test_sealed_fixture_seal_and_structure(workflow: str) -> None:
+    path = FIXTURES / f"h3_full_chain_{workflow}_toy.json"
+    run = _fixture_run(workflow)
     if os.environ.get(REGEN_ENV):
         path.parent.mkdir(exist_ok=True)
         path.write_text(fc.dumps(run.artifact))
     sealed = fc.loads(path.read_text())
     assert sealed["variant"] == _variant(workflow)
+    assert _structure(sealed) == _structure(run.artifact)
+
+
+@pytest.mark.parametrize("workflow", ["fl2va", "ref2va"])
+def test_fixture_bytes_replay_in_a_fresh_process(workflow: str, tmp_path: Path) -> None:
+    """Seal in this process, replay in a new one on the same host: every stage byte-equal."""
+
+    lhs = tmp_path / "this-process.json"
+    rhs = tmp_path / "fresh-process.json"
+    lhs.write_text(fc.dumps(_fixture_run(workflow).artifact))
+    root = Path(__file__).resolve().parents[3]
+    path = os.pathsep.join([str(root), os.environ.get("PYTHONPATH", "")])
+    env = dict(os.environ, PYTHONPATH=path)
+    subprocess.run(
+        [sys.executable, "-c", _FRESH_PROCESS_RUN, workflow, str(rhs)],
+        check=True,
+        cwd=root,
+        env=env,
+        timeout=600,
+    )
+    report = fc.compare(fc.loads(lhs.read_text()), fc.loads(rhs.read_text()))
+    assert report["first_drift"] is None, report["first_drift"]
+    assert report["gate"]["hard_gate"] == "pass"
+    assert all(s["equal"] for s in report["stages"])
+
+
+@pytest.mark.parametrize("workflow", ["fl2va", "ref2va"])
+def test_sealed_fixture_replays_bitwise_on_its_host(workflow: str) -> None:
+    if not os.environ.get(REPLAY_ENV):
+        pytest.skip(f"set {REPLAY_ENV}=1 on the host that sealed the fixtures")
+    sealed = fc.loads((FIXTURES / f"h3_full_chain_{workflow}_toy.json").read_text())
+    run = _fixture_run(workflow)
     if _profile(sealed["runtime"]) != _profile(run.artifact["runtime"]):
         pytest.skip(
             f"fixture sealed on {_profile(sealed['runtime'])}, this is "
-            f"{_profile(run.artifact['runtime'])}: bytes are only claimed within one profile"
+            f"{_profile(run.artifact['runtime'])}"
         )
     report = fc.compare(sealed, run.artifact)
     assert report["first_drift"] is None, report["first_drift"]
