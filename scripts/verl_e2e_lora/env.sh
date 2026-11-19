@@ -8,7 +8,7 @@ export LORA_E2E_ROOT
 export SRC_DIR=$LORA_E2E_ROOT/src
 export MODEL_DIR=$LORA_E2E_ROOT/models/DeepSeek-V4-Flash
 export DATA_DIR=$LORA_E2E_ROOT/data
-export OUT_DIR=$LORA_E2E_ROOT/outputs
+export OUT_DIR=${OUT_DIR:-$LORA_E2E_ROOT/outputs}
 export LAYERS=${LAYERS:-4}            # first N layers of the checkpoint (README section 0)
 export MODEL_CUT=$LORA_E2E_ROOT/models/DeepSeek-V4-Flash-L$LAYERS
 
