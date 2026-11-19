@@ -17,7 +17,10 @@ rows around it.
 ## Guarantees
 
 - Forward `C = A @ B`, backward `dA = dC·Bᵀ`, `dB = Aᵀ·dC`.
-- BF16 inputs, FP32 accumulation, no TF32, no split-K, fixed K-loop order.
+- BF16 inputs with a fixed reduction order, no TF32 and no split-K.
+  The CUDA tree profile uses FP32 leaf accumulation with BF16 rounding at
+  leaves and internal nodes; FP32 output and full-FP32 accumulation are
+  separate profiles, described below.
 - Bitwise-identical output for a fixed row across batch=1/N, chunked-prefill
   on/off, and padding layouts.
 
@@ -25,7 +28,7 @@ rows around it.
 
 | Backend | Deterministic | Notes |
 |---|---|---|
-| CUDA (`DetGemmOp`) | yes | Hand-written kernel. First milestone is a naive FP32 implementation (correctness first); a tensor-core (`mma.sync`) pass matching `prefix_shared_attention.cu` follows. NVIDIA SM80+. |
+| CUDA (`DetGemmOp`) | yes | Fixed BF16 reduction tree with scalar and optional SM90 tensor-core (`mma.sync`) paths. FP32 output widens the tree root; full-FP32 accumulation uses a separate rowwise path. See precision profiles below. |
 | Triton (`TritonDetGemmOp`) | yes | Autotune disabled, BLOCK pinned, no split-K. Portable / ROCm fallback and cross-backend reference. |
 | Ascend (`DetGemmAscendOp`) | yes | Ascend C (CANN) forward + backward. Mirrors the CUDA kernel's mid-split K tree: 32-element FP32 leaves rounded to BF16, merged with BF16 adds in fixed ascending leaf order; every output row-tile is reduced end-to-end by one AI-core block with a `MAX_BLOCKS`-capped strided launch, so no split-K merge exists. |
 | PyTorch (`NativeGemmOp`) | **no** | Plain `torch.matmul`. Reference & benchmark target ONLY — cuBLAS is not batch-invariant. Excluded from registry dispatch. |
