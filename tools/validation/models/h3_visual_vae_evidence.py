@@ -82,18 +82,23 @@ def _pixels(shape: tuple[int, ...], seed: int) -> torch.Tensor:
 
 
 def _cmp(a: torch.Tensor, b: torch.Tensor) -> dict[str, Any]:
+    """``max_abs`` is ``None`` (JSON ``null``) when there is no finite max: a shape mismatch
+    (``shape_a``/``shape_b`` record it) or a non-finite difference. The plots print
+    "differs" for it."""
+
     a, b = a.float().cpu(), b.float().cpu()
     if a.shape != b.shape:
         return {
             "bitwise_equal": False,
             "shape_a": list(a.shape),
             "shape_b": list(b.shape),
-            "max_abs": math.nan,  # no max for a shape mismatch; the plots print "differs"
+            "max_abs": None,
         }
     diff = (a - b).abs()
+    max_abs = float(diff.max())
     return {
         "bitwise_equal": bool(torch.equal(a, b)),
-        "max_abs": float(diff.max()),
+        "max_abs": max_abs if math.isfinite(max_abs) else None,
         "mismatches": int((a != b).sum()),
         "numel": a.numel(),
     }
@@ -117,6 +122,31 @@ def _time(fn: Callable[[], Any], repeats: int, warmup: int = 1) -> dict[str, flo
         "max_ms": max(samples),
         "repeats": repeats,
     }
+
+
+def _sweep(fn: Callable[[torch.Tensor], torch.Tensor], x: torch.Tensor) -> dict[str, Any]:
+    """Every row of every batch size 2..B against the same row run alone."""
+
+    alone = [fn(x[i : i + 1]) for i in range(x.shape[0])]
+    cases = []
+    for size in range(2, x.shape[0] + 1):
+        out = fn(x[:size])
+        for i in range(size):
+            cases.append({"batch": size, "row": i, **_cmp(out[i : i + 1], alone[i])})
+    values = [c["max_abs"] for c in cases]
+    return {
+        "bitwise_equal": all(c["bitwise_equal"] for c in cases),
+        "max_abs": None if any(v is None for v in values) else max(values),
+        "differing_cases": sum(not c["bitwise_equal"] for c in cases),
+        "cases": cases,
+    }
+
+
+def write_report(path: Path, report: dict[str, Any]) -> None:
+    """Strict JSON: a non-finite float raises instead of being written as ``NaN``."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=1, sort_keys=True, allow_nan=False) + "\n")
 
 
 # PyTorch's default backend flags (the release policy keeps PyTorch's TF32 defaults).
@@ -275,30 +305,13 @@ def main() -> int:
     def batched_decode(latents: torch.Tensor) -> torch.Tensor:
         return diffusers_decode(latents)
 
-    def sweep(fn: Callable[[torch.Tensor], torch.Tensor], x: torch.Tensor) -> dict[str, Any]:
-        """Every row of every batch size 2..B against the same row run alone."""
-
-        alone = [fn(x[i : i + 1]) for i in range(x.shape[0])]
-        cases = []
-        for size in range(2, x.shape[0] + 1):
-            out = fn(x[:size])
-            for i in range(size):
-                cases.append({"batch": size, "row": i, **_cmp(out[i : i + 1], alone[i])})
-        values = [c["max_abs"] for c in cases]
-        return {
-            "bitwise_equal": all(c["bitwise_equal"] for c in cases),
-            "max_abs": math.nan if any(v != v for v in values) else max(values),
-            "differing_cases": sum(not c["bitwise_equal"] for c in cases),
-            "cases": cases,
-        }
-
     bi: dict[str, Any] = {}
     for label, deterministic in (("default_flags", False), ("pinned_flags", True)):
         with _flags(deterministic):
             bi[f"diffusers_batched_{label}"] = {
-                "encode_keyframe": sweep(batched_encode_mode, keyframe),
-                "encode_video": sweep(batched_encode_mode, video),
-                "decode_video": sweep(batched_decode, vid_out.tensor),
+                "encode_keyframe": _sweep(batched_encode_mode, keyframe),
+                "encode_video": _sweep(batched_encode_mode, video),
+                "decode_video": _sweep(batched_decode, vid_out.tensor),
             }
     bi["contract_per_row"] = {
         "encode_keyframe": all(
@@ -313,6 +326,12 @@ def main() -> int:
             contract.decode(vid_out.tensor[i : i + 1]).row_digests[0] == dec_out.row_digests[i]
             for i in range(vid_out.tensor.shape[0])
         ),
+    }
+    # The same cases as the Diffusers sweeps, per batch size and row, for the charts.
+    bi["contract_cases"] = {
+        "encode_keyframe": _sweep(lambda x: contract.encode(x).tensor, keyframe),
+        "encode_video": _sweep(lambda x: contract.encode(x).tensor, video),
+        "decode_video": _sweep(lambda x: contract.decode(x).tensor, vid_out.tensor),
     }
     checks["batch_invariance"] = bi
 
@@ -407,7 +426,8 @@ def main() -> int:
         "diffusers_parity_default_flags": all(
             v["bitwise_equal"] for v in parity["diffusers_default_flags"].values()
         ),
-        "contract_batch_invariant": all(bi["contract_per_row"].values()),
+        "contract_batch_invariant": all(bi["contract_per_row"].values())
+        and all(v["bitwise_equal"] for v in bi["contract_cases"].values()),
         "diffusers_batched_batch_invariant_default_flags": all(
             v["bitwise_equal"] for v in bi["diffusers_batched_default_flags"].values()
         ),
@@ -419,8 +439,7 @@ def main() -> int:
         ),
     }
     report["verdicts"] = verdicts
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
+    write_report(args.out, report)
     print(json.dumps(verdicts, indent=1))
     required = (
         "run_to_run",
