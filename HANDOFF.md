@@ -26,8 +26,11 @@ Task 13 gradients and MUSA qualification remain separate.
   KERNEL_ALIGN_USE_FAST_MATH=0 RL_KERNEL_REQUIRE_EXT=1
   ../.venv-task12/bin/python setup.py build_ext --inplace`.
   Logs: `../task12-artifacts/build-baseline.log`, `build-after.log`.
-- Original binary preserved outside the repository. Code fixes and focused
-  validation completed; remaining work is final timing, commits and push attempt.
+- Original binary preserved outside the repository. CUDA implementation,
+  validation and timing are complete. Code commit:
+  `b3ddb9df22d7810116ad168182e689f6e699d843`; DCO signed as Nankago using the
+  account-ID noreply address. The follow-up evidence commit contains this final
+  handoff/report; use `git log -1` for its SHA.
 - Fixed model config downloaded at HF revision
   `345d467b117d1fd5eda9b879a5988de9ae5f47a7`; official Transformers v5.13.1
   call-chain source in `../task12-artifacts/`. Do not commit downloaded sources.
@@ -35,6 +38,10 @@ Task 13 gradients and MUSA qualification remain separate.
   or authenticated HTTPS push established. Never push upstream/default branch.
   No available connector fork-creation endpoint. Continue local delivery if
   publication is unavailable; preserve commit/bundle for later push.
+  `origin=https://github.com/Nankago/RL-Kernel.git`; upstream push URL is DISABLED.
+  Authorized task-branch push was attempted and failed with
+  `fatal: could not read Username for 'https://github.com': terminal prompts disabled`;
+  log `../task12-artifacts/push-code.log`. No upstream write or PR/comment occurred.
 - Baseline build completed successfully. Preserved original binary at
   `../task12-artifacts/baseline-extension.so`. Cast regressions on unmodified
   main: 4 failed, 4 profile-inapplicable skips, 144 deselected, 3.97 s; log/XML
@@ -65,11 +72,34 @@ Task 13 gradients and MUSA qualification remain separate.
   `e8c207324aad3ca02feabad6735417c6e2001de4b0dc638922612e01232fd488`;
   empty production diff hash confirms original source. API forward_fp32 is marked
   binding_unavailable; BF16 and equivalent FP32 widen timing recorded separately.
+- Repaired benchmark completed at code commit b3ddb9d:
+  `../task12-artifacts/benchmark-after.json`. Same seed/device, 10 warmups and
+  30 CUDA-event samples. BF16 median changes -0.45% to +1.63%; FP32 direct output
+  comparable to original BF16-result widening. LM-head M=1 FP32 padded temporary
+  adds 61.10 MiB peak allocation. Tables/p95/memory/hashes are committed in
+  `reports/experiments/task12-projection-gemm.md` and `.json`.
+- Preserved original and repaired binaries in separate processes: 13 K/N pairs
+  (all targets plus ragged cases), M=7, seed 649, BF16 and FP32 widened/direct
+  outputs: **26 comparisons, zero differing bytes**. Local scripts/results:
+  `compare_binary.py`, `binary-{baseline,repaired}.{json,pt}` and
+  `binary-comparison.json`, all under `../task12-artifacts/`.
 - CPU layout **33 passed, 1 extension-smoke skip**; attention projection **8
   passed**. Fixed-version Black/isort/flake8, wrapper mypy and diff checks pass.
   Dev tools installed only in `../.venv-task12`; no global/project environments
   altered. All test processes above have exited; no duplicate GPU suite running.
-- Pending: repaired timing/comparison, commit/push and final report/PR draft;
-  MUSA hardware validation. New tests and benchmark remain the reproducible
-  source of commands; selected logs/binaries stay outside Git.
+- English PR draft: `reports/experiments/task12-pr-draft.md`; no PR created.
+- Remaining blockers: fork visibility/CLI authentication (publication only) and
+  MUSA hardware/collaborator qualification. The report gives single-device MUSA
+  commands with a CPU FP64 oracle and excludes CUDA-specific tree probes.
+  H200, cuBLASLt, non-finites, zero dimensions, large K, engine/full-model,
+  distributed and gradient acceptance remain outside the measured scope.
+- All Task 12 build/test/benchmark processes have exited; no live task to resume.
+  Next: make fork accessible or create it through an authenticated Nankago
+  connection, then `git push -u origin codex/task12-deterministic-gemm` without
+  force. Existing authorization covers the task branch; no new approval needed.
+  Do not rerun passing tests unless code/stack changes. Latest pushed commit: none.
+  A portable bundle is saved after final commit at
+  `../task12-artifacts/task12-deterministic-gemm.bundle`; restore/fetch its branch
+  before pushing if this workspace is lost. Large logs, binaries, synthetic
+  tensors, downloaded model sources and the venv are not committed.
   No upstream comments/PR/merge authorized. Latest pushed commit: none.

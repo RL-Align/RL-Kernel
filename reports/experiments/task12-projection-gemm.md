@@ -97,6 +97,10 @@ CUDA_VISIBLE_DEVICES='' python -m pytest tests/ops/attention/test_attention_proj
   accuracy limits pass; every declared raw-bit comparison has zero mismatches.
 - Profiler confirms float-output SM90 tensor-core kernel at [129,2048,512]
   and float-output scalar kernel at [129,2048,32], rather than a silent substitute.
+- Original versus repaired binary comparison: **26 outputs, zero differing
+  bytes**, M=7, seed 649, all ten target pairs plus (65,33), (96,64), (96,65).
+  Compare original BF16 output and original BF16-to-FP32 widening with repaired
+  BF16 output and repaired native FP32 output, in independent processes.
 - CPU layout: 33 passed, 1 extension-smoke skip. Attention projection: 8 passed.
 - Focused Black 24.4.2, isort 5.13.2, flake8 7.0.0 and wrapper mypy pass.
 
@@ -126,7 +130,38 @@ padding, allocation and launches; no CUDA graphs or clock locking. This is a
 microbenchmark, not complete RL-iteration performance or a cuBLAS speedup claim.
 The original forward_fp32 API cannot run; compare the repaired API with the
 output-equivalent original `gemm(a,b).float()` and keep BF16 `.linear` separate.
-Final measured table pending.
+Base is `49941801f942428fd52ac5b66a1b0c070418724e`; repaired code is
+`b3ddb9df22d7810116ad168182e689f6e699d843`. Both benchmark production-source
+diffs are empty. Binary SHA256 values and full small timing summaries (including
+p95 and memory) are in [task12-projection-gemm.json](task12-projection-gemm.json).
+Medians in milliseconds:
+
+| M×K×N | BF16 before | BF16 after | FP32 widen before | Native FP32 after |
+| --- | ---: | ---: | ---: | ---: |
+| 1×2048×512 | 0.094048 | 0.095584 | 0.114432 | 0.107488 |
+| 129×2048×512 | 0.102528 | 0.102832 | 0.116192 | 0.111104 |
+| 129×4096×2048 | 0.180528 | 0.179712 | 0.248224 | 0.245936 |
+| 129×2048×32 | 0.116704 | 0.117952 | 0.117664 | 0.114752 |
+| 129×2048×1 | 0.091200 | 0.091920 | 0.094384 | 0.092112 |
+| 1×2048×248320 | 1.951088 | 1.942544 | 5.755360 | 5.759792 |
+
+BF16 median changes range from -0.45% to +1.63% in this sample. These are
+single-run measurements with variability, not a statistical regression gate.
+LM-head native FP32 peak allocation is 3,181,010,944 bytes versus 3,116,944,384
+for original widening: about **61.10 MiB extra**, from the wider padded-M
+temporary. BF16 peak allocation is unchanged at 2,099,329,024 bytes for that case.
+
+To reproduce the original comparison with the new harness, after setting the
+same build environment above (choose separate paths if they already exist):
+
+```bash
+TASK12_CHECKOUT=$PWD
+git worktree add --detach ../task12-baseline 49941801f942428fd52ac5b66a1b0c070418724e
+(cd ../task12-baseline && python setup.py build_ext --inplace && \
+  PYTHONPATH=. python "$TASK12_CHECKOUT/benchmarks/operators/gemm/benchmark_projection_gemm.py" \
+  --json artifacts/task12/timing-before.json)
+python -m benchmarks.operators.gemm.benchmark_projection_gemm --json artifacts/task12/timing-after.json
+```
 
 ## Pending and MUSA handoff
 
@@ -137,6 +172,7 @@ cast/rounding probes, and qualify MUSA output casts against its own source
 contract. Use a single idle S5000 device, record actual board/driver/compiler/
 torch_musa, native extension and Triton availability, and retain first mismatch.
 Do not report skipped cases as MUSA passes. Cross-vendor equality is Task 70.
+The shared MUSA accuracy probes use CPU FP64 mathematical references.
 
 ```bash
 # In a separately prepared matching MUSA checkout/environment:
