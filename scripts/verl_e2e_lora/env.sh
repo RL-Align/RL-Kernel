@@ -38,6 +38,8 @@ export BASELINE_LAUNCHER=examples/tuning/lora/run_deepseek_v4_flash_megatron.sh
 export RLK_ENV=${RLK_ENV:-$LORA_E2E_ROOT/envs/rlk}
 export VLLM_FORK_REPO=https://github.com/ISEEKYAN/vllm.git
 export VLLM_FORK_COMMIT=1a6542cdebbaabbf9972c358de8d6baa54e46b0c   # vLLM #54955 lineage
+# vLLM's DS4 deterministic top-k, built by setup.sh (the BI rollout loads it)
+export DS4_BI_TOPK_LIB=${DS4_BI_TOPK_LIB:-$LORA_E2E_ROOT/build/ds4_bi_topk/ds4_bi_topk.so}
 export DEEPGEMM_REPO=https://github.com/vllm-project/DeepGEMM.git
 export DEEPGEMM_COMMIT=e21c821f
 export FLASHMLA_REPO=https://github.com/vllm-project/FlashMLA.git

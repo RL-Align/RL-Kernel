@@ -114,6 +114,22 @@ print(os.path.dirname(list(u.find_spec("deep_gemm").submodule_search_locations)[
       { tail -30 "$SRC_DIR/vllm-build.log"; exit 1; }
   fi
 
+  say "vLLM's DS4 deterministic top-k (VLLM_BATCH_INVARIANT=1 loads it from DS4_BI_TOPK_LIB)"
+  # Not part of vLLM's build. The rollout needs it once a C4 layer holds more than
+  # index_topk = 512 entries (sequences past ~2048 tokens); RL-Kernel's stable top-k gives
+  # the same bytes (scripts/check_stable_topk_vllm_parity.py).
+  if [[ ! -f $DS4_BI_TOPK_LIB ]]; then
+    $py - "$SRC_DIR/vllm/csrc/ds4_bi_topk_extension.cu" "$(dirname "$DS4_BI_TOPK_LIB")" <<'PY'
+import os, sys
+from torch.utils.cpp_extension import load
+os.makedirs(sys.argv[2], exist_ok=True)
+load(name="ds4_bi_topk", sources=[sys.argv[1]], is_python_module=False,
+     build_directory=sys.argv[2],
+     extra_cuda_cflags=["-O3", "-gencode=arch=compute_90a,code=sm_90a"])
+PY
+  fi
+  ls -l "$DS4_BI_TOPK_LIB"
+
   say "verl $VERL_COMMIT (editable, no deps)"
   clone "$VERL_REPO" "$VERL_COMMIT" "$VERL_DIR"
   $py -m pip install -q --no-deps -e "$VERL_DIR"

@@ -76,6 +76,14 @@ RLK_WORKER=rl_engine.integrations.dsv4.vllm_worker
 export PYTHONPATH=$RLK_ROOT${PYTHONPATH:+:$PYTHONPATH}
 export RL_KERNEL_DSV4_ROLLOUT=1
 if [[ $BI == 1 ]]; then
+    # vLLM's BI indexer selects with its DS4 deterministic top-k, a separate library
+    # (csrc/ds4_bi_topk_extension.cu; scripts/verl_e2e_lora/setup.sh builds it). Without it the
+    # rollout fails at the first sequence past ~2048 tokens (index_topk = 512 C4 entries).
+    if [[ ! -f ${DS4_BI_TOPK_LIB:-} ]]; then
+        echo "DS4_BI_TOPK_LIB must name vLLM's ds4_bi_topk library (BI=1)" >&2
+        exit 1
+    fi
+    export DS4_BI_TOPK_LIB
     export VLLM_BATCH_INVARIANT=1 VLLM_DS4_DECODE_KERNEL=sparse RL_KERNEL_DSV4_NON_BI=0
 else
     export VLLM_BATCH_INVARIANT=0 VLLM_DS4_DECODE_KERNEL=paged RL_KERNEL_DSV4_NON_BI=1
