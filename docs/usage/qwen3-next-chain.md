@@ -14,7 +14,10 @@ layer family.
   3.7.1, transformers 5.17.0 (`pip install -e ".[qwen3-next]"`), plus VIME and
   its patched Megatron-LM in the same virtual environment for the replay and
   training stages. The environment is fingerprinted at the start of every run;
-  installing anything into it between stages invalidates the chain.
+  installing anything into it between stages invalidates the chain. A package
+  in the user site-packages (`~/.local`) that the environment also has stops
+  the run, because the user copy would be imported; run with
+  `PYTHONNOUSERSITE=1` or remove that copy.
 * The official checkpoint `Qwen/Qwen3-Next-80B-A3B-Instruct`, revision
   `9c7f2fbe84465e40164a94cc16cd30b6999b0cc7`; every shard is hashed before the
   first model load.

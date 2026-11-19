@@ -131,10 +131,43 @@ def installation_roots():
     return sorted(root for root in roots if root.is_dir())
 
 
+def _distribution_names(root):
+    return {
+        (dist.metadata.get("Name") or "").lower().replace("_", "-")
+        for dist in importlib.metadata.distributions(path=[str(root)])
+    }
+
+
+def user_site_shadowing(roots, user_site):
+    """Distributions in the user site that also exist in another installation root.
+
+    The user site comes before the environment's ``site-packages`` on ``sys.path``,
+    so its copy is the one imported while the environment's copy is the one a
+    reader of the identity would expect. Two copies of one package can also both be
+    loaded: a user-site ``apache-tvm-ffi`` next to the environment's made FlashInfer
+    abort at import (``__ffi_repr__ already registered``).
+    """
+    user_site = Path(user_site)
+    if user_site not in roots:
+        return []
+    others = set()
+    for root in roots:
+        if root != user_site:
+            others |= _distribution_names(root)
+    return sorted((_distribution_names(user_site) & others) - {""})
+
+
 def current_identity():
     distributions = []
     sources = {}
     roots = installation_roots()
+    if site.ENABLE_USER_SITE:
+        shadowed = user_site_shadowing(roots, site.getusersitepackages())
+        if shadowed:
+            raise RuntimeError(
+                "environment_mismatch: the user site-packages shadows "
+                f"{', '.join(shadowed)}; run with PYTHONNOUSERSITE=1 or remove those copies"
+            )
     installed = list(importlib.metadata.distributions(path=[str(root) for root in roots]))
     for dist in installed:
         if dist.metadata.get("Name", "").lower().replace("_", "-") in {"rl-engine", "rl-kernel"}:
