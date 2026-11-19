@@ -258,15 +258,18 @@ def compared_references(report: dict[str, Any]) -> list[str]:
 def verdict(report: dict[str, Any]) -> bool:
     """Every case repeatable, at least one reference compared, and every compared case equal.
 
-    With Diffusers and SGLang both missing nothing is compared, which is not a pass.
+    With Diffusers and SGLang both missing nothing is compared, which is not a pass. Neither is
+    a compared reference that ran zero cases, nor a report with no repeatability case.
     """
 
     compared = compared_references(report)
     return (
-        all(v["identical"] for v in report["repeatability"].values())
+        bool(report["repeatability"])
+        and all(v["identical"] for v in report["repeatability"].values())
         and bool(compared)
         and all(
-            report["reference"][k]["bitwise_equal"] == report["reference"][k]["cases"]
+            report["reference"][k]["cases"] > 0
+            and report["reference"][k]["bitwise_equal"] == report["reference"][k]["cases"]
             for k in compared
         )
     )
