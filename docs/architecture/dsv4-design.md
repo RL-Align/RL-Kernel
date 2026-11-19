@@ -9,7 +9,7 @@ table; this page links to them.
 - Hardware: NVIDIA H100 / H200 (SM90). ROCm and SM100 are out of scope.
 - Reference architecture: vLLM #54955 (`ISEEKYAN/vllm@1a6542c`, batch-invariant mode)
 - Integration target: verl. Rollout and actor recompute must run this kernel set.
-- Last updated: 2026-11-17
+- Last updated: 2026-11-19
 
 Contents:
 1. Goal and guarantees
@@ -585,8 +585,8 @@ gate on one device.
 
 Open, needs the multi-GPU machine:
 
-- [ ] EP = 8 with real collectives (EP = 2 / 4 done, see below); DeepEP
-      (`zhuzilin/DeepEP@align_fp8_quantization`) transport with the same bytes,
+- [x] EP = 8 with real collectives (engine, rollout plugin and verl; see below).
+- [ ] DeepEP (`zhuzilin/DeepEP@align_fp8_quantization`) transport with the same bytes,
       fixed-capacity staging, route-metadata capture.
 - [x] vLLM rollout plugin (section 10): bitwise equal to `Dsv4Model` on one GPU, with LoRA.
 - [x] verl integration (user decision 2026-11-15: the actor is a verl engine backend on
@@ -600,23 +600,25 @@ Open, needs the multi-GPU machine:
 - [x] `rlkernel` engine at EP > 1 (`expert_parallel_size`; groups of consecutive ranks;
       routed-adapter gradients divided by E before the data-parallel average): EP = 2, 4
       and 2 x 2 groups give the zero-B log-probs of EP = 1 byte for byte and its first
-      grad norm to 1e-3 (real checkpoint, first 4 layers, H100, 2026-11-17). EP = 8 queued.
+      grad norm to 1e-3 (real checkpoint, first 4 layers, H100, 2026-11-17). EP = 8 and
+      2 x 4 groups the same (8 x H200, 2026-11-18).
 - [x] Activation recompute in the engine (section 10.1), checked on the real checkpoint.
 - [x] verl at EP > 1 (`ACTOR_EP`, `ROLLOUT_DP` in the launcher): actor EP 2 / rollout DP 2
       and actor EP 4 / rollout DP 4 on H100, real checkpoint's first 4 layers, 3 GRPO steps:
       `rollout_logprobs_mismatch_count` and `actor/old_logprobs_mismatch_count` 0 at every
-      step (2026-11-17).
-- [ ] verl on 8 GPUs of one node where the per-user thread limit is 2048 (`ulimit -u`, this
-      cluster): peak 1227 threads at 2 GPUs and 1817 at 4 after the launcher's thread budget
-      (Ray, OMP), about 190 more per GPU (actor, vLLM worker, engine core), plus native
-      threads in verl's TaskRunner / agent-loop workers that grow with the allocation's CPU
-      count (source not found). 8 GPUs need a higher limit or two nodes.
+      step (2026-11-17). Actor EP 8 / rollout DP 8 on 8 x H200: the same, 3 steps
+      (2026-11-19).
+- [x] verl on 8 GPUs of one node: it peaks at about 2730 threads of the user (64 CPUs),
+      over a per-user limit of 2048 (`ulimit -u`). On cluster u4478697 that limit reaches
+      Slurm job steps from the login node; a shell reached by ssh into the allocated node
+      has the node's own limit, and the run goes there.
 - [ ] Parameter offload, CUDA graphs in the rollout; persisted W8 expert weights cost
       E x N x K bytes per weight in both the actor and the rollout (check the memory
       budget on the real checkpoint).
 - [x] Rollout plugin at EP > 1 (vLLM DP attention + EP MoE, `--dp N` in
       `scripts/check_dsv4_vllm_gate.py`) on the real checkpoint's first 4 layers: DP 2 and
-      DP 4 bitwise equal to `Dsv4Model`, with and without LoRA (2026-11-17). EP = 8 queued.
+      DP 4 bitwise equal to `Dsv4Model`, with and without LoRA (2026-11-17); DP 8 the same
+      (8 x H200, 2026-11-19).
 - [ ] Rollout plugin with CUDA graphs.
 - [ ] Baseline first: verl + vLLM batch-invariant (verl #7688) end to end on 8 Hopper GPUs,
       bitwise and speed (`scripts/verl_e2e/README.md`, a guide for another machine; not run yet).

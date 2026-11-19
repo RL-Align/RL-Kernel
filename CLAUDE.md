@@ -3,7 +3,7 @@
 Notes for an assistant (or developer) continuing the DSv4 SM90 batch-invariant work. The
 design of record is `docs/architecture/dsv4-design.md`: goal, environment, how to build
 and test, module map, decisions, the reduction order of every module, status and open
-work. Read it first and keep its status section current. Last updated 2026-11-17.
+work. Read it first and keep its status section current. Last updated 2026-11-19.
 
 ## Working rules
 
@@ -73,7 +73,7 @@ Design doc 10.1 has the pieces. Things that cost time:
   GPU (4 layers on H200).
 - The attention backward is not deterministic, so grad norms differ slightly run to run.
 
-## Status (2026-11-17) and next
+## Status (2026-11-19) and next
 
 - Done:
   - The kernel set (forward BI, LoRA training end to end; EP = 2 bitwise to EP = 1).
@@ -91,13 +91,13 @@ Design doc 10.1 has the pieces. Things that cost time:
   needs a machine with 8 GPUs per job.
 - EP and memory (2026-11-17, real checkpoint's first 4 layers, H100):
   - `rlkernel` engine at EP = 2 / 4 and the rollout plugin at DP = EP = 2 / 4: bitwise to
-    EP = 1. EP = 8 queued.
+    EP = 1; EP = 8 too (8 x H200, engine 2026-11-18, rollout 2026-11-19).
   - Activation recompute (`rlkernel.activation_recompute`, `RECOMPUTE=1`): same bytes, held
     activations 1.53 to 0.18 GiB per layer at 4096 tokens.
 - Open, roughly in order:
-  - verl GRPO at EP 2 and 4 is bitwise (H100, 3 steps). 8 GPUs on one node exceed this
-    cluster's per-user thread limit (2048; design doc section 12): a higher limit or two
-    nodes, then the full 43-layer model on H200;
+  - verl GRPO at EP 2, 4 and 8 is bitwise (3 steps). 8 GPUs pass the per-user thread
+    limit of Slurm job steps (2048) here, so they run over ssh in an salloc (design doc
+    section 12). Next: 8 / 16 layers, then the full 43-layer model on H200 (100 steps);
   - CUDA graphs in the rollout (eager today);
   - the layerwise gate on the real checkpoint beyond the first 4 layers;
   - the older `scripts/verl_e2e/README.md` guide (verl #7688 baseline, full-parameter).
