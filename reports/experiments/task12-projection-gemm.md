@@ -131,9 +131,24 @@ microbenchmark, not complete RL-iteration performance or a cuBLAS speedup claim.
 The original forward_fp32 API cannot run; compare the repaired API with the
 output-equivalent original `gemm(a,b).float()` and keep BF16 `.linear` separate.
 Base is `49941801f942428fd52ac5b66a1b0c070418724e`; repaired code is
-`b3ddb9df22d7810116ad168182e689f6e699d843`. Both benchmark production-source
-diffs are empty. Binary SHA256 values and full small timing summaries (including
+`b3ddb9df22d7810116ad168182e689f6e699d843`. Both runs recorded an empty **unstaged tracked diff** under `csrc/` and
+`rl_engine/`; this does not mean their committed source states are identical.
+Binary SHA256 values and full small timing summaries (including
 p95 and memory) are in [task12-projection-gemm.json](task12-projection-gemm.json).
+The historical JSON field `source_diff_sha256` has been renamed to
+`unstaged_source_diff_sha256`, preserving its original value. It describes only
+unstaged tracked changes in `csrc/` and `rl_engine/`. The original `commit` and
+`extension_sha256` remain the revision and binary identifiers for these runs.
+No measurements were rerun or changed during this metadata correction.
+
+Future runs also record `committed_tree_sha` (the whole committed repository
+tree), `staged_source_diff_sha256`, and `source_status` for those source paths.
+The diff hashes cover tracked changes; status additionally exposes untracked
+paths, but does not hash their contents. These new fields were not captured in
+the historical runs and are deliberately not backfilled. The binary hash
+identifies the loaded extension; Git metadata alone does not prove it was built
+from that source state.
+
 Medians in milliseconds:
 
 | M×K×N | BF16 before | BF16 after | FP32 widen before | Native FP32 after |

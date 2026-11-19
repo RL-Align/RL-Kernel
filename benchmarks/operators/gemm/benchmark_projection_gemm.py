@@ -8,7 +8,6 @@ import json
 import os
 import platform
 import statistics
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +15,12 @@ import torch
 
 from rl_engine.backends.cuda.gemm.det_gemm import DetGemmOp, det_gemm_backend
 from rl_engine.backends.extension import _C
+
+if __package__:
+    from benchmarks.operators.gemm.projection_provenance import source_provenance
+else:
+    # The before/after harness also runs this file from a baseline checkout.
+    from projection_provenance import source_provenance
 
 SHAPES = (
     (1, 2048, 512),
@@ -69,10 +74,7 @@ def main():
     extension = Path(_C.__file__)
     report = {
         "utc": datetime.now(timezone.utc).isoformat(),
-        "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-        "source_diff_sha256": hashlib.sha256(
-            subprocess.check_output(["git", "diff", "--", "csrc", "rl_engine"])
-        ).hexdigest(),
+        **source_provenance(),
         "extension_sha256": hashlib.sha256(extension.read_bytes()).hexdigest(),
         "python": platform.python_version(),
         "torch": torch.__version__,
@@ -106,10 +108,18 @@ def main():
             operations["forward_fp32"] = lambda a=a, b=b: op.forward_fp32(a, b)
         else:
             report["cases"].append(
-                {"shape": [m, k, n], "api": "forward_fp32", "status": "binding_unavailable"}
+                {
+                    "shape": [m, k, n],
+                    "api": "forward_fp32",
+                    "status": "binding_unavailable",
+                }
             )
         for name, fn in operations.items():
-            case = {"shape": [m, k, n], "api": name, **measure(fn, args.warmup, args.repeats)}
+            case = {
+                "shape": [m, k, n],
+                "api": name,
+                **measure(fn, args.warmup, args.repeats),
+            }
             report["cases"].append(case)
             print(
                 json.dumps({key: value for key, value in case.items() if key != "samples_ms"}),

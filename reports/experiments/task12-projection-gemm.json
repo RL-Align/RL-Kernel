@@ -22,7 +22,6 @@
   "before": {
     "commit": "49941801f942428fd52ac5b66a1b0c070418724e",
     "extension_sha256": "e8c207324aad3ca02feabad6735417c6e2001de4b0dc638922612e01232fd488",
-    "source_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "utc": "2026-11-19T06:52:04.239785+00:00",
     "gpu": "NVIDIA H100 80GB HBM3",
     "torch": "2.14.0a0+4fdf77b940.nv26.08",
@@ -260,12 +259,12 @@
         "max_ms": 5.7882561683654785,
         "peak_allocated_bytes": 3116944384
       }
-    ]
+    ],
+    "unstaged_source_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "after": {
     "commit": "b3ddb9df22d7810116ad168182e689f6e699d843",
     "extension_sha256": "33e4e5b80996c7c678b3c1762aad50aca493c0fe6049f6880dd2b08d77d1bc4f",
-    "source_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "utc": "2026-11-19T07:09:02.064535+00:00",
     "gpu": "NVIDIA H100 80GB HBM3",
     "torch": "2.14.0a0+4fdf77b940.nv26.08",
@@ -533,6 +532,8 @@
         "max_ms": 5.788703918457031,
         "peak_allocated_bytes": 3181010944
       }
-    ]
-  }
+    ],
+    "unstaged_source_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "provenance_metadata_note": "Historical source_diff_sha256 fields were renamed to unstaged_source_diff_sha256 without changing their values. They hash only the unstaged tracked diff under csrc/ and rl_engine/, not the committed source. The original commit and extension_sha256 identify the recorded revision and binary. New committed_tree_sha, staged_source_diff_sha256 and source_status fields were not collected during these runs and have not been backfilled. No timing or numerical results were changed."
 }
