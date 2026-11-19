@@ -97,6 +97,28 @@ def _diff(a: torch.Tensor, b: torch.Tensor) -> dict[str, Any]:
     }
 
 
+def sdpa_backend_cell(
+    backend: str, run: Callable[[], torch.Tensor], reference: torch.Tensor
+) -> dict[str, Any]:
+    """``run()`` with SDPA forced to ``backend``, diffed against ``reference``.
+
+    A backend with no kernel for the shape is recorded as an error cell (the chart's
+    "unsupported"); any other failure raises, so a broken call cannot pass as unsupported.
+    """
+
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    try:
+        with sdpa_kernel([getattr(SDPBackend, backend)]), torch.no_grad():
+            out = run()
+    except RuntimeError as exc:
+        # CUDA: "No available kernel. Aborting execution."; CPU: "No viable backend ...".
+        if not str(exc).startswith(("No available kernel", "No viable backend")):
+            raise
+        return {"error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+    return _diff(out, reference)
+
+
 def _images(count: int) -> list[Any]:
     import numpy as np
     from PIL import Image
@@ -228,21 +250,18 @@ def _full_model_stages(
             }
 
     # 4. SDPA backends and prefix invariance on the full model (Diffusers call).
-    from torch.nn.attention import SDPBackend, sdpa_kernel
-
     backends: dict[str, Any] = {}
     for backend in ("FLASH_ATTENTION", "EFFICIENT_ATTENTION", "CUDNN_ATTENTION", "MATH"):
         entry: dict[str, Any] = {}
         for name in ("short_en", "long_en", "fl2va_1kf"):
             ids, vision = cases[name]
-            try:
-                with sdpa_kernel([getattr(SDPBackend, backend)]), torch.no_grad():
-                    out = get_qwen3vl_prompt_embeds(
-                        full, _Proc(), ids, vision, 50, device=device, dtype=full.dtype
-                    )
-                entry[name] = _diff(out, reference_tensors[name])
-            except Exception as exc:  # backend unsupported for this shape
-                entry[name] = {"error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+            entry[name] = sdpa_backend_cell(
+                backend,
+                lambda ids=ids, vision=vision: get_qwen3vl_prompt_embeds(
+                    full, _Proc(), ids, vision, 50, device=device, dtype=full.dtype
+                ),
+                reference_tensors[name],
+            )
         backends[backend] = entry
     report["sdpa_backends_vs_default"] = backends
 
@@ -382,6 +401,7 @@ def main() -> None:
     )
     evidence["files"] = {
         "verified": len(checked),
+        "sha256": checked,
         "shards_hashed": not args.skip_hash,
         "seconds": time.perf_counter() - start,
     }
