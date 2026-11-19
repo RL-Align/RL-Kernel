@@ -34,6 +34,35 @@ Registry dispatch for `det_gemm` includes only the deterministic backends
 (CUDA → Triton on CUDA/ROCm, Ascend on NPU). The PyTorch op must be called
 explicitly.
 
+### Projection output precision profiles
+
+The CUDA tree kernel accumulates each leaf in FP32, rounds the leaf to BF16,
+and rounds every midpoint-tree merge to BF16. With
+`KERNEL_ALIGN_DET_GEMM_SM90=1`, aligned K/N use fixed 128×64×32 tiles and
+TMA + `mma.sync`; M is padded to 128 so batch size does not select a different
+arithmetic graph. N/K tails use the existing scalar midpoint tree. The SM90
+tree splits **32-element tiles**, whereas the scalar tree splits **K elements**;
+non-power-of-two K can therefore produce different trees. Cross-path equality
+is a separate claim from each path's batch/chunk invariance.
+
+- CUDA `forward_fp32(a, b)` widens the BF16 tree root at its final store. It
+  returns FP32 and preserves all leaf/node rounding. This is exactly the value
+  of `gemm(a, b).float()`; it does not recover precision lost at BF16 nodes.
+- CUDA `forward_accum_fp32(a, b)` uses the separate existing fixed 256-thread
+  rowwise FP32 reduction. Its binding requires `KERNEL_ALIGN_FORCE_SM90=1`.
+- Triton `forward_fp32` / `forward_accum_fp32` use FP32 inputs/accumulation
+  throughout a fixed-tile dot profile. MUSA native uses an ascending-K FP32
+  accumulation, with output cast at the end. These profiles must be qualified
+  independently; an identically named API does not imply cross-backend equality.
+
+RFC #642 Task 12 forward validation is in
+`tests/ops/gemm/test_projection_gemm.py`. Accuracy uses an independent FP64
+matmul and existing contract tolerances; invariance compares original output
+bits, including the sign of zero, without downcasting. The bounded benchmark is
+`python -m benchmarks.operators.gemm.benchmark_projection_gemm --json <output>`.
+See `reports/experiments/task12-projection-gemm.md` for measured coverage and
+pending platforms. Projection gradients remain Task 13.
+
 ### Ascend NPU backend
 
 `DetGemmAscendOp` implements the same strict contract on the NPU through

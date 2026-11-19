@@ -1,0 +1,75 @@
+# RFC #642 / Task 12 handoff
+
+Updated 2026-11-19 UTC. Owner: Nankago. CUDA/Hopper forward projection only;
+Task 13 gradients and MUSA qualification remain separate.
+
+- Recovered `../task12-preflight.md`, the unrelated root handoff and three runtime
+  repair reports. No prior Task 12 implementation, checkout or test was found.
+- Isolated checkout: `RL-Kernel-task12`, branch
+  `codex/task12-deterministic-gemm`, base upstream main
+  `49941801f942428fd52ac5b66a1b0c070418724e`. Clean before this work; one worktree.
+- Refreshed RFC and all 21 comments, PRs #679, #450, #697 and #707. Shared forward
+  fixes/tests independently supported by main; no miles/model adapter changes.
+  #679 scalar recursion/index fixes are not duplicated. #450 already identifies
+  the stale Triton test import; only its import correction is needed here.
+- No applicable AGENTS.md. Contributor guide requires DCO signoff, canonical
+  source ownership, focused validation and separate accuracy/bitwise/performance.
+- Default executor cannot spawn; `/bin/bash`, `login=false`, host execution works.
+  Workspace create/read/rename/delete passed. Do not alter daemon/configuration.
+- Eight H100 80GB HBM3, driver 580.126.20, idle at resume. Use only GPU 0 UUID
+  `GPU-25dc68ae-c0e6-49b1-23b5-c4da9d63e8ef`, recheck before starting work.
+- Environment `../.venv-task12` inherits system packages read-only: Python 3.12,
+  torch 2.14.0a0+4fdf77b940.nv26.08, CUDA 13.4, Triton 3.8.0+git4c7e62b7.nv26.8.
+- Baseline and repaired full SM90 extension builds completed successfully:
+  `CUDA_VISIBLE_DEVICES=<GPU0 UUID> CUDA_HOME=/usr/local/cuda MAX_JOBS=4
+  KERNEL_ALIGN_DET_GEMM_SM90=1 KERNEL_ALIGN_FORCE_SM90=1
+  KERNEL_ALIGN_USE_FAST_MATH=0 RL_KERNEL_REQUIRE_EXT=1
+  ../.venv-task12/bin/python setup.py build_ext --inplace`.
+  Logs: `../task12-artifacts/build-baseline.log`, `build-after.log`.
+- Original binary preserved outside the repository. Code fixes and focused
+  validation completed; remaining work is final timing, commits and push attempt.
+- Fixed model config downloaded at HF revision
+  `345d467b117d1fd5eda9b879a5988de9ae5f47a7`; official Transformers v5.13.1
+  call-chain source in `../task12-artifacts/`. Do not commit downloaded sources.
+- GitHub connector identity confirmed Nankago. Fork GET remains 404; no CLI gh
+  or authenticated HTTPS push established. Never push upstream/default branch.
+  No available connector fork-creation endpoint. Continue local delivery if
+  publication is unavailable; preserve commit/bundle for later push.
+- Baseline build completed successfully. Preserved original binary at
+  `../task12-artifacts/baseline-extension.so`. Cast regressions on unmodified
+  main: 4 failed, 4 profile-inapplicable skips, 144 deselected, 3.97 s; log/XML
+  `baseline-cast-tests.log`, `baseline-cast.xml`. Actual first blocker is missing
+  CUDA pybind exports for `det_gemm_fwd_fp32` and `det_gemm_rowwise_fwd_fp32`.
+  The first benchmark attempt failed on that missing API, without timing claims.
+  Updated bounded benchmark records missing API explicitly and times BF16 plus
+  output-equivalent BF16-tree-to-FP32 widening. Baseline timing running now.
+- Incremental fix build succeeded. Changes: expose existing CUDA tree-FP32 and
+  SM90 rowwise-FP32 entry points; select the already implemented float store;
+  document BF16 tree versus full-FP32 profiles; restore stale Triton test imports
+  with unexpected ImportError re-raised. No gradient body changed.
+- New matrix completed: **158 passed**, zero skips/failures, 596.93 s (first
+  Triton compilation included); `../task12-artifacts/projection.log` and XML.
+  Twenty pytest xunit2 property-format warnings; use `-o junit_family=xunit1`
+  for subsequent XML. FP64 target maximum absolute error 0.037068993886350654;
+  all 20 backend/shape accuracy cases pass unchanged contract limits. All raw
+  comparisons have zero mismatches; signed-zero negative controls pass.
+- Independent CPU-FP64 dyadic K-tree goldens plus restored CUDA/Triton forward
+  regressions: **38 passed, 65 deselected**, 83.12 s; `profiles-regression.log/xml`.
+- Final reference-helper/handoff check: **6 passed, 152 deselected**, 6.80 s;
+  `reference-handoff.log/xml`. MUSA reference uses CPU FP64, avoiding a device
+  FP64 GEMM dependency; CUDA reference precision/device are unchanged.
+- Profiler confirms `det_gemm_sm90_kernel<float,false>` for [129,2048,512]
+  and `det_gemm_naive<float,false>` for [129,2048,32]; `kernel-provenance.json`.
+- Baseline benchmark completed: `../task12-artifacts/benchmark-before.json`.
+  Original extension SHA256
+  `e8c207324aad3ca02feabad6735417c6e2001de4b0dc638922612e01232fd488`;
+  empty production diff hash confirms original source. API forward_fp32 is marked
+  binding_unavailable; BF16 and equivalent FP32 widen timing recorded separately.
+- CPU layout **33 passed, 1 extension-smoke skip**; attention projection **8
+  passed**. Fixed-version Black/isort/flake8, wrapper mypy and diff checks pass.
+  Dev tools installed only in `../.venv-task12`; no global/project environments
+  altered. All test processes above have exited; no duplicate GPU suite running.
+- Pending: repaired timing/comparison, commit/push and final report/PR draft;
+  MUSA hardware validation. New tests and benchmark remain the reproducible
+  source of commands; selected logs/binaries stay outside Git.
+  No upstream comments/PR/merge authorized. Latest pushed commit: none.
