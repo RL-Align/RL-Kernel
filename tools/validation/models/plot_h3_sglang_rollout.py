@@ -73,18 +73,39 @@ def fmt(value: float | None) -> str:
     return "0" if value == 0 else f"{value:g}"
 
 
+def measured(sizes, table) -> list[str]:
+    """The outputs with rows at some TP size (the AdaLN tables have none in the prefix run)."""
+    return [k for k in LABELS if any(table[k][tp][0] is not None for tp in sizes)]
+
+
+def bound_line(sizes, table) -> str:
+    """The chart's line for the bound output, from the same per-rank results as the table."""
+    keys = measured(sizes, table)
+    if not keys:
+        return "RL-Kernel bound output: not measured"
+    failed = [LABELS[k] for k in keys if any(table[k][tp][1] is False for tp in sizes)]
+    if failed:
+        return "RL-Kernel bound output: NOT EQUAL for " + ", ".join(failed)
+    if any(table[k][tp][1] is None for k in keys for tp in sizes):
+        return "RL-Kernel bound output: 0 (bitwise) where measured; some TP sizes have no rows"
+    return "RL-Kernel bound output: 0 (bitwise) for every output at every TP size"
+
+
 def plot(sizes, table, *, title: str, xlabel: str, out: Path) -> None:
-    keys = [k for k in LABELS if any(table[k][tp][0] is not None for tp in sizes)]
+    keys = measured(sizes, table)
     plotted = [table[k][tp][0] for k in keys for tp in sizes]
     nonzero = [v for v in plotted if v]
-    lo, hi = min(nonzero) / 2, max(nonzero) * 2
+    # All-zero or absent values draw no bar; any positive range holds their notes.
+    lo, hi = (min(nonzero) / 2, max(nonzero) * 2) if nonzero else (2.0**-24, 1.0)
     fig, axes = plt.subplots(
         1,
         len(sizes),
         figsize=(3.2 * len(sizes) + 2.2, 0.36 * len(keys) + 1.9),
         sharey=True,
         layout="constrained",
+        squeeze=False,  # one TP size still gives a row of axes
     )
+    axes = axes[0]
     fig.set_facecolor("white")
     fig.suptitle(title, fontsize=12, color=INK, x=0.0, ha="left")
     y = list(range(len(keys)))
@@ -120,6 +141,8 @@ def plot(sizes, table, *, title: str, xlabel: str, out: Path) -> None:
         for side in ("left", "bottom"):
             ax.spines[side].set_color(GRID)
         ax.set_xlabel(xlabel, fontsize=8, color=MUTED)
+        if not keys:
+            ax.text(0.5, 0.5, "no measurements", transform=ax.transAxes, ha="center", color=MUTED)
     axes[0].set_yticks(y, [LABELS[k] for k in keys], fontsize=9, color=INK)
     axes[0].invert_yaxis()
     fig.savefig(out, dpi=150, facecolor="white", metadata={"Software": None})
@@ -127,7 +150,9 @@ def plot(sizes, table, *, title: str, xlabel: str, out: Path) -> None:
 
 
 def markdown(sizes, table, *, value_header: str, bound_header: str) -> str:
-    keys = [k for k in LABELS if any(table[k][tp][0] is not None for tp in sizes)]
+    keys = measured(sizes, table)
+    if not keys:
+        return "No measurements in this report."
     head = (
         ["Output"]
         + [f"{value_header}, TP{tp}".replace("|", "\\|") for tp in sizes]
@@ -136,13 +161,19 @@ def markdown(sizes, table, *, value_header: str, bound_header: str) -> str:
     lines = ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for k in keys:
         cells = [fmt(table[k][tp][0]) for tp in sizes]
-        bound = all(table[k][tp][1] for tp in sizes)
+        status = [table[k][tp][1] for tp in sizes]
+        if False in status:
+            bound = "NOT EQUAL"
+        elif None in status:
+            bound = "0 (bitwise) where measured"
+        else:
+            bound = "0 (bitwise) at every TP"
         lines.append(
             "| "
             + " | ".join(
                 [f"`{LABELS[k]}`" if k in ("qkv", "out", "fc1", "fc2") else LABELS[k]]
                 + cells
-                + ["0 (bitwise) at every TP" if bound else "NOT EQUAL"]
+                + [bound]
             )
             + " |"
         )
@@ -166,8 +197,7 @@ def main() -> None:
         sizes,
         native,
         title=f"SGLang {sglang} native output vs the training operator, "
-        f"max |Δ| per TP size ({gpu})\n"
-        "RL-Kernel bound output: 0 (bitwise) for every output at every TP size",
+        f"max |Δ| per TP size ({gpu})\n" + bound_line(sizes, native),
         xlabel="max |Δ| vs training (log2)",
         out=args.out_dir / "h3-sglang-native-vs-training.png",
     )
@@ -177,8 +207,7 @@ def main() -> None:
         prefix,
         title=f"Row invariance, SGLang {sglang} native ({gpu}): "
         f"a {report['prefix_rows']}-row prefix alone "
-        f"vs the same rows inside {report['rows']} rows\n"
-        "RL-Kernel bound output: 0 (bitwise) for every output at every TP size",
+        f"vs the same rows inside {report['rows']} rows\n" + bound_line(sizes, prefix),
         xlabel="max |Δ| prefix vs full batch (log2)",
         out=args.out_dir / "h3-sglang-row-invariance.png",
     )
