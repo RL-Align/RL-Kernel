@@ -80,8 +80,12 @@ Timing uses interleaved CUDA/HIP graph replays of 32 launches to exclude Python
 submission gaps. Read/write buffers are restored inside each replay; their
 identical reset cost is included for every candidate. Graphs are captured on a
 private stream and replayed/timed on the caller's device and current stream. Large GEMM workspaces therefore increase
-cold-call memory usage. Only known Triton resource-limit failures reject a
-candidate; other execution errors propagate.
+cold-call memory usage. Profiling is skipped when two private copies of the mutated
+tensors would need more than half of the free device memory, and it is abandoned when
+an allocation for the copies or the timing graphs runs out of memory. In both cases the
+call runs the fixed launch and nothing is cached or persisted, so a later call with
+enough free memory tunes again; the out-of-memory case warns once per kernel. Only
+known Triton resource-limit failures reject a candidate; other execution errors propagate.
 
 Cache keys include device UUID/PCI information, architecture, driver and runtime
 versions, PyTorch/Triton versions, module source revision, candidate set, tensor

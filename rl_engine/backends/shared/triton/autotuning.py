@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import logging
 import os
 import platform
 import statistics
@@ -42,6 +43,9 @@ class TuneState:
 _STATE: ContextVar[TuneState | None] = ContextVar("rl_kernel_autotune", default=None)
 _TUNER = PersistentAutotuner()
 _DEVICES: dict[tuple[int, int], dict] = {}
+_LOG = logging.getLogger(__name__)
+# Kernels whose profiling already ran out of memory once; the warning is not repeated.
+_PROFILING_OOM_WARNED: set[str] = set()
 
 
 @contextmanager
@@ -302,7 +306,12 @@ class TunableKernel:
                     ),
                     tuple(sorted(kwargs.items())),
                 )
-                cached = self._launches.get(local_key)
+                try:
+                    cached = self._launches.get(local_key)
+                except TypeError:
+                    # An unhashable argument (a list, a dict) has no process-local entry either:
+                    # launch the fixed kernel instead of failing the call.
+                    return self.kernel[grid](*args, **kwargs)
                 if cached is not None:
                     config, runner, options = cached
                     if state is not None and not capture:
@@ -370,6 +379,7 @@ class TunableKernel:
                         )
                     return timings[config]
 
+                profiling_oom = False
                 try:
                     selected = _TUNER.select(
                         signature,
@@ -382,6 +392,21 @@ class TunableKernel:
                     )
                 except _ProfilingDoesNotFit:
                     # Nothing was cached or persisted, so a later call with room can still tune.
+                    return self.kernel[grid](*args, **kwargs)
+                except torch.cuda.OutOfMemoryError:
+                    # The estimate passed, but an allocation for the private copies or the timing
+                    # graphs failed. Profiling never writes the caller's buffers, and select()
+                    # caches and persists nothing when evaluate raises.
+                    profiling_oom = True
+                if profiling_oom:
+                    # Launch after the except block, so the traceback no longer holds the copies.
+                    if self.name not in _PROFILING_OOM_WARNED:
+                        _PROFILING_OOM_WARNED.add(self.name)
+                        _LOG.warning(
+                            "Autotune profiling of %s ran out of memory; launching the fixed "
+                            "configuration untuned (a later call may tune again)",
+                            self.name,
+                        )
                     return self.kernel[grid](*args, **kwargs)
                 if not capture:
                     options = {**kwargs, **selected.config.to_dict()}

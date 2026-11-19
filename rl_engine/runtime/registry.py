@@ -1084,6 +1084,11 @@ class KernelRegistry:
             selected = self._get_or_create_backend(tuned[backend][1])
             if selected is None:
                 raise RuntimeError(f"Requested backend {backend!r} is unavailable")
+            # The map above repeats each class's backend_id; refuse a drifted pair rather than
+            # return an op whose provenance names another backend.
+            resolved = getattr(selected, "backend_id", backend)
+            if resolved != backend:
+                raise RuntimeError(f"Requested backend {backend!r} resolved to {resolved!r}")
             return selected
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 

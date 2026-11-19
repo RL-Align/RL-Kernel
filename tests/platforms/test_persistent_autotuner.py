@@ -165,6 +165,31 @@ def test_explicit_backend_dispatch_does_not_change_strict_routes(monkeypatch):
     with pytest.raises(ValueError, match="CUDA or ROCm"):
         registry.get_op("logp", device="cpu", backend="rlkernel.triton.tuned_logp")
 
+    class Drifted:
+        """An op whose own backend_id no longer matches the ID it was requested by."""
+
+        backend_id = "rlkernel.triton.renamed_logp"
+
+    monkeypatch.setattr(registry, "_get_or_create_backend", lambda backend: Drifted())
+    with pytest.raises(RuntimeError, match="resolved to 'rlkernel.triton.renamed_logp'"):
+        registry.get_op("logp", device="cuda", backend="rlkernel.triton.tuned_logp")
+
+
+def test_explicit_backend_ids_match_the_tuned_classes():
+    """Each explicit ID routes to the class whose own ``backend_id`` is that ID."""
+    pytest.importorskip("triton")
+    import importlib
+
+    from rl_engine.runtime.registry import OpBackend
+
+    for backend_id, member in (
+        ("rlkernel.triton.tuned_gemm", OpBackend.TRITON_TUNED_GEMM),
+        ("rlkernel.triton.tuned_attention", OpBackend.TRITON_TUNED_ATTENTION),
+        ("rlkernel.triton.tuned_logp", OpBackend.TRITON_TUNED_LOGP),
+    ):
+        module, _, name = member.value.rpartition(".")
+        assert getattr(importlib.import_module(module), name).backend_id == backend_id
+
 
 @pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX ownership checks only")
 def test_created_cache_directory_is_private(tmp_path):
@@ -249,7 +274,104 @@ def test_launch_skips_tuning_when_profiling_copies_do_not_fit(monkeypatch, tmp_p
     assert not autotuning._TUNER._memory
 
 
-@pytest.mark.parametrize("scale", [float("nan"), float("inf"), object()])
+def _oom_during_graph_capture(*args, **kwargs):
+    """Stand-in for ``torch.cuda.graph`` whose capture allocation runs out of memory."""
+    import torch
+
+    raise torch.cuda.OutOfMemoryError("CUDA out of memory (injected during graph capture)")
+
+
+def test_launch_falls_back_when_profiling_runs_out_of_memory(monkeypatch, tmp_path, caplog):
+    """An OOM inside profiling, after the estimate passed, launches the fixed kernel untuned.
+
+    The real ``_profile_candidates`` runs: the private copies are made and every candidate is
+    validated, then the timing-graph capture runs out of memory. The call must still produce the
+    fixed launch on the caller's buffers, cache and persist nothing, and let a later call tune.
+    """
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("triton")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA/ROCm required")
+    from rl_engine.backends.shared.triton import autotuning
+
+    calls = []
+
+    class Jit:
+        """Records every launch: the profiling launches and the final fixed launch."""
+
+        fn = staticmethod(_stub_kernel_body)
+
+        def __getitem__(self, grid):
+            """Return a launcher that records its grid and arguments."""
+            return lambda *args, **kwargs: calls.append((grid, args, kwargs))
+
+    monkeypatch.setattr(autotuning, "autotune_enabled", lambda: True)
+    monkeypatch.setattr(autotuning, "_TUNER", PersistentAutotuner(tmp_path))
+    monkeypatch.setattr(autotuning, "_PROFILING_OOM_WARNED", set(), raising=False)
+    monkeypatch.setattr(torch.cuda, "graph", _oom_during_graph_capture)
+    kernel = autotuning.TunableKernel(Jit(), outputs=(1,))
+    x, out = torch.zeros(4, device="cuda"), torch.zeros(4, device="cuda")
+
+    with caplog.at_level("WARNING", logger=autotuning.__name__):
+        kernel[(1,)](x, out)
+        kernel[(1,)](x, out)
+    # Profiling did start (reference + one validation launch per candidate) before the OOM.
+    profiled = [call for call in calls if call[1][1] is not out]
+    assert len(profiled) >= 1 + len(autotuning.launch_candidates(kernel))
+    # Each call ends with the fixed launch on the caller's own buffers.
+    fixed = [call for call in calls if call[1][1] is out]
+    assert fixed == [((1,), (x, out), {}), ((1,), (x, out), {})]
+    assert calls[-1] == fixed[-1]
+    assert not list(tmp_path.glob("*.json"))
+    assert not autotuning._TUNER._memory
+    assert not kernel._launches
+    assert len([r for r in caplog.records if "ran out of memory" in r.getMessage()]) == 1
+
+    # No negative result was cached: once profiling succeeds, the same launch is tuned.
+    candidates = autotuning.launch_candidates(kernel)
+    timings = {config: 2.0 for config in candidates}
+    timings[candidates[0]] = 1.0
+    monkeypatch.setattr(autotuning, "_profile_candidates", lambda *a, **kw: timings)
+    state = autotuning.TuneState(True)
+    with autotuning.tuning_scope(state):
+        kernel[(1,)](x, out)
+    assert [record["source"] for record in state.records] == ["tuned"]
+    assert kernel._launches
+
+
+def test_launch_propagates_profiling_errors_that_are_not_out_of_memory(monkeypatch, tmp_path):
+    """Only recoverable allocation failures fall back; other profiling errors still surface."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("triton")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA/ROCm required")
+    from rl_engine.backends.shared.triton import autotuning
+
+    class Jit:
+        """A kernel whose launches do nothing."""
+
+        fn = staticmethod(_stub_kernel_body)
+
+        def __getitem__(self, grid):
+            """Return a launcher that does nothing."""
+            return lambda *args, **kwargs: None
+
+    def broken(*args, **kwargs):
+        """Stand-in for ``torch.cuda.graph`` that fails for a reason other than memory."""
+        raise RuntimeError("graph capture failed")
+
+    monkeypatch.setattr(autotuning, "autotune_enabled", lambda: True)
+    monkeypatch.setattr(autotuning, "_TUNER", PersistentAutotuner(tmp_path))
+    monkeypatch.setattr(torch.cuda, "graph", broken)
+    kernel = autotuning.TunableKernel(Jit(), outputs=(1,))
+    x, out = torch.zeros(4, device="cuda"), torch.zeros(4, device="cuda")
+    with pytest.raises(RuntimeError, match="graph capture failed"):
+        kernel[(1,)](x, out)
+    assert not autotuning._TUNER._memory
+    assert not kernel._launches
+
+
+@pytest.mark.parametrize("scale", [float("nan"), float("inf"), object(), [1, 2]])
 def test_launch_with_an_unhashable_argument_runs_the_fixed_kernel(monkeypatch, tmp_path, scale):
     """A launch argument the cache key cannot encode must not fail the call or be tuned."""
     torch = pytest.importorskip("torch")
