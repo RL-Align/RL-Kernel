@@ -25,8 +25,13 @@ def _report(sizes=(1,), value=0.0, bound=True, prefix=True) -> dict:
     rank = {"native_max_abs_diff": value, "bound_equals_canonical": bound}
     if prefix:
         rank |= {"native_prefix_max_abs_diff": value, "bound_prefix_equals_rows": bound}
-    rows = {key: {f"rank{r}": dict(rank) for r in range(tp)} for tp in sizes for key in plot.LABELS}
-    return {"tp": {str(tp): {"rows": rows} for tp in sizes}}
+    # Each TP size gets its own rows with its own ranks, so a change at one TP leaves the others.
+    return {
+        "tp": {
+            str(tp): {"rows": {k: {f"rank{r}": dict(rank) for r in range(tp)} for k in plot.LABELS}}
+            for tp in sizes
+        }
+    }
 
 
 @pytest.mark.parametrize("fields", [NATIVE, PREFIX])
