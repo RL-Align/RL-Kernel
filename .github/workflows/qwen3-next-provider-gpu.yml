@@ -41,6 +41,7 @@ on:
       - "rl_engine/integrations/engines/rollout/vllm/qwen3_next*"
       - "rl_engine/integrations/common/qwen3_next*"
       - "rl_engine/integrations/orchestrators/vime/experiments/qwen3_next/**"
+      - "rl_engine/distributed/algorithms/collectives.py"
       - "pyproject.toml"
       - ".github/workflows/qwen3-next-provider-gpu.yml"
   workflow_dispatch:
@@ -154,7 +155,8 @@ jobs:
             tests/models/qwen3_next/check_qwen3_next_gdn_bridge.py tests/models/qwen3_next/check_qwen3_next_gdn_sequence.py \
             tests/models/qwen3_next/check_qwen3_next_conv_bridge.py tests/models/qwen3_next/check_qwen3_next_core_matrix.py \
             tests/models/qwen3_next/check_qwen3_next_shared_core.py tests/models/qwen3_next/check_qwen3_next_paged_attention.py \
-            tests/models/qwen3_next/check_qwen3_next_batch_invariance.py tests/models/qwen3_next/check_qwen3_next_vllm_attention_metadata.py \
+            tests/models/qwen3_next/check_qwen3_next_batch_invariance.py tests/models/qwen3_next/check_qwen3_next_bi_requests.py \
+            tests/models/qwen3_next/check_qwen3_next_vllm_attention_metadata.py \
             tests/models/qwen3_next/check_qwen3_next_native_rollout.py tests/models/qwen3_next/check_qwen3_next_engine_metadata.py \
             tests/models/qwen3_next/check_qwen3_next_vllm_model_contract.py | tee "$log"
           # Fail closed: these modules skip as a whole when CUDA or vLLM is missing, and pytest

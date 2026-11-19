@@ -14,7 +14,8 @@ checkpoint hashes, rollout smoke), ``layers`` (per-layer and
 scheduler gates, which certify the shared provider), ``l2`` (full-model
 train/prefill/decode raw-bit matrix), then ``train1``, ``train2`` and ``train``
 (two optimizer updates, export, L2 on the updated weights, reload and
-resumption). A single stage takes ``--previous <run dir>`` of its predecessor.
+resumption). A single stage takes ``--previous <run dir>`` of its predecessor;
+``bi`` (the batch-invariance matrix) runs after a passed ``l2``.
 
 Every run directory holds ``run.json`` (the immutable manifest, identified by a
 fresh ``execution_id``), ``attempts/<n>/`` (the stage's output) and, once the
@@ -139,6 +140,8 @@ def prepare(stage, previous, args):
         "status": "prepared",
         "full_model_l2": "not_evaluated",
     }
+    if stage == "bi":
+        manifest["bi_suite"] = args.bi_suite
     if args.training_storage_root and stage == "train1":
         manifest["training_storage"] = str(args.training_storage_root.resolve(strict=True) / run_id)
     environment = probe_environment(python)
@@ -160,7 +163,7 @@ def prepare(stage, previous, args):
             "path": str(certificate),
             "sha256": file_digest(certificate),
         }
-    elif stage in ("train1", "train2", "train"):
+    elif stage in ("train1", "train2", "train", "bi"):
         manifest["scheduler_profile_certificate"] = json.loads((previous / "run.json").read_text())[
             "scheduler_profile_certificate"
         ]
@@ -288,7 +291,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--stage", choices=(*ORDER, "all"), required=True)
+    parser.add_argument("--stage", choices=(*ORDER, "bi", "all"), required=True)
     parser.add_argument("--runs-root", type=Path, required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--cuda-home", type=Path, required=True)
@@ -307,6 +310,12 @@ def main():
     parser.add_argument(
         "--memory",
         help="host memory this allocation grants (e.g. 1280G); default: the stage's budget",
+    )
+    parser.add_argument(
+        "--bi-suite",
+        choices=("full", "quick"),
+        default="full",
+        help="with --stage bi: the whole batch-invariance matrix or the CI subset",
     )
     parser.add_argument(
         "--training-storage-root",
