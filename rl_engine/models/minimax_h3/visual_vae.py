@@ -598,6 +598,39 @@ class VAEOutput:
     record: dict[str, Any] = field(default_factory=dict)
 
 
+def output_digests(rows: Sequence[torch.Tensor]) -> tuple[str, list[str]]:
+    """``tensor_digest`` of ``torch.cat(rows)`` and of every row, without copying the bytes.
+
+    The values equal ``trajectory.tensor_digest``, i.e. SHA-256 over ``"{dtype}|{shape}|"``
+    and the raw bytes. That helper copies each tensor twice before hashing, which costs
+    hundreds of milliseconds on a decoded video. Here the rows are hashed in place, and with
+    a single row the whole-tensor digest is the row digest (same dtype, shape and bytes), so
+    every byte is hashed once.
+    """
+
+    if not rows:
+        raise ValueError("no rows to digest")
+    views = []
+    row_digests = []
+    for row in rows:
+        cpu = row.detach().contiguous().cpu()
+        view = memoryview(cpu.reshape(-1).view(torch.uint8).numpy()) if cpu.numel() else None
+        digest = hashlib.sha256(f"{cpu.dtype}|{tuple(cpu.shape)}|".encode())
+        if view is not None:
+            digest.update(view)
+        views.append(view)
+        row_digests.append(digest.hexdigest())
+    if len(rows) == 1:
+        return row_digests[0], row_digests
+    first = rows[0]
+    shape = (sum(r.shape[0] for r in rows), *first.shape[1:])
+    whole = hashlib.sha256(f"{first.dtype}|{shape}|".encode())
+    for view in views:
+        if view is not None:
+            whole.update(view)
+    return whole.hexdigest(), row_digests
+
+
 def _config_value(vae: Any, key: str) -> Any:
     config = getattr(vae, "config", None)
     if config is None:
@@ -740,10 +773,11 @@ class VisualVAEContract:
         latents = torch.cat(rows)
         record = self._record("encode", runtime, plan)
         record.update(posterior=posterior, seed=seed, round_fp16=round_fp16, batch=batch)
+        digest, row_digests = output_digests(rows)
         return VAEOutput(
             tensor=latents,
-            digest=tensor_digest(latents),
-            row_digests=[tensor_digest(r) for r in rows],
+            digest=digest,
+            row_digests=row_digests,
             tile_plan=plan,
             record=record,
         )
@@ -777,10 +811,11 @@ class VisualVAEContract:
         video = torch.cat(rows)
         record = self._record("decode", runtime, plan)
         record.update(autocast_fp16=autocast_fp16, batch=latents.shape[0])
+        digest, row_digests = output_digests(rows)
         return VAEOutput(
             tensor=video,
-            digest=tensor_digest(video),
-            row_digests=[tensor_digest(r) for r in rows],
+            digest=digest,
+            row_digests=row_digests,
             tile_plan=plan,
             record=record,
         )
