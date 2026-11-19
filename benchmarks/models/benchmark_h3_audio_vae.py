@@ -20,7 +20,8 @@ Per clip length the script records, for encode and decode separately: repeat equ
 absolute difference of one logical mono channel across batch compositions (alone, stereo pair,
 first/last of an 8-item batch), error against an FP64 run of the same graph, bitwise parity
 between paths, and CUDA-synchronised wall latency of a stereo call. ``--plot`` renders the
-accuracy and performance charts from the JSON.
+batch-invariance, accuracy, cold-start and latency charts from the JSON; ``--markdown`` prints
+the same numbers as tables.
 """
 
 from __future__ import annotations
@@ -386,7 +387,87 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
 # Fixed categorical order (blue, orange, aqua, yellow); identity is also carried by direct labels.
 COLORS = {"diffusers": "#2a78d6", "sglang": "#eb6834", "vllm-omni": "#1baf7a", "ours": "#eda100"}
+# One display name per path, shared by the charts and the --markdown tables.
+LABELS = {"diffusers": "Diffusers", "sglang": "SGLang", "vllm-omni": "vLLM-Omni", "ours": "ours"}
 INK, MUTED, SURFACE = "#1f1f1e", "#6b6a64", "#fcfcfb"
+LOG_FLOOR = 1e-12  # bottom of the log axes; exact zeros are drawn there and labelled
+ZERO_LABEL = "= 0, bitwise"
+DIRS = ("encode", "decode")
+
+
+def _label(name: str) -> str:
+    return LABELS.get(name, name)
+
+
+def _case_label(case: dict[str, Any], sep: str) -> str:
+    return f"{case['samples'] / av.SAMPLE_RATE:.1f} s{sep}T={case['latents_per_channel']}"
+
+
+def batch_drift(case: dict[str, Any], name: str, kind: str) -> float:
+    """Max |Δ| of one mono channel across batch compositions (the warm repeat is excluded)."""
+    return max(v for k, v in case["paths"][name][kind]["max_abs"].items() if k != "repeat")
+
+
+def fp64_error(case: dict[str, Any], name: str, kind: str) -> float:
+    return float(case["paths"][name][kind]["vs_fp64_max_abs"])
+
+
+def cold_drift(report: dict[str, Any], name: str, kind: str) -> float:
+    return float(report["cold_start"][name][f"{kind}_first_vs_third_max_abs"])
+
+
+def median_ms(case: dict[str, Any], name: str, kind: str) -> float | None:
+    return case["paths"][name][kind].get("latency", {}).get("median_ms")
+
+
+def _sci(v: float) -> str:
+    return "= 0" if v == 0 else f"{v:.1e}"
+
+
+def _grouped_log_bars(
+    ax: Any, groups: list[str], series: dict[str, list[float]], top: float
+) -> None:
+    """Grouped bars on a log axis; an exact zero sits on the floor with an explicit label."""
+    names = list(series)
+    width = 0.8 / len(names)
+    for i, n in enumerate(names):
+        xs = [j + (i - (len(names) - 1) / 2) * width for j in range(len(groups))]
+        vals = series[n]
+        ax.bar(
+            xs,
+            [v if v > 0 else LOG_FLOOR for v in vals],
+            width,
+            color=COLORS.get(n, "#777"),
+            label=_label(n),
+            edgecolor=SURFACE,
+            linewidth=1,
+        )
+        for x, v in zip(xs, vals, strict=True):
+            if v == 0:
+                ax.text(
+                    x,
+                    LOG_FLOOR * 2,
+                    ZERO_LABEL,
+                    rotation=90,
+                    ha="center",
+                    va="bottom",
+                    fontsize=7,
+                    color=INK,
+                )
+    ax.set_yscale("log")
+    ax.set_ylim(LOG_FLOOR, top)
+    ax.set_xticks(range(len(groups)), groups)
+
+
+def _finish(fig: Any, axes: Any, title: str, path: Path, plt: Any) -> Path:
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False, fontsize=9)
+    fig.suptitle(title)
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    # No metadata: the PNGs are uploaded as PR evidence.
+    fig.savefig(path, dpi=130, metadata={"Software": None})
+    plt.close(fig)
+    return path
 
 
 def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
@@ -414,62 +495,66 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
 
     names = list(report["paths"])
     cases = report["cases"]
-    secs = [f"{c['samples'] / av.SAMPLE_RATE:.1f}s" for c in cases]
+    ticks = [_case_label(c, "\n") for c in cases]
     gpu = report["provenance"].get("gpu", "GPU")
+
+    def out(suffix: str) -> Path:
+        return out_prefix.with_name(out_prefix.name + suffix)
+
     files = []
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharey=True)
-    for ax, kind in zip(axes, ("encode", "decode"), strict=True):
-        width = 0.8 / len(names)
-        for i, n in enumerate(names):
-            vals = [
-                max(v for k, v in c["paths"][n][kind]["max_abs"].items() if k != "repeat")
-                for c in cases
-            ]
-            xs = [j + (i - (len(names) - 1) / 2) * width for j in range(len(cases))]
-            shown = [v if v > 0 else 1e-12 for v in vals]
-            ax.bar(
-                xs,
-                shown,
-                width,
-                color=COLORS.get(n, "#777"),
-                label=n,
-                edgecolor=SURFACE,
-                linewidth=1,
-            )
-            for x, v in zip(xs, vals, strict=True):
-                if v == 0:
-                    ax.text(x, 1.5e-12, "0", ha="center", va="bottom", fontsize=8)
-        ax.set_yscale("log")
-        ax.set_ylim(1e-12, 1)
-        ax.set_xticks(range(len(cases)), secs)
-        ax.set_title(f"{kind}: max |Δ| of one channel across batch compositions")
-        ax.set_xlabel("clip length")
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True)
+    for ax, kind in zip(axes, DIRS, strict=True):
+        _grouped_log_bars(
+            ax, ticks, {n: [batch_drift(c, n, kind) for c in cases] for n in names}, 1.0
+        )
+        ax.set_title(f"{kind}: max |Δ| of one channel across batch compositions", fontsize=10)
+        ax.set_xlabel("clip length, latents per channel")
     axes[0].set_ylabel("max abs diff (0 = batch invariant)")
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False, fontsize=9)
-    fig.suptitle(f"H3 audio VAE batch invariance on {gpu} (FP32)")
-    fig.tight_layout(rect=(0, 0.07, 1, 1))
-    files.append(out_prefix.with_name(out_prefix.name + "-bi.png"))
-    fig.savefig(files[-1], dpi=130)
-    plt.close(fig)
+    files.append(
+        _finish(fig, axes, f"H3 audio VAE batch invariance on {gpu} (FP32)", out("-bi.png"), plt)
+    )
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-    for ax, kind in zip(axes, ("encode", "decode"), strict=True):
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True)
+    for ax, kind in zip(axes, DIRS, strict=True):
+        _grouped_log_bars(
+            ax, ticks, {n: [fp64_error(c, n, kind) for c in cases] for n in names}, 1.0
+        )
+        ax.set_title(f"{kind}: max |error| against an FP64 run of the same graph", fontsize=10)
+        ax.set_xlabel("clip length, latents per channel")
+    axes[0].set_ylabel("max abs error")
+    files.append(
+        _finish(
+            fig, axes, f"H3 audio VAE accuracy against FP64 on {gpu}", out("-accuracy.png"), plt
+        )
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(6.5, 4.2))
+    _grouped_log_bars(
+        ax, list(DIRS), {n: [cold_drift(report, n, k) for k in DIRS] for n in names}, 1e-3
+    )
+    ax.set_title("max |Δ| of a fresh process's first call against its third", fontsize=10)
+    ax.set_ylabel("max abs diff (0 = first call bitwise)")
+    files.append(
+        _finish(fig, [ax], f"H3 audio VAE cold-start drift on {gpu}", out("-coldstart.png"), plt)
+    )
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+    for ax, kind in zip(axes, DIRS, strict=True):
         ends: list[tuple[float, str]] = []
         for n in names:
-            lat = [c["paths"][n][kind].get("latency", {}).get("median_ms") for c in cases]
-            if all(v is not None for v in lat):
+            lat = [v for c in cases if (v := median_ms(c, n, kind)) is not None]
+            if lat and len(lat) == len(cases):
                 ax.plot(
-                    secs,
+                    range(len(cases)),
                     lat,
                     marker="o",
                     markersize=5,
                     linewidth=2,
                     color=COLORS.get(n, "#777"),
-                    label=n,
+                    label=_label(n),
                 )
-                ends.append((math.log10(lat[-1]), n))
+                ends.append((math.log10(lat[-1]), _label(n)))
         # End-of-line labels, nudged apart in log space so coincident lines stay readable.
         ends.sort()
         ax.set_yscale("log")
@@ -484,7 +569,7 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
             y -= shift
             ax.annotate(
                 n,
-                (len(secs) - 1, 10**y),
+                (len(cases) - 1, 10**y),
                 xytext=(8, 0),
                 textcoords="offset points",
                 va="center",
@@ -492,19 +577,60 @@ def plot(report: dict[str, Any], out_prefix: Path) -> list[Path]:
                 fontsize=8,
                 color=INK,
             )
-        ax.set_xlim(-0.3, len(secs) - 0.2)
-        ax.set_title(f"{kind} latency, stereo call (median)")
+        ax.set_xticks(range(len(cases)), ticks)
+        ax.set_xlim(-0.3, len(cases) - 0.2)
+        ax.set_title(f"{kind} latency, stereo call (median)", fontsize=10)
         ax.set_ylabel("ms")
-        ax.set_xlabel("clip length")
-        ax.set_yscale("log")
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False, fontsize=9)
-    fig.suptitle(f"H3 audio VAE latency on {gpu}")
-    fig.tight_layout(rect=(0, 0.07, 1, 1))
-    files.append(out_prefix.with_name(out_prefix.name + "-latency.png"))
-    fig.savefig(files[-1], dpi=130)
-    plt.close(fig)
+        ax.set_xlabel("clip length, latents per channel")
+    files.append(_finish(fig, axes, f"H3 audio VAE latency on {gpu}", out("-latency.png"), plt))
     return files
+
+
+def markdown(report: dict[str, Any], json_name: str) -> str:
+    """The numbers each chart plots, as Markdown tables with the same labels and rounding."""
+    names = list(report["paths"])
+    cases = report["cases"]
+    prov = report["provenance"]
+    commit = (prov.get("source") or {}).get("commit") or "unknown"
+    source = f"Source: `{json_name}`, commit {commit[:8]}, {prov.get('gpu', 'GPU')}."
+    head = "| path | dir | " + " | ".join(_case_label(c, ", ") for c in cases) + " |"
+    rule = "|---|---|" + "---|" * len(cases)
+
+    def per_case(
+        fn: Callable[[dict[str, Any], str, str], float | None], fmt: Callable[[float], str]
+    ) -> str:
+        rows = [head, rule]
+        for n in names:
+            for kind in DIRS:
+                vals = [fn(c, n, kind) for c in cases]
+                if any(v is None for v in vals):
+                    continue
+                cells = " | ".join(fmt(float(v)) for v in vals if v is not None)
+                rows.append(f"| {_label(n)} | {kind} | {cells} |")
+        return "\n".join(rows)
+
+    cold = ["| path | encode | decode |", "|---|---|---|"]
+    for n in names:
+        enc, dec = (_sci(cold_drift(report, n, kind)) for kind in DIRS)
+        cold.append(f"| {_label(n)} | {enc} | {dec} |")
+    parity = ["| path | encode bitwise = ours | decode bitwise = ours |", "|---|---|---|"]
+    for n in names:
+        if n == "ours":
+            continue
+        n_enc = sum(bool(c["encode_bitwise_equal_to_ours"][n]) for c in cases)
+        n_dec = sum(bool(c["decode_bitwise_equal_to_ours"][n]) for c in cases)
+        parity.append(f"| {_label(n)} | {n_enc}/{len(cases)} | {n_dec}/{len(cases)} |")
+    zero = f"`= 0` is exactly zero (bitwise equal), drawn as `{ZERO_LABEL}` on the chart."
+    sections = [
+        ("bi", per_case(batch_drift, _sci), f"Max abs diff. {zero}"),
+        ("accuracy", per_case(fp64_error, _sci), f"Max abs error. {zero}"),
+        ("coldstart", "\n".join(cold), f"Max abs diff. {zero}"),
+        ("parity", "\n".join(parity), "Cases bitwise equal to the strict path."),
+        ("latency", per_case(median_ms, lambda v: f"{v:.1f}"), "Median ms, rounded to 0.1 ms."),
+    ]
+    return "\n\n".join(
+        f"<!-- {key} -->\n{table}\n\n{note} {source}" for key, table, note in sections
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -537,7 +663,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--plot-only", action="store_true", help="re-render charts from an existing --out"
     )
+    ap.add_argument(
+        "--markdown",
+        action="store_true",
+        help="print the charts' numbers from an existing --out as Markdown tables",
+    )
     args = ap.parse_args(argv)
+    if args.markdown:
+        print(markdown(json.loads(args.out.read_text()), args.out.name))
+        return 0
     if args.plot_only:
         print("\n".join(map(str, plot(json.loads(args.out.read_text()), args.out.with_suffix("")))))
         return 0
