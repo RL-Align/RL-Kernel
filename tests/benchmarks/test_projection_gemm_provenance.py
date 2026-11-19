@@ -21,9 +21,21 @@ def _make_repo(tmp_path):
     git("config", "commit.gpgsign", "false")
     (tmp_path / "csrc").mkdir()
     (tmp_path / "csrc/kernel.cu").write_text("before\n")
+    (tmp_path / "rl_engine").mkdir()
+    (tmp_path / "rl_engine/operator.py").write_text("before\n")
     git("add", ".")
     git("commit", "-qm", "baseline")
     return tmp_path, git
+
+
+def _foreign_git_locations(path):
+    return {
+        "GIT_DIR": str(path / ".git"),
+        "GIT_WORK_TREE": str(path),
+        "GIT_INDEX_FILE": str(path / ".git/index"),
+        "GIT_OBJECT_DIRECTORY": str(path / ".git/objects"),
+        "GIT_COMMON_DIR": str(path / ".git"),
+    }
 
 
 @pytest.fixture
@@ -70,41 +82,78 @@ def test_untracked_source_is_visible_without_claiming_content_hash(repo):
     assert record["staged_source_diff_sha256"] == EMPTY_HASH
 
 
-def test_source_changes_are_found_from_a_subdirectory(repo):
+@pytest.mark.parametrize("source", ("csrc/kernel.cu", "rl_engine/operator.py"))
+def test_source_changes_are_found_from_a_subdirectory(repo, source):
     path, git = repo
-    subdir = path / "nested"
-    subdir.mkdir()
-    (path / "csrc/kernel.cu").write_text("unstaged\n")
+    subdir = path / "nested/deeper"
+    subdir.mkdir(parents=True)
+    (path / source).write_text("unstaged\n")
     assert source_provenance(subdir) == source_provenance(path)
     assert source_provenance(subdir)["unstaged_source_diff_sha256"] != EMPTY_HASH
-    git("add", "csrc")
+    git("add", source)
     assert source_provenance(subdir) == source_provenance(path)
     assert source_provenance(subdir)["staged_source_diff_sha256"] != EMPTY_HASH
+    untracked = (path / source).with_name("untracked" + (path / source).suffix)
+    untracked.write_text("untracked\n")
+    assert source_provenance(subdir) == source_provenance(path)
+    assert (
+        f"?? {untracked.relative_to(path).as_posix()}" in source_provenance(subdir)["source_status"]
+    )
 
 
 @pytest.mark.parametrize(
     "variable",
-    ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"),
+    ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "all"),
 )
-def test_inherited_git_locations_do_not_change_provenance(repo, monkeypatch, variable):
-    path, _ = repo
+def test_inherited_git_locations_do_not_change_provenance(
+    repo, tmp_path_factory, monkeypatch, variable
+):
+    path, git = repo
+    # The external locations are valid: a leak could silently return real but
+    # wrong metadata, rather than merely fail on a nonexistent directory.
+    foreign, foreign_git = _make_repo(tmp_path_factory.mktemp("foreign"))
+    (foreign / "csrc/kernel.cu").write_text("foreign source\n")
+    foreign_git("add", ".")
+    foreign_git("commit", "-qm", "foreign revision")
+    foreign_index = foreign / ".git/index"
+    original_index = foreign_index.read_bytes()
+    (path / "csrc/kernel.cu").write_text("local unstaged\n")
+    (path / "rl_engine/operator.py").write_text("local staged\n")
+    git("add", "rl_engine")
     expected = source_provenance(path)
-    monkeypatch.setenv(variable, str(path / "must-not-be-used"))
+    assert expected["commit"] != source_provenance(foreign)["commit"]
+    locations = _foreign_git_locations(foreign)
+    for name, value in locations.items():
+        if variable in (name, "all"):
+            monkeypatch.setenv(name, value)
     monkeypatch.setenv("TASK12_UNRELATED_SETTING", "preserved")
     assert source_provenance(path) == expected
+    assert not locations.keys() & git_environment().keys()
     assert git_environment()["TASK12_UNRELATED_SETTING"] == "preserved"
+    assert foreign_index.read_bytes() == original_index
 
 
 def test_fixture_cannot_write_an_inherited_index(tmp_path, monkeypatch):
     # Exercise isolation starting with git init, not only after fixture creation.
-    caller_index = tmp_path / "caller-index"
-    caller_index.write_bytes(b"caller index must remain untouched")
-    monkeypatch.setenv("GIT_INDEX_FILE", str(caller_index))
-    monkeypatch.setenv("GIT_DIR", str(tmp_path / "unrelated.git"))
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    _, caller_git = _make_repo(caller)
+    (caller / "csrc/kernel.cu").write_text("uncommitted caller staging\n")
+    caller_git("add", ".")
+    caller_index = caller / ".git/index"
+    original_index = caller_index.read_bytes()
+    original_stat = caller_index.stat()
+    original_head = caller_git("rev-parse", "HEAD")
+    for name, value in _foreign_git_locations(caller).items():
+        monkeypatch.setenv(name, value)
     repository = tmp_path / "repository"
     repository.mkdir()
     path, git = _make_repo(repository)
     (path / "csrc/kernel.cu").write_text("changed\n")
     git("add", ".")
     assert source_provenance(path)["staged_source_diff_sha256"] != EMPTY_HASH
-    assert caller_index.read_bytes() == b"caller index must remain untouched"
+    assert (repository / ".git").is_dir()
+    assert caller_index.read_bytes() == original_index
+    assert caller_index.stat().st_mtime_ns == original_stat.st_mtime_ns
+    assert caller_index.stat().st_ino == original_stat.st_ino
+    assert caller_git("rev-parse", "HEAD") == original_head
