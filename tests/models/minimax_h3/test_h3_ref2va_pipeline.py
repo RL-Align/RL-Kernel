@@ -221,11 +221,12 @@ def test_video_reference_resamples_whole_frames_then_rescales():
 
 
 def test_audio_reference_truncates_upmixes_and_resamples_once():
+    pytest.importorskip("torchaudio")  # 48 kHz is resampled
+    import torchaudio
+
     mono = _wave(1, 48000 * 3, 0)
     out = ref2va.normalize_audio_reference(mono, 48000, max_duration=2.0)
     assert out.shape[0] == 2 and torch.equal(out[0], out[1])
-    pytest.importorskip("torchaudio")
-    import torchaudio
 
     expected = torchaudio.transforms.Resample(48000, 32000)(
         mono[:, :96000].expand(2, -1).contiguous()
@@ -401,6 +402,7 @@ def test_initial_rows_prepend_noised_visuals_and_clean_soundtracks():
 
 
 def test_repeated_preprocessing_is_byte_identical():
+    pytest.importorskip("torchaudio")  # ref2va_preprocess resamples a 44.1 kHz soundtrack
     first = ref2va_preprocess()
     threads = torch.get_num_threads()
     try:
@@ -412,6 +414,7 @@ def test_repeated_preprocessing_is_byte_identical():
 
 
 def test_repeated_preprocessing_in_a_fresh_process_is_byte_identical():
+    pytest.importorskip("torchaudio")
     code = (
         "import json, sys; sys.path.insert(0, sys.argv[1]);"
         "from tests.models.minimax_h3.test_h3_ref2va_pipeline import ref2va_preprocess;"
@@ -426,6 +429,7 @@ def test_repeated_preprocessing_in_a_fresh_process_is_byte_identical():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_initial_rows_on_cuda_equal_cpu_bytes():
+    pytest.importorskip("torchaudio")
     assert ref2va_preprocess(device="cuda") == ref2va_preprocess()
 
 
