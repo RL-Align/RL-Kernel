@@ -260,7 +260,11 @@ def test_conditioner_frame_sampling_and_presentation():
 
 
 def test_vae_frame_count_snaps_down():
-    assert [ref2va.vae_video_frame_count(n) for n in (5, 22, 23, 38, 39, 124)] == [
+    # The pinned pipeline's own bound, max(1, ...): below 22 frames it is 22, so a short
+    # reference is not cut (13 frames is the shortest one the conditioner accepts).
+    assert [ref2va.vae_video_frame_count(n) for n in (5, 13, 21, 22, 23, 38, 39, 124)] == [
+        22,
+        22,
         22,
         22,
         22,
