@@ -167,9 +167,13 @@ def test_spawn_worker_registers_model_before_native_worker_initialization(monkey
         "imported_provider_identity",
         lambda: calls.append("native-binary") or {"test": True},
     )
-    monkeypatch.setattr(
-        worker.Worker, "__init__", lambda self, *args, **kwargs: calls.append("native-init")
-    )
+
+    def native_init(self, *args, **kwargs):
+        assert self.shared_l2_trace is None
+        assert self.shared_provider_execution_mode is None
+        calls.append("native-init")
+
+    monkeypatch.setattr(worker.Worker, "__init__", native_init)
     worker.SharedQwenWorker()
     assert calls == ["registered", "native-binary", "native-init"]
 

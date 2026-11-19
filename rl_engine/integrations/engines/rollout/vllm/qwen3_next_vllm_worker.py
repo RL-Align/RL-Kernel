@@ -28,9 +28,10 @@ class SharedQwenWorker(Worker):
             mode = activate_for_identity(identity)
         register_shared_model()
         self.shared_provider_binary = imported_provider_identity()
-        super().__init__(*args, **kwargs)
+        # Set before the native constructor so no override reached from it can miss them.
         self.shared_l2_trace = None
         self.shared_provider_execution_mode = mode
+        super().__init__(*args, **kwargs)
 
     def configure_l2_trace(self, request, output_directory):
         from rl_engine.integrations.engines.rollout.vllm.qwen3_next_native_rollout import (
