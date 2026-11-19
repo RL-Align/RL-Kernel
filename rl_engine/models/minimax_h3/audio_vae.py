@@ -167,7 +167,10 @@ def prepare_stereo_waveform(
         )
     import torchaudio
 
-    return torchaudio.transforms.Resample(int(sample_rate), SAMPLE_RATE)(waveform)
+    # On the CPU, as Diffusers does, whatever the input device: same bytes, and the kernel is a
+    # CPU buffer.
+    resampled = torchaudio.transforms.Resample(int(sample_rate), SAMPLE_RATE)(waveform.cpu())
+    return resampled.to(waveform.device)
 
 
 # --- architecture (op-for-op port of diffusers f53d5520) --------------------------------------
@@ -759,9 +762,14 @@ class H3AudioVAEContract:
     def decode_latents(self, latents: torch.Tensor) -> torch.Tensor:
         """Denormalised ``[B, 32, T]`` -> waveforms ``[B, T * 800]`` under the decode policy."""
 
-        if latents.ndim != 3 or latents.dtype != torch.float32:
+        if (
+            latents.ndim != 3
+            or latents.dtype != torch.float32
+            or latents.shape[1] != LATENT_CHANNELS
+        ):
             raise ValueError(
-                f"latents must be FP32 [B, C, T], got {latents.dtype} {tuple(latents.shape)}"
+                f"latents must be FP32 [B, {LATENT_CHANNELS}, T], got {latents.dtype} "
+                f"{tuple(latents.shape)}"
             )
         z = latents.to(self.device)
         with execution_scope(self.decode_policy):

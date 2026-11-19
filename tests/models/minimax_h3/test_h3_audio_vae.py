@@ -166,6 +166,15 @@ def test_prepare_stereo_waveform_matches_diffusers(channels, rate):
     assert torch.equal(out, expected)
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_prepare_stereo_waveform_resamples_a_cuda_waveform_on_the_cpu():
+    pytest.importorskip("torchaudio")
+    wave = torch.randn(2, 48_000 // 3, generator=torch.Generator().manual_seed(3))
+    out = av.prepare_stereo_waveform(wave.cuda(), 48_000, allow_resample=True)
+    assert out.is_cuda
+    assert torch.equal(out.cpu(), av.prepare_stereo_waveform(wave, 48_000, allow_resample=True))
+
+
 # --- contract on a reduced-width module ------------------------------------------------------
 
 
@@ -226,6 +235,8 @@ def test_contract_rejects_bad_inputs(tiny_model, tiny_stats, contract):
         contract.encode_latents(stereo(800).double())
     with pytest.raises(ValueError):
         contract.decode_latents(torch.zeros(2, 32, 3, dtype=torch.float64))
+    with pytest.raises(ValueError, match=r"\[B, 32, T\]"):
+        contract.decode_latents(torch.zeros(2, 16, 3))
     with pytest.raises(ValueError):
         contract.decode_rows(torch.zeros(7, 32), 3)
     with pytest.raises(ValueError):
