@@ -32,9 +32,11 @@ def model_provider(pre_process=True, post_process=True, vp_stage=None):
     return model
 
 
-def runtime_argv(checkpoint, *, training):
+def runtime_argv(checkpoint, *, training, ep=1):
     """Use native argument parsing/validation; no precision-policy overrides."""
     checkpoint = str(Path(checkpoint).absolute())
+    if ep not in (1, 4) or (training and ep != 1):
+        raise ValueError("Native VIME runs EP4 for recompute only; training stays EP1")
     values = {
         "hf-checkpoint": checkpoint,
         "load": checkpoint,
@@ -44,8 +46,8 @@ def runtime_argv(checkpoint, *, training):
         "tensor-model-parallel-size": 4,
         "pipeline-model-parallel-size": 1,
         "context-parallel-size": 1,
-        "expert-model-parallel-size": 1,
-        "expert-tensor-parallel-size": 4,
+        "expert-model-parallel-size": ep,
+        "expert-tensor-parallel-size": 4 // ep,
         "num-attention-heads": 16,
         "num-query-groups": 2,
         "kv-channels": 256,
@@ -135,7 +137,7 @@ def runtime_argv(checkpoint, *, training):
     return argv
 
 
-def create_actor(checkpoint, *, training):
+def create_actor(checkpoint, *, training, ep=1):
     """Call real native setup/load after the caller initializes Torch distributed."""
     import torch
     import torch.distributed as dist
@@ -148,7 +150,7 @@ def create_actor(checkpoint, *, training):
         raise ValueError("Native VIME actor requires four initialized ranks and visible GPUs")
     saved_argv = sys.argv
     try:
-        sys.argv = runtime_argv(checkpoint, training=training)
+        sys.argv = runtime_argv(checkpoint, training=training, ep=ep)
         args = parse_args()
     finally:
         sys.argv = saved_argv

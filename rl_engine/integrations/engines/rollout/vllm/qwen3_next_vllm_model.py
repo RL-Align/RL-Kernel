@@ -28,6 +28,7 @@ from vllm.v1.attention.backends.registry import AttentionBackendEnum
 
 from rl_engine.contracts.operators.logprob import LogprobRole
 from rl_engine.distributed.algorithms.collectives import collective_for_group
+from rl_engine.models.qwen3_next.qwen3_next_ep import expert_map, shared_moe_ep
 from rl_engine.models.qwen3_next.qwen3_next_forward import (
     FORWARD_PROVIDER_ID,
     shared_linear,
@@ -50,6 +51,15 @@ def profile_capabilities():
         "scheduler_batch_invariance_verified": False,
         "full_model_l2_verified": False,
     }
+
+
+def shared_expert_parallel(vllm_config):
+    """EP size from the shared identity's topology (1 when there is no identity)."""
+    identity = (vllm_config.additional_config or {}).get("qwen3_next_shared_identity")
+    ep = 1 if identity is None else identity["topology"]["ep"]
+    if ep not in (1, 4):
+        raise ValueError("Shared model supports EP 1 or EP 4 over the TP4 group")
+    return ep
 
 
 def validate_profile(vllm_config):
@@ -105,7 +115,8 @@ def validate_profile(vllm_config):
         vllm_config.speculative_config is not None,
         vllm_config.lora_config is not None,
         vllm_config.cache_config.enable_prefix_caching,
-        parallel.enable_expert_parallel,
+        parallel.enable_expert_parallel != (shared_expert_parallel(vllm_config) == 4),
+        getattr(parallel, "expert_placement_strategy", "linear") != "linear",
         parallel.enable_eplb,
         parallel.use_sequence_parallel_moe,
         parallel.enable_dbo,
@@ -145,8 +156,12 @@ class SharedPlainBF16MoEMethod(UnquantizedFusedMoEMethod):
     """Retain HF-loaded plain tensors; the shared model never calls native MoE."""
 
     def process_weights_after_loading(self, layer):
-        _require_weight(layer.w13_weight, (512, 256, 2048), "routed gate/up")
-        _require_weight(layer.w2_weight, (512, 2048, 128), "routed down")
+        if layer.expert_map is None:
+            _require_weight(layer.w13_weight, (512, 256, 2048), "routed gate/up")
+            _require_weight(layer.w2_weight, (512, 2048, 128), "routed down")
+        else:
+            _require_weight(layer.w13_weight, (128, 1024, 2048), "EP4 routed gate/up")
+            _require_weight(layer.w2_weight, (128, 2048, 512), "EP4 routed down")
         self.moe_quant_config = self.get_fused_moe_quant_config(layer)
 
     def apply(self, *args, **kwargs):
@@ -183,9 +198,19 @@ class SharedVLLMMoE(Qwen3NextSparseMoeBlock):
         if already_sequence_parallel:
             raise ValueError("Shared MoE does not enable sequence parallelism")
         routed = self.experts.routed_experts
-        output, routes = shared_moe(
-            hidden_states, self.gate.weight, routed.w13_weight, routed.w2_weight
-        )
+        ep = getattr(self, "shared_ep", 1)
+        if ep == 4:
+            output, routes = shared_moe_ep(
+                hidden_states,
+                self.gate.weight,
+                routed.w13_weight,
+                routed.w2_weight,
+                group=self.shared_tp_group,
+            )
+        else:
+            output, routes = shared_moe(
+                hidden_states, self.gate.weight, routed.w13_weight, routed.w2_weight
+            )
         if self.subnode_hook is not None:
             self.subnode_hook("router", routes.indices)
         gate_weight, up_weight = self.shared_expert.gate_up_proj.weight.chunk(2, dim=0)
@@ -194,6 +219,9 @@ class SharedVLLMMoE(Qwen3NextSparseMoeBlock):
         activated = (F.silu(gate.float()) * up.float()).to(torch.bfloat16)
         shared = shared_linear(activated, self.shared_expert.down_proj.weight)
         shared_gate = shared_linear(hidden_states, self.shared_expert_gate.weight).sigmoid()
+        if ep == 4:
+            # Routed output is complete on every rank; only the shared expert is TP.
+            return output + _ReduceFromTP.apply(shared * shared_gate, self.shared_tp_group)
         return _ReduceFromTP.apply(output + shared * shared_gate, self.shared_tp_group)
 
 
@@ -250,7 +278,7 @@ class SharedVLLMModel(Qwen3NextModel):
         return _rms(hidden_states + residual, self.norm)
 
 
-def _bind_native_model(model, group):
+def _bind_native_model(model, group, ep=1):
     """Attach shared behavior without replacing parameters or their HF loaders."""
     from rl_engine.integrations.engines.rollout.vllm.qwen3_next_vllm import SharedQwenGDN
     from rl_engine.integrations.engines.rollout.vllm.qwen3_next_vllm_attention import (
@@ -290,13 +318,24 @@ def _bind_native_model(model, group):
         routed = moe.experts.routed_experts
         if type(routed.quant_method) is not UnquantizedFusedMoEMethod:
             raise ValueError("Shared MoE requires native unquantized BF16 parameter loaders")
-        _require_weight(routed.w13_weight, (512, 256, 2048), "routed gate/up")
-        _require_weight(routed.w2_weight, (512, 2048, 128), "routed down")
+        if ep == 1:
+            if routed.expert_map is not None:
+                raise ValueError("EP1 shared MoE must hold all 512 experts")
+            _require_weight(routed.w13_weight, (512, 256, 2048), "routed gate/up")
+            _require_weight(routed.w2_weight, (512, 2048, 128), "routed down")
+        else:
+            rank = torch.distributed.get_rank(group)
+            if (routed.global_num_experts, routed.local_num_experts) != (512, 128) or not (
+                torch.equal(routed.expert_map.cpu().int(), expert_map(rank, "cpu"))
+            ):
+                raise ValueError("EP4 shared MoE requires experts [128r, 128r+128) on rank r")
+            _require_weight(routed.w13_weight, (128, 1024, 2048), "EP4 routed gate/up")
+            _require_weight(routed.w2_weight, (128, 2048, 512), "EP4 routed down")
         _require_weight(moe.shared_expert.gate_up_proj.weight, (256, 2048), "shared gate/up")
         _require_weight(moe.shared_expert.down_proj.weight, (2048, 128), "shared down")
         routed.quant_method.__class__ = SharedPlainBF16MoEMethod
         moe.__class__ = SharedVLLMMoE
-        moe.shared_tp_group = group
+        moe.shared_tp_group, moe.shared_ep = group, ep
     model.__class__ = SharedVLLMModel
     model.shared_tp_group, model.shared_trace_hook = group, None
     model.shared_forward_hook = None
@@ -316,7 +355,7 @@ class RLKernelQwen3NextForCausalLM(Qwen3NextForCausalLM):
         register_shared_attention_backend()
         super().__init__(vllm_config=vllm_config, prefix=prefix)
         self.shared_tp_group = get_tp_group().device_group
-        _bind_native_model(self.model, self.shared_tp_group)
+        _bind_native_model(self.model, self.shared_tp_group, shared_expert_parallel(vllm_config))
         _require_weight(self.lm_head.weight, (37984, 2048), "LM head")
         self.shared_logits_hook = None
 

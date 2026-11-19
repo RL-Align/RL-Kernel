@@ -73,10 +73,15 @@ def validate_training_topology(config, args):
         ("tensor_model_parallel_size", 4),
         ("pipeline_model_parallel_size", 1),
         ("context_parallel_size", 1),
-        ("expert_model_parallel_size", 1),
     ):
         if getattr(config, name, None) != expected:
             raise ValueError(f"Shared Qwen3-Next requires {name}={expected}")
+    expert = (
+        getattr(config, "expert_model_parallel_size", None),
+        getattr(config, "expert_tensor_parallel_size", 4),
+    )
+    if expert not in ((1, 4), (4, 1)):
+        raise ValueError("Shared Qwen3-Next requires EP1 x ETP4 or EP4 x ETP1 over TP4")
     if getattr(config, "sequence_parallel", False) or getattr(args, "sequence_parallel", False):
         raise ValueError("Shared Qwen3-Next requires sequence parallelism disabled")
     if getattr(config, "fp32_residual_connection", False):

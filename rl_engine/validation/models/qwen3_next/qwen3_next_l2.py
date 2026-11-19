@@ -19,6 +19,7 @@ from pathlib import Path
 
 import torch
 
+from rl_engine.models.qwen3_next.qwen3_next_ep import supported_topology
 from rl_engine.models.qwen3_next.qwen3_next_subnode import SUBNODES, subnode_layout
 from rl_engine.validation.common.file_digest import file_sha256
 from rl_engine.validation.common.tensor_identity import tensor_bitwise_equal
@@ -837,12 +838,9 @@ def validate_matrix_report(report, *, expected_identity=None, artifact_root=None
     ) != set(expected_ids):
         raise ValueError("Full-model L2 requires the complete sixteen-case raw-bit matrix")
     identity = report.get("identity", {})
-    if identity.get("architecture_layers") != 48 or identity.get("topology") != {
-        "tp": 4,
-        "pp": 1,
-        "cp": 1,
-        "ep": 1,
-    }:
+    if identity.get("architecture_layers") != 48 or not supported_topology(
+        identity.get("topology")
+    ):
         raise ValueError("Full-model L2 cannot change model depth or topology")
     processes = report.get("processes", {})
     if (
@@ -1013,12 +1011,9 @@ def validate_scheduler_report(report, *, expected_identity=None, artifact_root=N
     if set(report.get("cases", {})) != set(expected_ids):
         raise ValueError("Scheduler matrix omitted mandatory cases")
     identity = report.get("identity", {})
-    if identity.get("architecture_layers") != 48 or identity.get("topology") != {
-        "tp": 4,
-        "pp": 1,
-        "cp": 1,
-        "ep": 1,
-    }:
+    if identity.get("architecture_layers") != 48 or not supported_topology(
+        identity.get("topology")
+    ):
         raise ValueError("Scheduler gate must execute the complete TP4 model")
     processes = report.get("processes", {})
     process = processes.get("rollout", {})
