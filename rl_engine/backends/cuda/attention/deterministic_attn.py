@@ -28,6 +28,8 @@ from rl_engine.contracts.operators.attention import (
 from rl_engine.utils.logger import logger
 
 _IS_ROCM = torch.version.hip is not None
+# D=256 (Qwen3-Next full attention) is CUDA-only: ROCm has no 256 evidence, and the Triton twin
+# still raises for any D other than 128 instead of diverging.
 _HEAD_DIMS = (128,) if _IS_ROCM else (128, 256)
 _GPU_PLATFORM = "ROCm" if _IS_ROCM else "CUDA"
 

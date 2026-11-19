@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "gates": {
+    "gdn": {
+      "script": "tools/validation/models/qwen3_next/qwen3_next_tp_gdn_check.py",
+      "output_option": "--output",
+      "scope": "tp4_gdn_layer0",
+      "groups": {
+        "cases": [
+          "full-chunk-8",
+          "full-chunk-64",
+          "full-chunk-256",
+          "full-chunk-1024",
+          "prompt-gradient",
+          "replicated-norm-gradient",
+          "hf-load-export"
+        ]
+      }
+    },
+    "attention": {
+      "script": "tools/validation/models/qwen3_next/qwen3_next_tp_attention_check.py",
+      "output_option": "--output",
+      "scope": "tp4_full_attention_layer3",
+      "groups": {
+        "attention.cases": [
+          "hf-load-export",
+          "full-chunk-8",
+          "full-chunk-64",
+          "full-chunk-256",
+          "full-chunk-1024",
+          "batch4-varlen-reorder",
+          "sixteen-token-decode",
+          "prompt-gradient",
+          "kv-pair-gradient",
+          "qk-norm-gradient"
+        ]
+      }
+    },
+    "moe": {
+      "script": "tools/validation/models/qwen3_next/qwen3_next_tp_moe_check.py",
+      "output_option": "--output",
+      "scope": "tp4_moe_block_layer0",
+      "groups": {
+        "moe.cases": [
+          "hf-load-export-all512experts",
+          "routes-replicated-8",
+          "full-chunk-reorder-8",
+          "routes-replicated-64",
+          "full-chunk-reorder-64",
+          "routes-replicated-256",
+          "full-chunk-reorder-256",
+          "routes-replicated-1024",
+          "full-chunk-reorder-1024",
+          "training-forward",
+          "all-parameter-gradient",
+          "replicated-router-gradient"
+        ]
+      }
+    },
+    "adapters": {
+      "script": "tools/validation/models/qwen3_next/qwen3_next_adapter_check.py",
+      "output_option": "--out",
+      "scope": "gdn_engine_adapter_component",
+      "groups": {
+        "cases": [
+          "batch1-length8",
+          "batch1-length64",
+          "batch1-length256",
+          "batch1-length1024",
+          "batch4-length8",
+          "batch4-length64",
+          "batch4-length256",
+          "batch4-length1024",
+          "mixed-prefill-decode16-reorder"
+        ]
+      },
+      "fields": {
+        "prompt_gradient": "passed",
+        "hf_conv_roundtrip": "passed",
+        "batch_invariance_capability_registered": false
+      }
+    },
+    "heads": {
+      "script": "tools/validation/models/qwen3_next/qwen3_next_tp_head_check.py",
+      "output_option": "--output",
+      "scope": "tp4_embedding_lm_head_only",
+      "groups": {
+        "cases": [
+          "hf-embedding-roundtrip",
+          "hf-lm-head-roundtrip",
+          "replicated-norm-gradient",
+          "nonzero-finite-embedding-head-gradient",
+          "embedding-repeat-100",
+          "batch-invariant-prompt8",
+          "batch-invariant-prompt64",
+          "batch-invariant-prompt256",
+          "batch-invariant-prompt1024",
+          "logprob-original-and-promoted-logits",
+          "entropy-interface"
+        ]
+      }
+    }
+  },
+  "scheduler_case_ids": [
+    "p0008-b1-full",
+    "p0008-b1-chunked",
+    "p0008-b4-full",
+    "p0008-b4-chunked",
+    "p0064-b1-full",
+    "p0064-b1-chunked",
+    "p0064-b4-full",
+    "p0064-b4-chunked",
+    "p0256-b1-full",
+    "p0256-b1-chunked",
+    "p0256-b4-full",
+    "p0256-b4-chunked",
+    "p1024-b1-full",
+    "p1024-b1-chunked",
+    "p1024-b4-full",
+    "p1024-b4-chunked"
+  ]
+}

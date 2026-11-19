@@ -308,6 +308,9 @@ def assemble_moe_weight(name, values):
 class TP4MoE(nn.Module):
     """All 512 experts at EP1 with intermediate width 128 per TP rank."""
 
+    # Set by a trace owner (see qwen3_next_subnode); receives the route indices.
+    subnode_hook = None
+
     def __init__(self, *, group, device):
         super().__init__()
         self.group = _tp_group(group)
@@ -359,12 +362,14 @@ class TP4MoE(nn.Module):
         if hidden.ndim != 2 or hidden.shape[1] != 2048 or hidden.dtype != torch.bfloat16:
             raise ValueError("MoE hidden must be BF16 [tokens, 2048]")
         copied = _CopyToTP.apply(hidden, self.group)
-        routed, _ = shared_moe(
+        routed, routes = shared_moe(
             copied,
             _CopyToTP.apply(self.gate.weight, self.group),
             self.experts.gate_up,
             self.experts.down,
         )
+        if self.subnode_hook is not None:
+            self.subnode_hook("router", routes.indices)
         gate = shared_linear(copied, self.shared_expert.gate_proj.weight)
         up = shared_linear(copied, self.shared_expert.up_proj.weight)
         activated = (F.silu(gate.float()) * up.float()).to(hidden.dtype)
