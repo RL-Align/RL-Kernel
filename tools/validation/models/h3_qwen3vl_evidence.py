@@ -401,6 +401,7 @@ def main() -> None:
     )
     evidence["files"] = {
         "verified": len(checked),
+        "sha256": checked,
         "shards_hashed": not args.skip_hash,
         "seconds": time.perf_counter() - start,
     }
