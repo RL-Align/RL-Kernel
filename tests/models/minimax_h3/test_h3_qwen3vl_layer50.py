@@ -394,6 +394,22 @@ def test_evidence_release_after_frees_the_model_and_catches_a_leak() -> None:
         )
 
 
+@pytest.mark.parametrize("repeats", ["0", "-1"])
+def test_evidence_rejects_repeats_below_one(
+    repeats: str, tmp_path: Path, monkeypatch: Any, capsys: Any
+) -> None:
+    """Fails at argument parsing, before any file is hashed or model loaded."""
+
+    from tools.validation.models import h3_qwen3vl_evidence as ev
+
+    argv = ["h3_qwen3vl_evidence.py", "--root", str(tmp_path / "missing"), "--out", "x.json"]
+    monkeypatch.setattr(sys, "argv", [*argv, "--repeats", repeats])
+    with pytest.raises(SystemExit) as exc:
+        ev.main()
+    assert exc.value.code == 2
+    assert "--repeats must be at least 1" in capsys.readouterr().err
+
+
 # --- released tokenizer / processor files -----------------------------------------------------
 
 

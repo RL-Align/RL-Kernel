@@ -350,10 +350,13 @@ def main() -> None:
         "--skip-hash", action="store_true", help="do not re-hash the 67 GB of shards"
     )
     args = parser.parse_args()
+    if args.repeats < 1:
+        parser.error("--repeats must be at least 1 (the latency medians need a timed run)")
 
     from transformers import AutoProcessor, AutoTokenizer, Qwen3VLForConditionalGeneration
 
-    evidence: dict[str, Any] = {"contract": q.contract_manifest()}
+    # "contract" is filled with the 50-layer results in stage 7; the manifest keeps its own key.
+    evidence: dict[str, Any] = {"manifest": q.contract_manifest()}
     props = torch.cuda.get_device_properties(0)
     import transformers
 
