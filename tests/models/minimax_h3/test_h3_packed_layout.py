@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 
@@ -303,6 +304,16 @@ def test_structure_must_match_declared_workflow():
         pl.check_pipeline_identity(shifted)
     with pytest.raises(pl.VariantMismatch, match="structure"):
         pl.check_pipeline_identity(_toy_layout("t2va", cond=2))
+
+
+def test_structure_of_a_layout_without_target_video_rows_is_refused():
+    # validate() lets every video row be a condition row; the structural check must still
+    # answer with an error, not an IndexError.
+    no_target = dataclasses.replace(_toy_layout("ref2va", cond=2), num_condition_video_rows=6)
+    no_target.validate()
+    for check in (pl.structural_workflow, pl.check_pipeline_identity, pl.layout_artifact):
+        with pytest.raises(ValueError, match="no target video rows"):
+            check(no_target)
 
 
 # --- artifact (H-C7) ----------------------------------------------------------------------
