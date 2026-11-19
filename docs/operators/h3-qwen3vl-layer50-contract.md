@@ -105,8 +105,12 @@ computed.
 `from_pretrained` (on CPU, then moved to the device; `accelerate` is not
 needed). The rotary `inv_freq` buffers are bitwise equal to a full load. The
 loader fails unless every parameter came from the checkpoint and every skipped
-key belongs to a layer >= 50. A 50-layer download needs 12 of the 14 shards
-(`required_shards`); shards 12 and 13 hold only layers >= 50.
+key belongs to a layer >= 50. The 50-layer stack reads 12 of the 14 shards
+(`required_shards`): shards 1-11 hold the embeddings and layers 0-49, and shard
+14 holds the vision tower, the final norm and `lm_head`, which the stack loads
+but the feature never uses. Shards 12 and 13 hold only layers >= 50.
+`from_pretrained` opens every shard the index lists, so loading still needs the
+full `text_encoder/` download.
 
 Diffusers refuses a stack of exactly 50 layers, because its last hidden state is
 post-norm. The hook path has no such trap, and a test pins both behaviours.
