@@ -23,12 +23,12 @@ integration, not a declaration that every Qwen model uses these rules.
 | Slot reduction | Adjacent-pair FP32 additions in canonical slot order; carry an odd last node unchanged at every level |
 | Additional branches | Add already-gated shared output, then external forward residual, in FP32 |
 | Output | One round-to-nearest, ties-to-even cast to declared fp16/bf16/fp32 output dtype |
+| Subnormal mode | CPU references force FP32 subnormals to be preserved and restore the caller's setting afterward |
 
 For five slots the tree is `((s0+s1)+(s2+s3))+s4`, not a left fold,
 arrival-order sum, rank-dependent tree, or an implicit reduction. A multiply
 must not be fused into an addition. No zero padding is used: a lone negative
-zero must retain its sign. Subnormal behavior follows the CPU/PyTorch reference;
-this version neither selects nor certifies an Ascend flush-to-zero mode.
+zero must retain its sign. The `subnormal_mode=preserve` rule is part of the contract fingerprint. CPU references temporarily disable flush-to-zero for FP32 subnormals, serialize that process-wide setting, and restore the caller's previous setting. This does not certify an Ascend flush-to-zero mode.
 Exponent underflow may produce zero weights. Non-finite inputs and non-finite
 fixed-reference outputs (including final-cast overflow) are rejected.
 

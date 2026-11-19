@@ -3,9 +3,29 @@
 
 """Arithmetic helper shared only by the fixed-order CPU references."""
 
-import torch
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 
+import torch
 from rl_engine.contracts.operators.moe_numerical import MoEContractError
+
+_SUBNORMAL_LOCK = threading.RLock()
+
+
+@contextmanager
+def preserve_subnormals() -> Iterator[None]:
+    """Run a CPU reference with subnormal FP32 values preserved.
+
+    ``torch.set_flush_denormal`` changes process-wide CPU state, so calls are
+    serialized and the caller's previous setting is restored on exit.
+    """
+    with _SUBNORMAL_LOCK:
+        previous = torch.set_flush_denormal(False)
+        try:
+            yield
+        finally:
+            torch.set_flush_denormal(previous)
 
 
 def require_cpu(value: torch.Tensor) -> None:

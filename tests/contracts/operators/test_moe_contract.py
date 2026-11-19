@@ -7,7 +7,6 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 import torch
-
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.contracts.operators.moe_numerical import (
     MoEContractError,
@@ -41,6 +40,7 @@ from rl_engine.contracts.operators.moe_numerical import (
         {"version": "future"},
         {"shared_expert_mode": "auto"},
         {"residual_mode": "auto"},
+        {"subnormal_mode": "flush"},
     ],
 )
 def test_contract_rejects_unsupported_or_ambiguous_rules(change):

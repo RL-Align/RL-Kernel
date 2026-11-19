@@ -16,7 +16,6 @@ import math
 from dataclasses import asdict, dataclass
 
 import torch
-
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 
 MOE_CONTRACT_VERSION = "moe.softmax_fixed_tree.v1"
@@ -89,6 +88,7 @@ class MoENumericalContract:
     accumulation_dtype: str = "float32"
     reduction_tree: str = "adjacent_pairs_odd_carry"
     rounding: str = "nearest_even_final_cast"
+    subnormal_mode: str = "preserve"
     quantization: str = "none"
 
     def __post_init__(self) -> None:
@@ -127,6 +127,7 @@ class MoENumericalContract:
             ("accumulation_dtype", "float32"),
             ("reduction_tree", "adjacent_pairs_odd_carry"),
             ("rounding", "nearest_even_final_cast"),
+            ("subnormal_mode", "preserve"),
             ("quantization", "none"),
         ):
             if getattr(self, name) != expected:

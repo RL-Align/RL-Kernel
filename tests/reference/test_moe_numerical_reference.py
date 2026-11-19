@@ -6,7 +6,6 @@ from dataclasses import replace
 
 import pytest
 import torch
-
 from rl_engine.contracts.operators.moe_numerical import (
     MOE_PHASES,
     MoECombineInputs,
@@ -480,3 +479,67 @@ def test_signed_zero_odd_tree_carries_leaf_without_padding():
     assert report["phases"]["train"]["accuracy_passed"]
     assert not report["phases"]["train"]["fixed_tree_passed"]
     assert report["phases"]["train"]["bit_mismatch_count"] == 1
+
+
+def test_references_pin_subnormal_behavior_across_flush_settings():
+    contract = MoENumericalContract(1, 1, 1, input_dtype="float32", output_dtype="float32")
+    tiny = 2.0**-65
+    inputs = MoECombineInputs(
+        num_tokens=1,
+        expert_outputs=torch.tensor([[tiny]], dtype=torch.float32),
+        token_indices=torch.tensor([0]),
+        slot_indices=torch.tensor([0]),
+        expert_indices=torch.tensor([0]),
+        routing_expert_ids=torch.tensor([[0]]),
+        routing_weights=torch.tensor([[tiny]], dtype=torch.float32),
+        mapping_run_id="run-1",
+    )
+    previous = torch.set_flush_denormal(False)
+    try:
+        expected = _combine(contract, inputs)
+        assert expected.view(torch.int32).item() == 0x80000
+        torch.set_flush_denormal(True)
+        actual = _combine(contract, inputs)
+    finally:
+        torch.set_flush_denormal(previous)
+    assert torch.equal(actual, expected)
+
+
+def test_phase_comparison_resolves_lazy_negative_views_before_bytes():
+    contract, inputs = _case()
+    output = _combine(contract, inputs)
+    lazy_negative = torch._neg_view(-output)
+    assert lazy_negative.is_neg()
+    observations = _observations(contract, output)
+    observations[0] = observations[0].__class__(
+        "train",
+        lazy_negative,
+        observations[0].contract_fingerprint,
+        observations[0].mapping_run_id,
+        observations[0].parameter_version,
+        observations[0].actual_backend,
+        observations[0].implementation_fingerprint,
+    )
+    report = _compare(contract, inputs, observations)
+    assert report["passed"]
+
+
+def test_phase_comparison_reports_nested_output_without_reading_shape():
+    contract, inputs = _case()
+    output = _combine(contract, inputs)
+    nested = torch.nested.nested_tensor([output[0], output[1]])
+    observations = _observations(contract, output)
+    observations[0] = observations[0].__class__(
+        "train",
+        nested,
+        observations[0].contract_fingerprint,
+        observations[0].mapping_run_id,
+        observations[0].parameter_version,
+        observations[0].actual_backend,
+        observations[0].implementation_fingerprint,
+    )
+    report = _compare(contract, inputs, observations)
+    phase = report["phases"]["train"]
+    assert phase["metadata_errors"] == ["nested_tensor_output"]
+    assert phase["compared_count"] == 0
+    assert not report["passed"]

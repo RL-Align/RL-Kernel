@@ -6,14 +6,13 @@
 import math
 
 import torch
-
 from rl_engine.contracts.operators.moe_numerical import (
     MoECombineInputs,
     MoEContractError,
     MoENumericalContract,
 )
 
-from ._tree import adjacent_tree, require_cpu
+from ._tree import adjacent_tree, preserve_subnormals, require_cpu
 
 
 def combine_fixed_tree(
@@ -27,22 +26,23 @@ def combine_fixed_tree(
     """
     require_cpu(inputs.expert_outputs)
     inputs.validate(contract, expected_mapping_run_id=expected_mapping_run_id)
-    keys = inputs.token_indices * contract.top_k + inputs.slot_indices
-    slots = (
-        inputs.expert_outputs[torch.argsort(keys)]
-        .float()
-        .reshape(inputs.num_tokens, contract.top_k, contract.hidden_size)
-    )
-    if not contract.expert_weight_applied:
-        slots = slots * inputs.routing_weights.unsqueeze(-1)
-    output = adjacent_tree(slots)
-    for branch in (inputs.shared_output, inputs.residual):
-        if branch is not None:
-            output = output + branch.float()
-    output = output.to(getattr(torch, contract.output_dtype))
-    if not bool(torch.isfinite(output).all()):
-        raise MoEContractError("combine arithmetic or final cast produced non-finite output")
-    return output
+    with preserve_subnormals():
+        keys = inputs.token_indices * contract.top_k + inputs.slot_indices
+        slots = (
+            inputs.expert_outputs[torch.argsort(keys)]
+            .float()
+            .reshape(inputs.num_tokens, contract.top_k, contract.hidden_size)
+        )
+        if not contract.expert_weight_applied:
+            slots = slots * inputs.routing_weights.unsqueeze(-1)
+        output = adjacent_tree(slots)
+        for branch in (inputs.shared_output, inputs.residual):
+            if branch is not None:
+                output = output + branch.float()
+        output = output.to(getattr(torch, contract.output_dtype))
+        if not bool(torch.isfinite(output).all()):
+            raise MoEContractError("combine arithmetic or final cast produced non-finite output")
+        return output
 
 
 def combine_accuracy_reference(
@@ -56,33 +56,34 @@ def combine_accuracy_reference(
     """
     require_cpu(inputs.expert_outputs)
     inputs.validate(contract, expected_mapping_run_id=expected_mapping_run_id)
-    rows = {
-        (token, slot): values
-        for token, slot, values in zip(
-            inputs.token_indices.tolist(),
-            inputs.slot_indices.tolist(),
-            inputs.expert_outputs.detach().double().tolist(),
-            strict=True,
+    with preserve_subnormals():
+        rows = {
+            (token, slot): values
+            for token, slot, values in zip(
+                inputs.token_indices.tolist(),
+                inputs.slot_indices.tolist(),
+                inputs.expert_outputs.detach().double().tolist(),
+                strict=True,
+            )
+        }
+        weights = inputs.routing_weights.detach().double().tolist()
+        branches = [
+            branch.detach().double().tolist()
+            for branch in (inputs.shared_output, inputs.residual)
+            if branch is not None
+        ]
+        output = []
+        for token in range(inputs.num_tokens):
+            result = []
+            for column in range(contract.hidden_size):
+                terms = [
+                    rows[token, slot][column]
+                    * (1.0 if contract.expert_weight_applied else weights[token][slot])
+                    for slot in range(contract.top_k)
+                ]
+                terms.extend(branch[token][column] for branch in branches)
+                result.append(math.fsum(terms))
+            output.append(result)
+        return torch.tensor(output, dtype=torch.float64).reshape(
+            inputs.num_tokens, contract.hidden_size
         )
-    }
-    weights = inputs.routing_weights.detach().double().tolist()
-    branches = [
-        branch.detach().double().tolist()
-        for branch in (inputs.shared_output, inputs.residual)
-        if branch is not None
-    ]
-    output = []
-    for token in range(inputs.num_tokens):
-        result = []
-        for column in range(contract.hidden_size):
-            terms = [
-                rows[token, slot][column]
-                * (1.0 if contract.expert_weight_applied else weights[token][slot])
-                for slot in range(contract.top_k)
-            ]
-            terms.extend(branch[token][column] for branch in branches)
-            result.append(math.fsum(terms))
-        output.append(result)
-    return torch.tensor(output, dtype=torch.float64).reshape(
-        inputs.num_tokens, contract.hidden_size
-    )

@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 import torch
-
 from rl_engine.contracts.operators.moe_numerical import (
     MOE_PHASES,
     MoECombineInputs,
@@ -49,8 +48,8 @@ class MoEPhaseOutput:
 
 def _bit_mismatches(expected: torch.Tensor, actual: torch.Tensor) -> torch.Tensor:
     shape = (*expected.shape, expected.element_size())
-    lhs = expected.contiguous().view(torch.uint8).reshape(shape)
-    rhs = actual.contiguous().view(torch.uint8).reshape(shape)
+    lhs = expected.resolve_neg().contiguous().view(torch.uint8).reshape(shape)
+    rhs = actual.resolve_neg().contiguous().view(torch.uint8).reshape(shape)
     return (lhs != rhs).any(dim=-1)
 
 
@@ -100,6 +99,11 @@ def compare_moe_phases(
             actual_device = None
             actual_shape = None
             actual_dtype = None
+        elif getattr(actual, "is_nested", False):
+            metadata_errors.append("nested_tensor_output")
+            actual_device = str(actual.device)
+            actual_shape = None
+            actual_dtype = str(actual.dtype)
         elif actual.layout != torch.strided or actual.device.type == "meta":
             metadata_errors.append("non_materialized_output")
             actual_device = str(actual.device)
@@ -111,6 +115,7 @@ def compare_moe_phases(
             actual_dtype = str(actual.dtype)
         if (
             isinstance(actual, torch.Tensor)
+            and not getattr(actual, "is_nested", False)
             and actual.layout == torch.strided
             and actual.device.type != "meta"
         ):
