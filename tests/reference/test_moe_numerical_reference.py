@@ -2,6 +2,7 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
@@ -481,7 +482,8 @@ def test_signed_zero_odd_tree_carries_leaf_without_padding():
     assert report["phases"]["train"]["bit_mismatch_count"] == 1
 
 
-def test_references_pin_subnormal_behavior_across_flush_settings():
+@pytest.mark.parametrize("flush", [False, True])
+def test_references_pin_subnormal_behavior_across_flush_settings(flush):
     contract = MoENumericalContract(1, 1, 1, input_dtype="float32", output_dtype="float32")
     tiny = 2.0**-65
     inputs = MoECombineInputs(
@@ -494,15 +496,31 @@ def test_references_pin_subnormal_behavior_across_flush_settings():
         routing_weights=torch.tensor([[tiny]], dtype=torch.float32),
         mapping_run_id="run-1",
     )
-    previous = torch.set_flush_denormal(False)
-    try:
-        expected = _combine(contract, inputs)
-        assert expected.view(torch.int32).item() == 0x80000
-        torch.set_flush_denormal(True)
-        actual = _combine(contract, inputs)
-    finally:
-        torch.set_flush_denormal(previous)
-    assert torch.equal(actual, expected)
+
+    def exercise():
+        if not torch.set_flush_denormal(flush):
+            pytest.skip("CPU does not support setting the flush mode")
+        factor = inputs.expert_outputs
+
+        def caller_product_bits():
+            return (factor * factor).view(torch.int32).item()
+
+        caller_bits = 0 if flush else 0x80000
+        assert caller_product_bits() == caller_bits
+        assert _combine(contract, inputs).view(torch.int32).item() == 0x80000
+        assert caller_product_bits() == caller_bits
+        overflow = replace(
+            inputs,
+            expert_outputs=torch.full_like(factor, 2.0**127),
+            routing_weights=torch.full_like(factor, 4),
+        )
+        with pytest.raises(MoEContractError, match="non-finite output"):
+            _combine(contract, overflow)
+        assert caller_product_bits() == caller_bits
+
+    # End the thread after the test so its deliberately chosen FP mode is discarded.
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        worker.submit(exercise).result()
 
 
 def test_phase_comparison_resolves_lazy_negative_views_before_bytes():

@@ -15,17 +15,26 @@ _SUBNORMAL_LOCK = threading.RLock()
 
 @contextmanager
 def preserve_subnormals() -> Iterator[None]:
-    """Run a CPU reference with subnormal FP32 values preserved.
-
-    ``torch.set_flush_denormal`` changes process-wide CPU state, so calls are
-    serialized and the caller's previous setting is restored on exit.
-    """
+    """Preserve FP32 subnormals without changing the caller's mode on exit."""
     with _SUBNORMAL_LOCK:
-        previous = torch.set_flush_denormal(False)
+        # The setter reports success, not the previous mode. Probe input and
+        # output flushing separately; the setter can only restore them together.
+        tiny = torch.tensor(2.0**-65, dtype=torch.float32, device="cpu")
+        flush_outputs = (tiny * tiny).view(torch.int32).item() == 0
+        raw = torch.tensor(1, dtype=torch.int32, device="cpu")
+        flush_inputs = raw.view(torch.float32).double().item() == 0
+        if flush_inputs != flush_outputs:
+            raise MoEContractError("cannot restore mixed CPU subnormal modes")
+        if not flush_outputs:
+            yield
+            return
+        if not torch.set_flush_denormal(False):
+            raise MoEContractError("cannot disable CPU subnormal flushing")
         try:
             yield
         finally:
-            torch.set_flush_denormal(previous)
+            if not torch.set_flush_denormal(True):
+                raise MoEContractError("cannot restore CPU subnormal flushing")
 
 
 def require_cpu(value: torch.Tensor) -> None:
