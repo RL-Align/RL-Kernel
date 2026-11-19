@@ -139,6 +139,17 @@ def test_keyframes_resolve_canvas_and_resize_like_the_reference():
     assert fl2va.keyframe_pixels(kf.images[0]).shape == (1, 3, 1, 768, 1344)
 
 
+def test_keyframe_pixels_refuse_images_that_are_not_three_channel():
+    # The pinned pipeline packs np.array(image) unconverted: a gray or palette image has no
+    # channel axis, an RGBA / LA one has 4 / 2 channels. All are refused, not converted.
+    for mode in ("L", "P", "RGBA", "LA"):
+        with pytest.raises(ValueError, match="3-channel"):
+            fl2va.keyframe_pixels(Image.new(mode, (8, 4)))
+    pixels = fl2va.keyframe_pixels(Image.new("RGB", (8, 4), (1, 2, 3)))
+    assert pixels.shape == (1, 3, 1, 4, 8) and pixels.dtype == torch.uint8
+    assert pixels[0, :, 0, 0, 0].tolist() == [1, 2, 3]
+
+
 def test_presentation_tags_vision_blocks_as_video():
     tok = FakeTokenizer()
     ids, tags = fl2va.fl2va_presentation(tok.tokenize, tok.token_id, "go", [3, 2])
@@ -213,6 +224,14 @@ def test_repeated_preprocessing_in_a_fresh_process_is_byte_identical():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_initial_rows_on_cuda_equal_cpu_bytes():
+    """``device="cuda"`` with a CPU generator.
+
+    ``randn_tensor`` draws on the generator's device, so every noise tensor here is a CPU draw
+    moved to the GPU and only the condition blend runs there. This checks that the blend and
+    the transfers keep the CPU bytes; it does not compare CUDA RNG with CPU RNG (a CUDA
+    generator draws other numbers by design), nor VAE or transformer kernels (other rows).
+    """
+
     cpu = fl2va_preprocess(("first", "last"))
     cuda = fl2va_preprocess(("first", "last"), device="cuda")
     assert cpu == cuda
@@ -444,7 +463,8 @@ def test_layout_matches_sglang_packed_sequence_prefix():
                 frame_count=g["num_frames"] if anchors else None,
             )
             used = layout.sequence_length
-            assert packed["seq_len"] % 64 == 0 and packed["seq_len"] >= used
+            # SGLang pads to the next multiple of 64 rows: exactly -used % 64 rows tagged -1.
+            assert packed["seq_len"] == used + (-used % 64)
             assert torch.equal(packed["img_position_ids"][:used], layout.position_ids)
             assert bool((packed["token_tags"][used:] == -1).all())  # SGLang pads to 64 rows
             assert torch.equal(packed["token_tags"][:used], layout.token_tags)

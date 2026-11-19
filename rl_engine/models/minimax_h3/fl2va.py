@@ -111,9 +111,19 @@ def prepare_keyframes(
 
 
 def keyframe_pixels(image: Image.Image) -> torch.Tensor:
-    """``(1, 3, 1, H, W)`` uint8: the VAE input of one keyframe (encoded by visual_vae_contract)."""
+    """``(1, 3, 1, H, W)`` uint8: the VAE input of one keyframe (encoded by visual_vae_contract).
 
-    return torch.from_numpy(np.array(image)).permute(2, 0, 1)[None, :, None].contiguous()
+    The pinned pipeline packs the PIL array as it is, without a mode conversion, so only a
+    3-channel image is accepted; anything else is refused here instead of being converted.
+    """
+
+    pixels = np.array(image)
+    if pixels.ndim != 3 or pixels.shape[2] != 3:
+        raise ValueError(
+            f"a keyframe must be a 3-channel (RGB) image, got mode {image.mode!r} "
+            f"(array shape {pixels.shape}); convert it before preprocessing"
+        )
+    return torch.from_numpy(pixels).permute(2, 0, 1)[None, :, None].contiguous()
 
 
 def fl2va_presentation(

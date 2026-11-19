@@ -146,7 +146,7 @@ def identity(transformer_dir: str | None) -> dict[str, Any]:
             variant: pl.checkpoint_component_hashes(variant) for variant in pl.PIPELINES
         },
         "preprocessing_recipe_sha256": {
-            variant: identity.recipe_sha256() for variant, identity in pl.PIPELINES.items()
+            variant: spec.recipe_sha256() for variant, spec in pl.PIPELINES.items()
         },
         "transformer_shards_differ": sum(
             pl.transformer_shard_hashes("FL2VA")[name] != sha
@@ -249,6 +249,29 @@ def _save(fig: Any, path: Path) -> None:
     plt.close(fig)
 
 
+def compared_references(report: dict[str, Any]) -> list[str]:
+    """The reference entries that ran a comparison (a skipped one has no ``cases``)."""
+
+    return [k for k, v in report["reference"].items() if isinstance(v, dict) and "cases" in v]
+
+
+def verdict(report: dict[str, Any]) -> bool:
+    """Every case repeatable, at least one reference compared, and every compared case equal.
+
+    With Diffusers and SGLang both missing nothing is compared, which is not a pass.
+    """
+
+    compared = compared_references(report)
+    return (
+        all(v["identical"] for v in report["repeatability"].values())
+        and bool(compared)
+        and all(
+            report["reference"][k]["bitwise_equal"] == report["reference"][k]["cases"]
+            for k in compared
+        )
+    )
+
+
 def charts(report: dict[str, Any], out_dir: str) -> list[str]:
     """Write one PNG per Results table: equality, timing, repeatability, row finding."""
 
@@ -265,40 +288,41 @@ def charts(report: dict[str, Any], out_dir: str) -> list[str]:
 
     # Byte equality with prior art: cases per reference, all bitwise equal or not.
     reference = report["reference"]
-    keys = [k for k, v in reference.items() if isinstance(v, dict) and "cases" in v]
-    fig, ax = _axes(
-        7.5,
-        0.9 + 0.55 * len(keys),
-        f"{name} layout vs prior art: bitwise-equal cases ({gpu})",
-        where,
-    )
-    y = list(range(len(keys)))[::-1]
-    equal = [reference[k]["bitwise_equal"] for k in keys]
-    differ = [reference[k]["cases"] - reference[k]["bitwise_equal"] for k in keys]
-    ax.barh(y, equal, height=0.5, color=SERIES[0], label="bitwise equal")
-    ax.barh(y, differ, left=equal, height=0.5, color=SERIES[1], label="differ")
-    for i, k in zip(y, keys, strict=True):
-        ax.text(
-            reference[k]["cases"],
-            i,
-            f"  {reference[k]['bitwise_equal']} / {reference[k]['cases']} equal, "
-            f"{reference[k]['cases'] - reference[k]['bitwise_equal']} differ",
-            va="center",
-            fontsize=8.5,
-            color=INK,
+    keys = compared_references(report)
+    if keys:  # nothing to draw when every reference was skipped
+        fig, ax = _axes(
+            7.5,
+            0.9 + 0.55 * len(keys),
+            f"{name} layout vs prior art: bitwise-equal cases ({gpu})",
+            where,
         )
-    ax.set_yticks(y, [REFERENCE_LABELS.get(k, k) for k in keys])
-    ax.set_xlabel("cases", color=INK_2, fontsize=8.5)
-    ax.set_xlim(0, max(reference[k]["cases"] for k in keys) * 1.45)
-    ax.xaxis.grid(True, color=GRID, linewidth=0.6)
-    ax.legend(loc="lower right", fontsize=8, frameon=False)
-    path = out / f"{row}-equality.png"
-    _save(fig, path)
-    written.append(path.name)
+        y = list(range(len(keys)))[::-1]
+        equal = [reference[k]["bitwise_equal"] for k in keys]
+        differ = [reference[k]["cases"] - reference[k]["bitwise_equal"] for k in keys]
+        ax.barh(y, equal, height=0.5, color=SERIES[0], label="bitwise equal")
+        ax.barh(y, differ, left=equal, height=0.5, color=SERIES[1], label="differ")
+        for i, k in zip(y, keys, strict=True):
+            ax.text(
+                reference[k]["cases"],
+                i,
+                f"  {reference[k]['bitwise_equal']} / {reference[k]['cases']} equal, "
+                f"{reference[k]['cases'] - reference[k]['bitwise_equal']} differ",
+                va="center",
+                fontsize=8.5,
+                color=INK,
+            )
+        ax.set_yticks(y, [REFERENCE_LABELS.get(k, k) for k in keys])
+        ax.set_xlabel("cases", color=INK_2, fontsize=8.5)
+        ax.set_xlim(0, max(reference[k]["cases"] for k in keys) * 1.45)
+        ax.xaxis.grid(True, color=GRID, linewidth=0.6)
+        ax.legend(loc="lower right", fontsize=8, frameon=False)
+        path = out / f"{row}-equality.png"
+        _save(fig, path)
+        written.append(path.name)
 
-    # Layout build time: median bar, minimum marker.
+    # Layout build time: median bar, minimum marker; only the implementations that ran.
     timing = report["timing"]
-    impls = list(TIMING_LABELS)
+    impls = [k for k in TIMING_LABELS if k in timing]
     label = timing["rl_kernel"].get("label", "layout build")
     fig, ax = _axes(
         7.5,
@@ -436,11 +460,7 @@ def main() -> None:
         "timing": module.timing(time_call),
         "findings": module.findings(),
     }
-    report["passed"] = all(v["identical"] for v in report["repeatability"].values()) and all(
-        v["bitwise_equal"] == v["cases"]
-        for v in report["reference"].values()
-        if isinstance(v, dict) and "cases" in v
-    )
+    report["passed"] = verdict(report)
     Path(args.out).write_text(json.dumps(report, indent=1, sort_keys=True) + "\n")
     if args.png:
         plot(report, args.png)
