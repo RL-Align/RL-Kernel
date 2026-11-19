@@ -109,6 +109,14 @@ def test_split_tiles_covers_frame_on_latent_grid(length: int) -> None:
     assert axis == vv.split_tiles(length, 256, 64, 16)
 
 
+@pytest.mark.parametrize("args", [(264, 256, 64, 16), (400, 250, 64, 16), (480, 256, 70, 16)])
+def test_split_tiles_rejects_off_grid_geometry(args: tuple[int, int, int, int]) -> None:
+    # Off the grid the remainder is dropped and the last tile overruns the frame edge
+    # (264: starts (0, 16), so the second tile ends at 272).
+    with pytest.raises(ValueError, match="grid"):
+        vv.split_tiles(*args)
+
+
 def test_tile_plan_digest_is_stable() -> None:
     plan = vv.plan_tiles(480, 832)
     assert plan.tiles == 3 * 4  # 480 -> 3 rows, 832 -> 4 columns

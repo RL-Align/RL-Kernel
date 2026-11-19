@@ -339,6 +339,12 @@ def split_tiles(length: int, tile_size: int, min_overlap: int, ratio: int) -> Ti
         num_tiles += 1
     overlaps = [min_overlap] * (num_tiles - 1)
     remaining = tile_size * num_tiles - sum(overlaps) - length
+    if remaining % ratio:
+        # Diffusers drops the remainder, and the last tile then overruns the frame edge.
+        raise ValueError(
+            f"length, tile_size and min_overlap must sit on the {ratio}-pixel grid "
+            f"(got {length}, {tile_size}, {min_overlap})"
+        )
     for i in range(remaining // ratio):
         overlaps[i % (num_tiles - 1)] += ratio
     starts = [0]
