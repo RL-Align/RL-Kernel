@@ -86,6 +86,14 @@ def tiny() -> Any:
     return transformers.Qwen3VLForConditionalGeneration(_tiny_config()).eval()
 
 
+@pytest.fixture
+def tiny_fresh() -> list[Any]:
+    """A tiny model handed over in a list, so the test itself keeps no reference to it."""
+
+    torch.manual_seed(0)
+    return [transformers.Qwen3VLForConditionalGeneration(_tiny_config()).eval()]
+
+
 def _encoder(model: Any) -> q.Qwen3VLLayer50Encoder:
     return q.Qwen3VLLayer50Encoder(model, check_release=False)
 
@@ -338,6 +346,51 @@ def test_fingerprint_pins_release_identity() -> None:
     assert len(shards) == 14
 
 
+# --- evidence script: the full model is freed before the 50-layer stack loads -----------------
+
+
+def test_evidence_release_after_frees_the_model_and_catches_a_leak() -> None:
+    import gc
+    import weakref
+
+    from tools.validation.models import h3_qwen3vl_evidence as ev
+
+    cpu = torch.device("cpu")
+    seen: list[Any] = []
+
+    def clean(full: Any) -> dict[str, Any]:
+        fn = lambda full=full: full(torch.ones(1, 4))  # noqa: E731 - the pattern that leaked
+        seen.append(weakref.ref(full))
+        with torch.no_grad():
+            return {"sum": float(fn().sum())}
+
+    report, freed = ev.release_after(
+        lambda: torch.nn.Linear(4, 4), clean, device=cpu, max_retained_bytes=0
+    )
+    assert set(report) == {"sum"} and freed == {}
+    assert seen[0]() is None
+
+    survivors: list[Any] = []
+
+    def leaky(full: Any) -> dict[str, Any]:
+        # A default argument that outlives the stages, as at 97ba3b82 (main's frame held it).
+        survivors.append(lambda full=full: full)
+        return {}
+
+    with pytest.raises(RuntimeError, match="still referenced"):
+        ev.release_after(lambda: torch.nn.Linear(4, 4), leaky, device=cpu, max_retained_bytes=0)
+    survivors.clear()
+    gc.collect()
+
+    with pytest.raises(TypeError):  # a tensor in the report would keep activations alive
+        ev.release_after(
+            lambda: torch.nn.Linear(4, 4),
+            lambda full: {"t": full.weight.detach()},
+            device=cpu,
+            max_retained_bytes=0,
+        )
+
+
 # --- released tokenizer / processor files -----------------------------------------------------
 
 
@@ -440,6 +493,71 @@ def test_image_processor_is_batch_invariant_and_matches_presentation(
         ids += q.vision_block("image", grid[0] * grid[1] * grid[2] // processor.merge_size**2)
     ids += q.tokenize_prompt(release_tokenizer, PROMPTS[0])
     q.check_presentation(ids, dict(batch))
+
+
+def test_evidence_full_model_stages_release_the_model(
+    tiny_fresh: Any, release_tokenizer: Any, release_processor: Any, monkeypatch: Any
+) -> None:
+    """Stages 3-6 of the evidence script on a tiny model (CPU): every report, then a dead model."""
+
+    pytest.importorskip(
+        "diffusers.modular_pipelines.minimax_h3.encoders",
+        reason="needs diffusers with MiniMax-H3 (f53d5520+)",
+    )
+    import weakref
+
+    from tools.validation.models import h3_qwen3vl_evidence as ev
+
+    # The tiny model is not the release config; only the release-config check is relaxed.
+    release_encoder = q.Qwen3VLLayer50Encoder
+    monkeypatch.setattr(
+        ev.q,
+        "Qwen3VLLayer50Encoder",
+        lambda model, **kw: release_encoder(model, **{**kw, "check_release": False}),
+    )
+    cpu = torch.device("cpu")
+    rows = {n: q.tokenize_prompt(release_tokenizer, t) for n, t in ev.PROMPTS.items()}
+    cases: dict[str, tuple[list[int], dict[str, Any]]] = {n: (r, {}) for n, r in rows.items()}
+    cases["fl2va_1kf"] = ev._vision_presentation(
+        release_tokenizer, release_processor, 1, ev.PROMPTS["short_en"]
+    )
+    cases["fl2va_2kf"] = ev._vision_presentation(
+        release_tokenizer, release_processor, 2, ev.PROMPTS["mid_en"]
+    )
+    alive: list[Any] = []
+
+    def load() -> Any:
+        model = tiny_fresh.pop()
+        alive.append(weakref.ref(model))
+        return model
+
+    report, freed = ev.release_after(
+        load,
+        lambda full: ev._full_model_stages(
+            full,
+            rows=rows,
+            cases=cases,
+            tokenizer=release_tokenizer,
+            processor=release_processor,
+            device=cpu,
+            repeats=1,
+        ),
+        device=cpu,
+        max_retained_bytes=0,
+    )
+    assert alive[0]() is None and freed == {}
+    assert set(report) == {
+        "reference",
+        "full_model_param_bytes",
+        "sdpa_backends_vs_default",
+        "prefix_invariance",
+        "prior_art_batching",
+        "vision_tower_batch_composition",
+    }
+    assert set(report["reference"]) == set(cases)
+    for entry in report["reference"].values():
+        assert entry["contract_on_full_model_sha256"] == entry["diffusers_sha256"]
+        assert entry["hidden_states_50_sha256"] == entry["diffusers_sha256"]
 
 
 # --- released weights (CUDA) ------------------------------------------------------------------

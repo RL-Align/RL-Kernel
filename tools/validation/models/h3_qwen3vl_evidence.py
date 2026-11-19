@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Released-weight evidence for RFC #420 ``qwen3vl_layer50_contract`` (one CUDA GPU, ~125 GB).
+"""Released-weight evidence for RFC #420 ``qwen3vl_layer50_contract`` (one CUDA GPU).
 
 Loads the released Qwen3-VL-32B ``text_encoder/`` twice: the full 64-layer model (the Diffusers
-reference, ``get_qwen3vl_prompt_embeds``) and the 50-layer stack the contract runs. Then it
-records:
+reference, ``get_qwen3vl_prompt_embeds``) and the 50-layer stack the contract runs. The two are
+never resident together: :func:`release_after` checks the full model is gone (no reference left,
+at most ``--max-retained-gib`` still allocated) before the 50-layer stack loads, so the peak is
+one model plus activations and the run fits a 95 GB card. Then it records:
 
 * pinned files (SHA-256 of tokenizer/processor/text_encoder) and the tokenizer pin;
 * the contract feature against Diffusers ``hidden_states[50]`` (bitwise), plus the
@@ -31,6 +33,8 @@ import platform
 import statistics
 import subprocess
 import time
+import weakref
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -63,18 +67,19 @@ PROMPTS = {
 }
 
 
-def _sync() -> None:
-    torch.cuda.synchronize()
+def _sync(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.synchronize()
 
 
-def _timed(fn: Any, repeats: int) -> tuple[Any, list[float]]:
+def _timed(fn: Any, repeats: int, device: torch.device) -> tuple[Any, list[float]]:
     out = fn()
-    _sync()
+    _sync(device)
     times = []
     for _ in range(repeats):
         start = time.perf_counter()
         out = fn()
-        _sync()
+        _sync(device)
         times.append((time.perf_counter() - start) * 1e3)
     return out, times
 
@@ -159,17 +164,193 @@ def _git(*args: str) -> str:
         return "unknown"
 
 
+def _full_model_stages(
+    full: Any,
+    *,
+    rows: dict[str, list[int]],
+    cases: dict[str, tuple[list[int], dict[str, Any]]],
+    tokenizer: Any,
+    processor: Any,
+    device: torch.device,
+    repeats: int,
+) -> dict[str, Any]:
+    """Stages 3-6 on the full 64-layer model.
+
+    Returns JSON-able reports only (digests, diffs, timings), so nothing that references the full
+    model or its activations outlives this frame; :func:`release_after` checks that.
+    """
+
+    from diffusers.modular_pipelines.minimax_h3.encoders import get_qwen3vl_prompt_embeds
+
+    class _Proc:
+        @staticmethod
+        def create_mm_token_type_ids(batch: list[list[int]]) -> list[list[int]]:
+            return processor.create_mm_token_type_ids(batch)
+
+    # 3. Full model: Diffusers reference and off-by-one neighbours.
+    full_bytes = sum(p.numel() * p.element_size() for p in full.parameters())
+    reference: dict[str, Any] = {}
+    report: dict[str, Any] = {"reference": reference, "full_model_param_bytes": full_bytes}
+    reference_tensors: dict[str, torch.Tensor] = {}
+    with torch.no_grad():
+        for name, (ids, vision) in cases.items():
+            fn = lambda ids=ids, vision=vision, full=full: get_qwen3vl_prompt_embeds(  # noqa: E731
+                full, _Proc(), ids, vision, text_encoder_layer=50, device=device, dtype=full.dtype
+            )
+            ref, times = _timed(fn, repeats, device)
+            input_ids = torch.tensor([ids], device=device)
+            kwargs = {
+                k: (v.to(device, full.dtype) if k.startswith("pixel_") else v.to(device))
+                for k, v in vision.items()
+            }
+            hs = full.model(
+                input_ids=input_ids,
+                attention_mask=torch.ones_like(input_ids),
+                mm_token_type_ids=torch.tensor(
+                    processor.create_mm_token_type_ids([ids]), device=device
+                ),
+                use_cache=False,
+                output_hidden_states=True,
+                **kwargs,
+            ).hidden_states
+            hook_full = q.Qwen3VLLayer50Encoder(full).encode(ids, vision or None)
+            reference_tensors[name] = ref
+            reference[name] = {
+                "num_tokens": len(ids),
+                "diffusers_sha256": tensor_digest(ref),
+                "hidden_states_50_sha256": tensor_digest(hs[50]),
+                "hidden_states_49_sha256": tensor_digest(hs[49]),
+                "hidden_states_51_sha256": tensor_digest(hs[51]),
+                "hidden_states_last_sha256": tensor_digest(hs[-1]),
+                "num_hidden_states": len(hs),
+                "contract_on_full_model_sha256": hook_full.feature_digest,
+                "diffusers_ms": times,
+            }
+
+    # 4. SDPA backends and prefix invariance on the full model (Diffusers call).
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    backends: dict[str, Any] = {}
+    for backend in ("FLASH_ATTENTION", "EFFICIENT_ATTENTION", "CUDNN_ATTENTION", "MATH"):
+        entry: dict[str, Any] = {}
+        for name in ("short_en", "long_en", "fl2va_1kf"):
+            ids, vision = cases[name]
+            try:
+                with sdpa_kernel([getattr(SDPBackend, backend)]), torch.no_grad():
+                    out = get_qwen3vl_prompt_embeds(
+                        full, _Proc(), ids, vision, 50, device=device, dtype=full.dtype
+                    )
+                entry[name] = _diff(out, reference_tensors[name])
+            except Exception as exc:  # backend unsupported for this shape
+                entry[name] = {"error": f"{type(exc).__name__}: {str(exc)[:160]}"}
+        backends[backend] = entry
+    report["sdpa_backends_vs_default"] = backends
+
+    prefix: dict[str, Any] = {}
+    with torch.no_grad():
+        for name in ("mid_en", "long_en"):
+            ids = rows[name]
+            for k in (len(ids) // 4, len(ids) // 2):
+                part = get_qwen3vl_prompt_embeds(
+                    full, _Proc(), ids[:k], {}, 50, device=device, dtype=full.dtype
+                )
+                prefix[f"{name}[:{k}]"] = _diff(part, reference_tensors[name][:, :k])
+    report["prefix_invariance"] = prefix
+
+    # 5. Prior-art batching: HF padded batch versus per-row.
+    text_names = list(rows)
+    batching: dict[str, Any] = {}
+    pad_id = int(tokenizer.pad_token_id)
+    for side in ("right", "left"):
+        outs = _hf_padded_batch(full, [rows[n] for n in text_names], side, pad_id)
+        batching[f"hf_padded_{side}_all6"] = {
+            n: _diff(o, reference_tensors[n]) for n, o in zip(text_names, outs, strict=True)
+        }
+    pairs = {}
+    for other in text_names:
+        if other == "short_en":
+            continue
+        outs = _hf_padded_batch(full, [rows["short_en"], rows[other]], "right", pad_id)
+        pairs[f"short_en+{other}"] = _diff(outs[0], reference_tensors["short_en"])
+    batching["hf_padded_right_pairs"] = pairs
+    report["prior_art_batching"] = batching
+
+    # 6. Vision tower batch composition (all three libraries batch a request's images).
+    feats = processor.image_processor(images=_images(2), return_tensors="pt")
+    with torch.no_grad():
+        both = full.model.get_image_features(
+            feats["pixel_values"].to(device, full.dtype), feats["image_grid_thw"].to(device)
+        )
+        one = processor.image_processor(images=_images(1), return_tensors="pt")
+        alone = full.model.get_image_features(
+            one["pixel_values"].to(device, full.dtype), one["image_grid_thw"].to(device)
+        )
+    pooled_both = both.pooler_output if hasattr(both, "pooler_output") else both[0]
+    pooled_alone = alone.pooler_output if hasattr(alone, "pooler_output") else alone[0]
+    first_both = pooled_both[0] if isinstance(pooled_both, (list, tuple)) else pooled_both
+    first_alone = pooled_alone[0] if isinstance(pooled_alone, (list, tuple)) else pooled_alone
+    report["vision_tower_batch_composition"] = {
+        "image0_alone_vs_with_image1": _diff(first_alone, first_both[: first_alone.shape[0]]),
+    }
+    return report
+
+
+def release_after(
+    load: Callable[[], Any],
+    stages: Callable[[Any], dict[str, Any]],
+    *,
+    device: torch.device,
+    max_retained_bytes: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load a model, run ``stages`` on it, and prove the model is gone before returning.
+
+    Fails if the model is still referenced after the stages (a closure, default argument or
+    module attribute holding it), if the report holds anything but plain JSON data, or if more
+    than ``max_retained_bytes`` stay allocated on ``device``.
+    """
+
+    model = load()
+    alive = weakref.ref(model)
+    report = stages(model)
+    del model
+    gc.collect()
+    if alive() is not None:
+        holders = sorted({type(r).__name__ for r in gc.get_referrers(alive())})
+        raise RuntimeError(f"full model still referenced after stages 3-6 (by {holders})")
+    json.dumps(report)  # plain data only: no tensor or module survives in the report
+    freed: dict[str, Any] = {}
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)
+        torch.cuda.empty_cache()
+        retained = torch.cuda.memory_allocated(device)
+        freed = {
+            "allocated_after_full_model_free_gib": retained / 2**30,
+            "peak_allocated_full_model_gib": torch.cuda.max_memory_allocated(device) / 2**30,
+        }
+        if retained > max_retained_bytes:
+            raise RuntimeError(
+                f"{retained / 2**30:.2f} GiB still allocated on {device} after freeing the full "
+                f"model (limit {max_retained_bytes / 2**30:.2f} GiB)"
+            )
+    return report, freed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", required=True, type=Path, help="download of MiniMaxAI/MiniMax-H3")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument(
+        "--max-retained-gib",
+        type=float,
+        default=1.0,
+        help="fail if more than this stays allocated after the full model is freed",
+    )
+    parser.add_argument(
         "--skip-hash", action="store_true", help="do not re-hash the 67 GB of shards"
     )
     args = parser.parse_args()
 
-    from diffusers.modular_pipelines.minimax_h3.encoders import get_qwen3vl_prompt_embeds
     from transformers import AutoProcessor, AutoTokenizer, Qwen3VLForConditionalGeneration
 
     evidence: dict[str, Any] = {"contract": q.contract_manifest()}
@@ -231,128 +412,42 @@ def main() -> None:
     }
     for ids, vision in vision_cases.values():
         q.check_presentation(ids, vision)
-
-    class _Proc:
-        @staticmethod
-        def create_mm_token_type_ids(batch: list[list[int]]) -> list[list[int]]:
-            return processor.create_mm_token_type_ids(batch)
-
-    # 3. Full model: Diffusers reference and off-by-one neighbours.
-    device = torch.device("cuda")
-    torch.cuda.reset_peak_memory_stats()
-    full = Qwen3VLForConditionalGeneration.from_pretrained(
-        str(args.root / "text_encoder"), dtype=torch.bfloat16
-    )
-    full = full.to(device).eval()
-    full_bytes = sum(p.numel() * p.element_size() for p in full.parameters())
-    reference: dict[str, Any] = {}
-    reference_tensors: dict[str, torch.Tensor] = {}
     cases: dict[str, tuple[list[int], dict[str, Any]]] = {n: (r, {}) for n, r in rows.items()}
     cases.update(vision_cases)
-    with torch.no_grad():
-        for name, (ids, vision) in cases.items():
-            fn = lambda ids=ids, vision=vision, full=full: get_qwen3vl_prompt_embeds(  # noqa: E731
-                full, _Proc(), ids, vision, text_encoder_layer=50, device=device, dtype=full.dtype
-            )
-            ref, times = _timed(fn, args.repeats)
-            input_ids = torch.tensor([ids], device=device)
-            kwargs = {
-                k: (v.to(device, full.dtype) if k.startswith("pixel_") else v.to(device))
-                for k, v in vision.items()
-            }
-            hs = full.model(
-                input_ids=input_ids,
-                attention_mask=torch.ones_like(input_ids),
-                mm_token_type_ids=torch.tensor(
-                    processor.create_mm_token_type_ids([ids]), device=device
-                ),
-                use_cache=False,
-                output_hidden_states=True,
-                **kwargs,
-            ).hidden_states
-            hook_full = q.Qwen3VLLayer50Encoder(full).encode(ids, vision or None)
-            reference_tensors[name] = ref
-            reference[name] = {
-                "num_tokens": len(ids),
-                "diffusers_sha256": tensor_digest(ref),
-                "hidden_states_50_sha256": tensor_digest(hs[50]),
-                "hidden_states_49_sha256": tensor_digest(hs[49]),
-                "hidden_states_51_sha256": tensor_digest(hs[51]),
-                "hidden_states_last_sha256": tensor_digest(hs[-1]),
-                "num_hidden_states": len(hs),
-                "contract_on_full_model_sha256": hook_full.feature_digest,
-                "diffusers_ms": times,
-            }
 
-    # 4. SDPA backends and prefix invariance on the full model (Diffusers call).
-    from torch.nn.attention import SDPBackend, sdpa_kernel
+    device = torch.device("cuda")
+    torch.cuda.reset_peak_memory_stats()
 
-    backends: dict[str, Any] = {}
-    for backend in ("FLASH_ATTENTION", "EFFICIENT_ATTENTION", "CUDNN_ATTENTION", "MATH"):
-        entry: dict[str, Any] = {}
-        for name in ("short_en", "long_en", "fl2va_1kf"):
-            ids, vision = cases[name]
-            try:
-                with sdpa_kernel([getattr(SDPBackend, backend)]), torch.no_grad():
-                    out = get_qwen3vl_prompt_embeds(
-                        full, _Proc(), ids, vision, 50, device=device, dtype=full.dtype
-                    )
-                entry[name] = _diff(out, reference_tensors[name])
-            except Exception as exc:  # backend unsupported for this shape
-                entry[name] = {"error": f"{type(exc).__name__}: {str(exc)[:160]}"}
-        backends[backend] = entry
-    evidence["sdpa_backends_vs_default"] = backends
-
-    prefix: dict[str, Any] = {}
-    with torch.no_grad():
-        for name in ("mid_en", "long_en"):
-            ids = rows[name]
-            for k in (len(ids) // 4, len(ids) // 2):
-                part = get_qwen3vl_prompt_embeds(
-                    full, _Proc(), ids[:k], {}, 50, device=device, dtype=full.dtype
-                )
-                prefix[f"{name}[:{k}]"] = _diff(part, reference_tensors[name][:, :k])
-    evidence["prefix_invariance"] = prefix
-
-    # 5. Prior-art batching: HF padded batch versus per-row.
-    text_names = list(rows)
-    batching: dict[str, Any] = {}
-    pad_id = int(tokenizer.pad_token_id)
-    for side in ("right", "left"):
-        outs = _hf_padded_batch(full, [rows[n] for n in text_names], side, pad_id)
-        batching[f"hf_padded_{side}_all6"] = {
-            n: _diff(o, reference_tensors[n]) for n, o in zip(text_names, outs, strict=True)
-        }
-    pairs = {}
-    for other in text_names:
-        if other == "short_en":
-            continue
-        outs = _hf_padded_batch(full, [rows["short_en"], rows[other]], "right", pad_id)
-        pairs[f"short_en+{other}"] = _diff(outs[0], reference_tensors["short_en"])
-    batching["hf_padded_right_pairs"] = pairs
-    evidence["prior_art_batching"] = batching
-
-    # 6. Vision tower batch composition (all three libraries batch a request's images).
-    feats = processor.image_processor(images=_images(2), return_tensors="pt")
-    with torch.no_grad():
-        both = full.model.get_image_features(
-            feats["pixel_values"].to(device, full.dtype), feats["image_grid_thw"].to(device)
+    def load_full() -> Any:
+        full: Any = Qwen3VLForConditionalGeneration.from_pretrained(
+            str(args.root / "text_encoder"), dtype=torch.bfloat16
         )
-        one = processor.image_processor(images=_images(1), return_tensors="pt")
-        alone = full.model.get_image_features(
-            one["pixel_values"].to(device, full.dtype), one["image_grid_thw"].to(device)
-        )
-    pooled_both = both.pooler_output if hasattr(both, "pooler_output") else both[0]
-    pooled_alone = alone.pooler_output if hasattr(alone, "pooler_output") else alone[0]
-    first_both = pooled_both[0] if isinstance(pooled_both, (list, tuple)) else pooled_both
-    first_alone = pooled_alone[0] if isinstance(pooled_alone, (list, tuple)) else pooled_alone
-    evidence["vision_tower_batch_composition"] = {
-        "image0_alone_vs_with_image1": _diff(first_alone, first_both[: first_alone.shape[0]]),
-    }
+        return full.to(device).eval()
 
-    del full, hs
-    gc.collect()
-    torch.cuda.empty_cache()
+    full_report, freed = release_after(
+        load_full,
+        lambda full: _full_model_stages(
+            full,
+            rows=rows,
+            cases=cases,
+            tokenizer=tokenizer,
+            processor=processor,
+            device=device,
+            repeats=args.repeats,
+        ),
+        device=device,
+        max_retained_bytes=int(args.max_retained_gib * 2**30),
+    )
+    reference = full_report["reference"]
+    full_bytes = full_report["full_model_param_bytes"]
+    batching = full_report["prior_art_batching"]
+    for key in (
+        "sdpa_backends_vs_default",
+        "prefix_invariance",
+        "prior_art_batching",
+        "vision_tower_batch_composition",
+    ):
+        evidence[key] = full_report[key]
 
     # 7. Contract on the 50-layer stack.
     model, report = q.load_release_text_encoder(args.root / "text_encoder", device=device)
@@ -361,7 +456,9 @@ def main() -> None:
     contract: dict[str, Any] = {"load": report}
     for name, (ids, vision) in cases.items():
         out, times = _timed(
-            lambda ids=ids, vision=vision: encoder.encode(ids, vision or None), args.repeats
+            lambda ids=ids, vision=vision: encoder.encode(ids, vision or None),
+            args.repeats,
+            device,
         )
         digests = {encoder.encode(ids, vision or None).feature_digest for _ in range(3)}
         contract[name] = {
@@ -389,6 +486,7 @@ def main() -> None:
         "full_model_param_gib": full_bytes / 2**30,
         "layer50_param_gib": trunc_bytes / 2**30,
         "peak_allocated_gib": torch.cuda.max_memory_allocated() / 2**30,
+        **freed,
     }
     latency = {}
     for name in cases:
