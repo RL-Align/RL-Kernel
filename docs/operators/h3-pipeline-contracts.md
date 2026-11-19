@@ -110,7 +110,8 @@ last, first-and-last), all on `transformer/`.
     variants, while config, index and tensor table are identical.
   - Shard hashes come from the Hub `local_dir` download metadata or the HF cache blob name,
     so it does not read 66 GB.
-  - With `full_hash=True` it hashes the files themselves.
+  - With `full_hash=True` it reads and hashes every shard, even when the metadata is
+    present, and raises `VariantMismatch` if a recorded hash disagrees with the contents.
   - Mixed or unknown shards raise `VariantMismatch`.
 - **`structural_workflow(layout)`.** The workflow a layout's structure belongs to:
   - no conditioning rows: `t2va`;
