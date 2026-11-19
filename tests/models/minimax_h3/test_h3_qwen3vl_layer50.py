@@ -164,10 +164,11 @@ def test_matches_diffusers_prompt_embeds(tiny: Any) -> None:
         reason="needs diffusers with MiniMax-H3 (f53d5520+)",
     )
 
-    class _Processor:
-        @staticmethod
-        def create_mm_token_type_ids(batch: list[list[int]]) -> list[list[int]]:
-            return [q.mm_token_type_ids(ids) for ids in batch]
+    # transformers' own create_mm_token_type_ids with the placeholder ids of the model config,
+    # so a wrong mapping in q.mm_token_type_ids cannot cancel out against the reference.
+    processor = transformers.Qwen3VLProcessor.__new__(transformers.Qwen3VLProcessor)
+    processor.image_token_id = tiny.config.image_token_id
+    processor.video_token_id = tiny.config.video_token_id
 
     grids = [(1, 4, 4)]
     cases: list[tuple[list[int], dict[str, torch.Tensor]]] = [
@@ -178,7 +179,7 @@ def test_matches_diffusers_prompt_embeds(tiny: Any) -> None:
         with torch.no_grad():
             ref = encoders.get_qwen3vl_prompt_embeds(
                 tiny,
-                _Processor(),
+                processor,
                 ids,
                 vision,
                 text_encoder_layer=50,
