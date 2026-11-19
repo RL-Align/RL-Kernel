@@ -80,7 +80,7 @@ CUDA_VISIBLE_DEVICES='' python ci/run.py layout -q
 CUDA_VISIBLE_DEVICES='' python -m pytest tests/ops/attention/test_attention_projection.py -q
 ```
 
-## Validation evidence
+## Historical implementation validation
 
 - Original binary: 4 cast failures, 4 inapplicable-profile skips, 144 deselected;
   first failure is the missing forward-FP32 binding. No baseline accuracy claim.
@@ -121,70 +121,162 @@ unaligned views. Native FP32 casts cover every target pair plus aligned/ragged
 small cases; separate BF16/FP32-input full-accumulation probes are small-shape
 qualification only. FP16 rejection and signed-zero comparison controls are tested.
 
-## Performance
+## Review-fix validation
 
-Before/after CUDA-event measurements use seed 642, one device, 10 warmup calls
-and 30 individual samples per API/shape; record median, p95, min/max and peak
-allocated memory. Calls include public-wrapper work, transpose/materialization,
-padding, allocation and launches; no CUDA graphs or clock locking. This is a
-microbenchmark, not complete RL-iteration performance or a cuBLAS speedup claim.
-The original forward_fp32 API cannot run; compare the repaired API with the
-output-equivalent original `gemm(a,b).float()` and keep BF16 `.linear` separate.
-Base is `49941801f942428fd52ac5b66a1b0c070418724e`; repaired code is
-`b3ddb9df22d7810116ad168182e689f6e699d843`. Both runs recorded an empty **unstaged tracked diff** under `csrc/` and
-`rl_engine/`; this does not mean their committed source states are identical.
-Binary SHA256 values and full small timing summaries (including
-p95 and memory) are in [task12-projection-gemm.json](task12-projection-gemm.json).
-The historical JSON field `source_diff_sha256` has been renamed to
-`unstaged_source_diff_sha256`, preserving its original value. It describes only
-unstaged tracked changes in `csrc/` and `rl_engine/`. The original `commit` and
-`extension_sha256` remain the revision and binary identifiers for these runs.
-No measurements were rerun or changed during this metadata correction.
+At tested commit `e505cf704db5afc31da0720711f55fc8dd8c987d`, reran on one H100:
 
-Future runs also record `committed_tree_sha` (the whole committed repository
-tree), `staged_source_diff_sha256`, and `source_status` for those source paths.
-The diff hashes cover tracked changes; status additionally exposes untracked
-paths, but does not hash their contents. These new fields were not captured in
-the historical runs and are deliberately not backfilled. The binary hash
-identifies the loaded extension; Git metadata alone does not prove it was built
-from that source state.
+- Projection matrix **159 passed** (9.74 s), including the added generic canonical
+  mathematical probe. All 20 target accuracy cases and raw-bit checks pass;
+  maximum absolute FP64-reference error is again 0.037068993886350654. Tolerances
+  and CUDA arithmetic are unchanged.
+- Independent tree profiles and the same existing forward regressions **38 passed**
+  (6.88 s); no Task13 gradient test/body changed.
+- Measurement lifetime/accounting **2 passed** (2.35 s), including a real CUDA
+  allocation. CPU-only run **16 passed, 1 real-CUDA skip** (3.20 s), covering
+  lifecycle, root/staged/unstaged/index/environment provenance, explicit device
+  marks and the CPU FP64 oracle policy. The skipped allocation ran successfully
+  in the separate H100 run. No torch_musa import or MUSA runtime was simulated.
+- Historical 26-output binary equality, kernel-profiler trace, CPU layout and
+  attention-projection results above are retained evidence, **not rerun here**.
+- Final configured Black 24.4.2 / isort 5.13.2 / flake8 7.0.0, mypy on the
+  benchmark, provenance helper and CUDA wrapper, JSON/history/hash checks,
+  whitespace/size checks, `git diff --check`, and strict MkDocs build pass.
 
-Medians in milliseconds:
-
-| M×K×N | BF16 before | BF16 after | FP32 widen before | Native FP32 after |
-| --- | ---: | ---: | ---: | ---: |
-| 1×2048×512 | 0.094048 | 0.095584 | 0.114432 | 0.107488 |
-| 129×2048×512 | 0.102528 | 0.102832 | 0.116192 | 0.111104 |
-| 129×4096×2048 | 0.180528 | 0.179712 | 0.248224 | 0.245936 |
-| 129×2048×32 | 0.116704 | 0.117952 | 0.117664 | 0.114752 |
-| 129×2048×1 | 0.091200 | 0.091920 | 0.094384 | 0.092112 |
-| 1×2048×248320 | 1.951088 | 1.942544 | 5.755360 | 5.759792 |
-
-BF16 median changes range from -0.45% to +1.63% in this sample. These are
-single-run measurements with variability, not a statistical regression gate.
-LM-head native FP32 peak allocation is 3,181,010,944 bytes versus 3,116,944,384
-for original widening: about **61.10 MiB extra**, from the wider padded-M
-temporary. BF16 peak allocation is unchanged at 2,099,329,024 bytes for that case.
-
-To reproduce the original comparison with the new harness, after setting the
-same build environment above (choose separate paths if they already exist):
+Commands (with the CUDA environment above, XML/logs outside the repository):
 
 ```bash
+python -m pytest tests/ops/gemm/test_projection_gemm.py -q -rs
+python -m pytest tests/ops/gemm/test_projection_gemm_profiles.py \
+  tests/ops/gemm/test_det_gemm.py -q -k \
+  'canonical_midpoint or non_power_of_two_profiles or rhs_transposed or forward_batch_invariance or forward_chunked_prefill or forward_padding_invariance or forward_correctness or triton_ragged_tiles or triton_tree_matches_python_reference_forward or triton_final_tree_level_direct_output'
+python -m pytest tests/benchmarks/test_projection_gemm_measurement.py -q -rs
+CUDA_VISIBLE_DEVICES='' python -m pytest tests/benchmarks/test_projection_gemm_measurement.py \
+  tests/benchmarks/test_projection_gemm_provenance.py \
+  tests/ops/gemm/test_projection_gemm_platform_policy.py -q -rs
+```
+
+## Performance: corrected review rerun
+
+All six benchmark shapes were remeasured on the same H100 and original software
+stack, seed 642, 10 warmups and 30 CUDA-event samples per API. The **same corrected
+benchmark file** ran against baseline `49941801f942428fd52ac5b66a1b0c070418724e`
+and tested repair `e505cf704db5afc31da0720711f55fc8dd8c987d`. BF16 linear is reported separately.
+FP32 compares original BF16-tree GEMM **then `.float()`** with repaired direct
+FP32 tree output: the numerical tree is the same. The original binary has no
+callable forward_fp32 binding; it is explicitly `binding_unavailable`. The
+separate full-FP32-accumulation algorithm is not used in this performance table.
+
+Each warmup result is deleted; each timed result remains alive through
+`end.record()`, then its dtype is cached and the tensor deleted before the next
+call. After timing is synchronized and all results are gone, memory uses an
+**independent single call**: capture `memory_allocated()` baseline, reset peak,
+call and synchronize with its result alive, read `max_memory_allocated()`, delete
+result and synchronize. Report absolute peak, `peak_increment_bytes = peak -
+baseline`, and post-release allocated bytes. Every measured case returned to its
+pre-call baseline. No reserved-memory statistic is used. CUDA-event timing covers
+public-wrapper copies/allocations/kernels, without CUDA graphs or clock locking;
+it is not complete RL-iteration performance or a statistical performance gate.
+Weakref CPU regression checks release before every warmup/timed/memory/API call
+and liveness at end.record; a real-CUDA regression verifies exactly one 4 MiB
+output in the independent memory pass.
+
+The retained baseline extension was reused, not newly rebuilt. Its SHA256 matched
+the original build/benchmark record; it was loaded from an independent checkout
+at the baseline commit, verified SM90 compiled and no forward-FP32 binding, then
+used for the new run. The repair's build_ext ran at the tested commit (unchanged
+source objects, relink); its hash remains the original repaired hash. Tracked
+`csrc` and `rl_engine` trees match code commit b3ddb9d. Binary identifiers:
+
+| Binary | SHA256 |
+| --- | --- |
+| Original | `e8c207324aad3ca02feabad6735417c6e2001de4b0dc638922612e01232fd488` |
+| Repaired | `33e4e5b80996c7c678b3c1762aad50aca493c0fe6049f6880dd2b08d77d1bc4f` |
+
+Benchmark SHA256 `f14ef0bf18bd4dd0dcf49ebe32de2230794dec01c32b42cbc29687f385371ab3` is identical in both runs;
+provenance-helper SHA256 is `805d0307f690bcecb159a109b3c8b01f715ec01491d9be919cea3bda8f486f37`.
+New records preserve exact commit, committed tree, separate staged/unstaged source
+diff hashes, source status and loaded binary path/hash. Both source diffs are
+empty and source status clean; committed trees differ. Root-anchored pathspecs
+and sanitized Git location/index variables keep this valid from subdirectories
+and inherited environments. Git metadata alone is not a build attestation.
+The compact [JSON](task12-projection-gemm.json) contains p95/min/max, all memory
+fields, environment, timestamps and hashes of the complete external raw JSON.
+
+New medians in milliseconds:
+
+| M×K×N | BF16 original | BF16 repaired | Original FP32 widen | Repaired direct FP32 |
+| --- | ---: | ---: | ---: | ---: |
+| 1×2048×512 | 0.094448 | 0.093040 | 0.114112 | 0.106912 |
+| 129×2048×512 | 0.102112 | 0.101536 | 0.115424 | 0.108096 |
+| 129×4096×2048 | 0.179584 | 0.177776 | 0.249264 | 0.241024 |
+| 129×2048×32 | 0.114944 | 0.114896 | 0.115072 | 0.112560 |
+| 129×2048×1 | 0.089648 | 0.089680 | 0.092544 | 0.090368 |
+| 1×2048×248320 | 1.936336 | 1.941632 | 5.751968 | 5.751824 |
+
+BF16 median changes range from **-1.49% to +0.27%** in
+these single-run samples. This is not evidence of an optimization or a regression
+threshold. Original inputs, shape order, seed and warmup/repeat counts match.
+
+New **incremental allocated** peaks in MiB (1 MiB = 2²⁰ bytes):
+
+| M×K×N | BF16 linear, both | Original FP32 widen | Repaired direct FP32 |
+| --- | ---: | ---: | ---: |
+| 1×2048×512 | 0.625977 | 2.625977 | 2.751953 |
+| 129×2048×512 | 1.375977 | 3.375977 | 3.751953 |
+| 129×4096×2048 | 3.503906 | 19.503906 | 22.000000 |
+| 129×2048×32 | 0.133301 | 0.024414 | 0.016113 |
+| 129×2048×1 | 0.000488 | 0.001465 | 0.000977 |
+| 1×2048×248320 | 61.598633 | 1031.598633 | 1092.697266 |
+
+The focused LM head M=1,K=2048,N=248320 separates the input baseline from the
+absolute peak; the baseline includes both weight layouts already allocated by
+the harness:
+
+| API | Baseline allocated MiB | Absolute peak allocated MiB | Increment MiB |
+| --- | ---: | ---: | ---: |
+| BF16 linear (both binaries) | 1940.003906 | 2001.602539 | 61.598633 |
+| Original BF16 tree then .float() | 1940.003906 | 2971.602539 | 1031.598633 |
+| Repaired direct FP32 tree output | 1940.003906 | 3032.701172 | 1092.697266 |
+
+New absolute FP32 peaks are **3,115,951,104 bytes** original
+widen and **3,180,017,664 bytes** direct FP32. Their difference
+is **64,066,560 bytes = 61.09863281 MiB**, also the difference between incremental
+peaks because the baselines match. BF16 peak is identical in both binaries at
+**2,098,832,384 bytes** (increment 64,590,848).
+The extra padded FP32 temporary remains observable with the corrected method.
+
+**Historical data and correction:** the original method retained the previous
+output across the next fn(), contaminating absolute peak allocations. The whole
+old dataset is preserved under `historical` in JSON, with its original values and
+provenance-metadata note; none of the new data is relabeled as the old run. For
+this LM head, old FP32 absolute peaks were 3,116,944,384 / 3,181,010,944 bytes.
+Both new peaks are 993,280 bytes lower (one prior logical FP32 output). The old
+61.10 MiB difference is therefore **reconfirmed by new measurements**, although
+the old absolute peaks were wrong. The old BF16 peak 2,099,329,024 is 496,640
+bytes too high. Historical -0.45%…+1.63% latency observations remain historical;
+use the new table above for this corrected measurement method.
+
+To reproduce after preparing matching binaries in separate checkouts:
+
+```bash
+# Same environment/one idle H100 as above. Keep outputs outside either checkout.
 TASK12_CHECKOUT=$PWD
-git worktree add --detach ../task12-baseline 49941801f942428fd52ac5b66a1b0c070418724e
-(cd ../task12-baseline && python setup.py build_ext --inplace && \
+(cd ../task12-pr718-artifacts/baseline-checkout && \
   PYTHONPATH=. python "$TASK12_CHECKOUT/benchmarks/operators/gemm/benchmark_projection_gemm.py" \
-  --json artifacts/task12/timing-before.json)
-python -m benchmarks.operators.gemm.benchmark_projection_gemm --json artifacts/task12/timing-after.json
+  --warmup 10 --repeats 30 --json ../benchmark-before.json)
+python -m benchmarks.operators.gemm.benchmark_projection_gemm \
+  --warmup 10 --repeats 30 --json ../task12-pr718-artifacts/benchmark-after.json
 ```
 
 ## Pending and MUSA handoff
 
-No MUSA hardware was available. Native MUSA currently uses ascending-K FP32
-accumulation with a final cast; it is not the CUDA BF16 tree profile. Start with
-the shared accuracy/batch/chunk/layout/dtype cases, excluding CUDA tree-specific
-cast/rounding probes, and qualify MUSA output casts against its own source
-contract. Use a single idle S5000 device, record actual board/driver/compiler/
+**MUSA hardware validation pending.** No MUSA hardware was available. Native MUSA
+currently uses ascending-K FP32 accumulation with a final cast; it is not the CUDA
+BF16 tree profile. The two CUDA-specific cast/rounding tests have explicit skipif
+marks with profile reasons; no command-line exclusion is required. The generic canonical-K
+mathematical probe remains and uses CPU FP64 on MUSA. Qualify MUSA output casts
+against its own source contract. Use a single idle S5000 device, record actual
+board/driver/compiler/
 torch_musa, native extension and Triton availability, and retain first mismatch.
 Do not report skipped cases as MUSA passes. Cross-vendor equality is Task 70.
 The shared MUSA accuracy probes use CPU FP64 mathematical references.
@@ -192,8 +284,7 @@ The shared MUSA accuracy probes use CPU FP64 mathematical references.
 ```bash
 # In a separately prepared matching MUSA checkout/environment:
 MUSA_VISIBLE_DEVICES=<idle-device> TASK12_DEVICE=musa \
-  python -m pytest tests/ops/gemm/test_projection_gemm.py -q -rs \
-  -k 'not native_fp32_is_tree_output_cast and not canonical_k_rounding_is_observable'
+  python -m pytest tests/ops/gemm/test_projection_gemm.py -q -rs
 ```
 
 Also pending: H200 and other software stacks, multi-device/multi-node/TP K-shard
