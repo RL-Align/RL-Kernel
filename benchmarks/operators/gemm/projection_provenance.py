@@ -3,15 +3,34 @@
 """CPU-only Git metadata for the projection benchmark; no build attestation."""
 
 import hashlib
+import os
 import subprocess
 from pathlib import Path
 
 
-def source_provenance(cwd: Path | None = None) -> dict[str, str]:
-    def git(*args: str) -> bytes:
-        return subprocess.check_output(["git", *args], cwd=cwd)
+def git_environment() -> dict[str, str]:
+    """Keep caller settings except overrides that select a different Git repository/index."""
+    locations = {
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_SHALLOW_FILE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_PREFIX",
+    }
+    return {key: value for key, value in os.environ.items() if key not in locations}
 
-    paths = ("csrc", "rl_engine")
+
+def source_provenance(cwd: Path | None = None) -> dict[str, str]:
+    env = git_environment()
+
+    def git(*args: str) -> bytes:
+        return subprocess.check_output(["git", *args], cwd=cwd, env=env)
+
+    paths = (":(top)csrc", ":(top)rl_engine")
     return {
         "commit": git("rev-parse", "HEAD").decode().strip(),
         "committed_tree_sha": git("rev-parse", "HEAD^{tree}").decode().strip(),

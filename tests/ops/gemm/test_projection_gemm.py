@@ -163,6 +163,9 @@ def test_projection_layout_and_k_boundaries(backend, k, n):
 
 @pytest.mark.parametrize("backend", ("native",), indirect=True)
 @pytest.mark.parametrize("k,n", ((64, 64), (65, 33), *PROJECTIONS))
+@pytest.mark.skipif(
+    DEVICE != "cuda", reason="CUDA BF16 tree-output contract; native MUSA accumulates in FP32"
+)
 @torch.no_grad()
 def test_native_fp32_is_tree_output_cast(backend, k, n):
     torch.manual_seed(645)
@@ -176,16 +179,32 @@ def test_native_fp32_is_tree_output_cast(backend, k, n):
         _raw_equal(torch.cat([backend[1].forward_fp32(part, b) for part in a.split(chunk)]), actual)
 
 
-@torch.no_grad()
-def test_canonical_k_rounding_is_observable(backend):
+def _rounding_probe_operands():
     # Each 32-element leaf is rounded before the midpoint merge: 257 -> 256,
     # -255 -> -255, giving 1. A full-precision dot gives 2 instead.
     a = torch.ones(3, 64, device=DEVICE, dtype=torch.bfloat16)
     b = torch.zeros(64, 64, device=DEVICE, dtype=torch.bfloat16)
     b[0], b[1], b[32], b[33] = 256, 1, -256, 1
+    return a, b
+
+
+@pytest.mark.skipif(
+    DEVICE != "cuda", reason="CUDA BF16 tree-rounding contract; native MUSA accumulates in FP32"
+)
+@torch.no_grad()
+def test_canonical_k_rounding_is_observable(backend):
+    a, b = _rounding_probe_operands()
     actual = backend[1](a, b)
     _raw_equal(actual, torch.ones_like(actual))
-    assert torch.equal(a.double() @ b.double(), torch.full((3, 64), 2.0, device=DEVICE))
+
+
+@torch.no_grad()
+def test_canonical_k_mathematical_reference():
+    a, b = _rounding_probe_operands()
+    reference = _fp64_reference(a, b)
+    assert torch.equal(
+        reference, torch.full((3, 64), 2.0, device=reference.device, dtype=torch.float64)
+    )
 
 
 @pytest.mark.parametrize("dtype", (torch.bfloat16, torch.float32))

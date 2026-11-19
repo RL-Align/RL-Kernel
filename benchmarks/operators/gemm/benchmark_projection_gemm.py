@@ -34,26 +34,42 @@ SHAPES = (
 
 def measure(fn, warmup, repeats):
     for _ in range(warmup):
-        fn()
+        output = fn()
+        del output
     torch.cuda.synchronize()
     pairs = [
         (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
         for _ in range(repeats)
     ]
-    torch.cuda.reset_peak_memory_stats()
     for start, end in pairs:
         start.record()
         output = fn()
         end.record()
+        output_dtype = str(output.dtype)
+        del output
     torch.cuda.synchronize()
     samples = [start.elapsed_time(end) for start, end in pairs]
+
+    # Measure one independent call after all timed outputs/async work are gone.
+    # Allocated bytes count live tensors, not the caching allocator's reserved pool.
+    baseline = torch.cuda.memory_allocated()
+    torch.cuda.reset_peak_memory_stats()
+    output = fn()
+    torch.cuda.synchronize()
+    assert str(output.dtype) == output_dtype
+    peak = torch.cuda.max_memory_allocated()
+    del output
+    torch.cuda.synchronize()
     return {
-        "dtype": str(output.dtype),
+        "dtype": output_dtype,
         "median_ms": statistics.median(samples),
         "p95_ms": sorted(samples)[min(repeats - 1, int(repeats * 0.95))],
         "min_ms": min(samples),
         "max_ms": max(samples),
-        "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
+        "baseline_allocated_bytes": baseline,
+        "peak_allocated_bytes": peak,
+        "peak_increment_bytes": peak - baseline,
+        "post_release_allocated_bytes": torch.cuda.memory_allocated(),
         "samples_ms": samples,
     }
 
@@ -76,6 +92,11 @@ def main():
         "utc": datetime.now(timezone.utc).isoformat(),
         **source_provenance(),
         "extension_sha256": hashlib.sha256(extension.read_bytes()).hexdigest(),
+        "extension_path": str(extension.resolve()),
+        "benchmark_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "provenance_helper_sha256": hashlib.sha256(
+            Path(source_provenance.__code__.co_filename).read_bytes()
+        ).hexdigest(),
         "python": platform.python_version(),
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
@@ -85,7 +106,14 @@ def main():
         "backend": det_gemm_backend(),
         "sm90_compiled": _C.det_gemm_sm90_compiled(),
         "method": (
-            "CUDA events around public API, includes copies/allocations/kernels; no CUDA graphs"
+            "CUDA events around public API, includes copies/allocations/kernels; "
+            "release each result after end.record; no CUDA graphs"
+        ),
+        "memory_method": (
+            "Separate single call after timed outputs are released and CUDA synchronized; "
+            "baseline=memory_allocated before reset; peak=max_memory_allocated with output alive; "
+            "increment=peak-baseline; post_release after deleting output and synchronizing; "
+            "allocated bytes only, not reserved memory"
         ),
         "seed": 642,
         "warmup": args.warmup,

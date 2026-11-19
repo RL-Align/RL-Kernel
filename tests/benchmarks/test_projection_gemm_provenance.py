@@ -6,15 +6,14 @@ import subprocess
 
 import pytest
 
-from benchmarks.operators.gemm.projection_provenance import source_provenance
+from benchmarks.operators.gemm.projection_provenance import git_environment, source_provenance
 
 EMPTY_HASH = hashlib.sha256(b"").hexdigest()
 
 
-@pytest.fixture
-def repo(tmp_path):
+def _make_repo(tmp_path):
     def git(*args):
-        return subprocess.check_output(["git", *args], cwd=tmp_path)
+        return subprocess.check_output(["git", *args], cwd=tmp_path, env=git_environment())
 
     git("init", "-q")
     git("config", "user.name", "Test")
@@ -25,6 +24,11 @@ def repo(tmp_path):
     git("add", ".")
     git("commit", "-qm", "baseline")
     return tmp_path, git
+
+
+@pytest.fixture
+def repo(tmp_path):
+    return _make_repo(tmp_path)
 
 
 def test_clean_revisions_have_distinct_committed_trees(repo):
@@ -64,3 +68,43 @@ def test_untracked_source_is_visible_without_claiming_content_hash(repo):
     assert "?? csrc/new.cu" in record["source_status"]
     assert record["unstaged_source_diff_sha256"] == EMPTY_HASH
     assert record["staged_source_diff_sha256"] == EMPTY_HASH
+
+
+def test_source_changes_are_found_from_a_subdirectory(repo):
+    path, git = repo
+    subdir = path / "nested"
+    subdir.mkdir()
+    (path / "csrc/kernel.cu").write_text("unstaged\n")
+    assert source_provenance(subdir) == source_provenance(path)
+    assert source_provenance(subdir)["unstaged_source_diff_sha256"] != EMPTY_HASH
+    git("add", "csrc")
+    assert source_provenance(subdir) == source_provenance(path)
+    assert source_provenance(subdir)["staged_source_diff_sha256"] != EMPTY_HASH
+
+
+@pytest.mark.parametrize(
+    "variable",
+    ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"),
+)
+def test_inherited_git_locations_do_not_change_provenance(repo, monkeypatch, variable):
+    path, _ = repo
+    expected = source_provenance(path)
+    monkeypatch.setenv(variable, str(path / "must-not-be-used"))
+    monkeypatch.setenv("TASK12_UNRELATED_SETTING", "preserved")
+    assert source_provenance(path) == expected
+    assert git_environment()["TASK12_UNRELATED_SETTING"] == "preserved"
+
+
+def test_fixture_cannot_write_an_inherited_index(tmp_path, monkeypatch):
+    # Exercise isolation starting with git init, not only after fixture creation.
+    caller_index = tmp_path / "caller-index"
+    caller_index.write_bytes(b"caller index must remain untouched")
+    monkeypatch.setenv("GIT_INDEX_FILE", str(caller_index))
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "unrelated.git"))
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    path, git = _make_repo(repository)
+    (path / "csrc/kernel.cu").write_text("changed\n")
+    git("add", ".")
+    assert source_provenance(path)["staged_source_diff_sha256"] != EMPTY_HASH
+    assert caller_index.read_bytes() == b"caller index must remain untouched"
