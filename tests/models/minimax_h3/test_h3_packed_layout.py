@@ -169,6 +169,14 @@ def test_noise_level_is_mixed_in_fp32_not_fp64():
     assert torch.equal(ours, t * x0 + (1.0 - t) * noise)
     python_float = 0.999 * x0 + (1.0 - 0.999) * noise  # the H15 probe arm
     assert not torch.equal(ours, python_float)
+    # The level goes straight to the sample dtype, whatever the process default dtype is.
+    previous = torch.get_default_dtype()
+    for default in (torch.float16, torch.bfloat16):
+        try:
+            torch.set_default_dtype(default)
+            assert torch.equal(pl.noise_condition(x0, noise), t * x0 + (1.0 - t) * noise)
+        finally:
+            torch.set_default_dtype(previous)
 
 
 def test_condition_noise_is_drawn_one_condition_at_a_time():
@@ -314,9 +322,21 @@ def test_structure_of_a_layout_without_target_video_rows_is_refused():
     # answer with an error, not an IndexError.
     no_target = dataclasses.replace(_toy_layout("ref2va", cond=2), num_condition_video_rows=6)
     no_target.validate()
-    for check in (pl.structural_workflow, pl.check_pipeline_identity, pl.layout_artifact):
-        with pytest.raises(ValueError, match="no target video rows"):
-            check(no_target)
+    # Without conditioning rows either (text and audio rows only), which would read as t2va.
+    text_and_audio = pl.build_layout(
+        workflow="t2va",
+        text_token_tags=torch.tensor([1, 0, 1]),
+        position_ids=torch.zeros(5, 3, dtype=torch.float64),
+        video_indices=torch.empty(0, dtype=torch.long),
+        audio_indices=torch.arange(3, 5),
+        num_condition_video_rows=0,
+        num_condition_audio_rows=0,
+        geometry={"toy": True},
+    )
+    for layout in (no_target, text_and_audio):
+        for check in (pl.structural_workflow, pl.check_pipeline_identity, pl.layout_artifact):
+            with pytest.raises(ValueError, match="no target video rows"):
+                check(layout)
 
 
 # --- artifact (H-C7) ----------------------------------------------------------------------
@@ -347,6 +367,27 @@ def test_artifact_is_sealed_and_names_the_first_difference(tmp_path):
     pl.check_pipeline_identity(layout, artifact=artifact)
     with pytest.raises(pl.VariantMismatch, match="do not describe"):
         pl.check_pipeline_identity(other, artifact=artifact)
+
+
+def test_artifact_identity_covers_what_the_tensors_do_not():
+    # Same tensors, same structural workflow, but other condition counts or geometry: the
+    # row-timestep plan or the initial rows would differ from what was sealed.
+    keyframed = _toy_layout("fl2va", cond=2)
+    keyframed.position_ids[3:5, 0] = 3.0  # keyframes on the target's first frame time
+    referenced = _toy_layout("ref2va", cond=2, origin_shift=1.0)
+    for layout, change in (
+        (keyframed, {"num_condition_video_rows": 1}),
+        (referenced, {"num_condition_audio_rows": 1}),
+        (keyframed, {"geometry": {"toy": False}}),
+    ):
+        artifact = pl.layout_artifact(layout)
+        changed = dataclasses.replace(layout, **change)
+        changed.validate()
+        assert pl.structural_workflow(changed) == pl.structural_workflow(layout)
+        assert changed.component_hashes() == layout.component_hashes()
+        with pytest.raises(pl.VariantMismatch, match=f"artifact {next(iter(change))} does not"):
+            pl.check_pipeline_identity(changed, artifact=artifact)
+        pl.check_pipeline_identity(layout, artifact=artifact)
 
 
 def test_denoiser_inputs_move_without_a_byte_change():

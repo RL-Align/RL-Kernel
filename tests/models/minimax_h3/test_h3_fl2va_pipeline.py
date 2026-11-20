@@ -223,6 +223,34 @@ def test_repeated_preprocessing_in_a_fresh_process_is_byte_identical():
     assert remote == local
 
 
+def test_t2va_runs_without_pillow():
+    # Pillow is not a base dependency: importing the module and the zero-keyframe path must
+    # not need it; a keyframe does.
+    no_pillow = (
+        "import sys; sys.path.insert(0, sys.argv[1]); sys.modules['PIL'] = None;"
+        "import torch; from rl_engine.models.minimax_h3 import fl2va;"
+    )
+    t2va = (
+        "k = fl2va.prepare_keyframes(height=768, width=1344);"
+        "layout = fl2va.build_fl2va_layout(torch.ones(5, dtype=torch.long), height=k.height,"
+        " width=k.width, num_frames=124);"
+        "fl2va.fl2va_initial_rows(layout, [], generator=torch.Generator().manual_seed(0));"
+        "print(layout.workflow)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", no_pillow + t2va, str(REPO)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert out.stdout.strip().splitlines()[-1] == "t2va"
+    keyframe = "fl2va.prepare_keyframes(object())"
+    failed = subprocess.run(
+        [sys.executable, "-c", no_pillow + keyframe, str(REPO)], capture_output=True, text=True
+    )
+    assert failed.returncode != 0 and "PIL" in failed.stderr.splitlines()[-1]
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_initial_rows_on_cuda_equal_cpu_bytes():
     """``device="cuda"`` with a CPU generator.
@@ -471,3 +499,63 @@ def test_layout_matches_sglang_packed_sequence_prefix():
             assert torch.equal(packed["token_tags"][:used], layout.token_tags)
             assert torch.equal(packed["img_pos"], layout.video_indices)
             assert torch.equal(packed["audio_pos"], layout.audio_indices)
+
+
+def test_report_counts_a_dtype_change_as_a_difference(monkeypatch):
+    """The evidence tool's SGLang count must see dtypes: a stand-in that returns our own
+    layout with int32 indices is equal by value and not bitwise."""
+
+    import importlib.util
+    import types
+
+    spec = importlib.util.spec_from_file_location(
+        "h3_fl2va_report", REPO / "tools/validation/models/h3_fl2va_report.py"
+    )
+    assert spec is not None and spec.loader is not None
+    report = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(report)
+    anchors_of = {None: (), (0,): ("first",), (-1,): ("last",), (0, -1): ("first", "last")}
+
+    def stand_in(index_dtype):
+        def packed_sequence(**kw):
+            n = (kw["latent_t"] - 2) // 5
+            ours = fl2va.build_fl2va_layout(
+                torch.ones(kw["text_len"], dtype=torch.long),
+                height=kw["latent_h"] * 16,
+                width=kw["latent_w"] * 16,
+                num_frames=17 * n + 5,
+                anchors=anchors_of[tuple(kw["keyframe_frame_indices"] or ()) or None],
+            )
+            return {
+                "img_position_ids": ours.position_ids,
+                "token_tags": ours.token_tags,
+                "img_pos": ours.video_indices.to(index_dtype),
+                "audio_pos": ours.audio_indices.to(index_dtype),
+            }
+
+        return types.SimpleNamespace(minimax_h3_packed_sequence=packed_sequence)
+
+    sglang = "sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3"
+    monkeypatch.setitem(sys.modules, "diffusers.modular_pipelines.minimax_h3", None)
+    for index_dtype, equal in ((torch.long, 36), (torch.int32, 0)):
+        fake = types.ModuleType(sglang)
+        fake.packed_sequence = stand_in(index_dtype)  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, sglang, fake)
+        out = report.reference()["sglang_prefix"]
+        assert (out["cases"], out["bitwise_equal"]) == (36, equal), index_dtype
+
+
+def test_report_cases_have_the_canvas_their_name_says():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "h3_fl2va_report", REPO / "tools/validation/models/h3_fl2va_report.py"
+    )
+    assert spec is not None and spec.loader is not None
+    report = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(report)
+    canvas = {"landscape": (768, 1344), "portrait": (1344, 768)}
+    for case in report.CASES:
+        if case.endswith("/124"):
+            g = report.preprocess(case)["geometry"]
+            assert (g["height"], g["width"]) == canvas[case.split("/")[1]], case

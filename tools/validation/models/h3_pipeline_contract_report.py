@@ -12,7 +12,9 @@ One JSON per row, with:
   threads and one thread) and in fresh processes with other thread counts; the sealed
   packed-layout artifacts must be identical;
 * ``reference``: case counts and bitwise results against the pinned Diffusers builders and
-  SGLang's packed-sequence builders, when they are importable;
+  SGLang's packed-sequence builders, when they are importable. A Diffusers comparison counts
+  for the verdict only when the imported Diffusers source is the pinned one
+  (``environment.provider_source_sha256`` equals ``PROVIDER_SOURCE_SHA256``);
 * ``identity`` (H16): checkpoint component hashes of both variants and, with
   ``--transformer-dir``, which variant a local transformer directory holds;
 * ``timing``: layout construction time of ours, Diffusers and SGLang at the released size;
@@ -24,6 +26,7 @@ The row logic lives in ``h3_fl2va_report.py`` / ``h3_ref2va_report.py`` next to 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import os
@@ -42,6 +45,29 @@ if str(REPO) not in sys.path:
 from rl_engine.models.minimax_h3 import packed_layout as pl  # noqa: E402
 
 ROWS = {"fl2va": "h3_fl2va_report", "ref2va": "h3_ref2va_report"}
+
+# The Diffusers files the references run, at the pin (pl.PROVIDER_REVISION). Hashing the files
+# works for a git checkout and a source archive alike; an installed release (0.43.0, say) has
+# other files and does not match.
+PROVIDER_SOURCE_FILES = ("modular_pipelines/minimax_h3/*.py", "image_processor.py")
+PROVIDER_SOURCE_SHA256 = "b959c0ce2290be529e09ea379365786ffc1946dd950e82db96f5b938a48fd376"
+
+
+def provider_source_sha256() -> str | None:
+    """sha256 over the name and bytes of the imported Diffusers' ``PROVIDER_SOURCE_FILES``."""
+
+    try:
+        import diffusers
+        from diffusers.modular_pipelines import minimax_h3  # noqa: F401
+    except Exception:
+        return None
+    root = Path(diffusers.__file__).resolve().parent
+    digest = hashlib.sha256()
+    for pattern in PROVIDER_SOURCE_FILES:
+        for path in sorted(root.glob(pattern)):
+            digest.update(path.relative_to(root).as_posix().encode() + b"\0")
+            digest.update(path.read_bytes() + b"\0")
+    return digest.hexdigest()
 
 
 def _version(module: str) -> str | None:
@@ -84,6 +110,7 @@ def environment() -> dict[str, Any]:
         "sglang": _version("sglang"),
         "gpus": gpus,
         "provider_pin": f"{pl.PROVIDER}@{pl.PROVIDER_REVISION}",
+        "provider_source_sha256": provider_source_sha256(),
         "checkpoint_pin": "MiniMaxAI/MiniMax-H3@42ed227ee7df40d41602854ae760620d6eb651fe",
     }
 
@@ -259,12 +286,15 @@ def verdict(report: dict[str, Any]) -> bool:
     """Every case repeatable, at least one reference compared, and every compared case equal.
 
     With Diffusers and SGLang both missing nothing is compared, which is not a pass. Neither is
-    a compared reference that ran zero cases, nor a report with no repeatability case.
+    a compared reference that ran zero cases, nor a report with no repeatability case, nor a
+    Diffusers comparison against another Diffusers than the pinned one.
     """
 
     compared = compared_references(report)
+    source = report["environment"].get("provider_source_sha256")
     return (
-        bool(report["repeatability"])
+        all(source == PROVIDER_SOURCE_SHA256 for k in compared if k.startswith("diffusers"))
+        and bool(report["repeatability"])
         and all(v["identical"] for v in report["repeatability"].values())
         and bool(compared)
         and all(

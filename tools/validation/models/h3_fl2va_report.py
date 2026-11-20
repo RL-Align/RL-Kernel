@@ -17,7 +17,8 @@ from rl_engine.models.minimax_h3.trajectory import tensor_digest
 
 PROMPT = "A skateboarding cat crosses a sunlit plaza; wheels clatter, a crowd cheers."
 SIGNATURES = {"zero": (), "first": ("first",), "last": ("last",), "first_last": ("first", "last")}
-# Released canvas (16:9 from a 1280x720 first keyframe) and a portrait one, 124 and 345 frames.
+# Released canvas (16:9 from a 1280x720 keyframe, or given without keyframes) and a portrait
+# one, 124 and 345 frames.
 CASES = [
     f"{name}/{aspect}/{frames}"
     for name in SIGNATURES
@@ -45,7 +46,9 @@ def preprocess(case: str) -> dict[str, Any]:
     anchors = SIGNATURES[name]
     size = (1280, 720) if aspect == "landscape" else (720, 1280)
     first = _image(*size, seed=1) if "first" in anchors else None
-    last = _image(1000, 1000, seed=2) if "last" in anchors else None
+    # A lone last keyframe sets the canvas, so it has the case's aspect; after a first one it
+    # is the square follower that the cover crop handles.
+    last = _image(*((1000, 1000) if first else size), seed=2) if "last" in anchors else None
     if anchors:
         keyframes = fl2va.prepare_keyframes(first, last)
     else:
@@ -120,8 +123,8 @@ def reference() -> dict[str, Any]:
                             anchors,
                         )
                         names = ("position_ids", "token_tags", "video_indices", "audio_indices")
-                        same = all(
-                            torch.equal(getattr(ours, n), t) and getattr(ours, n).dtype == t.dtype
+                        same = all(  # dtype, shape and bytes, so -0.0 is not 0.0
+                            tensor_digest(getattr(ours, n)) == tensor_digest(t)
                             for n, t in zip(names + ("text_indices",), theirs[:5], strict=True)
                         ) and (
                             ours.num_condition_video_rows,
@@ -167,12 +170,13 @@ def reference() -> dict[str, Any]:
                     )
                     used = ours.sequence_length
                     cases += 1
-                    equal += (
-                        torch.equal(packed["img_position_ids"][:used], ours.position_ids)
-                        and torch.equal(packed["token_tags"][:used], ours.token_tags)
-                        and torch.equal(packed["img_pos"], ours.video_indices)
-                        and torch.equal(packed["audio_pos"], ours.audio_indices)
+                    pairs = (  # digests: torch.equal would take int32 indices for int64
+                        (packed["img_position_ids"][:used], ours.position_ids),
+                        (packed["token_tags"][:used], ours.token_tags),
+                        (packed["img_pos"], ours.video_indices),
+                        (packed["audio_pos"], ours.audio_indices),
                     )
+                    equal += all(tensor_digest(a) == tensor_digest(b) for a, b in pairs)
         out["sglang_prefix"] = {
             "cases": cases,
             "bitwise_equal": equal,

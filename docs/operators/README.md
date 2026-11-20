@@ -20,6 +20,7 @@ Every operator page should include:
 
 - [SiLU / SwiGLU Activation](activation.md)
 - [Standard Attention](attention.md)
+- [Conditioning Noise Mix](conditioning-noise-mix.md)
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
 - [Batch-Invariant LogP](batch-invariant-logp.md)
@@ -29,6 +30,7 @@ Every operator page should include:
 - [LM Head](lm_head.md)
 - [Policy Ratio + KL Penalty](ratio-kl.md)
 - [Pack and Pad](pack-and-pad.md)
+- [Packed Index Copy](packed-index-copy.md)
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
@@ -49,6 +51,7 @@ Every operator page should include:
 - [Operator Doc Template](../contributing/operator-doc-template.md)
 - [MiniMax-H3 Trajectory Artifact](h3-trajectory-artifact.md)
 - [MiniMax-H3 Projection Rows](h3-projection-rows.md)
+- [MiniMax-H3 SGLang Rollout Adapter](h3-sglang-rollout.md)
 - [MiniMax-H3 Tensor/Sequence/Context Parallel Rows](h3-parallel.md)
 - [MiniMax-H3 Token Refiner Block](h3-token-refiner.md)
 - [MiniMax-H3 Qwen3-VL Layer-50 Text Feature Contract](h3-qwen3vl-layer50-contract.md)

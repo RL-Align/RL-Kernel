@@ -64,35 +64,30 @@ def require_tiny_pipeline() -> Any:
 _PIPELINES: dict[tuple, Any] = {}
 
 
+def _load(diffusers: Any, **hub: Any) -> Any:
+    import torch
+
+    pipe = diffusers.ModularPipeline.from_pretrained(TINY_REPO, **hub)
+    pipe.load_components(torch_dtype=torch.float32, **hub)
+    # load_components logs a component it cannot load and leaves it None.
+    if pipe.null_component_names:
+        raise OSError(f"{TINY_REPO}: components not loaded: {pipe.null_component_names}")
+    return pipe
+
+
 def load_tiny_pipeline(**config: Any) -> Any:
     """The tiny pipeline (loaded once per process, cached copy first) with a small canvas."""
 
     diffusers = require_tiny_pipeline()
-    import os
-
-    import torch
-
     if "pipe" not in _PIPELINES:
-        previous = os.environ.get("HF_HUB_OFFLINE")
         try:
-            os.environ["HF_HUB_OFFLINE"] = "1"
-            pipe = diffusers.ModularPipeline.from_pretrained(TINY_REPO)
-            pipe.load_components(torch_dtype=torch.float32)
+            # local_files_only, not HF_HUB_OFFLINE: the Hub reads that once, at import.
+            pipe = _load(diffusers, local_files_only=True)
         except Exception:  # not (completely) cached: try the Hub once
-            if previous is None:
-                os.environ.pop("HF_HUB_OFFLINE", None)
-            else:
-                os.environ["HF_HUB_OFFLINE"] = previous
             try:
-                pipe = diffusers.ModularPipeline.from_pretrained(TINY_REPO)
-                pipe.load_components(torch_dtype=torch.float32)
-            except OSError as exc:  # pragma: no cover - offline without a cached copy
+                pipe = _load(diffusers)
+            except OSError as exc:  # offline without a complete cached copy
                 pytest.skip(f"{TINY_REPO} unavailable: {exc}")
-        finally:
-            if previous is None:
-                os.environ.pop("HF_HUB_OFFLINE", None)
-            else:
-                os.environ["HF_HUB_OFFLINE"] = previous
         _PIPELINES["pipe"] = pipe
     pipe = _PIPELINES["pipe"]
     pipe.register_to_config(**{**TINY_CANVAS, "reference_image_short_edge": 2048, **config})

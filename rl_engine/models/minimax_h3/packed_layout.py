@@ -562,12 +562,13 @@ def noise_condition(
 ) -> torch.Tensor:
     """``t * x0 + (1 - t) * noise`` with ``t`` an fp32 tensor, as the pinned pipeline mixes it.
 
-    The pipeline hands the scheduler ``torch.tensor(0.999)``: ``1 - t`` is evaluated in the
-    sample dtype (fp32). A Python-float ``t`` would keep ``1 - t`` in fp64 and give different
-    bytes; that is a probe arm (H15), not this contract.
+    The pinned scheduler's ``scale_noise`` makes the level a tensor of the sample dtype (fp32),
+    so ``1 - t`` is evaluated in fp32. A Python-float ``t`` would keep ``1 - t`` in fp64 and give
+    different bytes; that is a probe arm (H15), not this contract. The tensor is built in the
+    sample dtype directly: a pass through a half-precision default dtype would round the level.
     """
 
-    t = torch.tensor(level).to(device=condition.device, dtype=condition.dtype)
+    t = torch.tensor(level, device=condition.device, dtype=condition.dtype)
     while t.ndim < condition.ndim:
         t = t.unsqueeze(-1)
     return t * condition + (1.0 - t) * noise
@@ -833,10 +834,10 @@ def structural_workflow(layout: PackedLayout) -> str:
     by at least one unit, so its target starts later.
     """
 
-    if layout.num_condition_video_rows == 0 and layout.num_condition_audio_rows == 0:
-        return "t2va"
     if layout.num_condition_video_rows >= layout.video_indices.numel():
         raise ValueError("layout has no target video rows: not a MiniMax-H3 layout")
+    if layout.num_condition_video_rows == 0 and layout.num_condition_audio_rows == 0:
+        return "t2va"
     first_target = layout.video_indices[layout.num_condition_video_rows]
     origin = float(layout.position_ids[first_target, 0])
     if origin == float(layout.num_text_tokens) and layout.num_condition_audio_rows == 0:
@@ -854,7 +855,7 @@ def check_pipeline_identity(
 
     Checks that the layout's structure matches its declared workflow, that the transformer it
     is paired with is the same variant, and, if given, that a sealed artifact describes this
-    very layout (same workflow, same component hashes).
+    very layout (same workflow, component hashes, condition-row counts and geometry).
     """
 
     declared = layout.workflow
@@ -884,6 +885,15 @@ def check_pipeline_identity(
             )
         if artifact["layout_component_sha256"] != layout.component_hashes():
             raise VariantMismatch("artifact component hashes do not describe this layout")
+        # The tensors do not carry these: the counts set the row-timestep plan, the geometry
+        # the rows the initial-row builders expect.
+        for key, value in (
+            ("num_condition_video_rows", layout.num_condition_video_rows),
+            ("num_condition_audio_rows", layout.num_condition_audio_rows),
+            ("geometry", _jsonable(layout.geometry)),
+        ):
+            if artifact[key] != value:
+                raise VariantMismatch(f"artifact {key} does not describe this layout")
 
 
 # --- sealed artifact (H-C7) ---------------------------------------------------------------
