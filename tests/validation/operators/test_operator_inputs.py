@@ -70,6 +70,37 @@ def test_video_output_projection_contract_and_logical_keys():
         )
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_random_packed_index_copy_inputs_are_seeded_and_valid(dtype):
+    args = _args(input_mode="random", batch=2, seq=11, normalized_dim=17, seed=420)
+    device = torch.device("cpu")
+    first = make_operator_inputs("packed_index_copy", args, dtype, device)
+    repeated = make_operator_inputs("packed_index_copy", args, dtype, device)
+    assert isinstance(first["sequence_length"], int)
+    assert first["sequence_length"] == repeated["sequence_length"]
+    indices = []
+    for modality in ("text", "video", "audio"):
+        source, positions = first[modality], first[f"{modality}_indices"]
+        assert torch.equal(source, repeated[modality])
+        assert torch.equal(positions, repeated[f"{modality}_indices"])
+        assert source.ndim == 3 and source.shape[0] == args.batch
+        assert source.shape[2] == args.normalized_dim and source.dtype == dtype
+        assert source.device == device and source.is_contiguous()
+        assert positions.ndim == 1 and positions.numel() == source.shape[1]
+        assert positions.dtype == torch.int64 and positions.device == device
+        assert positions.is_contiguous()
+        indices.append(positions)
+    packed_indices = torch.cat(indices)
+    assert packed_indices.unique().numel() == packed_indices.numel()
+    assert ((packed_indices >= 0) & (packed_indices < first["sequence_length"])).all()
+    assert 0 < packed_indices.numel() < first["sequence_length"]
+
+    args.seed += 1
+    changed = make_operator_inputs("packed_index_copy", args, dtype, device)
+    for modality in ("text", "video", "audio"):
+        assert not torch.equal(first[modality], changed[modality])
+
+
 @pytest.mark.parametrize(
     "op_name",
     [
