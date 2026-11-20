@@ -239,6 +239,7 @@ def get_extensions():
             cuda_sources.extend(
                 [
                     "csrc/cuda/model_specific/qwenimage/det_linear.cu",
+                    "csrc/cuda/model_specific/qwenimage/latent_pack_unpack.cu",
                 ]
             )
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
