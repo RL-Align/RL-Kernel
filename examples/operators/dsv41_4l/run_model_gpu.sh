@@ -66,7 +66,7 @@ if [[ $pp -eq 1 ]]; then
 else
   baseline=$(realpath "$baseline")
   mounts=(-v "$baseline:/baseline:ro")
-  launch+=(-m examples.operators.dsv41_4l.run_pipeline --checkpoint /weights --output /outputs --baseline /baseline --tp "$tp" --dp "$dp")
+  launch+=(-m examples.operators.dsv41_4l.run_pipeline --checkpoint /weights --output /outputs --baseline /baseline --tp "$tp" --dp "$dp" --optimizer-steps "${DSV41_MODEL_OPTIMIZER_STEPS:-0}")
 fi
 docker run --rm --pull=never --network=none --device=/dev/kfd --device=/dev/dri \
   --group-add "$(stat -c %g /dev/kfd)" --group-add "$(stat -c %g /dev/dri/renderD128)" \

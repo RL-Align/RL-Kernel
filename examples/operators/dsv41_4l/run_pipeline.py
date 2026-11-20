@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--dp", type=int, default=1, choices=(1, 2))
     parser.add_argument("--tp", type=int, default=1, choices=(1, 2, 4))
+    parser.add_argument("--optimizer-steps", type=int, default=0, choices=(0, 2))
     args = parser.parse_args()
     rank = int(os.environ["RANK"])
     local = int(os.environ["LOCAL_RANK"])
@@ -88,7 +89,7 @@ def main():
                 )
                 raise AssertionError(f"{category}: {key}: bit mismatch")
 
-    def execute(training):
+    def execute(training, backward=True):
         boundary = None
         if stage == 1:
             x = torch.empty((b, s, 4, 5120), device=device, dtype=torch.bfloat16)
@@ -100,7 +101,7 @@ def main():
         if stage == 0:
             dist.send(out.residual.detach().contiguous(), peer)
             dist.send(out.previous_pre.detach().contiguous(), peer)
-        if training:
+        if training and backward:
             if stage == 1:
                 (-out.raw_token_logprobs.mean()).backward()
                 dist.send(boundary[0].grad.contiguous(), peer)
@@ -185,6 +186,82 @@ def main():
                 {"input_ids": ids.cpu(), "raw_fp32_token_logprobs": out.raw_token_logprobs.cpu()},
                 args.output / f"logprobs-rank{rank}.pt",
             )
+        if args.optimizer_steps:
+            del out, traces, gradients
+            parameters = dict(model.named_parameters())
+            initial = {name: p.detach().clone() for name, p in parameters.items()}
+            expected = []
+            for replay in range(2):
+                with torch.no_grad():
+                    for name, p in parameters.items():
+                        p.copy_(initial[name])
+                optimizer = torch.optim.SGD(model.parameters(), lr=1e-5, foreach=False)
+                for step in range(args.optimizer_steps):
+                    model.train()
+                    optimizer.zero_grad(set_to_none=True)
+                    out = execute(True)
+                    del out
+                    grad = {
+                        name: p.grad.detach().clone()
+                        for name, p in parameters.items()
+                        if p.grad is not None
+                    }
+                    if any(not bool(torch.isfinite(value).all()) for value in grad.values()):
+                        raise AssertionError("nonfinite optimizer-step gradient")
+                    if args.dp > 1:
+                        for name, value in grad.items():
+                            dist.all_reduce(value, group=dp_groups[stage * args.tp + tp_rank])
+                            value.div_(args.dp)
+                            parameters[name].grad.copy_(value)
+                    optimizer.step()
+                    weights = {name: p.detach().clone() for name, p in parameters.items()}
+                    if args.dp > 1:
+                        synchronized = {}
+                        for name, p in parameters.items():
+                            dist.broadcast(
+                                p.data,
+                                src=stage * args.tp + tp_rank,
+                                group=dp_groups[stage * args.tp + tp_rank],
+                            )
+                            synchronized[name] = p.detach().clone()
+                        check(
+                            f"optimizer.dp_weight_sync.repeat{replay}.step{step}",
+                            synchronized,
+                            weights,
+                        )
+                    if step == 0:
+                        changed = sum(
+                            not torch.equal(
+                                value.contiguous().view(torch.uint8),
+                                initial[name].contiguous().view(torch.uint8),
+                            )
+                            for name, value in weights.items()
+                        )
+                        if not changed:
+                            raise AssertionError("no model parameter changed after optimizer step")
+                        summary["updated_parameter_tensors_step0"] = changed
+                    model.train()
+                    trained = execute(True, backward=False).trace
+                    model.eval()
+                    with torch.inference_mode():
+                        inference = execute(False).trace
+                    check(
+                        f"optimizer.updated_weight_modes.repeat{replay}.step{step}",
+                        inference,
+                        trained,
+                    )
+                    if replay == 0:
+                        expected.append((grad, weights, trained))
+                    else:
+                        eg, ew, et = expected[step]
+                        check(f"optimizer.gradient_replay.step{step}", grad, eg)
+                        check(f"optimizer.parameter_replay.step{step}", weights, ew)
+                        check(f"optimizer.sequence_replay.step{step}", trained, et)
+                    print("PP_MODEL_OPTIMIZER_STEP_COMPLETE", rank, replay, step, flush=True)
+            summary["optimizer_steps"] = "PASS"
+            summary["optimizer_steps_per_replay"] = args.optimizer_steps
+        else:
+            summary["optimizer_steps"] = "NOT RUN"
         summary.update(
             status="PASS",
             forward="PASS",
