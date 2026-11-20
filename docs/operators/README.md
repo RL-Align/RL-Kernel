@@ -33,4 +33,5 @@ Every operator page should include:
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
 - [Qwen-Image AdaLN Modulation Projection](qwenimage-adaln-mod-projection.md)
+- [Qwen-Image Sequence Sharding and Arbitrary Lengths](qwenimage-sp.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)
