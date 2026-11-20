@@ -73,7 +73,13 @@ def main():
         if actual.keys() != expected.keys():
             raise AssertionError(f"{category}: tensor keys differ")
         for key in actual:
-            result = compare_bits(actual[key], expected[key], operator=key)
+            result = compare_bits(
+                actual[key],
+                expected[key],
+                operator=key,
+                rank=tp.rank,
+                token_dims=2 if key in ("hidden", "logits", "raw_token_logprobs") else None,
+            )
             result["category"] = category
             rows.append(result)
             if result["status"] != "PASS":
