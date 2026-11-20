@@ -599,7 +599,7 @@ class MegatronFFNOperator:
 
 
 class MegatronLogpOperator:
-    """Route structural Vime logp requests through the strict GPU backend."""
+    """Route shared training logp inputs through the strict GPU backend."""
 
     def __init__(
         self,
@@ -634,7 +634,7 @@ class MegatronLogpOperator:
             _require_nvidia_cuda(hidden, "linear_logp")
             result = self._provider(request, linear_logp=self._linear_logp)
             self._last_provenance = {
-                "interface": "vime.selected_logprob_provider",
+                "interface": "rl_kernel.training_logp",
                 "operator": self.backend_id,
                 "actual_backend": self.backend_id,
                 "fallback": False,
@@ -654,7 +654,7 @@ class MegatronLogpOperator:
         _require_nvidia_cuda(logits, "Logp")
         result = self._provider(request)
         self._last_provenance = {
-            "interface": "vime.selected_logprob_provider",
+            "interface": "rl_kernel.training_logp",
             "operator": self.backend_id,
             "actual_backend": self.backend_id,
             "fallback": False,
