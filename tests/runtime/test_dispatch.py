@@ -296,14 +296,17 @@ def test_mlp_up_gemm_gelu_general_pin_never_selects_the_mma_backend(monkeypatch)
     ]
 
 
-def test_mlp_up_gemm_gelu_hopper_pin_prefers_the_cuda_kernel(monkeypatch):
+def test_mlp_up_gemm_gelu_hopper_pin_keeps_the_mma_producers(monkeypatch):
     monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "hopper")
 
     registry = KernelRegistry()
 
+    # Triton first: it serves the mma order on every CUDA arch. The native
+    # Hopper op only satisfies it at call time on cc 9.0 + the sm90 build, and
+    # `get_op` does not fall back on call-time failures.
     assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
-        OpBackend.CUDA_MLP_UP_GEMM_GELU,
         OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
     ]
     # The fp32 reference computes the tree, so it cannot serve a hopper pin.
     assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [OpBackend.TRITON_MLP_UP_GEMM_GELU]
@@ -322,8 +325,8 @@ def test_mlp_up_gemm_gelu_pins_are_repeatable(monkeypatch):
     monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "hopper")
     registry._adjust_priority_from_env()
     assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
-        OpBackend.CUDA_MLP_UP_GEMM_GELU,
         OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
     ]
     assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [OpBackend.TRITON_MLP_UP_GEMM_GELU]
 

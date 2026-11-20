@@ -1076,16 +1076,21 @@ class KernelRegistry:
     # ``general`` is the portable fp32 tree, ``hopper`` the hardware (mma) order.
     # The Triton backend implements only the mma order and the fp32 reference
     # only the tree, so a pinned contract maps to the backends that can produce
-    # it, in dispatch order. ``auto`` is not a producer set: it restores the
-    # static (pre-pin) order recorded in ``_mlp_up_gemm_gelu_baseline``.
+    # it, in dispatch order. Under ``hopper`` Triton comes first because it can
+    # serve every CUDA arch with that order, while the native CUDA op only
+    # satisfies it at call time on cc 9.0 with the sm90 build; ordering the
+    # native op first would make a non-Hopper pin fail instead of reaching the
+    # registered Triton producer (``get_op`` only falls back on load/instantiate
+    # failures). ``auto`` is not a producer set: it restores the static
+    # (pre-pin) order recorded in ``_mlp_up_gemm_gelu_baseline``.
     _MLP_UP_GEMM_GELU_CONTRACT_BACKENDS = {
         "general": (
             OpBackend.CUDA_MLP_UP_GEMM_GELU,
             OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
         ),
         "hopper": (
-            OpBackend.CUDA_MLP_UP_GEMM_GELU,
             OpBackend.TRITON_MLP_UP_GEMM_GELU,
+            OpBackend.CUDA_MLP_UP_GEMM_GELU,
         ),
     }
 

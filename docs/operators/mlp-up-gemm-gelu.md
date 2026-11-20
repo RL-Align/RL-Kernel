@@ -277,11 +277,12 @@ under the mma contract.
 - The switch names a *contract*, not a backend, so the registry narrows the
   candidates before dispatch: `general` keeps only the tree producers (the CUDA
   portable kernel, then the fp32 reference) and drops Triton, which implements
-  only the mma order; `hopper` keeps the CUDA Hopper kernel first and Triton
-  (the same mma contract, byte-identical) as its fallback, and drops the fp32
-  reference, which is the tree. A pinned contract never falls through to a
-  backend that would change the arithmetic: when nothing can serve it, dispatch
-  raises instead of running the other order.
+  only the mma order; `hopper` keeps Triton first (it serves every CUDA arch
+  with that order) with the CUDA Hopper kernel (byte-identical, cc 9.0 + sm90
+  build only) as the native fallback, and drops the fp32 reference, which is
+  the tree. A pinned contract never falls through to a backend that would
+  change the arithmetic: when nothing can serve it, dispatch raises instead of
+  running the other order.
 - ROCm / MUSA: Triton, then the PyTorch reference (`general` makes it the fp32
   reference only, since the tree kernel is CUDA-only).
 - CPU / NPU: the PyTorch reference only.
