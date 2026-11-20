@@ -267,6 +267,15 @@ def swiglu_backward(
     gate: torch.Tensor,
     up: torch.Tensor,
 ) -> list[torch.Tensor]: ...
+def conditioning_noise_mix_forward(
+    sample: torch.Tensor,
+    timestep: torch.Tensor,
+    noise: torch.Tensor,
+) -> torch.Tensor: ...
+def conditioning_noise_mix_backward(
+    grad: torch.Tensor,
+    timestep: torch.Tensor,
+) -> list[torch.Tensor]: ...
 def rmsnorm_forward(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -336,6 +345,21 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+def packed_index_copy_forward(
+    text: torch.Tensor,
+    video: torch.Tensor,
+    audio: torch.Tensor,
+    text_indices: torch.Tensor,
+    video_indices: torch.Tensor,
+    audio_indices: torch.Tensor,
+    sequence_length: int,
+) -> torch.Tensor: ...
+def packed_index_copy_backward(
+    grad: torch.Tensor,
+    text_indices: torch.Tensor,
+    video_indices: torch.Tensor,
+    audio_indices: torch.Tensor,
+) -> list[torch.Tensor]: ...
 
 # MiniMax-H3 kernels (RFC #420). These exist only in a build that compiles the H3 sources: not on
 # ROCm, and not with KERNEL_ALIGN_USE_FAST_MATH=1 or relaxed NVCC_*_FLAGS (build_tools/extensions.py

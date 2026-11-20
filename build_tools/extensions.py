@@ -420,11 +420,13 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            cuda_sources.append("csrc/cuda/packing/packed_index_copy.cu")
             if h3_enabled:
                 cuda_sources.extend(H3_BITWISE_SOURCES)
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            cuda_sources.append("csrc/cuda/conditioning/conditioning_noise_mix.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         if use_fast_math:

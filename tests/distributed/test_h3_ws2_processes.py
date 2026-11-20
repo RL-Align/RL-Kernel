@@ -13,7 +13,7 @@ import torch.multiprocessing as mp
 from rl_engine.validation.distributed import h3_ws2
 
 
-def _worker(rank, world, init, queue, path, target, kwargs):
+def _worker(rank, world, init, queue, path, target, kwargs, with_collective=True):
     mode = kwargs["mode"]
     if mode == "success":
         torch.save({"value": torch.tensor(rank)}, path.with_name(f"rank{rank}.pt"))
