@@ -169,6 +169,14 @@ def test_noise_level_is_mixed_in_fp32_not_fp64():
     assert torch.equal(ours, t * x0 + (1.0 - t) * noise)
     python_float = 0.999 * x0 + (1.0 - 0.999) * noise  # the H15 probe arm
     assert not torch.equal(ours, python_float)
+    # The level goes straight to the sample dtype, whatever the process default dtype is.
+    previous = torch.get_default_dtype()
+    for default in (torch.float16, torch.bfloat16):
+        try:
+            torch.set_default_dtype(default)
+            assert torch.equal(pl.noise_condition(x0, noise), t * x0 + (1.0 - t) * noise)
+        finally:
+            torch.set_default_dtype(previous)
 
 
 def test_condition_noise_is_drawn_one_condition_at_a_time():
