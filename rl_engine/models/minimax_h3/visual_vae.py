@@ -38,6 +38,7 @@ import and works with any object exposing ``encode``/``decode``/``config`` like
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import json
 import math
@@ -74,13 +75,21 @@ CONDITION_ENCODE_SEED = 42
 
 
 @lru_cache(maxsize=1)
-def release_fingerprint() -> Mapping[str, Any]:
-    """The pinned checkpoint/config/reference identity (``visual_vae_fingerprint.json``)."""
-
+def _pinned_fingerprint() -> Mapping[str, Any]:
     data = json.loads(FINGERPRINT_PATH.read_text())
     if data.get("contract_id") != CONTRACT_ID:
         raise ValueError(f"{FINGERPRINT_PATH.name} is not for {CONTRACT_ID}")
     return data
+
+
+def release_fingerprint() -> Mapping[str, Any]:
+    """The pinned checkpoint/config/reference identity (``visual_vae_fingerprint.json``).
+
+    A fresh copy on every call: a caller that edits the result cannot change the pinned
+    identity that later checks compare against.
+    """
+
+    return copy.deepcopy(_pinned_fingerprint())
 
 
 def release_config() -> Mapping[str, Any]:
@@ -142,14 +151,26 @@ def load_release_vae(
         if verify_sha256 and _sha256_file(path) != entry["sha256"]:
             raise ValueError(f"{path.name}: sha256 differs from the pinned checkpoint")
     vae = vae_cls.from_config(config)
-    state: dict[str, torch.Tensor] = {}
+    expected = set(vae.state_dict())
+    loaded: set[str] = set()
     # Only the pinned shards: another *.safetensors in the folder must not replace a
-    # verified tensor (``strict=True`` cannot see a replaced value, only missing keys).
+    # verified tensor. One shard at a time, so the host holds the model plus one shard,
+    # not a second full copy of the weights. Missing, unexpected and repeated keys are
+    # errors, as with one strict load (shape mismatches always raise).
     for entry in pinned["checkpoint"]["files"]:
-        if entry["path"].endswith(".safetensors"):
-            state.update(load_file(str(root / Path(entry["path"]).name), device="cpu"))
-    vae.load_state_dict(state, strict=True)
-    del state  # one device copy of the 10 GB of weights, not two
+        if not entry["path"].endswith(".safetensors"):
+            continue
+        shard = load_file(str(root / Path(entry["path"]).name), device="cpu")
+        repeated = loaded & shard.keys()
+        if repeated:
+            raise ValueError(f"keys in more than one shard: {sorted(repeated)[:5]}")
+        result = vae.load_state_dict(shard, strict=False)
+        if result.unexpected_keys:
+            raise ValueError(f"unexpected keys: {sorted(result.unexpected_keys)[:5]}")
+        loaded |= shard.keys()
+        del shard
+    if expected - loaded:
+        raise ValueError(f"missing keys: {sorted(expected - loaded)[:5]}")
     vae = vae.to(device).eval()
     if any(p.dtype != torch.float32 for p in vae.parameters()):
         raise TypeError("the released VisualVAE is FP32; a parameter loaded in another dtype")
