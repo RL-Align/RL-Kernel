@@ -91,8 +91,22 @@ bit for bit, the video / audio velocity, the three input gradients, every block'
 gradient (`first_drift_*` names the first block, logical row, owning rank and modality) and this
 rank's weight-shard gradients of all 350 sharded projections. `--inject BLOCK:ROW:RANK` perturbs one
 row on one rank: a negative control that has to be reported at that block, row and owner. Every
-rank loads the whole checkpoint and runs the canonical model first, so it is a validation harness,
-not a memory-sharded implementation. Weight-shard gradients are reduced to their digest the moment
+rank loads the whole checkpoint and runs the canonical model first. By default the grid run then
+uses that same model, cutting each projection shard out of the full weight on every call.
+
+With `--sharded` the grid runs on a model that holds only this rank's projection shards:
+`h3_sharded_load.load_sharded_model(transformer_dir, tp, tp_rank, device)` builds the transformer
+with its parameters on `meta`, loads every other parameter in full, and reads each shard of the
+seven sharded projections per block (Q / K / V, the attention output, the hidden and gate halves of
+`ff.net.0.proj`, `ff.net.2`) through a safetensors slice, so the rest of the weight is never read.
+The shards are stored on the block (`SHARDS_ATTR`) with the `(tp, tp_rank)` they were cut for, and
+the block refuses another grid. They are the bytes `parallel.shard_rows` / `shard_cols` cut from the
+full weight, so the run is compared against the same canonical run. Everything else (embedders,
+refiner, norms, `adaln_proj`, boundary projections) is still held in full on every rank.
+`--provider-boundaries` (`parallel_model_execution(..., strict_boundaries=False)`) leaves the
+boundary modules on the provider in both runs, for GPUs the strict boundary rows do not support.
+
+Weight-shard gradients are reduced to their digest the moment
 they are accumulated and freed (`ParallelState.digest_leaf`), so a run holds one block's shard
 gradients at a time: without that, the canonical run's unsharded leaves and gradients need about
 twice the 33B weights on top of the weights themselves, which does not fit a 94 GB H100. The digest
@@ -153,8 +167,9 @@ this is the time of a whole `block_case(..., backward=False)` call, not of the k
 - The compute paths (`seq_sharded_linear`, `run_tp_block`, `run_tp_block_rows`, hence the full
   model) need at least one row on every CP rank; the ring and the packed IO themselves accept ranks
   that hold no rows.
-- The full-model runner keeps the whole 33B checkpoint on every rank and runs the canonical model
-  first; it is not run with sharded weight storage.
+- The full-model runner keeps the whole 33B checkpoint on every rank for the canonical run. With
+  `--sharded` the grid run holds only the 350 projection shards of its TP rank; the other block
+  parameters (`adaln_proj.linear` above all, about 0.5 GB per block) stay replicated.
 - `HierarchicalCollective` assumes ranks are packed node-major and node counts of 1/2/4/8.
   With several TP groups (CP > 1) it is given every TP group's ranks (`group_ranks`, as
   `make_grid` does) and every rank creates all their subgroups in one order, as
