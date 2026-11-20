@@ -83,7 +83,7 @@ def test_arm_order_alternates_between_rounds():
 
 
 def test_stock_actor_uses_vime_spec_and_drops_rl_kernel_provider():
-    stock = runtime_argv("/checkpoint", training=True, providers=False, seq_length=2048)
+    stock = runtime_argv("/checkpoint", training=True, providers=False, seq_length=2048, tp=2, ep=4)
     shared = runtime_argv("/checkpoint", training=True)
     assert stock[stock.index("--spec") + 1 :][:2] == list(STOCK_SPEC)
     assert shared[shared.index("--spec") + 1 :][:2] == list(SHARED_SPEC)
@@ -207,3 +207,49 @@ def test_engine_refusal_is_unsupported_not_a_crash():
     )
     assert bench.unsupported_reason(log).endswith("not supported for GDN_ATTN.")
     assert bench.unsupported_reason("CUDA out of memory") is None
+
+
+def test_stock_vime_runs_its_recipe_layout_and_strict_stays_certified():
+    stock = runtime_argv("/checkpoint", training=True, providers=False, tp=2, ep=4)
+    assert _option(stock, "tensor-model-parallel-size") == "2"
+    assert _option(stock, "expert-model-parallel-size") == "4"
+    assert _option(stock, "expert-tensor-parallel-size") == "1"
+    shared = runtime_argv("/checkpoint", training=False, ep=4)
+    assert _option(shared, "tensor-model-parallel-size") == "4"
+    assert _option(shared, "expert-tensor-parallel-size") == "1"
+    with pytest.raises(ValueError, match="TP2 EP4"):
+        runtime_argv("/checkpoint", training=False, providers=False)
+    with pytest.raises(ValueError, match="training stays EP1"):
+        runtime_argv("/checkpoint", training=True, ep=4)
+    with pytest.raises(ValueError, match="training stays EP1"):
+        runtime_argv("/checkpoint", training=False, tp=2)
+
+
+def test_actor_layouts_and_unsupported_strict_training():
+    assert cases.actor_layout(1, "strict") == {"tp": 4, "ep": 1, "etp": 4, "dp": 1}
+    assert cases.actor_layout(4, "strict") == {"tp": 4, "ep": 4, "etp": 1, "dp": 1}
+    for ep in (1, 4):
+        assert cases.actor_layout(ep, "native") == {"tp": 2, "ep": 4, "etp": 1, "dp": 2}
+        assert cases.actor_unsupported(ep, "replay", "strict") is None
+        assert cases.actor_unsupported(ep, "train", "native") is None
+    assert cases.actor_unsupported(1, "train", "strict") is None
+    assert cases.actor_unsupported(4, "train", "strict") == cases.STRICT_TRAINING_NEEDS_EP1
+
+
+def test_data_parallel_share_splits_rows_and_fills_an_empty_rank():
+    rows = [[1], [2], [3], [4]]
+    assert cases.data_parallel_share(rows, 0, 2) == ([[1], [3]], False)
+    assert cases.data_parallel_share(rows, 1, 2) == ([[2], [4]], False)
+    assert cases.data_parallel_share(rows[:1], 1, 2) == ([[1]], True)
+    assert cases.data_parallel_share(rows, 0, 1) == (rows, False)
+
+
+def test_response_positions_of_a_rank_share_match_its_packed_rows():
+    shape = (8, 4, 3)
+    full = cases.sequences(shape)
+    share, _ = cases.data_parallel_share(full, 1, 2)
+    positions, targets = cases.response_positions(shape, share)
+    packed = [token for row in share for token in row]
+    assert targets == [token for row in share for token in row[8:]]
+    assert [packed[p + 1] for p in positions] == targets
+    assert cases.response_positions(shape) == cases.response_positions(shape, full)
