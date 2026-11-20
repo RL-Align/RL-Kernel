@@ -110,6 +110,9 @@ rlkernel() { # extra env / overrides for the RL-Kernel run
       "${COMMON[@]}" "${DAPO_REWARD[@]}" "$@" 2>&1 | tee "$RUN/train.log"
 }
 
+BASELINE_APPEND_DEFAULT="actor_rollout_ref.model.lora.experts_shared_outer_loras
+  actor_rollout_ref.model.lora.lora_plus_ratio actor_rollout_ref.rollout.use_dynamic_bsz"
+
 main() {
 case $VARIANT in
   gate)
@@ -161,6 +164,13 @@ case $VARIANT in
     sed -i 's/trainer.logger=.\["console","wandb"\]./trainer.logger='"'"'["console","file"]'"'"'/' \
       "$RUN/launcher.sh"
     grep -q '"console","file"' "$RUN/launcher.sh" || { echo "logger edit failed"; exit 1; }
+    # The launcher sets keys verl's config schema at this pin lacks; Hydra refuses them unless
+    # appended ("+"). BASELINE_APPEND_KEYS lists them (found with `run.sh baseline --cfg job`).
+    # Model.lora's go to Megatron-Bridge's create_peft, which drops fields it does not have.
+    for key in ${BASELINE_APPEND_KEYS:-$BASELINE_APPEND_DEFAULT}; do
+      sed -i "s/^\(\s*\)$key=/\1+$key=/" "$RUN/launcher.sh"
+      grep -q "+$key=" "$RUN/launcher.sh" || { echo "$key edit failed"; exit 1; }
+    done
     cd "$VERL_DIR"
     VERL_USE_UV=0 MODEL_PATH=$MODEL_CUT NNODES=1 NGPUS_PER_NODE=8 \
     TRAIN_FILE=$DATA_DIR/train.parquet TEST_FILE=$DATA_DIR/test.parquet \
