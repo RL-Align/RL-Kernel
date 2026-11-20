@@ -227,9 +227,7 @@ def main() -> None:
         gate_lines = ["  not applicable: --backend pytorch is the accuracy gold itself"]
         gate_verdict = "  gate verdict: N/A (the candidate is the reference)"
     else:
-        gate_passed, gate_lines = _accuracy_gate(
-            op, x, weight, bias, args.gate_rows, backward=True
-        )
+        gate_passed, gate_lines = _accuracy_gate(op, x, weight, bias, args.gate_rows, backward=True)
         gate_verdict = (
             f"  gate verdict: {'PASS' if gate_passed else 'FAIL'} "
             f"(declared: identical >= {DECLARED_MIN_IDENTICAL_FRACTION * 100:.0f}%, "

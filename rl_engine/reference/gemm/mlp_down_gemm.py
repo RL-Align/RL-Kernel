@@ -139,6 +139,7 @@ def _flatten_leading(t: torch.Tensor) -> torch.Tensor:
     rows = t.numel() // k_dim if k_dim else math.prod(t.shape[:-1])
     return t.reshape(rows, k_dim)
 
+
 class _MlpDownGemmTreeFunction(torch.autograd.Function):
     """Dtype path: fp32 tree internally, the single RNE cast at the store."""
 

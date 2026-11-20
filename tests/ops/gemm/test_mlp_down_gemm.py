@@ -1160,9 +1160,7 @@ class TestIntegration:
             # Match the registry's rule: Triton wins whenever its backend module
             # imports and instantiates; only then may the native kernel be used.
             try:
-                from rl_engine.backends.shared.triton.gemm.mlp_down_gemm import (
-                    TritonMlpDownGemmOp,
-                )
+                from rl_engine.backends.shared.triton.gemm.mlp_down_gemm import TritonMlpDownGemmOp
 
                 TritonMlpDownGemmOp()
             except (ImportError, RuntimeError):
@@ -1288,12 +1286,8 @@ class TestIntegration:
         weight = torch.randn(SMALL[2], SMALL[1], dtype=torch.bfloat16, device="cuda")
         x2d = x.reshape(-1, x.size(-1)).contiguous()
         w = weight.contiguous()
-        assert mod.mlp_down_gemm_backend_used(x, weight) == mod.mlp_down_gemm_backend_used(
-            x2d, w
-        )
-        assert mod.mlp_down_gemm_contract_used(x, weight) == mod.mlp_down_gemm_contract_used(
-            x2d, w
-        )
+        assert mod.mlp_down_gemm_backend_used(x, weight) == mod.mlp_down_gemm_backend_used(x2d, w)
+        assert mod.mlp_down_gemm_contract_used(x, weight) == mod.mlp_down_gemm_contract_used(x2d, w)
 
     @CUDA
     def test_fail_closed_on_non_cuda_device(self):
