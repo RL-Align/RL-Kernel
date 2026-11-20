@@ -562,12 +562,13 @@ def noise_condition(
 ) -> torch.Tensor:
     """``t * x0 + (1 - t) * noise`` with ``t`` an fp32 tensor, as the pinned pipeline mixes it.
 
-    The pipeline hands the scheduler ``torch.tensor(0.999)``: ``1 - t`` is evaluated in the
-    sample dtype (fp32). A Python-float ``t`` would keep ``1 - t`` in fp64 and give different
-    bytes; that is a probe arm (H15), not this contract.
+    The pinned scheduler's ``scale_noise`` makes the level a tensor of the sample dtype (fp32),
+    so ``1 - t`` is evaluated in fp32. A Python-float ``t`` would keep ``1 - t`` in fp64 and give
+    different bytes; that is a probe arm (H15), not this contract. The tensor is built in the
+    sample dtype directly: a pass through a half-precision default dtype would round the level.
     """
 
-    t = torch.tensor(level).to(device=condition.device, dtype=condition.dtype)
+    t = torch.tensor(level, device=condition.device, dtype=condition.dtype)
     while t.ndim < condition.ndim:
         t = t.unsqueeze(-1)
     return t * condition + (1.0 - t) * noise
