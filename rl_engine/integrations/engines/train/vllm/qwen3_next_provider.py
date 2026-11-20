@@ -22,7 +22,7 @@ class GDNProviderConfig:
 
     version: str = "qwen3-next-gdn-core-v1"
     convolution: str = "vllm-0.30.0-causal-conv-update-equal-length-groups"
-    recurrence: str = "vllm-0.30.0-packed-recurrent-decode"
+    recurrence: str = "vllm-0.30.0-fused-recurrent-decode-gating"
     gated_norm: str = "rl-engine-cuda-rmsnorm-gated"
     recurrent_dtype: str = "float32"
     activation_dtype: str = "bfloat16"
