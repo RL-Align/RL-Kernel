@@ -1505,6 +1505,24 @@ class TestHopperPath:
             assert mlp_up_gemm_gelu_backend_used(x, weight) == "hopper"
             assert op_forward(x, weight, bias).dtype is torch.bfloat16
 
+    def test_empty_batch_backward_returns_zero_weight_gradient(self):
+        """S == 0 must zero dW instead of encoding a 0-row tensor map."""
+
+        from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import CudaMlpUpGemmGeluOp
+
+        x, weight, bias = _inputs(SMALL)
+        self._skip_without_hopper(x.device)
+        xr = x[:0].clone().requires_grad_(True)
+        wr = weight.detach().clone().requires_grad_(True)
+        br = bias.detach().clone().requires_grad_(True)
+        grad = torch.empty(0, SMALL[2], dtype=torch.bfloat16, device=x.device)
+        with _backend("hopper"):
+            CudaMlpUpGemmGeluOp()(xr, wr, bias=br).backward(grad)
+        assert xr.grad is not None and xr.grad.shape == xr.shape
+        assert wr.grad is not None and wr.grad.shape == wr.shape
+        assert not torch.count_nonzero(wr.grad).item()
+        assert br.grad is not None and not torch.count_nonzero(br.grad).item()
+
 
 # ---------------------------------------------------------------------------
 # backward

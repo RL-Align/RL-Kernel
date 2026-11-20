@@ -878,6 +878,14 @@ class KernelRegistry:
                     backends.insert(0, OpBackend[f"CUDA_LATENT_{direction}"])
                 ops[f"latent_{direction.lower()}"] = backends
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
+        # Snapshot this row's static order before any pin narrows it. The pin
+        # rebuilds candidate lists from here, so repeated pins stay idempotent
+        # and `auto` can restore the original priority.
+        self._mlp_up_gemm_gelu_baseline: Dict[str, tuple[OpBackend, ...]] = {
+            platform: tuple(ops["mlp_up_gemm_gelu"])
+            for platform, ops in self._priority_map.items()
+            if "mlp_up_gemm_gelu" in ops
+        }
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
 
@@ -1051,8 +1059,8 @@ class KernelRegistry:
     # ``general`` is the portable fp32 tree, ``hopper`` the hardware (mma) order.
     # The Triton backend implements only the mma order and the fp32 reference
     # only the tree, so a pinned contract maps to the backends that can produce
-    # it, in dispatch order. ``auto`` is absent on purpose: it leaves the static
-    # lists untouched.
+    # it, in dispatch order. ``auto`` is not a producer set: it restores the
+    # static (pre-pin) order recorded in ``_mlp_up_gemm_gelu_baseline``.
     _MLP_UP_GEMM_GELU_CONTRACT_BACKENDS = {
         "general": (
             OpBackend.CUDA_MLP_UP_GEMM_GELU,
@@ -1078,9 +1086,16 @@ class KernelRegistry:
         demoted: if nothing is left, ``get_op`` raises instead of running a
         different arithmetic order. The reference keeps its slot under
         ``general`` because it *is* the tree; it has none under ``hopper``.
+
+        Each call rebuilds the lists from ``_mlp_up_gemm_gelu_baseline`` and
+        assigns a fresh list, so the pin is idempotent and never filters an
+        already-narrowed list: a later ``hopper`` after ``general`` still keeps
+        Triton, and ``auto`` restores the static order.
         """
 
         if requested == "auto":
+            for platform, baseline in self._mlp_up_gemm_gelu_baseline.items():
+                self._priority_map[platform]["mlp_up_gemm_gelu"] = list(baseline)
             return
         producers = self._MLP_UP_GEMM_GELU_CONTRACT_BACKENDS.get(requested)
         if producers is None:
@@ -1089,11 +1104,10 @@ class KernelRegistry:
                 f"{('auto',) + tuple(self._MLP_UP_GEMM_GELU_CONTRACT_BACKENDS)}; "
                 f"got {requested!r}"
             )
-        for platform_candidates in self._priority_map.values():
-            candidates = platform_candidates.get("mlp_up_gemm_gelu")
-            if candidates is None:
-                continue
-            candidates[:] = [backend for backend in producers if backend in candidates]
+        for platform, baseline in self._mlp_up_gemm_gelu_baseline.items():
+            self._priority_map[platform]["mlp_up_gemm_gelu"] = [
+                backend for backend in producers if backend in baseline
+            ]
 
     def _adjust_priority_from_env(self):
         mlp_up_gemm_gelu_backend = (

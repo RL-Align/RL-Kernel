@@ -762,6 +762,12 @@ torch::Tensor mlp_up_gemm_gelu_cuda_dw_sm90(torch::Tensor g, torch::Tensor x) {
     if (out.numel() == 0) {
         return out;
     }
+    if (S == 0) {
+        // Empty reduction: dW is the zero matrix (the tree path zeroes dw too),
+        // and a 0-row tensor map would fail to encode.
+        out.zero_();
+        return out;
+    }
     TORCH_CHECK(sm90::sm90_device_ok(),
                 "mlp_up_gemm_gelu_sm90 requires a compute capability 9.0 (Hopper) device");
     sm90::ensure_cuda_context(g.device());

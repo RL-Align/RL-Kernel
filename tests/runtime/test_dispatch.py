@@ -309,6 +309,37 @@ def test_mlp_up_gemm_gelu_hopper_pin_prefers_the_cuda_kernel(monkeypatch):
     assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [OpBackend.TRITON_MLP_UP_GEMM_GELU]
 
 
+def test_mlp_up_gemm_gelu_pins_are_repeatable(monkeypatch):
+    """Re-pinning rebuilds from the static order, not from a narrowed list."""
+
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "general")
+    registry = KernelRegistry()
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+    ]
+
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "hopper")
+    registry._adjust_priority_from_env()
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
+        OpBackend.TRITON_MLP_UP_GEMM_GELU,
+    ]
+    assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [OpBackend.TRITON_MLP_UP_GEMM_GELU]
+
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "auto")
+    registry._adjust_priority_from_env()
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
+        OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+    ]
+    assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [
+        OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+    ]
+
+
 def test_mlp_up_gemm_gelu_unknown_pin_is_rejected(monkeypatch):
     monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "tensor-core")
 
