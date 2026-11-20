@@ -81,9 +81,10 @@ def validate_case(name, fn, ref, inputs, *, rank, layer, rtol, atol):
         "backward_correctness": "PASS",
         "rtol": rtol,
         "atol": atol,
-        "forward_max_abs_error": float((y.float() - expected.float()).abs().max()),
+        "forward_max_abs_error": float((y.float() - expected.detach().float()).abs().max()),
         "gradient_max_abs_errors": [
-            float((a.float() - b.float()).abs().max()) for a, b in zip(grads, eg, strict=True)
+            float((a.float() - b.detach().float()).abs().max())
+            for a, b in zip(grads, eg, strict=True)
         ],
         "deterministic_replay": replay,
         "operator_train_inference_parity": parity,
@@ -266,8 +267,8 @@ def main():
                     lambda x: quantized_linear_reference(x, dense8),
                     [x],
                     2,
-                    0.04,
-                    0.05,
+                    0.015,
+                    0.002,
                 ),
                 (
                     "official-fp4-expert0",
@@ -275,8 +276,8 @@ def main():
                     expert_reference,
                     [x.reshape(-1, 5120), torch.rand(batch * length, device="cuda")],
                     2,
-                    0.05,
-                    0.08,
+                    0.03,
+                    0.003,
                 ),
             ]
             gate_inputs = [
@@ -295,8 +296,8 @@ def main():
                     engram_gated_residual_reference,
                     gate_inputs,
                     1,
-                    0.04,
-                    0.05,
+                    0.02,
+                    0.003,
                 )
             )
             pool_inputs = [torch.randn(batch, length, 2, 512, device="cuda") for _ in range(2)]

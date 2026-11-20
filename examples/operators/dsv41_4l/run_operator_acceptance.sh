@@ -31,7 +31,7 @@ mkdir -p "$cache/tmp"
 docker image inspect "$image" > "$output/image-inspect.json"
 args=(python -m examples.operators.dsv41_4l.operator_acceptance)
 if [[ ${#task_gpus[@]} -gt 1 ]]; then
-  args=(python -m torch.distributed.run --standalone --nproc-per-node="${#task_gpus[@]}" -m examples.operators.dsv41_4l.operator_acceptance)
+  args=(python -m torch.distributed.run --nnodes=1 --master-addr=127.0.0.1 --master-port=29501 --nproc-per-node="${#task_gpus[@]}" -m examples.operators.dsv41_4l.operator_acceptance)
 fi
 docker run --rm --pull=never --network=none \
   --device=/dev/kfd --device=/dev/dri \
