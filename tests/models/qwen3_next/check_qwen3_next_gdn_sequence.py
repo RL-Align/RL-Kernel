@@ -6,11 +6,14 @@
 import pytest
 import torch
 
-from rl_engine.integrations.engines.train.vllm.qwen3_next_gdn import packed_recurrent_sequence
+from rl_engine.integrations.engines.train.vllm.qwen3_next_gdn import (
+    decode_loop_sequence,
+    packed_recurrent_sequence,
+)
 from rl_engine.validation.common.tensor_identity import assert_tensor_bitwise_equal as exact
 
 
-def inputs(lengths, seed=7):
+def inputs(lengths, seed=7, blocks=None):
     assert torch.cuda.is_available(), "CUDA is required; this acceptance suite cannot skip"
     generator = torch.Generator(device="cuda").manual_seed(seed)
 
@@ -25,7 +28,7 @@ def inputs(lengths, seed=7):
         rand(tokens, 8),
         rand(8, dtype=torch.float32),
         rand(8, dtype=torch.float32),
-        rand(len(lengths) + 1, 8, 128, 128, dtype=torch.float32) * 0.01,
+        rand(blocks or len(lengths) + 1, 8, 128, 128, dtype=torch.float32) * 0.01,
     ]
     indices = torch.arange(1, len(lengths) + 1, device="cuda", dtype=torch.int32)
     cu = torch.tensor([0, *torch.tensor(lengths).cumsum(0).tolist()], dtype=torch.int64)
@@ -100,3 +103,39 @@ def test_reserved_and_duplicate_slots_are_rejected():
     for bad in ([0, 1], [1, 1]):
         with pytest.raises(ValueError):
             run(tensors, torch.tensor(bad, device="cuda", dtype=torch.int32), cu)
+
+
+@torch.no_grad()
+@pytest.mark.parametrize(
+    "lengths, blocks",
+    [
+        ((1,), None),
+        ((8,), None),
+        ((64, 8, 0, 16), None),
+        ((1024, 256, 64, 8), None),
+        ((1024, 777, 1500, 64), None),
+        # A rollout-sized cache bank: untouched slots must keep their bytes.
+        ((512,) * 16, 362),
+    ],
+)
+def test_one_launch_forward_equals_one_decode_step_per_token(lengths, blocks):
+    tensors, indices, cu = inputs(lengths, seed=11, blocks=blocks)
+    original_state = tensors[-1].clone()
+    output, state = run(tensors, indices, cu)
+    expected, expected_state = decode_loop_sequence(*tensors, indices, cu, num_k_heads=4)
+    exact(output, expected)
+    exact(state, expected_state)
+    exact(tensors[-1], original_state)
+
+
+def test_gradients_equal_the_decode_loop():
+    lengths = (16, 0, 9, 32)
+    grads = []
+    for function in (packed_recurrent_sequence, decode_loop_sequence):
+        tensors, indices, cu = inputs(lengths, seed=13)
+        tensors = [tensor.requires_grad_() for tensor in tensors]
+        out, state = function(*tensors, indices, cu, num_k_heads=4)
+        (out.float().square().sum() + state.square().sum() * 0.01).backward()
+        grads.append([tensor.grad for tensor in tensors])
+    for fused, loop in zip(*grads):
+        exact(fused, loop)
