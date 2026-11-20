@@ -781,9 +781,11 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 #endif
 
     // registry Qwen-Image MLP up projection + tanh GELU (two frozen contracts)
-#if !defined(USE_ROCM)
-    // The declarations above carry the same guard: on ROCm this source is not built,
-    // so repeating it here is what keeps the ROCm extension linkable.
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
+    // Identical guard to the declarations above (and to the source list in
+    // build_tools/extensions.py): a ROCm build defines KERNEL_ALIGN_WITH_ROCM
+    // even when the host compiler does not define USE_ROCM, so guarding on the
+    // latter alone would reference undeclared entry points there.
     m.def("mlp_up_gemm_gelu_cuda_forward", &mlp_up_gemm_gelu_cuda_forward,
           "MLP up bias GEMM + tanh GELU forward -> (out, pre) "
           "(portable fp32 tree, mlp-up-gemm-gelu-tree)");
