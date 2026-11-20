@@ -7,8 +7,11 @@ upstream routing, packed GEMMs, activation and shared-expert handling; scope
 only that one reduction to RLK's existing fixed Top6 operator.
 """
 
+import ast
 import inspect
+import textwrap
 import types
+from contextvars import ContextVar
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -106,9 +109,47 @@ class _FixedReduce(TorchDispatchMode):
         return target.zero_().index_copy_(0, active_rows, reduced)
 
 
+def _scoped_reduction(function, current_mode):
+    """Rewrite only acc.index_add_; preserve every original torch operation."""
+    if function.__closure__:
+        raise ValueError("unsupported native expert closure ABI")
+    tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+
+    class Boundary(ast.NodeTransformer):
+        calls = 0
+
+        def visit_Call(self, node):
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "index_add_"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "acc"
+            ):
+                self.calls += 1
+                node.args.insert(0, node.func.value)
+                node.func = ast.Name("_rlk_fixed_index_add", ast.Load())
+            return self.generic_visit(node)
+
+    transform = Boundary()
+    tree = transform.visit(tree)
+    if transform.calls != 1:
+        raise ValueError("unsupported native accumulator reduction boundary")
+    tree.body[0].decorator_list = []
+
+    def reduce(target, *args, **kwargs):
+        return current_mode.get().reduce(target, *args, **kwargs)
+
+    namespace = dict(function.__globals__, _rlk_fixed_index_add=reduce)
+    exec(compile(ast.fix_missing_locations(tree), __file__, "exec"), namespace)
+    return namespace[function.__name__]
+
+
 def bind_fixed_combine(ffn):
     """Bind the one supported native W4A16 ABI, with no numerical fallback."""
-    backend = ffn.experts.routed_experts.quant_method.moe_kernel.fused_experts
+    experts = ffn.experts.routed_experts
+    if experts.w13_weight.shape[0] != 256 or experts.w2_weight.shape[0] != 256:
+        raise ValueError("fixed native combine supports exactly 256 local experts")
+    backend = experts.quant_method.moe_kernel.fused_experts
     if getattr(backend, "_rlk_fixed_combine", False):
         return backend
     original = backend.apply
@@ -122,6 +163,8 @@ def bind_fixed_combine(ffn):
             "fixed combine requires pinned unfused triton-kernels 3.8 W4A16"
         )
     signature = inspect.signature(original)
+    current_mode = ContextVar("rlk_fixed_combine_mode")
+    scoped = _scoped_reduction(function, current_mode)
 
     def apply(self, *args, **kwargs):
         bound = signature.bind(*args, **kwargs)
@@ -130,36 +173,11 @@ def bind_fixed_combine(ffn):
         if bound.arguments["expert_map"] is not None or self._lora_context is not None:
             raise ValueError("fixed native Top6 combine requires EP1 without LoRA")
         mode = _FixedReduce(ids)
-
-        class Accumulator:
-            def __init__(self, tensor):
-                self.tensor = tensor
-
-            def index_add_(self, dim, index, source, *, alpha=1):
-                mode.reduce(self.tensor, dim, index, source, alpha=alpha)
-                return self
-
-            def to(self, *args, **kwargs):
-                return self.tensor.to(*args, **kwargs)
-
-        class TorchBoundary:
-            def __getattr__(self, name):
-                return getattr(torch, name)
-
-            def zeros(self, *args, **kwargs):
-                return Accumulator(torch.zeros(*args, **kwargs))
-
-        # Keep dispatch modes out of upstream matmul/compiled activation. Only
-        # this function's local zero accumulator changes its index_add_ method.
-        scoped = types.FunctionType(
-            function.__code__,
-            dict(function.__globals__, torch=TorchBoundary()),
-            function.__name__,
-            function.__defaults__,
-            function.__closure__,
-        )
-        scoped.__kwdefaults__ = function.__kwdefaults__
-        result = scoped(self, *args, **kwargs)
+        token = current_mode.set(mode)
+        try:
+            result = scoped(self, *args, **kwargs)
+        finally:
+            current_mode.reset(token)
         if mode.calls != 1:
             raise RuntimeError(
                 "native expert apply did not execute exactly one fixed combine"
@@ -171,7 +189,7 @@ def bind_fixed_combine(ffn):
     print(
         "RLK_FIXED_ROLLOUT_COMBINE_BOUND",
         __file__,
-        "FP32 expert ascending; original GEMMs",
+        "FP32 expert ascending; original GEMMs; scope=acc.index_add_; experts=256",
         flush=True,
     )
     return backend

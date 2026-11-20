@@ -89,3 +89,55 @@ def test_explicit_inactive_profile_rows_have_no_expert_contribution():
     with _FixedReduce(ids) as mode:
         output.index_add_(0, tokens, torch.full((12, 32), float("nan"), device="cuda"))
     assert mode.calls == 1 and torch.count_nonzero(output) == 0
+
+
+def test_scoped_rewrite_keeps_other_zero_buffers_and_restores_context():
+    from contextvars import ContextVar
+    from rl_engine.integrations.engines.rollout.vllm.fixed_combine import (
+        _scoped_reduction,
+    )
+
+    def upstream(values, tokens):
+        other = torch.zeros((2, 3))
+        other.add_(2)
+
+        def nested():
+            return torch.zeros(1).add_(3)
+
+        acc = torch.zeros((2, 3))
+        acc.index_add_(0, tokens, values)
+        return acc + other + nested()
+
+    class Mode:
+        calls = 0
+
+        def reduce(self, target, *args, **kwargs):
+            self.calls += 1
+            return target.index_add_(*args, **kwargs)
+
+    context = ContextVar("test_fixed_mode")
+    scoped = _scoped_reduction(upstream, context)
+    mode = Mode()
+    token = context.set(mode)
+    values, tokens = torch.ones((2, 3)), torch.tensor([0, 1])
+    try:
+        assert torch.equal(scoped(values, tokens), upstream(values, tokens))
+        assert mode.calls == 1
+    finally:
+        context.reset(token)
+    with pytest.raises(LookupError):
+        scoped(values, tokens)
+
+
+def test_unsupported_expert_count_fails_at_binding():
+    from types import SimpleNamespace
+    from rl_engine.integrations.engines.rollout.vllm.fixed_combine import (
+        bind_fixed_combine,
+    )
+
+    experts = SimpleNamespace(
+        w13_weight=torch.empty(128, 0, 0), w2_weight=torch.empty(128, 0, 0)
+    )
+    ffn = SimpleNamespace(experts=SimpleNamespace(routed_experts=experts))
+    with pytest.raises(ValueError, match="exactly 256 local experts"):
+        bind_fixed_combine(ffn)
