@@ -136,7 +136,9 @@ class H3DiffusersAdapter:
             candidate=bind,
             trace=self.trace,
             ops=self.ops,
-            provider_nodes=tuple(self.overlay.native_nodes),
+            # a provider-only run replays no candidate graph, so no node of it ran the provider
+            # as a diagnostic hybrid; the overlay itself is in ``report()``
+            provider_nodes=tuple(self.overlay.native_nodes) if bind else (),
             strict_boundaries=bind,
             native_boundaries=tuple(self.overlay.native_boundaries),
         )

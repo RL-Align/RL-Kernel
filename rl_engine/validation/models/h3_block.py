@@ -226,10 +226,15 @@ def fused_qkv(
     logical keys); the others read its outputs. The cache lives for one graph evaluation
     (``evaluation_ctx``, used by ``run_graph`` / ``run_isolated``) and is keyed on the identity of
     ``ops``, ``x`` and the three weights, so other ops, inputs or weights always recompute.
+
+    A ``ctx`` that ``evaluation_ctx`` did not make is refused: a cache added to a caller's own,
+    reused ``ctx`` would let a later evaluation read an earlier one's outputs.
     """
 
     key = (ops, x, *weights)
-    cache = ctx.setdefault(FUSED_QKV_CACHE, {})
+    cache = ctx.get(FUSED_QKV_CACHE)
+    if cache is None:
+        raise ValueError("fused_qkv needs the ctx of one graph evaluation (evaluation_ctx)")
     cached = cache.get("key")
     if cached is None or any(a is not b for a, b in zip(cached, key, strict=True)):
         flat = x.reshape(-1, x.shape[-1])

@@ -256,6 +256,14 @@ std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
 
+// H3 conditioning noise mix (NVIDIA CUDA).
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+torch::Tensor conditioning_noise_mix_forward(
+    torch::Tensor sample, torch::Tensor timestep, torch::Tensor noise);
+std::vector<torch::Tensor> conditioning_noise_mix_backward(
+    torch::Tensor grad, torch::Tensor timestep);
+#endif
+
 // RMSNorm Declarations & Wrappers
 
 void rmsnorm_forward_cuda(
@@ -498,6 +506,17 @@ at::Tensor prefix_shared_attention(
   return O;
 }
 #endif
+#endif
+
+// H3 packed input construction (NVIDIA CUDA).
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+torch::Tensor packed_index_copy_forward(
+    torch::Tensor text, torch::Tensor video, torch::Tensor audio,
+    torch::Tensor text_indices, torch::Tensor video_indices, torch::Tensor audio_indices,
+    int64_t sequence_length);
+std::vector<torch::Tensor> packed_index_copy_backward(
+    torch::Tensor grad, torch::Tensor text_indices,
+    torch::Tensor video_indices, torch::Tensor audio_indices);
 #endif
 
 // MiniMax-H3 (RFC #420) conditioning-path declarations. CUDA only.
@@ -799,6 +818,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
 
+    // H3 conditioning noise mix
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("conditioning_noise_mix_forward", &conditioning_noise_mix_forward,
+          "H3 conditioning noise mix forward CUDA");
+    m.def("conditioning_noise_mix_backward", &conditioning_noise_mix_backward,
+          "H3 conditioning noise mix backward CUDA");
+#endif
+
     // Deterministic standard-softmax attention (issue #147)
     m.def(
         "deterministic_attention_forward",
@@ -818,6 +845,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &deterministic_rope_apply_token_major_rocm,
         "Deterministic GPT-NeoX token-major RoPE apply for ROCm");
 #endif
+#endif
+
+    // H3 packed input construction (NVIDIA CUDA).
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("packed_index_copy_forward", &packed_index_copy_forward,
+          "H3 packed index copy forward CUDA");
+    m.def("packed_index_copy_backward", &packed_index_copy_backward,
+          "H3 packed index copy backward CUDA");
 #endif
 
 #if defined(KERNEL_ALIGN_WITH_H3_KERNELS)
