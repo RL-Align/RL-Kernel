@@ -6,7 +6,12 @@ from fractions import Fraction
 import pytest
 import torch
 
-from rl_engine.ops.norm.reproducible import integer_square_bins, norm_from_bins
+from rl_engine.ops.norm.reproducible import (
+    clip_grad_norm_exact_,
+    exact_norm,
+    integer_square_bins,
+    norm_from_bins,
+)
 
 
 def reference_bins(values):
@@ -116,3 +121,94 @@ def test_load_nvrtc_reports_every_attempt(monkeypatch):
     monkeypatch.setattr(reproducible, "_nvrtc_candidates", lambda: ["a.so", "b.so"])
     with pytest.raises(OSError, match="(?s)a.so.*b.so"):
         reproducible._load_nvrtc()
+
+
+CUDA = pytest.mark.skipif(not torch.cuda.is_available(), reason="accelerator required")
+
+
+@CUDA
+def test_exact_norm_without_a_process_group_is_the_exact_local_norm():
+    generator = torch.Generator(device="cuda").manual_seed(5)
+    values = torch.randn(4099, generator=generator, device="cuda")
+    expected = norm_from_bins(reference_bins(values.cpu().tolist()))
+    assert exact_norm(values) == expected
+    assert exact_norm(list(values.split(97))) == expected
+    assert exact_norm([]) == 0.0
+
+
+def _params(seed, shapes=((64, 32), (32,), (7, 3))):
+    generator = torch.Generator(device="cuda").manual_seed(seed)
+    params = []
+    for shape in shapes:
+        p = torch.nn.Parameter(torch.zeros(shape, device="cuda"))
+        p.grad = torch.randn(shape, generator=generator, device="cuda") * 3
+        params.append(p)
+    return params
+
+
+@CUDA
+@pytest.mark.parametrize("max_norm", [1.0, 1e6])
+def test_clip_scales_like_pytorch(max_norm):
+    ours, theirs = _params(9), _params(9)
+    total = clip_grad_norm_exact_(ours, max_norm)
+    torch_total = torch.nn.utils.clip_grad_norm_(theirs, max_norm)
+    assert total == pytest.approx(float(torch_total), rel=1e-6)
+    expected_coef = torch.clamp(
+        torch.tensor(max_norm) / (torch.tensor(total, dtype=torch.float32) + 1e-6), max=1.0
+    )
+    for p, q in zip(ours, _params(9)):
+        assert torch.equal(p.grad, q.grad * expected_coef.cuda())
+
+
+@CUDA
+def test_clip_leaves_a_non_finite_norm_to_the_caller():
+    params = _params(10)
+    params[1].grad[0] = float("nan")
+    before = [p.grad.clone() for p in params]
+    assert math.isnan(clip_grad_norm_exact_(params, 1.0))
+    for p, b in zip(params, before):
+        assert torch.equal(p.grad.nan_to_num(), b.nan_to_num())
+
+
+@CUDA
+def test_counted_selects_the_norm_but_every_gradient_is_scaled():
+    params = _params(11)
+    only = exact_norm([params[0].grad])
+    coef = torch.clamp(torch.tensor(0.5) / (torch.tensor(only) + 1e-6), max=1.0).cuda()
+    expected = [p.grad * coef for p in params]
+    total = clip_grad_norm_exact_(params, 0.5, counted=lambda p: p is params[0])
+    assert total == only
+    for p, e in zip(params, expected):
+        assert torch.equal(p.grad, e)
+
+
+def _two_rank_norm(rank, init, values, out):
+    import torch.distributed as dist
+
+    torch.cuda.set_device(rank)
+    dist.init_process_group("nccl", init_method=init, rank=rank, world_size=2)
+    try:
+        full = values.cuda()
+        replicated = full[:5]  # held by both ranks, counted on rank 0 only
+        shard = full[5:].chunk(2)[rank]
+        counted = [shard, replicated] if rank == 0 else [shard]
+        out[rank] = exact_norm(counted)
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="two accelerators required")
+def test_two_ranks_give_the_single_process_norm(tmp_path):
+    import torch.multiprocessing as mp
+
+    values = torch.randn(10007, generator=torch.Generator().manual_seed(12))
+    manager = mp.get_context("spawn").Manager()
+    out = manager.dict()
+    mp.start_processes(
+        _two_rank_norm,
+        args=((tmp_path / "init").as_uri(), values, out),
+        nprocs=2,
+        start_method="spawn",
+    )
+    expected = norm_from_bins(reference_bins(values.tolist()))
+    assert out[0] == out[1] == expected

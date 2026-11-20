@@ -206,6 +206,55 @@ def norm_from_bins(bins):
     return math.sqrt(math.ldexp(float(total), -298))
 
 
+def exact_norm(values, group=None) -> float:
+    """L2 norm of all elements of ``values`` over the ranks of ``group``, bit-identical on each.
+
+    Each rank passes the tensors it *counts*: a tensor held by several ranks (a replicated
+    parameter, or a gradient every context-parallel rank holds in full) must be passed by
+    exactly one of them. The squares are binned as integers and the bins are summed with an
+    integer all-reduce, so neither the partition of the tensors nor the reduction order of the
+    collective changes the result. Without an initialised process group, or with a group of
+    one rank, this is the norm of the local tensors.
+    """
+
+    values = [values] if isinstance(values, torch.Tensor) else list(values)
+    if any(not isinstance(v, torch.Tensor) or not v.is_cuda for v in values):
+        raise TypeError("exact gradient norm requires accelerator tensors")
+    distributed = torch.distributed.is_available() and torch.distributed.is_initialized()
+    world = torch.distributed.get_world_size(group) if distributed else 1
+    if sum(v.numel() for v in values) * world >= (1 << 63) // 65535:
+        raise OverflowError("exact gradient norm integer accumulator capacity exceeded")
+    bins = integer_square_bins(values)
+    if world > 1:
+        torch.distributed.all_reduce(bins, group=group)
+    return norm_from_bins(bins.cpu().tolist())
+
+
+def clip_grad_norm_exact_(parameters, max_norm: float, *, counted=None, group=None) -> float:
+    """``torch.nn.utils.clip_grad_norm_`` with the exact norm of :func:`exact_norm`.
+
+    ``counted(p)`` selects the parameters whose gradients enter the norm on this rank (default:
+    all of them); use it so that each replicated parameter is counted once across ``group``.
+    Every gradient is then scaled by ``clamp(max_norm / (norm + 1e-6), max=1)`` computed in
+    FP32, as PyTorch does. A non-finite norm leaves the gradients unchanged and is returned, so
+    that the caller can skip the step (verl's FSDP2 clip does the same).
+    """
+
+    params = [p for p in parameters if p.grad is not None]
+    keep = params if counted is None else [p for p in params if counted(p)]
+    total = exact_norm([p.grad for p in keep], group)
+    if not math.isfinite(total):
+        return total
+    coef = torch.clamp(
+        torch.tensor(max_norm, dtype=torch.float32)
+        / (torch.tensor(total, dtype=torch.float32) + 1e-6),
+        max=1.0,
+    )
+    for p in params:
+        p.grad.mul_(coef.to(device=p.grad.device, dtype=p.grad.dtype))
+    return total
+
+
 def install():
     from megatron.core.optimizer import clip_grads, optimizer
 
@@ -216,18 +265,7 @@ def install():
     def get_norm(grads_for_norm, norm_type=2, grad_stats_parallel_group=None):
         if float(norm_type) != 2:
             return original(grads_for_norm, norm_type, grad_stats_parallel_group)
-        values = (
-            [grads_for_norm] if isinstance(grads_for_norm, torch.Tensor) else list(grads_for_norm)
-        )
-        if any(not isinstance(v, torch.Tensor) or not v.is_cuda for v in values):
-            raise TypeError("exact gradient norm requires accelerator tensors")
-        group = grad_stats_parallel_group
-        world = torch.distributed.get_world_size(group)
-        if sum(v.numel() for v in values) * world >= (1 << 63) // 65535:
-            raise OverflowError("exact gradient norm integer accumulator capacity exceeded")
-        bins = integer_square_bins(values)
-        torch.distributed.all_reduce(bins, group=group)
-        return norm_from_bins(bins.cpu().tolist())
+        return exact_norm(grads_for_norm, grad_stats_parallel_group)
 
     clip_grads.get_grad_norm_fp32 = get_norm
     optimizer.get_grad_norm_fp32 = get_norm
