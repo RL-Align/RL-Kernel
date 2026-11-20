@@ -854,7 +854,7 @@ def check_pipeline_identity(
 
     Checks that the layout's structure matches its declared workflow, that the transformer it
     is paired with is the same variant, and, if given, that a sealed artifact describes this
-    very layout (same workflow, same component hashes).
+    very layout (same workflow, component hashes, condition-row counts and geometry).
     """
 
     declared = layout.workflow
@@ -884,6 +884,15 @@ def check_pipeline_identity(
             )
         if artifact["layout_component_sha256"] != layout.component_hashes():
             raise VariantMismatch("artifact component hashes do not describe this layout")
+        # The tensors do not carry these: the counts set the row-timestep plan, the geometry
+        # the rows the initial-row builders expect.
+        for key, value in (
+            ("num_condition_video_rows", layout.num_condition_video_rows),
+            ("num_condition_audio_rows", layout.num_condition_audio_rows),
+            ("geometry", _jsonable(layout.geometry)),
+        ):
+            if artifact[key] != value:
+                raise VariantMismatch(f"artifact {key} does not describe this layout")
 
 
 # --- sealed artifact (H-C7) ---------------------------------------------------------------
