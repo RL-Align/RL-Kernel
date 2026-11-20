@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "RL-Kernel"
-version = "0.1.0"
-description = "High-performance RL training engine focused on kernel fusion and memory efficiency."
+version = "0.1.1"
+description = "Building cross-hardware and multi-model RL post-training infrastructure for kernel-level train–inference consistency."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}

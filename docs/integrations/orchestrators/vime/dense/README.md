@@ -47,6 +47,33 @@ The two user-facing modes are intentionally short and semantic:
 | `native` | Native VIME Attention, FFN, and logp operators |
 | `consistency` | RL-Kernel Attention, FFN, and logp operators |
 
+### Optional single-node Prefill/Decode split
+
+The same Qwen3-8B example also supports an opt-in CUDA H100 Prefill/Decode
+split. Keep the default commands unchanged for the regular two-engine layout;
+add `--pd` to `doctor`, `plan`, `run`, or `verify` to use one TP4 Prefill
+engine and one TP4 Decode engine on an eight-H100 node:
+
+```bash
+rlk-repro doctor --workspace "$RLK_REPRO_WORKSPACE" \
+  --mode consistency --pd
+rlk-repro plan --workspace "$RLK_REPRO_WORKSPACE" \
+  --mode consistency --pd --steps 3 --max-response-len 6912
+rlk-repro run --workspace "$RLK_REPRO_WORKSPACE" \
+  --mode consistency --pd --steps 3 --wait
+```
+
+`--pd` is restricted to CUDA H100 training TP4/CP2 with rollout TP4/CP1.
+The launcher records the layout and validates the Prefill/Decode groups,
+weight-update policy, CUDA Graph capture range, and the hash of
+`examples/vime_qwen3_8b_tp4_cp2_200/vllm_1p1d.yaml`.
+
+For a short four-arm comparison of regular/native, regular/consistency,
+PD/native, and PD/consistency, run
+[`run_qwen3_8b_1p1d_matrix.py`](https://github.com/RL-Align/RL-Kernel/blob/main/tools/benchmarking/run_qwen3_8b_1p1d_matrix.py).
+Three rounds are intended for development acceptance and regression triage,
+not for a long-run performance claim.
+
 Neither user-facing mode enables `--use-rollout-logprobs`; that historical
 framework-reuse branch remains documented only in the advanced runbook. Use
 `rlk-repro plan` to inspect the resolved command without submission and
