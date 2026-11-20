@@ -7,6 +7,33 @@ from rl_engine.runtime import registry as registry_module
 from rl_engine.runtime.registry import KernelRegistry, OpBackend
 
 
+def test_qwen3_6_partial_rope_dispatch_is_separate_from_full_rope(monkeypatch):
+    """The partial/external-table contract must not replace existing Qwen3 RoPE."""
+    from rl_engine.reference.rope import NativeQwen3_6PartialRoPEOp, NativeRoPEOp
+
+    registry = KernelRegistry()
+    assert isinstance(
+        registry.get_op("qwen3_6_partial_rope", device="cpu"), NativeQwen3_6PartialRoPEOp
+    )
+    assert isinstance(registry.get_op("rope", device="cpu"), NativeRoPEOp)
+    for platform in ("cuda", "rocm"):
+        assert registry._priority_map[platform]["qwen3_6_partial_rope"] == [
+            OpBackend.TRITON_QWEN3_6_PARTIAL_ROPE,
+            OpBackend.PYTORCH_QWEN3_6_PARTIAL_ROPE,
+        ]
+    original = registry._load_backend
+    monkeypatch.setattr(
+        registry,
+        "_load_backend",
+        lambda backend: (
+            None if backend == OpBackend.TRITON_QWEN3_6_PARTIAL_ROPE else original(backend)
+        ),
+    )
+    assert isinstance(
+        registry.get_op("qwen3_6_partial_rope", device="cuda:0"), NativeQwen3_6PartialRoPEOp
+    )
+
+
 def test_rocm_attention_defaults_to_flash_attention(monkeypatch):
     monkeypatch.delenv("RL_KERNEL_ROCM_ATTN_BACKEND", raising=False)
 
