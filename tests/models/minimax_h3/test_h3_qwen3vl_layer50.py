@@ -232,6 +232,27 @@ def test_tiny_config_fails_the_release_check(tiny: Any) -> None:
         q.Qwen3VLLayer50Encoder(tiny)
 
 
+@pytest.mark.parametrize(
+    "key", ["image_token_id", "video_token_id", "vision_start_token_id", "vision_end_token_id"]
+)
+def test_release_check_pins_the_vision_placeholder_ids(key: str, tiny_fresh: list[Any]) -> None:
+    encoder = _encoder(tiny_fresh.pop())
+    pinned = q.release_fingerprint()
+    # A config with the pinned text/vision values (no weights): passes the check as is.
+    encoder.model.config = transformers.Qwen3VLConfig(
+        text_config={**pinned["text_config"], "rope_parameters": dict(pinned["rope"])},
+        vision_config={**pinned["vision_config"], "rope_parameters": dict(VISION_ROPE)},
+        image_token_id=IDS[q.IMAGE_PAD],
+        video_token_id=IDS[q.VIDEO_PAD],
+        vision_start_token_id=IDS[q.VISION_START],
+        vision_end_token_id=IDS[q.VISION_END],
+    )
+    encoder._check_release_config()
+    setattr(encoder.model.config, key, IDS[q.VISION_START] - 1)
+    with pytest.raises(ValueError, match=key):
+        encoder._check_release_config()
+
+
 def test_offload_hook_is_rejected(tiny: Any) -> None:
     tiny._hf_hook = object()
     try:
@@ -336,11 +357,19 @@ def test_required_shards_skip_late_layers() -> None:
 def test_release_policy_is_torch_default_and_restored() -> None:
     code = (
         "import json; from rl_engine.models.minimax_h3 import qwen3vl_text as q; "
-        "from dataclasses import asdict; r = q.runtime_readback(); p = asdict(q.RELEASE_POLICY); "
-        "print(json.dumps(all(r[k] == v for k, v in p.items() if k in r)))"
+        "from dataclasses import asdict; "
+        "print(json.dumps([q.runtime_readback(), asdict(q.RELEASE_POLICY)]))"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert json.loads(out.stdout.strip().splitlines()[-1]) is True
+    readback, policy = json.loads(out.stdout.strip().splitlines()[-1])
+    # Every flag is read back (a missing one raises KeyError); sdpa_backends=None means all four
+    # SDPA backends stay enabled, PyTorch's default priority.
+    flags = {k: v for k, v in policy.items() if k != "sdpa_backends"}
+    assert {k: readback[k] for k in flags} == flags
+    assert policy["sdpa_backends"] is None
+    sdpa = ("sdpa_flash", "sdpa_mem_efficient", "sdpa_math", "sdpa_cudnn")
+    assert set(readback) == set(flags) | set(sdpa)
+    assert all(readback[k] for k in sdpa)
     before = q.runtime_readback()
     with q.pinned_runtime(q.RuntimePolicy(matmul_allow_tf32=True, cudnn_benchmark=True)) as inside:
         assert inside["matmul_allow_tf32"] and inside["cudnn_benchmark"]

@@ -237,7 +237,12 @@ def mm_token_type_ids(token_ids: Sequence[int]) -> list[int]:
 
 
 def vision_block(kind: str, num_tokens: int) -> list[int]:
-    """``<|vision_start|>``, ``num_tokens`` pads of ``kind`` (image/video), ``<|vision_end|>``."""
+    """``<|vision_start|>``, ``num_tokens`` pads of ``kind`` (image/video), ``<|vision_end|>``.
+
+    One block per image. A video is ``t`` blocks, one per merged frame pair, of
+    ``h * w / merge_size**2`` pads each, as transformers' ``Qwen3VLProcessor`` and Diffusers emit
+    them (each after its ``<x.x seconds>`` text): call this once per block.
+    """
 
     if kind not in ("image", "video") or num_tokens <= 0:
         raise PresentationError(f"bad vision block {kind!r} x {num_tokens}")
@@ -522,6 +527,18 @@ class Qwen3VLLayer50Encoder:
                 got = list(got)
             if got != value:
                 raise ValueError(f"vision_config.{key}={got!r}, pinned {value!r}")
+        # Qwen3VLModel scatters the vision features onto the tokens equal to these config ids,
+        # while the presentation checks use the pinned token table: the two must agree.
+        tokens = vision_token_ids()
+        for key, name in (
+            ("image_token_id", IMAGE_PAD),
+            ("video_token_id", VIDEO_PAD),
+            ("vision_start_token_id", VISION_START),
+            ("vision_end_token_id", VISION_END),
+        ):
+            got = getattr(self.model.config, key, None)
+            if got != tokens[name]:
+                raise ValueError(f"{key}={got!r}, pinned {tokens[name]} ({name})")
 
     @property
     def device(self) -> torch.device:
