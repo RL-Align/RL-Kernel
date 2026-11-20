@@ -543,3 +543,19 @@ def test_report_counts_a_dtype_change_as_a_difference(monkeypatch):
         monkeypatch.setitem(sys.modules, sglang, fake)
         out = report.reference()["sglang_prefix"]
         assert (out["cases"], out["bitwise_equal"]) == (36, equal), index_dtype
+
+
+def test_report_cases_have_the_canvas_their_name_says():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "h3_fl2va_report", REPO / "tools/validation/models/h3_fl2va_report.py"
+    )
+    assert spec is not None and spec.loader is not None
+    report = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(report)
+    canvas = {"landscape": (768, 1344), "portrait": (1344, 768)}
+    for case in report.CASES:
+        if case.endswith("/124"):
+            g = report.preprocess(case)["geometry"]
+            assert (g["height"], g["width"]) == canvas[case.split("/")[1]], case

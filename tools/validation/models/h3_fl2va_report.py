@@ -17,7 +17,8 @@ from rl_engine.models.minimax_h3.trajectory import tensor_digest
 
 PROMPT = "A skateboarding cat crosses a sunlit plaza; wheels clatter, a crowd cheers."
 SIGNATURES = {"zero": (), "first": ("first",), "last": ("last",), "first_last": ("first", "last")}
-# Released canvas (16:9 from a 1280x720 first keyframe) and a portrait one, 124 and 345 frames.
+# Released canvas (16:9 from a 1280x720 keyframe, or given without keyframes) and a portrait
+# one, 124 and 345 frames.
 CASES = [
     f"{name}/{aspect}/{frames}"
     for name in SIGNATURES
@@ -45,7 +46,9 @@ def preprocess(case: str) -> dict[str, Any]:
     anchors = SIGNATURES[name]
     size = (1280, 720) if aspect == "landscape" else (720, 1280)
     first = _image(*size, seed=1) if "first" in anchors else None
-    last = _image(1000, 1000, seed=2) if "last" in anchors else None
+    # A lone last keyframe sets the canvas, so it has the case's aspect; after a first one it
+    # is the square follower that the cover crop handles.
+    last = _image(*((1000, 1000) if first else size), seed=2) if "last" in anchors else None
     if anchors:
         keyframes = fl2va.prepare_keyframes(first, last)
     else:
