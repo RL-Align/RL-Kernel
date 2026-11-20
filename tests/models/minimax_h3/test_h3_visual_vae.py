@@ -170,6 +170,20 @@ def test_preprocess_chunks_match_one_gather() -> None:
     assert torch.equal(vv.preprocess_pixels(pixels), vv.pixel_lut()[channel, pixels.long()])
 
 
+def test_postprocess_pixels_is_fp32_under_any_default_dtype() -> None:
+    gen = torch.Generator().manual_seed(3)
+    video = torch.randn(1, 3, 2, 4, 8, generator=gen)
+    expected = vv.postprocess_pixels(video)
+    previous = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+    try:
+        out = vv.postprocess_pixels(video)
+    finally:
+        torch.set_default_dtype(previous)
+    assert out.dtype == torch.float32
+    assert torch.equal(out, expected)
+
+
 @needs_cuda
 def test_preprocess_peak_memory_is_bounded() -> None:
     """The int64 gather index is 8x the input; it must not be built for the whole clip."""

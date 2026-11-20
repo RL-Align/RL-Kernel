@@ -516,8 +516,8 @@ def preprocess_pixels(pixels: torch.Tensor) -> torch.Tensor:
 def postprocess_pixels(video: torch.Tensor) -> torch.Tensor:
     """Decoder output (ImageNet-normalized) -> FP32 RGB in ``[0, 1]`` (``decoders.py``)."""
 
-    mean = torch.tensor(PIXEL_MEAN, device=video.device).view(1, -1, 1, 1, 1)
-    std = torch.tensor(PIXEL_STD, device=video.device).view(1, -1, 1, 1, 1)
+    mean = torch.tensor(PIXEL_MEAN, dtype=torch.float32, device=video.device).view(1, -1, 1, 1, 1)
+    std = torch.tensor(PIXEL_STD, dtype=torch.float32, device=video.device).view(1, -1, 1, 1, 1)
     return (video.float() * std + mean).clamp(0, 1)
 
 
