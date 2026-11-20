@@ -110,8 +110,16 @@ rlkernel() { # extra env / overrides for the RL-Kernel run
       "${COMMON[@]}" "${DAPO_REWARD[@]}" "$@" 2>&1 | tee "$RUN/train.log"
 }
 
-BASELINE_APPEND_DEFAULT="actor_rollout_ref.model.lora.experts_shared_outer_loras
-  actor_rollout_ref.model.lora.lora_plus_ratio actor_rollout_ref.rollout.use_dynamic_bsz"
+BASELINE_APPEND_DEFAULT="actor_rollout_ref.model.lora.lora_plus_ratio"
+# Dropped:
+# - rollout.use_dynamic_bsz: RolloutConfig refuses it (the launcher's next line sets
+#   log_prob_use_dynamic_bsz).
+# - lora.experts_shared_outer_loras: its adapters (fc1 A / fc2 B shared, the other side per
+#   expert) are SGLang's format; verl does not turn on vLLM's enable_moe_shared_loras, and
+#   vLLM 0.32 fails on the first sync. Without it Bridge shares one adapter by all experts
+#   (share_expert_adapters, the default), as RL-Kernel's engine does.
+BASELINE_DROP_DEFAULT="actor_rollout_ref.rollout.use_dynamic_bsz
+  actor_rollout_ref.model.lora.experts_shared_outer_loras"
 
 main() {
 case $VARIANT in
@@ -170,6 +178,10 @@ case $VARIANT in
     for key in ${BASELINE_APPEND_KEYS:-$BASELINE_APPEND_DEFAULT}; do
       sed -i "s/^\(\s*\)$key=/\1+$key=/" "$RUN/launcher.sh"
       grep -q "+$key=" "$RUN/launcher.sh" || { echo "$key edit failed"; exit 1; }
+    done
+    for key in ${BASELINE_DROP_KEYS:-$BASELINE_DROP_DEFAULT}; do
+      grep -q "^\s*$key=" "$RUN/launcher.sh" || { echo "$key not in the launcher"; exit 1; }
+      sed -i "/^\s*$key=/d" "$RUN/launcher.sh"
     done
     cd "$VERL_DIR"
     VERL_USE_UV=0 MODEL_PATH=$MODEL_CUT NNODES=1 NGPUS_PER_NODE=8 \
