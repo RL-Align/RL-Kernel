@@ -20,6 +20,7 @@ import torch
 import torch.distributed as dist
 
 from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
+from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel_lora as pl
 from rl_engine.validation.models import h3_block as hb
 
 HIDDEN, HEAD_DIM = hb.HIDDEN, hb.HEAD_DIM
@@ -142,6 +143,8 @@ def run_tp_block(
     sp: bool = False,
     seq_len: int | None = None,
     leaves: dict[str, torch.Tensor] | None = None,
+    lora: dict[str, dict[str, torch.Tensor]] | None = None,
+    lora_scale: float = 2.0,
 ) -> torch.Tensor:
     """Block 0 for this rank. ``hidden/index/rope`` are the full packed sequence on every rank.
 
@@ -171,7 +174,19 @@ def run_tp_block(
     else:
         h_res, idx_res = h, idx
     return run_tp_block_rows(
-        weights, h_res, idx_res, cos, sin, temb, ops, grid, sp=sp, shard=shard, leaves=leaves
+        weights,
+        h_res,
+        idx_res,
+        cos,
+        sin,
+        temb,
+        ops,
+        grid,
+        sp=sp,
+        shard=shard,
+        leaves=leaves,
+        lora=lora,
+        lora_scale=lora_scale,
     )
 
 
@@ -207,6 +222,8 @@ def run_tp_block_rows(
     shard: par.SeqShard,
     leaves: dict[str, torch.Tensor] | None = None,
     shards: dict[str, torch.Tensor] | None = None,
+    lora: dict[str, dict[str, torch.Tensor]] | None = None,
+    lora_scale: float = 2.0,
 ) -> torch.Tensor:
     """The block body for rows this rank already holds (what a chained model hands each block).
 
@@ -216,6 +233,10 @@ def run_tp_block_rows(
     ``shards`` holds this rank's shards of the sharded projections, keyed like
     ``h3_parallel_model.SHARDED_WEIGHTS`` (a weight-sharded model loads only those); without it
     each shard is cut from the full weight in ``weights``. The two give the same bytes.
+
+    ``lora`` holds this rank's LoRA shards of the six targets (``h3_lora.shard_block_lora``);
+    the projections then run ``h3-parallel-lora-v1`` with ``lora_scale``, and the shards are
+    gradient leaves ``lora.<target>.<part>`` next to the weight shards.
     """
 
     par.require_rows_on_every_rank(shard)  # the chained model enters here, not through run_tp_block
@@ -236,9 +257,36 @@ def run_tp_block_rows(
     cp_shard = shard if grid.cp > 1 else None  # dW sweeps every CP rank's rows
     cp_args = dict(cp_shard=cp_shard, cp_group=grid.cp_group)
 
-    def proj_in(x, name_weights, gather):
+    def lo(target, part):
+        """This rank's LoRA tensor ``part`` of ``target`` as a gradient leaf."""
+        assert lora is not None
+        return leaf(f"lora.{target}.{part}", lora[target][part])
+
+    def proj_in(x, name_weights, gather, groups=None):
         flat = x.reshape(-1, HIDDEN)
-        return par.column_parallel_linear(flat, name_weights, coll, tp, gather=gather, **cp_args)
+        if groups is None:
+            return par.column_parallel_linear(
+                flat, name_weights, coll, tp, gather=gather, **cp_args
+            )
+        return pl.column_parallel_lora_linear(
+            flat, name_weights, groups, lora_scale, coll, tp, grid.tp_rank, gather, **cp_args
+        )
+
+    def proj_out(x, w_shard, target):
+        if lora is None:
+            return par.row_parallel_linear(x, w_shard, coll, tp, scatter=sp, **cp_args)
+        return pl.row_parallel_lora_linear(
+            x,
+            w_shard,
+            lo(target, "A"),
+            lo(target, "B"),
+            lora_scale,
+            coll,
+            tp,
+            grid.tp_rank,
+            sp,
+            **cp_args,
+        )
 
     x = ops.norm.forward_modulated(h_res, w("norm1.weight"), table[0], table[1], idx_res)
     q, k, v = proj_in(
@@ -251,6 +299,11 @@ def run_tp_block_rows(
             for n in "qkv"
         ],
         sp,
+        (
+            None
+            if lora is None
+            else [(lo(f"attn.to_{n}", "A"), [lo(f"attn.to_{n}", "B")]) for n in "qkv"]
+        ),
     )
     local_heads = par.HEADS // tp
 
@@ -271,16 +324,13 @@ def run_tp_block_rows(
             attn = par.ulysses_attention(q, k, heads(v), ring.local_attention, shard, grid.cp_group)
     else:
         attn = par.ulysses_attention(q, k, heads(v), _attention_fn(ops), shard, grid.cp_group)
-    o = par.row_parallel_linear(
+    o = proj_out(
         attn.reshape(rows, local_heads * HEAD_DIM),
         sharded(
             "attn.to_out.0.weight",
             lambda: par.shard_cols(w("attn.to_out.0.weight"), tp, grid.tp_rank),
         ),
-        coll,
-        tp,
-        scatter=sp,
-        **cp_args,
+        "attn.to_out.0",
     )
     h1 = ops.gate(h_res, o.view(1, -1, HIDDEN), table[2], idx_res)
     x2 = ops.norm.forward_modulated(h1, w("norm2.weight"), table[3], table[4], idx_res)
@@ -293,15 +343,22 @@ def run_tp_block_rows(
             sharded("ff.gate", lambda: par.shard_rows(fused[half:], tp, grid.tp_rank)),
         ],
         sp,
+        (
+            None
+            if lora is None
+            else [
+                (
+                    lo("ff.net.0.proj", "A"),
+                    [lo("ff.net.0.proj", "B.hidden"), lo("ff.net.0.proj", "B.gate")],
+                )
+            ]
+        ),
     )
     act = ops.swiglu(gate.contiguous(), hid.contiguous())
-    down = par.row_parallel_linear(
+    down = proj_out(
         act,
         sharded("ff.net.2.weight", lambda: par.shard_cols(w("ff.net.2.weight"), tp, grid.tp_rank)),
-        coll,
-        tp,
-        scatter=sp,
-        **cp_args,
+        "ff.net.2",
     )
     return ops.gate(h1, down.view(1, -1, HIDDEN), table[5], idx_res)
 
@@ -320,6 +377,9 @@ def block_target(
     seed: int = 0,
     attention: str = "interim",
     cp_mode: str = "ulysses",
+    lora_rank: int = 0,
+    lora_seed: int = 0,
+    lora_b_zero: bool = False,
 ):
     """``run_world`` target: this rank's rows of the parallel block (and gradients) for one case."""
 
@@ -341,11 +401,39 @@ def block_target(
         backward=backward,
         layout=layout,
         seed=seed,
+        lora_rank=lora_rank,
+        lora_seed=lora_seed,
+        lora_b_zero=lora_b_zero,
     )
 
 
-def block_case(weights, grid: Grid, *, sp=False, seq_len=0, backward=False, layout="tiny", seed=0):
-    """Run block 0 on ``grid``; the global rows this rank returns are in ``rows``."""
+def block_case(
+    weights,
+    grid: Grid,
+    *,
+    sp=False,
+    seq_len=0,
+    backward=False,
+    layout="tiny",
+    seed=0,
+    lora_rank: int = 0,
+    lora_seed: int = 0,
+    lora_b_zero: bool = False,
+):
+    """Run block 0 on ``grid``; the global rows this rank returns are in ``rows``.
+
+    ``lora_rank > 0`` puts a seeded LoRA on the six targets (``h3_lora.make_block_lora``,
+    scale ``2``), cut for this rank; its gradients are returned as ``dw.lora.<target>.<part>``.
+    """
+
+    lora = None
+    if lora_rank:
+        from rl_engine.validation.models import h3_lora
+
+        full = h3_lora.make_block_lora(
+            0, rank=lora_rank, seed=lora_seed, b_zero=lora_b_zero, device="cuda"
+        )
+        lora = h3_lora.shard_block_lora(full, grid.tp, grid.tp_rank)
 
     ctx = hb.make_block_context(weights, layout=layout, seed=seed)
     n = seq_len or ctx["seq_len"]
@@ -356,7 +444,17 @@ def block_case(weights, grid: Grid, *, sp=False, seq_len=0, backward=False, layo
     leaves: dict[str, torch.Tensor] | None = {} if backward else None
     with torch.set_grad_enabled(backward):
         out = run_tp_block(
-            weights, hidden, ctx["temb"], index, rope, ops, grid, sp=sp, seq_len=n, leaves=leaves
+            weights,
+            hidden,
+            ctx["temb"],
+            index,
+            rope,
+            ops,
+            grid,
+            sp=sp,
+            seq_len=n,
+            leaves=leaves,
+            lora=lora,
         )
     shard = grid.seq_shard(n)
     lo, hi = shard.lo, shard.hi
