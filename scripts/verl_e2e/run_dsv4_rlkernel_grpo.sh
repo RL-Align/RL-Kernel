@@ -20,6 +20,10 @@
 # vLLM replicas, each data parallel attention over ROLLOUT_DP GPUs with its experts split over
 # them (expert_parallel_size = ROLLOUT_DP, tensor parallel 1). Neither changes a byte.
 #
+# GRAPH=1 runs the rollout with vLLM's CUDA graphs (the fork's breakable graphs; decode replays
+# them, attention runs eagerly inside). The adapters are reserved at load
+# (RL_KERNEL_DSV4_LORA) and every sync copies into them, which the graphs read. Same bytes.
+#
 # BI=0 is the ablation: the rollout without batch invariance (vLLM's own attention paths,
 # paged FP8 decode; rl_engine/integrations/dsv4/vllm_model.py). The mismatch count is then
 # nonzero by design; the run measures the rollout's speed without the invariance.
@@ -69,12 +73,14 @@ GPU_UTIL=${GPU_UTIL:-0.35}
 ACTOR_LR=${ACTOR_LR:-1e-4}
 LOGGER=${LOGGER:-'["console"]'}
 BI=${BI:-1}
+GRAPH=${GRAPH:-0}
+[[ $GRAPH == 1 ]] && EAGER=False || EAGER=True
 EXPERIMENT_NAME=${EXPERIMENT_NAME:-grpo_lora_bi$BI}
 VLLM_KW=+actor_rollout_ref.rollout.engine_kwargs.vllm
 RLK_WORKER=rl_engine.integrations.dsv4.vllm_worker
 
 export PYTHONPATH=$RLK_ROOT${PYTHONPATH:+:$PYTHONPATH}
-export RL_KERNEL_DSV4_ROLLOUT=1
+export RL_KERNEL_DSV4_ROLLOUT=1 RL_KERNEL_DSV4_LORA=$LORA_RANK,$LORA_ALPHA
 if [[ $BI == 1 ]]; then
     # vLLM's BI indexer selects with its DS4 deterministic top-k, a separate library
     # (csrc/ds4_bi_topk_extension.cu; scripts/verl_e2e_lora/setup.sh builds it). Without it the
@@ -135,7 +141,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_num_seqs=$MAX_NUM_SEQS \
     actor_rollout_ref.rollout.max_model_len=$MAX_MODEL_LEN \
     actor_rollout_ref.rollout.max_num_batched_tokens=$MAX_NUM_BATCHED_TOKENS \
-    actor_rollout_ref.rollout.enforce_eager=True \
+    actor_rollout_ref.rollout.enforce_eager=$EAGER \
     actor_rollout_ref.rollout.load_format=auto \
     $VLLM_KW.kv_cache_dtype=fp8 \
     $VLLM_KW.worker_cls=$RLK_WORKER.RlkWorker \
