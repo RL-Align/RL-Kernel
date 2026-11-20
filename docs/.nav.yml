@@ -17,6 +17,7 @@ nav:
     - Operators:
       - operators/README.md
       - operators/qwenimage-adaln-mod-projection.md
+      - operators/qwenimage-sp.md
       - operators/activation.md
       - operators/adaln-modulation.md
       - operators/attention.md
