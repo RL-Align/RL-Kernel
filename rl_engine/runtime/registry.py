@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib
 import os
+from copy import copy
 from enum import Enum, EnumMeta
 from typing import Any, Dict, Optional, Set, Type
 
@@ -79,6 +80,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_DETERMINISTIC_ATTENTION = (
         "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
     )
+    CUDA_JOINT_ATTN_SOFTMAX = (
+        "rl_engine.backends.cuda.attention.joint_attn_softmax.JointAttnSoftmaxCudaOp"
+    )
+    TRITON_JOINT_ATTN_SOFTMAX = (
+        "rl_engine.backends.cuda.attention.joint_attn_softmax_triton.TritonJointAttnSoftmaxOp"
+    )
 
     # AMD ROCm optimized stack
     ROCM_AITER = "rl_engine.kernels.ops.rocm.aiter.AiterOp"
@@ -115,6 +122,26 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_QWENIMAGE_ADALN_MOD_PROJECTION = (
         "rl_engine.reference.model_specific.qwenimage."
         "adaln_mod_projection.QwenImageAdaLNModProjectionReference"
+    )
+    PYTORCH_LATENT_PACK = (
+        "rl_engine.reference.model_specific.qwenimage.latent_pack_unpack.NativeLatentPackOp"
+    )
+    PYTORCH_LATENT_UNPACK = (
+        "rl_engine.reference.model_specific.qwenimage.latent_pack_unpack.NativeLatentUnpackOp"
+    )
+    CUDA_LATENT_PACK = (
+        "rl_engine.backends.cuda.model_specific.qwenimage.latent_pack_unpack.CudaLatentPackOp"
+    )
+    CUDA_LATENT_UNPACK = (
+        "rl_engine.backends.cuda.model_specific.qwenimage.latent_pack_unpack.CudaLatentUnpackOp"
+    )
+    TRITON_LATENT_PACK = (
+        "rl_engine.backends.shared.triton.model_specific.qwenimage."
+        "latent_pack_unpack.TritonLatentPackOp"
+    )
+    TRITON_LATENT_UNPACK = (
+        "rl_engine.backends.shared.triton.model_specific.qwenimage."
+        "latent_pack_unpack.TritonLatentUnpackOp"
     )
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
@@ -179,6 +206,9 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    PYTORCH_JOINT_ATTN_SOFTMAX = (
+        "rl_engine.reference.attention.joint_attn_softmax.NativeJointAttnSoftmaxOp"
+    )
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
     CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
     ASCEND_SWIGLU = "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp"
@@ -585,6 +615,11 @@ class KernelRegistry:
                     OpBackend.CUDA_DETERMINISTIC_ATTENTION,
                     OpBackend.PYTORCH_NATIVE_ATTENTION,
                 ],
+                "joint_attn_softmax": [
+                    OpBackend.CUDA_JOINT_ATTN_SOFTMAX,
+                    OpBackend.TRITON_JOINT_ATTN_SOFTMAX,
+                    OpBackend.PYTORCH_JOINT_ATTN_SOFTMAX,
+                ],
                 "cp_attention": [OpBackend.PYTORCH_CP_ATTENTION],
                 "ws2_attention": [
                     OpBackend.PYTORCH_CP_ATTENTION,
@@ -648,6 +683,7 @@ class KernelRegistry:
                     OpBackend.TRITON_GENERIC,
                 ],
                 "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "joint_attn_softmax": [OpBackend.PYTORCH_JOINT_ATTN_SOFTMAX],
                 "cp_attention": [OpBackend.PYTORCH_CP_ATTENTION],
                 "ws2_attention": [
                     OpBackend.PYTORCH_CP_ATTENTION,
@@ -692,6 +728,7 @@ class KernelRegistry:
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.PYTORCH_ATTN],
                 "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "joint_attn_softmax": [OpBackend.PYTORCH_JOINT_ATTN_SOFTMAX],
                 "cp_attention": [OpBackend.PYTORCH_CP_ATTENTION],
                 "ws2_attention": [
                     OpBackend.PYTORCH_CP_ATTENTION,
@@ -738,6 +775,7 @@ class KernelRegistry:
                 "logp_deterministic_indexed": [OpBackend.PYTORCH_NATIVE],
                 "attn": [OpBackend.PYTORCH_ATTN],
                 "attention": [OpBackend.PYTORCH_NATIVE_ATTENTION],
+                "joint_attn_softmax": [OpBackend.PYTORCH_JOINT_ATTN_SOFTMAX],
                 "cp_attention": [OpBackend.PYTORCH_CP_ATTENTION],
                 "ws2_attention": [
                     OpBackend.PYTORCH_CP_ATTENTION,
@@ -829,6 +867,16 @@ class KernelRegistry:
         self._priority_map["cpu"]["qwenimage_adaln_mod_projection"] = [
             OpBackend.PYTORCH_QWENIMAGE_ADALN_MOD_PROJECTION
         ]
+        # Qwen-Image latent pack/unpack are exact permutations; every platform
+        # keeps the bit-identical PyTorch reference as the final fallback.
+        for platform, ops in self._priority_map.items():
+            for direction in ("PACK", "UNPACK"):
+                backends = [OpBackend[f"PYTORCH_LATENT_{direction}"]]
+                if platform in ("cuda", "rocm"):
+                    backends.insert(0, OpBackend[f"TRITON_LATENT_{direction}"])
+                if platform == "cuda":
+                    backends.insert(0, OpBackend[f"CUDA_LATENT_{direction}"])
+                ops[f"latent_{direction.lower()}"] = backends
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
@@ -1136,11 +1184,27 @@ class KernelRegistry:
 
         platform = self._platform_for_device(device)
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
+        rejected: list[str] = []
 
         for backend in candidates:
             op_instance = self._get_or_create_backend(backend)
             if op_instance is not None:
+                if op_type == "joint_attn_softmax":
+                    # The backend is cached; keep this dispatch trace local to
+                    # the selection without changing its class-level metadata.
+                    selected = copy(op_instance)
+                    selected.provenance = {
+                        **op_instance.provenance,
+                        "actual_backend": op_instance.backend_id,
+                        "backend_enum": backend.name,
+                        "platform": platform,
+                        "fallback": bool(rejected),
+                        "prior_rejections": list(rejected),
+                    }
+                    return selected
                 return op_instance
+            if op_type == "joint_attn_softmax":
+                rejected.append(f"{backend.name}: backend could not be loaded or instantiated")
 
         raise RuntimeError(f"No functional backend found for {op_type} on {platform}")
 
