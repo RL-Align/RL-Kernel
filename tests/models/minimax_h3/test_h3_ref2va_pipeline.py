@@ -149,6 +149,8 @@ def ref2va_preprocess(
         generator=torch.Generator().manual_seed(0),
         device=device,
     )
+    # The digests below do not see the device; the rows must be where they were asked for.
+    assert video.device.type == audio.device.type == torch.device(device).type
     inputs = {"token_ids": tensor_digest(torch.tensor(ids))}
     for i, r in enumerate(normalized):
         if r.kind == "image":
