@@ -245,6 +245,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
+    # Qwen-Image WS1 MLP up projection + tanh GELU (pinned tensor-core schedule)
+    CUDA_MLP_UP_GEMM_GELU = "rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu.CudaMlpUpGemmGeluOp"
+    PYTORCH_MLP_UP_GEMM_GELU = "rl_engine.reference.gemm.mlp_up_gemm_gelu.NativeMlpUpGemmGeluOp"
+    TRITON_MLP_UP_GEMM_GELU = (
+        "rl_engine.backends.shared.triton.gemm.mlp_up_gemm_gelu.TritonMlpUpGemmGeluOp"
+    )
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -636,6 +642,15 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
+                # Qwen-Image WS1 MLP up projection + GELU. Triton first: on
+                # Hopper it lowers the same pinned schedule to wgmma (measured
+                # byte-identical to the hand-written sm90 kernel); the native
+                # CUDA backend is the tree/mma pair, then the fp32 reference.
+                "mlp_up_gemm_gelu": [
+                    OpBackend.TRITON_MLP_UP_GEMM_GELU,
+                    OpBackend.CUDA_MLP_UP_GEMM_GELU,
+                    OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -696,6 +711,11 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                # The CUDA sources are NVIDIA PTX; Triton serves ROCm/MUSA.
+                "mlp_up_gemm_gelu": [
+                    OpBackend.TRITON_MLP_UP_GEMM_GELU,
+                    OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -740,6 +760,11 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                # The CUDA sources are NVIDIA PTX; Triton serves ROCm/MUSA.
+                "mlp_up_gemm_gelu": [
+                    OpBackend.TRITON_MLP_UP_GEMM_GELU,
+                    OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -784,6 +809,7 @@ class KernelRegistry:
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "adaln_modulation": [OpBackend.PYTORCH_ADALN_MODULATION],
+                "mlp_up_gemm_gelu": [OpBackend.PYTORCH_MLP_UP_GEMM_GELU],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
@@ -868,7 +894,16 @@ class KernelRegistry:
                     backends.insert(0, OpBackend[f"CUDA_LATENT_{direction}"])
                 ops[f"latent_{direction.lower()}"] = backends
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
+        # Hardware eligibility runs first; snapshot the row's resulting static
+        # order before any pin narrows it. The pin rebuilds candidate lists from
+        # here, so repeated pins stay idempotent, `auto` restores the order, and
+        # no pin can resurrect a backend the hardware pass dropped.
         self._adjust_priority_for_hardware()
+        self._mlp_up_gemm_gelu_baseline: Dict[str, tuple[OpBackend, ...]] = {
+            platform: tuple(ops["mlp_up_gemm_gelu"])
+            for platform, ops in self._priority_map.items()
+            if "mlp_up_gemm_gelu" in ops
+        }
         self._adjust_priority_from_env()
 
         # WS2 dispatch owns its candidate list, seeded from the legacy
@@ -1037,7 +1072,71 @@ class KernelRegistry:
             else:
                 candidates.append(backend)
 
+    # The mlp_up_gemm_gelu row's path switch names a *contract*, not a backend:
+    # ``general`` is the portable fp32 tree, ``hopper`` the hardware (mma) order.
+    # The Triton backend implements only the mma order and the fp32 reference
+    # only the tree, so a pinned contract maps to the backends that can produce
+    # it, in dispatch order. Under ``hopper`` Triton comes first because it can
+    # serve every CUDA arch with that order, while the native CUDA op only
+    # satisfies it at call time on cc 9.0 with the sm90 build; ordering the
+    # native op first would make a non-Hopper pin fail instead of reaching the
+    # registered Triton producer (``get_op`` only falls back on load/instantiate
+    # failures). ``auto`` is not a producer set: it restores the static
+    # (pre-pin) order recorded in ``_mlp_up_gemm_gelu_baseline``.
+    _MLP_UP_GEMM_GELU_CONTRACT_BACKENDS = {
+        "general": (
+            OpBackend.CUDA_MLP_UP_GEMM_GELU,
+            OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+        ),
+        "hopper": (
+            OpBackend.TRITON_MLP_UP_GEMM_GELU,
+            OpBackend.CUDA_MLP_UP_GEMM_GELU,
+        ),
+    }
+
+    def _pin_mlp_up_gemm_gelu_contract(self, requested: str) -> None:
+        """Narrow this row's candidates to the backends that implement ``requested``.
+
+        ``RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND`` is read by the CUDA backend to
+        pick between its two kernels, but dispatch happens *before* that, and
+        the static order puts Triton first (on Hopper it lowers to a kernel
+        byte-identical to the hand-written one). Triton cannot produce the
+        portable tree, so without this filter a ``general`` request would run
+        the mma arithmetic anyway -- the pin silently doing nothing.
+
+        A candidate that cannot produce the requested contract is dropped, not
+        demoted: if nothing is left, ``get_op`` raises instead of running a
+        different arithmetic order. The reference keeps its slot under
+        ``general`` because it *is* the tree; it has none under ``hopper``.
+
+        Each call rebuilds the lists from ``_mlp_up_gemm_gelu_baseline`` and
+        assigns a fresh list, so the pin is idempotent and never filters an
+        already-narrowed list: a later ``hopper`` after ``general`` still keeps
+        Triton, and ``auto`` restores the static order.
+        """
+
+        if requested == "auto":
+            for platform, baseline in self._mlp_up_gemm_gelu_baseline.items():
+                self._priority_map[platform]["mlp_up_gemm_gelu"] = list(baseline)
+            return
+        producers = self._MLP_UP_GEMM_GELU_CONTRACT_BACKENDS.get(requested)
+        if producers is None:
+            raise ValueError(
+                "RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND must be one of "
+                f"{('auto',) + tuple(self._MLP_UP_GEMM_GELU_CONTRACT_BACKENDS)}; "
+                f"got {requested!r}"
+            )
+        for platform, baseline in self._mlp_up_gemm_gelu_baseline.items():
+            self._priority_map[platform]["mlp_up_gemm_gelu"] = [
+                backend for backend in producers if backend in baseline
+            ]
+
     def _adjust_priority_from_env(self):
+        mlp_up_gemm_gelu_backend = (
+            os.getenv("RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND", "").strip().lower()
+        )
+        if mlp_up_gemm_gelu_backend:
+            self._pin_mlp_up_gemm_gelu_contract(mlp_up_gemm_gelu_backend)
         rocm_attn_backend = os.getenv("RL_KERNEL_ROCM_ATTN_BACKEND", "").strip().lower()
         if rocm_attn_backend in {"flash_attn", "flash-attn", "flash_attention"}:
             self._priority_map["rocm"]["attn"] = [
