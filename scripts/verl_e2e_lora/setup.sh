@@ -187,9 +187,31 @@ print(u.find_spec("flash_attn").submodule_search_locations[0])')
     run=(env "SINGULARITYENV_LD_LIBRARY_PATH=$libs"
          singularity exec --nv -B "$LORA_E2E_ROOT" -B "$RLK_ROOT" "$CONTAINER")
   fi
+  say "FlashMLA nv_dev $BL_FLASHMLA_COMMIT and fast-hadamard-transform (fused DSA kernels)"
+  clone "$BL_FLASHMLA_REPO" "$BL_FLASHMLA_COMMIT" "$SRC_DIR/FlashMLA-nv_dev" submodules
+  clone "$HADAMARD_REPO" "$HADAMARD_COMMIT" "$SRC_DIR/fast-hadamard-transform"
+  if ! (cd /tmp && "${run[@]}" $py -c 'import flash_mla, fast_hadamard_transform') 2>/dev/null
+  then
+    local cuda=${CONTAINER:+/usr/local/cuda}
+    cuda=${cuda:-$CUDA_HOME}
+    # The CUDA container has no git; FlashMLA's setup.py only runs `git submodule update`
+    # (done above) and `git rev-parse --short HEAD`.
+    local stub=$LORA_E2E_ROOT/tools/gitstub d
+    mkdir -p "$stub"
+    printf '#!/bin/sh\n[ "$*" = "rev-parse --short HEAD" ] && echo nv_dev\nexit 0\n' \
+      > "$stub/git"
+    chmod +x "$stub/git"
+    for d in FlashMLA-nv_dev fast-hadamard-transform; do
+      (cd "$SRC_DIR/$d" && "${run[@]}" env CUDA_HOME="$cuda" PATH="$stub:$cuda/bin:$PATH" \
+         CPATH="$cuda/targets/x86_64-linux/include/cccl" TORCH_CUDA_ARCH_LIST=9.0 \
+         FLASH_MLA_DISABLE_SM100=1 FAST_HADAMARD_TRANSFORM_FORCE_BUILD=TRUE \
+         MAX_JOBS=32 NVCC_THREADS=8 \
+         uv pip install --python "$py" --no-build-isolation --no-deps .)
+    done
+  fi
   (cd /tmp && "${run[@]}" $py - <<'EOF'
 import importlib.metadata as m
-import torch, vllm, verl, megatron.core, megatron.bridge
+import torch, vllm, verl, megatron.core, megatron.bridge, flash_mla, fast_hadamard_transform
 print("torch", torch.__version__, "| vllm", vllm.__version__,
       "| megatron-core", m.version("megatron-core"),
       "| megatron-bridge", m.version("megatron-bridge"))

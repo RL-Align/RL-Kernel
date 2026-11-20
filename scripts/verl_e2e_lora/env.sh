@@ -33,6 +33,12 @@ export MEGATRON_COMMIT=fd1121b8ff7e3a4f83a28d35aed172d7bc0260e1
 export VERL_DIR=$SRC_DIR/verl                 # one clone: the baseline's uv venv lives in it,
 export BASELINE_VENV=$VERL_DIR/.venv          # the RL-Kernel env installs it editable
 export BASELINE_LAUNCHER=examples/tuning/lora/run_deepseek_v4_flash_megatron.sh
+# The launcher's apply_dsa_kernel_fusion=True needs these two (verl's Dockerfile builds them;
+# `uv sync` does not): FlashMLA's nv_dev branch (`indexer_topk`), and the indexer's Hadamard.
+export BL_FLASHMLA_REPO=https://github.com/deepseek-ai/FlashMLA.git
+export BL_FLASHMLA_COMMIT=b7643bd54521f563b839b98289b5cd048c062ba2   # nv_dev, 2026-11-20
+export HADAMARD_REPO=https://github.com/Dao-AILab/fast-hadamard-transform.git
+export HADAMARD_COMMIT=e7706faf8d1c3b9f241e36860640ad1dac644ede
 
 # --- RL-Kernel env (conda, Python 3.12, torch 2.13 + CUDA 13.0) ---
 export RLK_ENV=${RLK_ENV:-$LORA_E2E_ROOT/envs/rlk}
