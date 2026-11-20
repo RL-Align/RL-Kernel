@@ -267,7 +267,7 @@ def test_a_compiled_module_is_refused_even_without_strict():
     assert _no_forward_changed(model)
 
 
-def test_the_vdn_attention_variants_are_refused_in_strict_mode():
+def test_the_vdn_attention_variants_are_refused_in_strict_mode_and_listed_without():
     for attribute, match in (("hybrid", "VDN-H3 hybrid"), ("to_gate_compress", "compression")):
         model = _model()
         setattr(model.blocks[0].attn, attribute, torch.nn.Identity())
@@ -275,7 +275,8 @@ def test_the_vdn_attention_variants_are_refused_in_strict_mode():
             adapter.install_h3_sglang_rollout(model)
         handle = adapter.install_h3_sglang_rollout(model, strict=False)
         assert handle.patched == []  # CPU FP32 stand-ins: skipped for their dtype
-        assert len(handle.skipped) == 7 and _no_forward_changed(model)
+        assert handle.skipped[0].startswith(f"blocks.0.attn: {match}")
+        assert len(handle.skipped) == 8 and _no_forward_changed(model)
 
 
 @pytest.mark.parametrize(

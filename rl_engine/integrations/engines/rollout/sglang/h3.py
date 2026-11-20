@@ -448,9 +448,10 @@ def install_h3_sglang_rollout(
 
     ``tp`` is SGLang's TP size and ``collective`` a deterministic collective over SGLang's TP
     group (``tp > 1``). With ``strict``, one error names every refusal and no forward changes;
-    without it, refused modules keep SGLang's forward and are listed in ``handle.skipped``
-    (model-level refusals still raise: an SGLang version the bound forwards were not validated
-    on, and a compiled model, whose forwards cannot be bound).
+    without it, refused modules keep SGLang's forward and are listed in ``handle.skipped``, as is
+    a VDN-H3 or compression-gate attention (it stays SGLang's, as every attention does; the rest
+    of its block is bound). Model-level refusals still raise: an SGLang version the bound
+    forwards were not validated on, and a compiled model, whose forwards cannot be bound.
     """
 
     version = _version_refusal()
@@ -474,8 +475,8 @@ def install_h3_sglang_rollout(
     if strict and refused:
         base.remove()  # the projections were bound; nothing stays changed
         raise RuntimeError("; ".join(refused))
-    handle = H3SGLangRolloutHandle(
-        patched=base.patched, skipped=base.skipped + refused, _restore=base._restore
+    handle = H3SGLangRolloutHandle(  # ``variant`` is empty here with ``strict`` (it raised)
+        patched=base.patched, skipped=variant + base.skipped + refused, _restore=base._restore
     )
     for name, module, bind in selected:
         handle._restore.append((module, module.__dict__.get("forward", _ABSENT)))
