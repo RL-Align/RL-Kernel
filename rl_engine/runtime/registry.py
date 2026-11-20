@@ -167,6 +167,13 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_MATMUL = "rl_engine.kernels.ops.pytorch.linear.matmul.NativeMatmulOp"
     PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
     TRITON_ROPE = "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp"
+    # Separate model contract: external FP32 tables, THD layout, partial rotation.
+    PYTORCH_QWEN3_6_PARTIAL_ROPE = (
+        "rl_engine.reference.rope.qwen3_6_partial_rope.NativeQwen3_6PartialRoPEOp"
+    )
+    TRITON_QWEN3_6_PARTIAL_ROPE = (
+        "rl_engine.backends.shared.triton.rope.qwen3_6_partial_rope.TritonQwen3_6PartialRoPEOp"
+    )
     CUDA_ROPE_SM90 = "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op"
     ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
@@ -620,6 +627,10 @@ class KernelRegistry:
                     OpBackend.TRITON_ROPE,
                     OpBackend.PYTORCH_NATIVE_ROPE,
                 ],
+                "qwen3_6_partial_rope": [
+                    OpBackend.TRITON_QWEN3_6_PARTIAL_ROPE,
+                    OpBackend.PYTORCH_QWEN3_6_PARTIAL_ROPE,
+                ],
             },
             "rocm": {
                 "logp": [
@@ -643,6 +654,10 @@ class KernelRegistry:
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.TRITON_GRPO_LOSS, OpBackend.PYTORCH_GRPO_LOSS],
                 "rope": [OpBackend.TRITON_ROPE, OpBackend.PYTORCH_NATIVE_ROPE],
+                "qwen3_6_partial_rope": [
+                    OpBackend.TRITON_QWEN3_6_PARTIAL_ROPE,
+                    OpBackend.PYTORCH_QWEN3_6_PARTIAL_ROPE,
+                ],
                 "linear_logp": [
                     OpBackend.TRITON_LINEAR_LOGP,
                     OpBackend.PYTORCH_LINEAR_LOGP,
@@ -689,6 +704,7 @@ class KernelRegistry:
                     OpBackend.PYTORCH_GRPO_LOSS,
                 ],
                 "rope": [OpBackend.TRITON_ROPE, OpBackend.PYTORCH_NATIVE_ROPE],
+                "qwen3_6_partial_rope": [OpBackend.PYTORCH_QWEN3_6_PARTIAL_ROPE],
                 "linear_logp": [
                     OpBackend.TRITON_LINEAR_LOGP,
                     OpBackend.PYTORCH_LINEAR_LOGP,
@@ -728,6 +744,7 @@ class KernelRegistry:
                 "kv_cache_attention": [OpBackend.PYTORCH_NATIVE_KV_CACHE_ATTN],
                 "grpo_loss": [OpBackend.PYTORCH_GRPO_LOSS],
                 "rope": [OpBackend.PYTORCH_NATIVE_ROPE],
+                "qwen3_6_partial_rope": [OpBackend.PYTORCH_QWEN3_6_PARTIAL_ROPE],
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],

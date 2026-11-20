@@ -115,7 +115,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--head-dim", type=int, default=128)
     parser.add_argument("--k-dim", type=int, default=4096)
     parser.add_argument("--n-dim", type=int, default=4096)
-    parser.add_argument("--theta", type=float, default=1.0e6)
+    parser.add_argument(
+        "--theta",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="RoPE frequency base (default: 1e7 for qwen3_6_partial_rope, 1e6 for rope).",
+    )
     parser.add_argument("--eps", type=float, default=1.0e-6)
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument(

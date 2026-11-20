@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from typing import Any
 
 import torch
@@ -15,6 +16,7 @@ DEFAULT_HEAD_DIM = 128
 DEFAULT_INTERMEDIATE = 12288
 DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
+DEFAULT_QWEN3_6_ROPE_THETA = 1.0e7
 DEFAULT_RMS_EPS = 1.0e-6
 
 
@@ -37,6 +39,7 @@ def make_operator_inputs(
         "linear_logp": _make_linear_logp_inputs,
         "batch_invariant_logp": _make_batch_invariant_logp_inputs,
         "rope": _make_rope_inputs,
+        "qwen3_6_partial_rope": _make_qwen3_6_partial_rope_inputs,
         "silu": _make_silu_inputs,
         "swiglu": _make_swiglu_inputs,
         "final_logit_softcap": _make_final_logit_softcap_inputs,
@@ -68,6 +71,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "linear_logp": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "batch_invariant_logp": f"{batch}x{seq}x{vocab}",
         "rope": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
+        "qwen3_6_partial_rope": f"{batch * seq}x{_arg_int(args, 'n_heads', 16)}x256",
         "silu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "final_logit_softcap": f"{batch}x{seq}x{vocab}",
@@ -262,6 +266,33 @@ def _make_rope_inputs(
         ),
         "positions": torch.arange(seq, device=device, dtype=torch.long),
         "theta": _arg_float(args, "theta", DEFAULT_ROPE_THETA),
+    }
+
+
+def _make_qwen3_6_partial_rope_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build packed text rows with positions reset at each logical sequence.
+
+    The model fixes D=256 and R=64; n_heads can represent Q, K or a TP shard.
+    Tables are generated here as test data, never inside the operator. A shared
+    table gives the same absolute position identical coefficients in every row.
+    """
+    batch, seq = _batch_seq(args)
+    n_heads = _arg_int(args, "n_heads", 16)
+    offset = _arg_int(args, "position_offset", 0)
+    if offset < 0:
+        raise ValueError(f"position_offset must be nonnegative, got {offset}")
+    theta = _arg_float(args, "theta", DEFAULT_QWEN3_6_ROPE_THETA)
+    if not math.isfinite(theta) or theta <= 0:
+        raise ValueError(f"theta must be finite and positive, got {theta}")
+    frequencies = 1.0 / (theta ** (torch.arange(32, device=device).float() / 32))
+    angles = torch.arange(offset + seq, device=device).float()[:, None] * frequencies[None, :]
+    return {
+        "x": _floating_tensor((batch * seq, n_heads, 256), args, dtype, device, offset=0),
+        "cos": angles.cos(),
+        "sin": angles.sin(),
+        "positions": (torch.arange(seq, device=device, dtype=torch.int64) + offset).repeat(batch),
     }
 
 
