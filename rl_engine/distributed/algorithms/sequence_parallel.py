@@ -153,6 +153,7 @@ def shard_image_sequence(
         raise ValueError("image must have nonempty shape [B,S,C]")
     if image.dtype not in _IMAGE_DTYPES:
         raise TypeError("image must have dtype float32 or bfloat16")
+    expected_shape: tuple[int, ...]
     if positions.ndim == 2:
         expected_shape = (image.size(1), 3)
         position_dim = 0
