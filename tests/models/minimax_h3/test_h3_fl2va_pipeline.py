@@ -223,6 +223,34 @@ def test_repeated_preprocessing_in_a_fresh_process_is_byte_identical():
     assert remote == local
 
 
+def test_t2va_runs_without_pillow():
+    # Pillow is not a base dependency: importing the module and the zero-keyframe path must
+    # not need it; a keyframe does.
+    no_pillow = (
+        "import sys; sys.path.insert(0, sys.argv[1]); sys.modules['PIL'] = None;"
+        "import torch; from rl_engine.models.minimax_h3 import fl2va;"
+    )
+    t2va = (
+        "k = fl2va.prepare_keyframes(height=768, width=1344);"
+        "layout = fl2va.build_fl2va_layout(torch.ones(5, dtype=torch.long), height=k.height,"
+        " width=k.width, num_frames=124);"
+        "fl2va.fl2va_initial_rows(layout, [], generator=torch.Generator().manual_seed(0));"
+        "print(layout.workflow)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", no_pillow + t2va, str(REPO)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert out.stdout.strip().splitlines()[-1] == "t2va"
+    keyframe = "fl2va.prepare_keyframes(object())"
+    failed = subprocess.run(
+        [sys.executable, "-c", no_pillow + keyframe, str(REPO)], capture_output=True, text=True
+    )
+    assert failed.returncode != 0 and "PIL" in failed.stderr.splitlines()[-1]
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_initial_rows_on_cuda_equal_cpu_bytes():
     """``device="cuda"`` with a CPU generator.

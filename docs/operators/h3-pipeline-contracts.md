@@ -76,6 +76,8 @@ their outputs as inputs.
 
 `rl_engine/models/minimax_h3/fl2va.py`, workflows `t2va` (zero keyframes) and `fl2va` (first,
 last, first-and-last), all on `transformer/`.
+Keyframes need Pillow, which is not a base dependency of RL-Kernel (`pip install Pillow`);
+the module imports it only on the keyframe path, so `t2va` runs without it.
 
 - **`prepare_keyframes`.**
   - The canvas comes from the first keyframe's aspect ratio, unless `height` / `width` are

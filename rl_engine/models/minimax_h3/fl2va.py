@@ -31,13 +31,15 @@ hidden state is ``qwen3vl_layer50_contract``; this row takes their outputs as in
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import numpy as np
 import torch
-from PIL import Image
 
 from rl_engine.models.minimax_h3 import packed_layout as pl
+
+if TYPE_CHECKING:  # Pillow is not a base dependency; only the keyframe path imports it
+    from PIL import Image
 
 WORKFLOW = "fl2va"
 ANCHORS = ("first", "last")
@@ -62,6 +64,8 @@ def keyframe_anchors(image: Any | None, last_image: Any | None) -> tuple[str, ..
 def cover_crop(image: Image.Image, height: int, width: int) -> Image.Image:
     """The follower keyframe: LANCZOS to cover the canvas (round), crop at ``(src - w) // 2``."""
 
+    from PIL import Image
+
     scale = max(width / image.size[0], height / image.size[1])
     resized_size = (
         max(width, round(image.size[0] * scale)),
@@ -85,11 +89,14 @@ def prepare_keyframes(
     """Resolve the canvas and put the keyframes on it (``MiniMaxH3ResizeStep``).
 
     Without keyframes and without ``height`` / ``width`` the canvas is MiniMax-H3's own 16:9.
+    Keyframes need Pillow, which RL-Kernel does not install by default.
     """
 
     if (height is None) != (width is None):
         raise ValueError("height and width have to be passed together, or neither")
     images = [k for k in (image, last_image) if k is not None]
+    if images:
+        from PIL import Image
     anchors = keyframe_anchors(image, last_image)
     if height is None or width is None:
         aspect = images[0].size if images else (16, 9)
