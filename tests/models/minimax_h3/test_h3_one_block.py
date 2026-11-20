@@ -159,7 +159,7 @@ def test_qkv_nodes_share_one_combined_row_call():
 
     nodes = {n.name: n for n in h3_block.NODES}
     weights = {f"{h3_block.BLOCK}.{w}": torch.randn(4, 6) for w in h3_block.QKV_WEIGHTS}
-    ctx = {"weights": weights}
+    ctx = h3_block.evaluation_ctx({"weights": weights})
     x = torch.randn(1, 3, 6)
     outs = [nodes[n].candidate(_Ops, ctx, x) for n in ("q_proj", "k_proj", "v_proj")]
     assert len(calls) == 1 and calls[0] == (3, 2)
@@ -206,3 +206,20 @@ def test_each_graph_evaluation_makes_its_own_fused_qkv_call():
     assert len(calls) == 2 and torch.equal(second, first[0])  # one evaluation shares its call
     nodes["v_proj"].candidate(_OtherOps, run, x)  # other ops on the same inputs recompute
     assert calls[-1] is _OtherOps
+
+
+def test_fused_qkv_refuses_a_ctx_that_is_not_one_evaluation():
+    """A caller's own ``ctx`` (not made by ``evaluation_ctx``) is refused, and gains no cache."""
+
+    class _Ops:
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            """Never reached: the ctx is refused first."""
+            raise AssertionError("no call for a refused ctx")
+
+    nodes = {n.name: n for n in h3_block.NODES}
+    weights = {f"{h3_block.BLOCK}.{w}": torch.randn(4, 6) for w in h3_block.QKV_WEIGHTS}
+    ctx = {"weights": weights}
+    with pytest.raises(ValueError, match="evaluation_ctx"):
+        nodes["q_proj"].candidate(_Ops, ctx, torch.randn(1, 3, 6))
+    assert h3_block.FUSED_QKV_CACHE not in ctx
