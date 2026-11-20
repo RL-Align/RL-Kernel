@@ -76,17 +76,28 @@ class TestOneGPU:
     @pytest.mark.parametrize("kind", ["col", "row"])
     def test_errors_against_fp64_are_strict_loras(self, kind):
         """Forward, dX, dA and dB are as close to FP64 as #574's strict_lora_linear (tp=1 is the
-        canonical 8-unit run, not bitwise the one-GEMM strict LoRA)."""
+        canonical 8-unit run, not bitwise the one-GEMM strict LoRA). FP32 A / B here, so the
+        arithmetic is compared, not the rounding of BF16 adapter gradients."""
 
         pytest.importorskip("triton")
         k, n = (5376, 7168) if kind == "col" else (7168, 5376)
         x, w, a, b, dy = _case(k, n, seed=3)
+        a, b = a.float(), b.float()
         ours = (_col if kind == "col" else _row)(x, w, a, b, dy)
         strict = _strict(x, w, a, b, dy)
         ref = _fp64(x, w, a, b, dy)
         for name, o, s, r in zip(("y", "dx", "dA", "dB"), ours, strict, ref):
             e_ours, e_strict = _rel(o, r), _rel(s, r)
-            assert e_ours <= 2 * e_strict + 2e-3, (name, e_ours, e_strict)
+            assert e_ours <= 2 * e_strict, (name, e_ours, e_strict)
+
+    def test_bf16_adapters_round_their_gradients_once(self):
+        """With BF16 A / B (the recipe's) the gradients are the FP32 ones rounded to BF16."""
+
+        pytest.importorskip("triton")
+        x, w, a, b, dy = _case(5376, 7168, seed=6)
+        _, _, da16, db16 = _col(x, w, a, b, dy)
+        _, _, da32, db32 = _col(x, w, a.float(), b.float(), dy)
+        assert torch.equal(da16, da32.bfloat16()) and torch.equal(db16, db32.bfloat16())
 
     @pytest.mark.parametrize("kind", ["col", "row"])
     def test_b_zero_keeps_the_base(self, kind):
