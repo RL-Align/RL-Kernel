@@ -35,19 +35,24 @@ def complex_reference(x, cos, sin, *, transpose=False):
     return torch.view_as_real(z * phase).flatten(-2)
 
 
+def _require_gpu_backends(*backends):
+    if not torch.cuda.is_available() or torch.version.hip is not None:
+        pytest.skip("NVIDIA CUDA required")
+    if "cuda" in backends:
+        from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
+
+        if not native_available():
+            pytest.skip("native CUDA multi_axis_rope extension required")
+    if "triton" in backends:
+        pytest.importorskip("triton")
+
+
 @pytest.fixture(params=["reference", "cuda", "triton"])
 def implementation(request):
     backend = request.param
     device = "cpu" if backend == "reference" else "cuda"
-    if device == "cuda" and (not torch.cuda.is_available() or torch.version.hip is not None):
-        pytest.skip("NVIDIA CUDA required")
-    if backend == "cuda":
-        from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
-
-        if not native_available():
-            pytest.skip("build native multi_axis_rope or use the focused CUDA validation runner")
-    if backend == "triton":
-        pytest.importorskip("triton")
+    if device == "cuda":
+        _require_gpu_backends(backend)
     return get_multi_axis_rope_op(backend, device=device), device
 
 
@@ -404,11 +409,9 @@ def test_operator_wheel_import_without_full_extension(tmp_path):
 
 
 def test_cuda_registry_uses_native_when_present():
-    from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
     from rl_engine.runtime.registry import KernelRegistry
 
-    if not torch.cuda.is_available() or not native_available():
-        pytest.skip("native CUDA multi_axis_rope extension required")
+    _require_gpu_backends("cuda")
     op = KernelRegistry().get_op("multi_axis_rope", device="cuda")
     assert op.trace()["actual_backend"] == "rlkernel.cuda.qwenimage_multi_axis_rope.v1"
     x, cos, sin = inputs("cuda")
@@ -420,9 +423,7 @@ def test_cuda_registry_uses_native_when_present():
 def test_cuda_registry_falls_back_to_triton(monkeypatch):
     from rl_engine.runtime.registry import KernelRegistry
 
-    if not torch.cuda.is_available() or torch.version.hip is not None:
-        pytest.skip("NVIDIA CUDA required")
-    pytest.importorskip("triton")
+    _require_gpu_backends("triton")
     from rl_engine.backends.cuda.rope import multi_axis_rope as cuda_module
 
     monkeypatch.setattr(cuda_module, "native_available", lambda: False)
@@ -445,13 +446,7 @@ def test_reject_invalid_positions(bad):
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 def test_cuda_triton_byte_parity_and_graph(dtype):
-    if not torch.cuda.is_available() or torch.version.hip is not None:
-        pytest.skip("NVIDIA CUDA required")
-    from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
-
-    if not native_available():
-        pytest.skip("native multi_axis_rope extension required")
-    pytest.importorskip("triton")
+    _require_gpu_backends("cuda", "triton")
     cuda, triton = get_multi_axis_rope_op("cuda"), get_multi_axis_rope_op("triton")
     x, cos, sin = inputs("cuda", dtype, batched=True, seq=17, heads=24)
     x.requires_grad_()
@@ -508,12 +503,7 @@ def test_cuda_triton_byte_parity_and_graph(dtype):
 @pytest.mark.parametrize("transpose", [False, True])
 @pytest.mark.parametrize("seq", [0, 7])
 def test_native_entrypoint_requires_autograd_wrapper(dtype, transpose, seq):
-    if not torch.cuda.is_available() or torch.version.hip is not None:
-        pytest.skip("NVIDIA CUDA required")
-    from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
-
-    if not native_available():
-        pytest.skip("native multi_axis_rope extension required")
+    _require_gpu_backends("cuda")
     x, cos, sin = inputs("cuda", dtype, seq=seq)
     x.requires_grad_()
     native = torch.ops.rl_kernel_native.multi_axis_rope
@@ -529,12 +519,7 @@ def test_native_entrypoint_requires_autograd_wrapper(dtype, transpose, seq):
 
 
 def test_native_entrypoint_checks_and_nondefault_stream():
-    if not torch.cuda.is_available() or torch.version.hip is not None:
-        pytest.skip("NVIDIA CUDA required")
-    from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
-
-    if not native_available():
-        pytest.skip("native multi_axis_rope extension required")
+    _require_gpu_backends("cuda")
     x, cos, sin = inputs("cuda")
     native = torch.ops.rl_kernel_native.multi_axis_rope
     for c, s in [(cos.half(), sin), (cos, sin[:-1]), (cos.cpu(), sin)]:
@@ -552,10 +537,7 @@ def test_native_entrypoint_checks_and_nondefault_stream():
 def test_device_guard():
     if torch.cuda.device_count() < 2 or torch.version.hip is not None:
         pytest.skip("requires two NVIDIA GPUs")
-    from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
-
-    if not native_available():
-        pytest.skip("native multi_axis_rope extension required")
+    _require_gpu_backends("cuda")
     with torch.cuda.device(0):
         x, cos, sin = inputs("cuda:1")
         for backend in ("cuda", "triton"):
@@ -613,15 +595,10 @@ def test_packed_qkv_and_independent_table_strides(implementation):
 
 @pytest.mark.parametrize("backend", ["cuda", "triton"])
 def test_dispatcher_fake_autograd_and_fullgraph_compile(backend):
-    if not torch.cuda.is_available() or torch.version.hip is not None:
-        pytest.skip("NVIDIA CUDA required")
+    _require_gpu_backends(backend)
     if backend == "cuda":
-        from rl_engine.backends.cuda.rope.multi_axis_rope import _rotation, native_available
-
-        if not native_available():
-            pytest.skip("build native RoPE library")
+        from rl_engine.backends.cuda.rope.multi_axis_rope import _rotation
     else:
-        pytest.importorskip("triton")
         from rl_engine.backends.shared.triton.rope.multi_axis_rope import _rotation
     op = get_multi_axis_rope_op(backend)
     x, cos, sin = inputs("cuda", batched=True, seq=5, heads=2)
@@ -641,15 +618,7 @@ def test_dispatcher_fake_autograd_and_fullgraph_compile(backend):
 @pytest.mark.parametrize("backend", ["cuda", "triton"])
 @pytest.mark.ws1
 def test_standard_ws1_four_judgments(backend):
-    if not torch.cuda.is_available() or torch.version.hip is not None:
-        pytest.skip("NVIDIA CUDA required")
-    if backend == "cuda":
-        from rl_engine.backends.cuda.rope.multi_axis_rope import native_available
-
-        if not native_available():
-            pytest.skip("build native RoPE library")
-    else:
-        pytest.importorskip("triton")
+    _require_gpu_backends(backend)
     from rl_engine.validation.operators.qwen_image_rope import run_multi_axis_rope_ws1
 
     result = run_multi_axis_rope_ws1(backend)

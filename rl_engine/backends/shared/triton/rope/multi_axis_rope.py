@@ -12,19 +12,17 @@ from ._flash_attn_rotary import rotary_kernel
 
 def _apply(x, cos, sin, transpose):
     output = torch.empty(x.shape, device=x.device, dtype=x.dtype)
-    batch, seq, heads, _ = x.shape
+    batch, seq, heads, head_dim = x.shape
     if batch and seq:
+        block_h, block_m = 2, 8
         with torch.cuda.device(x.device):
-            rotary_kernel[(triton.cdiv(heads, 2), triton.cdiv(seq, 8), batch)](
+            rotary_kernel[(triton.cdiv(heads, block_h), triton.cdiv(seq, block_m), batch)](
                 output,
                 x,
                 cos,
                 sin,
-                None,
-                0,
                 seq,
                 heads,
-                seq,
                 *output.stride(),
                 *x.stride(),
                 cos.stride(0) if cos.ndim == 3 else 0,
@@ -33,13 +31,10 @@ def _apply(x, cos, sin, transpose):
                 sin.stride(0) if sin.ndim == 3 else 0,
                 sin.stride(-2),
                 sin.stride(-1),
-                128,
-                False,
-                False,
-                True,
+                head_dim,
                 transpose,
-                BLOCK_H=2,
-                BLOCK_M=8,
+                BLOCK_H=block_h,
+                BLOCK_M=block_m,
                 enable_fp_fusion=False,
             )
     return output
