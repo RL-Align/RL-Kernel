@@ -243,6 +243,19 @@ def test_output_passed_by_keyword_launches_the_fixed_kernel(monkeypatch):
     assert calls == [((1,), (x,), {"out": out})]
 
 
+@pytest.mark.parametrize("outputs", [(), (-1,), (1.0,)])
+def test_kernel_rejects_an_invalid_output_declaration(outputs):
+    """A kernel without a valid positional output fails at construction, not inside a launch."""
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton import autotuning
+
+    class Jit:
+        fn = staticmethod(_stub_kernel_body)
+
+    with pytest.raises(ValueError, match="outputs must name at least one positional index"):
+        autotuning.TunableKernel(Jit(), outputs=outputs)
+
+
 def test_launch_skips_tuning_when_profiling_copies_do_not_fit(monkeypatch, tmp_path):
     """Too little free memory for the private output copies launches the fixed kernel untuned."""
     torch = pytest.importorskip("torch")

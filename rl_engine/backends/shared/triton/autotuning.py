@@ -239,6 +239,8 @@ class TunableKernel:
         """Record the launch contract and hash kernel and tuner sources as the revision."""
         self._launches: dict[tuple, tuple[TuneConfig, Any, dict[str, Any]]] = {}
         self.kernel = kernel
+        if not outputs or any(not isinstance(i, int) or i < 0 for i in outputs):
+            raise ValueError(f"outputs must name at least one positional index, got {outputs!r}")
         self.outputs = outputs
         if not set(inout).issubset(outputs):
             raise ValueError("Read/write buffers must also be declared as outputs")

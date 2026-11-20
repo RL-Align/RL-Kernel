@@ -37,7 +37,7 @@ class TunedGemmOp(TritonDetGemmOp):
     is_batch_invariant = False
     __call__ = _performance_entry(TritonDetGemmOp.__call__)
     forward_fp32 = _performance_entry(TritonDetGemmOp.forward_fp32)
-    forward_accum_fp32 = forward_fp32
+    forward_accum_fp32 = _performance_entry(TritonDetGemmOp.forward_accum_fp32)
 
 
 class TunedAttentionOp(TritonDeterministicAttentionOp):

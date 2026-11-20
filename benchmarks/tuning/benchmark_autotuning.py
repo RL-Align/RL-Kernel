@@ -24,7 +24,11 @@ def worker(directory: str, shape: tuple[int, int], scan_candidates: bool) -> dic
     """Time legacy SiLU tuning in this process: first call, eager wall and graph device time."""
     import torch
 
-    from rl_engine.backends.shared.triton.activation.swiglu import TritonSiLUOp, _silu_fwd_kernel
+    from rl_engine.backends.shared.triton.activation.swiglu import (
+        _BLOCK,
+        TritonSiLUOp,
+        _silu_fwd_kernel,
+    )
     from rl_engine.backends.shared.triton.autotuning import TuneState, tuning_scope
 
     os.environ["RL_KERNEL_MODE"] = "auto"
@@ -76,7 +80,8 @@ def worker(directory: str, shape: tuple[int, int], scan_candidates: bool) -> dic
             configs[f"kernel_block{block}"] = {"BLOCK": block, "num_warps": 4}
     buffer = torch.empty_like(x)
     for name, config in configs.items():
-        options = {"BLOCK": 1024, **config}
+        # The operator's fixed launch: its BLOCK and Triton's default warps and stages.
+        options = {"BLOCK": _BLOCK, **config}
         grid = ((x.numel() + options["BLOCK"] - 1) // options["BLOCK"],)
         runner = _silu_fwd_kernel.kernel[grid]
         runner(x, buffer, x.numel(), **options)
