@@ -69,6 +69,8 @@ def fl2va_preprocess(anchors: tuple[str, ...], *, device: str = "cpu") -> dict:
     video_rows, audio_rows = fl2va.fl2va_initial_rows(
         layout, latents, generator=torch.Generator().manual_seed(0), device=device
     )
+    # The digests below do not see the device; the rows must be where they were asked for.
+    assert video_rows.device.type == audio_rows.device.type == torch.device(device).type
     inputs = {
         f"keyframe_{i}_pixels": tensor_digest(fl2va.keyframe_pixels(k))
         for i, k in enumerate(keyframes.images)
