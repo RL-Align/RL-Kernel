@@ -1,0 +1,12 @@
+{
+  "Id": "sha256:1b5522d937d9fd3e465939f306d46d8949313a30aabb7dae1e50ea019b057c38",
+  "RepoTags": [
+    "rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x"
+  ],
+  "RepoDigests": [
+    "rlk/dsv4-4l-rocm@sha256:1b5522d937d9fd3e465939f306d46d8949313a30aabb7dae1e50ea019b057c38"
+  ],
+  "Created": "2026-11-19T16:59:50.809177283Z",
+  "Architecture": "amd64",
+  "Os": "linux"
+}

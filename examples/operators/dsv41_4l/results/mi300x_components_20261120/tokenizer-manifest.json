@@ -1,0 +1,8 @@
+{
+  "revision": "08c8657f02291e11b6f6b63e0e16014f8e748518",
+  "source": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/resolve/08c8657f02291e11b6f6b63e0e16014f8e748518/tokenizer.json",
+  "tokenizer_sha256": "c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b",
+  "token_count": 129280,
+  "compressed_vocab_size": 99092,
+  "map_sha256": "26b9be2936d236a124ba318a998c417bc7032e3e92a3107fe98deee49f1dc496"
+}

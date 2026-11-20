@@ -1,0 +1,299 @@
+{
+  "status": "BLOCKED",
+  "complete": false,
+  "scope": "Implemented and tested V4.1 components; full model integration is incomplete",
+  "merge_commit": "4b41ae76d2b4cd3f87ba71c7b56868d888ee15bd",
+  "merged_v4_head": "71c7cb2d033806632cef1a3678939bf73dc581dd",
+  "main_base": "e9d52e95226b62d826f0a224bafad2cab3ed7538",
+  "tested_rlk_commit": "53c85b1d17de1d51765531b0d16516747e8f54ec",
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "checkpoint_revision": "08c8657f02291e11b6f6b63e0e16014f8e748518",
+  "model_original_layer_ids": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "real_four_layer_execution": "NOT RUN",
+  "model_forward": "NOT RUN",
+  "model_backward": "NOT RUN",
+  "model_deterministic_mismatches": null,
+  "model_train_inference_mismatches": null,
+  "model_logits": "NOT RUN",
+  "model_raw_fp32_logprobs": "NOT RUN",
+  "runs": [
+    {
+      "configuration": "isolated components, 1 ranks",
+      "gpu_count": 1,
+      "physical_gpus": "7",
+      "model_layers": null,
+      "original_operator_layer_ids": [
+        1,
+        2
+      ],
+      "forward": "PASS",
+      "backward": "PASS",
+      "operator_correctness": "PASS",
+      "determinism": "PASS",
+      "operator_train_inference_parity": "PASS",
+      "shared_kernels_for_parity": true,
+      "model_train_inference_parity": "NOT RUN",
+      "model_mismatch_count": null,
+      "rlk_commit": "53c85b1d17de1d51765531b0d16516747e8f54ec",
+      "cases": 12,
+      "compared_elements": 6055471,
+      "mismatched_elements": 0,
+      "operator_replay_compared_elements": 4153647,
+      "operator_parity_compared_elements": 1287424,
+      "token_comparisons": 385,
+      "mismatched_tokens": 0,
+      "comparison_count": 72,
+      "status": "PASS",
+      "evidence": "1gpu/",
+      "note": "Counts include repeated tensor/token comparisons, not unique prompt tokens. No model logits/logprobs were compared."
+    },
+    {
+      "configuration": "isolated components, 2 ranks",
+      "gpu_count": 2,
+      "physical_gpus": "2,4",
+      "model_layers": null,
+      "original_operator_layer_ids": [
+        1,
+        2
+      ],
+      "forward": "PASS",
+      "backward": "PASS",
+      "operator_correctness": "PASS",
+      "determinism": "PASS",
+      "operator_train_inference_parity": "PASS",
+      "shared_kernels_for_parity": true,
+      "model_train_inference_parity": "NOT RUN",
+      "model_mismatch_count": null,
+      "rlk_commit": "53c85b1d17de1d51765531b0d16516747e8f54ec",
+      "cases": 24,
+      "compared_elements": 12356702,
+      "mismatched_elements": 0,
+      "operator_replay_compared_elements": 8307294,
+      "operator_parity_compared_elements": 2574848,
+      "token_comparisons": 770,
+      "mismatched_tokens": 0,
+      "comparison_count": 156,
+      "status": "PASS",
+      "evidence": "2gpu/",
+      "note": "Counts include repeated tensor/token comparisons, not unique prompt tokens. No model logits/logprobs were compared."
+    },
+    {
+      "configuration": "isolated components, 4 ranks",
+      "gpu_count": 4,
+      "physical_gpus": "1,2,4,6",
+      "model_layers": null,
+      "original_operator_layer_ids": [
+        1,
+        2
+      ],
+      "forward": "PASS",
+      "backward": "PASS",
+      "operator_correctness": "PASS",
+      "determinism": "PASS",
+      "operator_train_inference_parity": "PASS",
+      "shared_kernels_for_parity": true,
+      "model_train_inference_parity": "NOT RUN",
+      "model_mismatch_count": null,
+      "rlk_commit": "53c85b1d17de1d51765531b0d16516747e8f54ec",
+      "cases": 48,
+      "compared_elements": 24713404,
+      "mismatched_elements": 0,
+      "operator_replay_compared_elements": 16614588,
+      "operator_parity_compared_elements": 5149696,
+      "token_comparisons": 1540,
+      "mismatched_tokens": 0,
+      "comparison_count": 312,
+      "status": "PASS",
+      "evidence": "4gpu/",
+      "note": "Counts include repeated tensor/token comparisons, not unique prompt tokens. No model logits/logprobs were compared."
+    }
+  ],
+  "total_component_compared_elements": 43125577,
+  "total_component_mismatched_elements": 0,
+  "eight_gpu": {
+    "status": "NOT RUN",
+    "reason": "External PID 3131740 owns physical GPU 0; idle guard rejects full-node allocation"
+  },
+  "missing_implementation": [
+    "V4.1 model construction and complete checkpoint binding",
+    "attention/indexer/candidate selection and differentiable cross-layer KV/index state",
+    "V4.1 delayed mHC pre-mix semantics and model backward integration",
+    "384-expert router, deterministic dispatch/combine and shared-expert model binding",
+    "TP/PP/DP/EP/CP model execution, weight synchronization and model-level acceptance",
+    "four-layer logits/raw FP32 logprobs and full-model training/inference parity"
+  ],
+  "model_topologies": [
+    {
+      "tp": 1,
+      "pp": 1,
+      "dp": 1,
+      "gpu_count": 1,
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "forward": "NOT RUN",
+      "backward": "NOT RUN",
+      "determinism": "NOT RUN",
+      "train_inference_parity": "NOT RUN",
+      "mismatch_count": null,
+      "status": "BLOCKED",
+      "reason": "V4.1 model execution is not implemented; component rank tests do not provide these topologies"
+    },
+    {
+      "tp": 1,
+      "pp": 2,
+      "dp": 1,
+      "gpu_count": 2,
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "forward": "NOT RUN",
+      "backward": "NOT RUN",
+      "determinism": "NOT RUN",
+      "train_inference_parity": "NOT RUN",
+      "mismatch_count": null,
+      "status": "BLOCKED",
+      "reason": "V4.1 model execution is not implemented; component rank tests do not provide these topologies"
+    },
+    {
+      "tp": 2,
+      "pp": 1,
+      "dp": 1,
+      "gpu_count": 2,
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "forward": "NOT RUN",
+      "backward": "NOT RUN",
+      "determinism": "NOT RUN",
+      "train_inference_parity": "NOT RUN",
+      "mismatch_count": null,
+      "status": "BLOCKED",
+      "reason": "V4.1 model execution is not implemented; component rank tests do not provide these topologies"
+    },
+    {
+      "tp": 2,
+      "pp": 2,
+      "dp": 1,
+      "gpu_count": 4,
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "forward": "NOT RUN",
+      "backward": "NOT RUN",
+      "determinism": "NOT RUN",
+      "train_inference_parity": "NOT RUN",
+      "mismatch_count": null,
+      "status": "BLOCKED",
+      "reason": "V4.1 model execution is not implemented; component rank tests do not provide these topologies"
+    },
+    {
+      "tp": 1,
+      "pp": 2,
+      "dp": 2,
+      "gpu_count": 4,
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "forward": "NOT RUN",
+      "backward": "NOT RUN",
+      "determinism": "NOT RUN",
+      "train_inference_parity": "NOT RUN",
+      "mismatch_count": null,
+      "status": "BLOCKED",
+      "reason": "V4.1 model execution is not implemented; component rank tests do not provide these topologies"
+    },
+    {
+      "tp": 4,
+      "pp": 2,
+      "dp": 1,
+      "gpu_count": 8,
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "forward": "NOT RUN",
+      "backward": "NOT RUN",
+      "determinism": "NOT RUN",
+      "train_inference_parity": "NOT RUN",
+      "mismatch_count": null,
+      "status": "BLOCKED",
+      "reason": "V4.1 model execution is not implemented; component rank tests do not provide these topologies"
+    },
+    {
+      "tp": 2,
+      "pp": 2,
+      "dp": 2,
+      "gpu_count": 8,
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "forward": "NOT RUN",
+      "backward": "NOT RUN",
+      "determinism": "NOT RUN",
+      "train_inference_parity": "NOT RUN",
+      "mismatch_count": null,
+      "status": "BLOCKED",
+      "reason": "V4.1 model execution is not implemented; component rank tests do not provide these topologies"
+    }
+  ],
+  "regressions": {
+    "v4-contracts-final-rocm-runtime.log": {
+      "status": "PASS",
+      "passed": 264,
+      "skipped": 0,
+      "evidence": "logs/v4-contracts-final-rocm-runtime.log"
+    },
+    "v4-gpu-final.log": {
+      "status": "PASS",
+      "passed": 91,
+      "skipped": 0,
+      "evidence": "logs/v4-gpu-final.log"
+    },
+    "v41-tests-final.log": {
+      "status": "PASS",
+      "passed": 71,
+      "skipped": 0,
+      "evidence": "logs/v41-tests-final.log"
+    },
+    "layout-final.log": {
+      "status": "PASS",
+      "passed": 33,
+      "skipped": 1,
+      "evidence": "logs/layout-final.log"
+    }
+  },
+  "historical_v4_four_layer_failures_preserved": true,
+  "numerical_contract": "Reference tolerances are separate from exact byte replay/parity; frozen quantized weights use explicit input identity STE.",
+  "cpu_only_image_attempt": {
+    "status": "FAIL",
+    "reason": "Existing V4 verl/vLLM rollout-config test imports ROCm platform at collection and requires a GPU in this installed runtime",
+    "evidence": "logs/v4-cpu-final.log",
+    "working_contract_runtime": "Same 264 contracts pass with GPU visibility; no tests removed or skipped"
+  }
+}

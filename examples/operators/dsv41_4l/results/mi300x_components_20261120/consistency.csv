@@ -1,0 +1,11 @@
+configuration,gpu_count,scope,forward,backward,determinism,train_inference_parity,compared_elements,mismatch_count,status,evidence
+"isolated components, 1 ranks",1,operators only; no model layers,PASS,PASS,PASS,PASS (shared operator kernels),6055471,0,PASS,1gpu/
+"isolated components, 2 ranks",2,operators only; no model layers,PASS,PASS,PASS,PASS (shared operator kernels),12356702,0,PASS,2gpu/
+"isolated components, 4 ranks",4,operators only; no model layers,PASS,PASS,PASS,PASS (shared operator kernels),24713404,0,PASS,4gpu/
+model TP1 PP1 DP1,1,"original model layers 0,1,2,3",NOT RUN,NOT RUN,NOT RUN,NOT RUN,,,BLOCKED,summary.json#model_topologies
+model TP1 PP2 DP1,2,"original model layers 0,1,2,3",NOT RUN,NOT RUN,NOT RUN,NOT RUN,,,BLOCKED,summary.json#model_topologies
+model TP2 PP1 DP1,2,"original model layers 0,1,2,3",NOT RUN,NOT RUN,NOT RUN,NOT RUN,,,BLOCKED,summary.json#model_topologies
+model TP2 PP2 DP1,4,"original model layers 0,1,2,3",NOT RUN,NOT RUN,NOT RUN,NOT RUN,,,BLOCKED,summary.json#model_topologies
+model TP1 PP2 DP2,4,"original model layers 0,1,2,3",NOT RUN,NOT RUN,NOT RUN,NOT RUN,,,BLOCKED,summary.json#model_topologies
+model TP4 PP2 DP1,8,"original model layers 0,1,2,3",NOT RUN,NOT RUN,NOT RUN,NOT RUN,,,BLOCKED,summary.json#model_topologies
+model TP2 PP2 DP2,8,"original model layers 0,1,2,3",NOT RUN,NOT RUN,NOT RUN,NOT RUN,,,BLOCKED,summary.json#model_topologies
