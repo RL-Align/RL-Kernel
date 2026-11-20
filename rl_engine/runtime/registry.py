@@ -189,8 +189,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    PYTORCH_NATIVE_CONDITIONING_NOISE_MIX = (
+        "rl_engine.reference.conditioning.conditioning_noise_mix.NativeConditioningNoiseMixOp"
+    )
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
     CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
+    CUDA_CONDITIONING_NOISE_MIX = (
+        "rl_engine.backends.cuda.conditioning.conditioning_noise_mix.ConditioningNoiseMixCudaOp"
+    )
     ASCEND_SWIGLU = "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp"
     ASCEND_SILU = "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp"
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
@@ -299,6 +305,27 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
+        OperatorBackendDescriptor(
+            semantic_op="h3_ffn_down_gemm",
+            backend_id="rlkernel.h3_ffn_down.triton.fp32_tiles.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={"world_size": (1,), "tensor_parallel_size": (1,)},
+            determinism_or_alignment_properties={
+                "arithmetic": "bf16_mma_fp32_accumulation_ordered_fp32_adds_bf16_epilogue",
+                "shape": "14336_to_5376",
+                "weight_gradient_order": "canonical_logical_keys",
+                "gpu_qualified": False,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=("rl_engine.ops.gemm.h3_ffn_down.H3FFNDownGemmOp"),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-down-triton-fp32-tiles-candidate-v1",
+            # Strict production resolution remains gated until runtime qualification.
+            is_smoke_only=True,
+        ),
         OperatorBackendDescriptor(
             semantic_op="h3_full_attention",
             backend_id="rlkernel.cuda.h3_full_attention.query_chunk.v1",
@@ -886,6 +913,7 @@ class KernelRegistry:
                     OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
                     OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
                 ],
+                "conditioning_noise_mix": [OpBackend.CUDA_CONDITIONING_NOISE_MIX],
                 # Default dispatch logic for new operators
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rope": [
@@ -994,6 +1022,7 @@ class KernelRegistry:
                     OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
                     OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
                 ],
+                "conditioning_noise_mix": [],
             },
             "musa": {
                 "logp": [
@@ -1057,6 +1086,7 @@ class KernelRegistry:
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
+                "conditioning_noise_mix": [],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -1097,6 +1127,7 @@ class KernelRegistry:
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
+                "conditioning_noise_mix": [OpBackend.PYTORCH_NATIVE_CONDITIONING_NOISE_MIX],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
@@ -1161,6 +1192,8 @@ class KernelRegistry:
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,
         ]
+        self._priority_map["npu"]["conditioning_noise_mix"] = []
+
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
