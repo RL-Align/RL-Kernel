@@ -201,6 +201,7 @@ def test_variants_share_components_except_the_transformer():
     # Same config and tensor table, so nothing but the shards can tell them apart.
     assert fp.transformer_config("FL2VA") == fp.transformer_config("Ref2VA")
     shards = {v: pl.transformer_shard_hashes(v) for v in ("FL2VA", "Ref2VA")}
+    assert len(shards["FL2VA"]) == 14  # the pinned checkpoint's 14 shards per variant
     assert shards["FL2VA"].keys() == shards["Ref2VA"].keys()
     assert all(shards["FL2VA"][k] != shards["Ref2VA"][k] for k in shards["FL2VA"])
 
@@ -296,6 +297,8 @@ def test_structure_must_match_declared_workflow():
     pl.check_pipeline_identity(keyframed, transformer_variant="FL2VA")
     with pytest.raises(pl.VariantMismatch, match="paired with the Ref2VA"):
         pl.check_pipeline_identity(keyframed, transformer_variant="Ref2VA")
+    with pytest.raises(pl.VariantMismatch, match="unknown transformer variant"):
+        pl.check_pipeline_identity(keyframed, transformer_variant="t2va")  # a workflow name
     # Conditioning rows that push the target clock forward are a Ref2VA layout, whatever the
     # layout claims to be.
     shifted = _toy_layout("fl2va", cond=2, origin_shift=1.0)
@@ -350,6 +353,13 @@ def test_denoiser_inputs_move_without_a_byte_change():
     layout = _toy_layout("fl2va", cond=2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     moved = layout.denoiser_inputs(device)
+    assert list(moved) == [
+        "position_ids",
+        "token_tags",
+        "text_indices",
+        "video_indices",
+        "audio_indices",
+    ]
     for name, tensor in moved.items():
         assert tensor.dtype == getattr(layout, name).dtype
         assert torch.equal(tensor.cpu(), getattr(layout, name)), name

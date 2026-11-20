@@ -865,6 +865,10 @@ def check_pipeline_identity(
         raise VariantMismatch(
             f"layout declares {declared!r} but its structure is a {structural!r} layout"
         )
+    if transformer_variant is not None and transformer_variant not in PIPELINES:
+        raise VariantMismatch(
+            f"unknown transformer variant {transformer_variant!r}; one of {sorted(PIPELINES)}"
+        )
     if transformer_variant is not None and transformer_variant != layout.variant:
         raise VariantMismatch(
             f"{layout.variant} layout ({declared}) paired with the {transformer_variant} "
