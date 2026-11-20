@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Isolated components only. This does not construct or shard a four-layer model.
 set -euo pipefail
+unset HIP_VISIBLE_DEVICES CUDA_VISIBLE_DEVICES GPU_DEVICE_ORDINAL HSA_VISIBLE_DEVICES
+export ROCR_VISIBLE_DEVICES=4,5,6,7
 if [[ $# != 5 ]]; then
   echo "usage: $0 IMAGE PHYSICAL_GPU_CSV OPERATOR_WEIGHTS NEW_OUTPUT CACHE" >&2
   exit 2
@@ -11,6 +13,12 @@ weights=$(realpath "$3")
 output=$(realpath -m "$4")
 cache=$(realpath -m "$5")
 repo=$(git rev-parse --show-toplevel)
+python3 - "$gpu_csv" <<'PYGPU'
+import sys
+from examples.operators.dsv41_4l.gpu_visibility import physical_ids
+physical_ids(sys.argv[1])
+PYGPU
+export ROCR_VISIBLE_DEVICES="$gpu_csv"
 source_sha=$(git -C "$repo" rev-parse HEAD)
 if [[ -n $(git -C "$repo" status --porcelain --untracked-files=normal -- rl_engine tests examples/operators/dsv41_4l) ]]; then
   echo "commit the tested source before launching acceptance" >&2
@@ -41,7 +49,7 @@ docker run --rm --pull=never --network=none \
   -e PYTHONPATH=/work -e TMPDIR=/cache/tmp \
   -v "$repo:/work:ro" -v "$weights:/weights:ro" \
   -v "$output:/outputs:rw" -v "$cache:/cache:rw" -w /work \
-  "$image" "${args[@]}" --weights /weights --output /outputs --rlk-commit "$source_sha" \
+  "$image" env -u HIP_VISIBLE_DEVICES -u CUDA_VISIBLE_DEVICES -u GPU_DEVICE_ORDINAL -u HSA_VISIBLE_DEVICES "${args[@]}" --weights /weights --output /outputs --rlk-commit "$source_sha" \
   > "$output/container.log" 2>&1
 python3 - "$output" "${#task_gpus[@]}" <<'PY'
 import json,pathlib,sys

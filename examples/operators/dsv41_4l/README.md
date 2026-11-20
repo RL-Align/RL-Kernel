@@ -2,7 +2,8 @@
 
 原始层 **0/1/2/3** 的 text-only 图已接入并执行真实 checkpoint Forward/Backward。
 已运行 TP1 PP1、PP2、TP2、TP2 PP2、PP2 DP2；逐项证据见
-[本轮模型报告](results/mi300x_model_20261120/README.md)。8 卡验收仍受 GPU 占用阻塞。
+[本轮模型报告](results/mi300x_model_20261120/README.md)。当前仅允许物理 GPU **4/5/6/7**，八卡测试已由用户暂时取消，不再等待 GPU0。
+本轮指定资源的证据见 [GPU4–7 报告](results/mi300x_gpu4567_20261120/README.md)。
 [上一轮组件报告](results/mi300x_components_20261120/README.md) 保持原样，不能作为模型证据。
 
 唯一开发分支 `dsv4.1-rocm`，保留 V4 merge `4b41ae76d2b4cd3f87ba71c7b56868d888ee15bd`。
@@ -65,7 +66,7 @@ Engram 在层 1，层 2 生成 compressed KV/index，层 3 消费同一 source s
 | mHC | `backends/rocm/mhc/triton_mhc.py` | delayed-pre、FP32 controller | IMPLEMENT | controller/gains/Sinkhorn/collapse/post VJP PASS |
 | Engram | V4 无 | compressed tokenizer/hash/real-row lookup/gate | IMPLEMENT | 1/14 实际 weights、gain/input VJP PASS |
 | Residual / head | `models/deepseek_v4/layer_end.py` | delayed pre、final collapse、FP32 head | IMPLEMENT | 四层 hidden/logits/raw logprobs PASS |
-| TP/PP/DP/EP/CP | V4 parallel modules | attention TP、PP边界、DP梯度/权重同步 | IMPLEMENT | TP1/2、PP2、DP2 已测；EP/CP 不支持；8卡 BLOCKED |
+| TP/PP/DP/EP/CP | V4 parallel modules | attention TP、PP边界、DP梯度/权重同步 | IMPLEMENT | TP1/2、PP2、DP2 已测；EP/CP 不支持；8卡已取消 |
 | Autograd | V4 component autograd | 四层连接图、状态保留 graph | IMPLEMENT | 四层/跨 decode backward PASS；非全参数训练 |
 | Quantization | `backends/rocm/gemm/`、`moe/` | FP8 block32、两种 FP4 activation scales | MODIFY | GPU codec/reference/STE/replay PASS |
 | Communication | V4 distributed components | 模型 activation/VJP 和 DP 参数 | MODIFY | 实际模型 P2P/RCCL、重放及同步见逐项报告 |
@@ -74,7 +75,9 @@ Engram 在层 1，层 2 生成 compressed KV/index，层 3 消费同一 source s
 
 测试镜像 `rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x` 是本机已有依赖镜像，
 不是公共下载地址。实际 image ID 和源码 commit 保存在每次运行的 provenance 中。
-源码只读挂载，未修改镜像内 vime/verl/vLLM。GPU CSV 必须空闲，launcher 不终止任务。
+源码只读挂载，未修改镜像内 vime/verl/vLLM。GPU CSV 必须为空闲的4–7子集，launcher 拒绝0–3和8卡请求，不终止任务。
+所有子进程以ROCR选择物理卡，并清除HIP/CUDA二次过滤。每个容器和rank验证实际PCI映射，
+映射不符则在RCCL初始化和模型执行前报错。`gpu-mapping.json` 和逐rank summary记录物理/逻辑IDs。
 以下命令在仓库根目录执行，每个输出目录必须尚不存在。
 
 先在同镜像的 CPU 容器内下载精确权重；`--metadata` 指向已保存的官方 config 目录：
@@ -95,17 +98,20 @@ weights=/home/rl-kernel/dsv41-artifacts/model-4l
 out=/home/rl-kernel/dsv41-new-reproduction
 mkdir "$out"
 run=examples/operators/dsv41_4l/run_model_gpu.sh
-"$run" "$image" 6 "$weights" "$out/tp1" 1 1 1 -
-"$run" "$image" 5,7 "$weights" "$out/tp2" 2 1 1 -
-"$run" "$image" 1,2 "$weights" "$out/pp2" 1 2 1 "$out/tp1/baseline.pt"
-"$run" "$image" 1,2,3,4 "$weights" "$out/tp2pp2" 2 2 1 "$out/tp2"
-DSV41_MODEL_OPTIMIZER_STEPS=2 "$run" "$image" 1,2,3,4 "$weights" \
+"$run" "$image" 4 "$weights" "$out/tp1" 1 1 1 -
+"$run" "$image" 4,5 "$weights" "$out/tp2" 2 1 1 -
+"$run" "$image" 4,5 "$weights" "$out/pp2" 1 2 1 "$out/tp1/baseline.pt"
+"$run" "$image" 4,5,6,7 "$weights" "$out/tp2pp2" 2 2 1 "$out/tp2"
+DSV41_MODEL_OPTIMIZER_STEPS=2 "$run" "$image" 4,5,6,7 "$weights" \
   "$out/pp2dp2" 1 2 2 "$out/tp1/baseline.pt"
 ```
 
 `run_model_state.py` 运行真实四层奇数 prefill 和连续 decode Backward；
 `run_training_stress.py` 覆盖 seeds17/1234、两组不同 prompt 梯度累积、batch1/2、长度7/8、
-两次 SGD 更新、整段重放和更新后 shared-kernel parity。详细命令及实际状态见本轮报告。
+两次 SGD 更新、整段重放和更新后 shared-kernel parity。
+这些脚本也要求 `DSV41_EXPECTED_GPU_MAPPING` 指向GPU host mapping文件，且ROCR与其一致。
+`DSV41_MODEL_CASE=1` 可生成第二个真实prompt的单卡基准；为PP2 DP2另设
+`DSV41_DP_SECOND_BASELINE=/path/to/case1/baseline.pt`，验证不同prompt的梯度平均和更新。详细命令及实际状态见本轮报告。
 
 `compare_bits` 比较原 dtype 的 storage bytes，区分 signed zero/NaN payload，不使用 allclose 或舍入。
 Operator correctness 的 reference 数值容差测试单列；其 PASS 不等于独立模型后端 bitwise PASS。
