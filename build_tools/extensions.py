@@ -314,6 +314,7 @@ def get_extensions():
             "csrc/cuda/activation/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
         ]
+        adaln_cuda_enabled = not is_rocm and not envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
         joint_attn_softmax_enabled = False
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared
@@ -327,6 +328,8 @@ def get_extensions():
         else:
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
+            if adaln_cuda_enabled:
+                cuda_sources.append("csrc/cuda/norm/adaln_modulation.cu")
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
             cuda_sources.extend(
                 [
@@ -428,6 +431,8 @@ def get_extensions():
 
         platform_define = "-DKERNEL_ALIGN_WITH_ROCM" if is_rocm else "-DKERNEL_ALIGN_WITH_CUDA"
         cxx_flags = ["-O3", "-std=c++17", platform_define]
+        if adaln_cuda_enabled:
+            cxx_flags.append("-DRLK_ADALN_CUDA_ENABLED")
         if joint_attn_softmax_enabled:
             cxx_flags.append("-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX")
         extra_link_args = list(torch_rpath)

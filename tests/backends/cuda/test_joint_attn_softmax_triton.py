@@ -542,9 +542,7 @@ def test_noncontiguous_input_matches_all_backends_forward_and_backward():
 @pytest.mark.parametrize("backend", ["cuda", "triton"])
 def test_negative_bit_views_match_reference_forward_and_backward(backend):
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
     from rl_engine.reference.attention.joint_attn_softmax import NativeJointAttnSoftmaxOp
 
     operation = {
@@ -584,9 +582,7 @@ def test_negative_bit_views_match_reference_forward_and_backward(backend):
 @pytest.mark.parametrize("backend", ["cuda", "triton"])
 def test_saved_tensor_hooks_may_restore_noncontiguous_layouts(backend):
     from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
-    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import (
-        TritonJointAttnSoftmaxOp,
-    )
+    from rl_engine.backends.cuda.attention.joint_attn_softmax_triton import TritonJointAttnSoftmaxOp
 
     operation = {
         "cuda": JointAttnSoftmaxCudaOp,
