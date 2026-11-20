@@ -11,6 +11,7 @@ import traceback
 from pathlib import Path
 
 import torch
+from .gpu_visibility import rank_assignment
 import torch.distributed as dist
 from rl_engine.models.deepseek_v41.parallel import AttentionTP
 from rl_engine.models.deepseek_v41.model import DeepSeekV41TextModel
@@ -25,6 +26,7 @@ def main():
     parser.add_argument("--case", type=int, default=0)
     parser.add_argument("--tp", type=int, default=1, choices=(1, 2, 4))
     args = parser.parse_args()
+    gpu_assignment = rank_assignment()
     tp = AttentionTP()
     if args.tp > 1:
         torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
@@ -35,6 +37,7 @@ def main():
     rows = []
     summary = {
         "status": "RUNNING",
+        "gpu_assignment": gpu_assignment,
         "scope": "real checkpoint original layers 0,1,2,3 text model",
         "mode_parity": "shared-kernel parity, not independent backends",
         "training_profile": DeepSeekV41TextModel.profile,

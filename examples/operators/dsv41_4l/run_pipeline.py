@@ -14,6 +14,7 @@ import traceback
 from pathlib import Path
 
 import torch
+from .gpu_visibility import rank_assignment
 import torch.distributed as dist
 from rl_engine.models.deepseek_v41.model import DeepSeekV41TextModel
 from rl_engine.models.deepseek_v41.parallel import AttentionTP
@@ -28,7 +29,9 @@ def main():
     parser.add_argument("--dp", type=int, default=1, choices=(1, 2))
     parser.add_argument("--tp", type=int, default=1, choices=(1, 2, 4))
     parser.add_argument("--optimizer-steps", type=int, default=0, choices=(0, 2))
+    parser.add_argument("--second-baseline", type=Path)
     args = parser.parse_args()
+    gpu_assignment = rank_assignment()
     rank = int(os.environ["RANK"])
     local = int(os.environ["LOCAL_RANK"])
     torch.cuda.set_device(local)
@@ -58,6 +61,19 @@ def main():
         args.baseline = args.baseline / f"tp-rank{tp_rank}" / "baseline.pt"
     device = torch.device("cuda", local)
     baseline = torch.load(args.baseline, map_location="cpu", weights_only=True)
+    dp_expected = baseline["gradients"]
+    if args.second_baseline is not None:
+        if args.dp != 2 or args.tp != 1:
+            raise ValueError("distinct-prompt baselines currently require TP1 PP2 DP2")
+        second = torch.load(args.second_baseline, map_location="cpu", weights_only=True)
+        if baseline["gradients"].keys() != second["gradients"].keys():
+            raise ValueError("replica baselines have different gradient parameter sets")
+        dp_expected = {
+            key: (value + second["gradients"][key]) / 2
+            for key, value in baseline["gradients"].items()
+        }
+        if replica == 1:
+            baseline = second
     ids = baseline["input_ids"].to(device)
     b, s = ids.shape
     args.output.mkdir(parents=True, exist_ok=True)
@@ -65,13 +81,18 @@ def main():
     summary = {
         "rank": rank,
         "status": "RUNNING",
+        "gpu_assignment": gpu_assignment,
         "tp": args.tp,
         "tp_scope": "attention heads/output groups sharded; FFN replicated",
         "pp": 2,
         "dp": args.dp,
         "stage": stage,
         "mode_parity": "shared-kernel parity",
-        "dp_batch": "identical real-token microbatch on each replica",
+        "dp_batch": (
+            "two distinct real-token prompts; equal mean-loss replica weighting"
+            if args.second_baseline is not None
+            else "identical real-token microbatch on each replica"
+        ),
         "checkpoint": "real original layers 0,1,2,3",
         "independent_model_oracle": "NOT RUN",
     }
@@ -149,7 +170,7 @@ def main():
                     dist.all_reduce(value, group=dp_groups[stage * args.tp + tp_rank])
                     value.div_(args.dp)
                     parameters[name].grad.copy_(value)
-                check(f"dp_gradient_mean_{repeat}", grad, baseline["gradients"], subset=True)
+                check(f"dp_gradient_mean_{repeat}", grad, dp_expected, subset=True)
             if args.tp > 1:
                 # Q/sparse heads and wo_a/sink gradients are intentionally sharded.
                 common = {

@@ -6,6 +6,7 @@ import json
 import traceback
 from pathlib import Path
 import torch
+from .gpu_visibility import rank_assignment
 from rl_engine.models.deepseek_v41.model import DeepSeekV41TextModel
 from rl_engine.models.deepseek_v41.bitwise import compare_bits
 
@@ -15,10 +16,12 @@ def main():
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    gpu_assignment = rank_assignment()
     args.output.mkdir(parents=True, exist_ok=True)
     records = []
     summary = {
         "status": "RUNNING",
+        "gpu_assignment": gpu_assignment,
         "scope": "real checkpoint original layers 0,1,2,3 odd prefill and decode",
         "mode_parity": "shared-kernel parity",
         "chunked_vs_monolithic_bit_parity": "NOT RUN",
