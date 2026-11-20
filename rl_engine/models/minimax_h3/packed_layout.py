@@ -833,10 +833,10 @@ def structural_workflow(layout: PackedLayout) -> str:
     by at least one unit, so its target starts later.
     """
 
-    if layout.num_condition_video_rows == 0 and layout.num_condition_audio_rows == 0:
-        return "t2va"
     if layout.num_condition_video_rows >= layout.video_indices.numel():
         raise ValueError("layout has no target video rows: not a MiniMax-H3 layout")
+    if layout.num_condition_video_rows == 0 and layout.num_condition_audio_rows == 0:
+        return "t2va"
     first_target = layout.video_indices[layout.num_condition_video_rows]
     origin = float(layout.position_ids[first_target, 0])
     if origin == float(layout.num_text_tokens) and layout.num_condition_audio_rows == 0:
