@@ -12,10 +12,10 @@ if __name__ == "__main__":
     import runpy
 
     runpy.run_module(
-        "rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider",
+        "rl_engine.integrations.common.linear_logp_provider",
         run_name="__main__",
     )
 else:
     sys.modules[__name__] = importlib.import_module(
-        "rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider"
+        "rl_engine.integrations.common.linear_logp_provider"
     )

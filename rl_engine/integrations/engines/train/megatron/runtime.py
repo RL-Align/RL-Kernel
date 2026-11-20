@@ -17,6 +17,7 @@ import torch
 
 from rl_engine.distributed.algorithms import canonical_cp
 from rl_engine.integrations.common.linear_logp import LinearLogpWrapper
+from rl_engine.integrations.common.linear_logp_provider import _provider_impl
 from rl_engine.integrations.common.operators import _strict_attention_projection_op
 from rl_engine.integrations.common.state import get_active_integration, set_active_integration
 from rl_engine.integrations.engines.train.megatron.adapter import MegatronIntegration
@@ -28,7 +29,6 @@ from rl_engine.integrations.engines.train.megatron.operators import (
     MegatronLogpOperator,
     _fused_rms_norm_input,
 )
-from rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider import _provider_impl
 from rl_engine.runtime.plan import Implementation, IntegrationPlan
 
 _PATCH_MARKER = "__rl_kernel_original_forward__"
@@ -1088,6 +1088,7 @@ def install_megatron_integration(
     *,
     attention_classes: Iterable[type[Any]] | None = None,
     ffn_classes: Iterable[type[Any]] | None = None,
+    readback_dir: str | None = None,
 ) -> MegatronIntegration:
     """Install Attention, dense FFN and structural Logp routes in one actor."""
 
@@ -1109,7 +1110,11 @@ def install_megatron_integration(
             _provider_impl,
             linear_logp=LinearLogpWrapper(),
         )
-    integration = MegatronIntegration(plan, rl_kernel_operators=rl_kernel_operators)
+    integration = MegatronIntegration(
+        plan,
+        rl_kernel_operators=rl_kernel_operators,
+        readback_dir=readback_dir,
+    )
     resolved_attention = _unique_classes(
         _discover_attention_classes() if attention_classes is None else attention_classes
     )
@@ -1148,21 +1153,26 @@ def install_megatron_integration(
     if plan.implementation_for("logp", "training") is Implementation.RL_KERNEL:
         integration.record_installed_hook(
             "logp",
-            "rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider.provider,"
+            "rl_engine.integrations.common.linear_logp_provider.provider,"
             "megatron.core.transformer.linear_cross_entropy.LinearCrossEntropyModule.forward",
         )
     return integration
 
 
-def initialize_from_environment(_args: Any = None) -> MegatronIntegration:
+def initialize_from_environment(
+    _args: Any = None,
+    *,
+    plan: IntegrationPlan | None = None,
+    readback_dir: str | None = None,
+) -> MegatronIntegration:
     """Vime-compatible custom-init entry point backed by the shared plan env."""
 
     from rl_engine.runtime.plan import integration_plan_from_environment
 
     _install_torch_dist_object_compatibility()
-    plan = integration_plan_from_environment()
-    integration = install_megatron_integration(plan)
-    if plan.implementation_for("attention", "training") is Implementation.RL_KERNEL:
+    resolved_plan = plan if plan is not None else integration_plan_from_environment()
+    integration = install_megatron_integration(resolved_plan, readback_dir=readback_dir)
+    if resolved_plan.implementation_for("attention", "training") is Implementation.RL_KERNEL:
         _precompile_strict_attention_training(_args)
     if os.getenv("RL_KERNEL_CANONICAL_CP_GRAD", "0") == "1":
         canonical_cp.install()

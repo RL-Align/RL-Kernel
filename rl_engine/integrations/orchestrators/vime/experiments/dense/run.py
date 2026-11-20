@@ -71,10 +71,7 @@ def validate_config(config: Mapping[str, Any]) -> None:
         raise ValueError("rollout.temperature must be positive")
     if provider.get("mode") != "strict":
         raise ValueError("linear_logp_provider.mode must be strict")
-    if (
-        provider.get("path")
-        != "rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider.provider"
-    ):
+    if provider.get("path") != "rl_engine.integrations.common.linear_logp_provider.provider":
         raise ValueError("example must use the RL-Kernel Vime provider")
     if provider.get("backend_id") != "rlkernel.linear_logp.bitwise.v1":
         raise ValueError("example must pin the deterministic vocab-parallel backend")

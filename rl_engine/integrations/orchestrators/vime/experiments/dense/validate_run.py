@@ -35,9 +35,7 @@ CASE_FIELDS = {
     "ffn": "ffn_case",
     "logp": "logp_case",
 }
-RL_KERNEL_LINEAR_LOGP_PROVIDER = (
-    "rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider.provider"
-)
+RL_KERNEL_LINEAR_LOGP_PROVIDER = "rl_engine.integrations.common.linear_logp_provider.provider"
 VIME_NATIVE_LINEAR_LOGP_MARKER = (
     "linear_logp native active: "
     "backend_id=vime.utils.ppo_utils.calculate_log_probs_and_entropy "
