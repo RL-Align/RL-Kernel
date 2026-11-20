@@ -43,6 +43,14 @@ under vLLM's ``DeepseekV4ForCausalLM`` architecture name.
 Supported layout: tensor parallel 1, pipeline parallel 1, no sequence parallel, no MTP, no
 EPLB; data parallel attention with expert parallel MoE (``--enable-expert-parallel``).
 
+CUDA graphs: the fork's breakable graphs (auto-enabled for DSv4; attention runs eagerly
+inside them). With expert parallelism, a forward of at most ``RL_KERNEL_DSV4_EP_STATIC_TOKENS``
+tokens on every data-parallel rank (default: vLLM's largest capture size, 0 when eager) uses
+the MoE's static exchange (``Dsv4MoE.ep_static_tokens``: no host sync, fixed shapes, same
+bytes); larger forwards keep the dynamic one. The graphs read the adapters in place, so
+``RL_KERNEL_DSV4_LORA=rank,alpha`` reserves them before the capture and every sync copies
+into them.
+
 Ablation (``RL_KERNEL_DSV4_NON_BI=1`` with ``VLLM_BATCH_INVARIANT=0``): the rollout drops
 what it does only for batch invariance and byte equality with the actor, and keeps what
 defines the model. vLLM's own paths come back: its non-invariant attention planning
@@ -113,6 +121,8 @@ ENV_ENABLE = "RL_KERNEL_DSV4_ROLLOUT"
 ENV_DUMP = "RL_KERNEL_DSV4_DUMP"
 ENV_TEST_LORA = "RL_KERNEL_DSV4_TEST_LORA"
 ENV_NON_BI = "RL_KERNEL_DSV4_NON_BI"
+ENV_EP_STATIC = "RL_KERNEL_DSV4_EP_STATIC_TOKENS"
+ENV_LORA = "RL_KERNEL_DSV4_LORA"
 
 
 def batch_invariant() -> bool:
@@ -435,6 +445,32 @@ class _PlainRope(nn.Module):
         self.register_buffer("cos_sin_cache", cache, persistent=False)
 
 
+def _lora_list(adapters: list[tuple[dict, object]]) -> list:
+    """Every ``LoraAdapter`` of a per-layer adapter list, in a fixed order."""
+    out = []
+    for attn, moe in adapters:
+        out += [attn[k] for k in sorted(attn)]
+        out += [ad for _, ad in moe.adapters()] if moe is not None else []
+    return out
+
+
+def _same_lora_layout(a: list[tuple[dict, object]], b: list[tuple[dict, object]]) -> bool:
+    """Same layers, targets, shapes and alpha."""
+
+    def names(adapters):
+        return [
+            (sorted(attn), [n for n, _ in moe.adapters()] if moe is not None else None)
+            for attn, moe in adapters
+        ]
+
+    if len(a) != len(b) or names(a) != names(b):
+        return False
+    return all(
+        x.a.shape == y.a.shape and x.b.shape == y.b.shape and float(x.alpha) == float(y.alpha)
+        for x, y in zip(_lora_list(a), _lora_list(b))
+    )
+
+
 class RlkMoE(nn.Module):
     """Stands in for vLLM's ``DeepseekV4MoE``: ``Dsv4MoE`` is attached after load."""
 
@@ -446,6 +482,25 @@ class RlkMoE(nn.Module):
         self.hash_routing = self.layer < vllm_config.model_config.hf_config.num_hash_layers
         self.moe = None  # rl_engine.models.deepseek_v4.moe.Dsv4MoE
         self.use_mega_moe = False
+        # Largest forward (tokens per data-parallel rank) for the static EP exchange.
+        limit = os.environ.get(ENV_EP_STATIC)
+        if limit is None:
+            eager = vllm_config.model_config.enforce_eager
+            limit = 0 if eager else vllm_config.compilation_config.max_cudagraph_capture_size
+        self.ep_static_limit = int(limit or 0)
+
+    def _ep_static_tokens(self) -> int | None:
+        """The most tokens any data-parallel rank has in this forward (vLLM's DP metadata: a
+        host tensor every rank holds the same), if within the static exchange's limit."""
+        from vllm.forward_context import get_forward_context, is_forward_context_available
+
+        if self.ep_static_limit <= 0 or not is_forward_context_available():
+            return None
+        dp = get_forward_context().dp_metadata
+        if dp is None:
+            return None
+        tokens = int(dp.num_tokens_across_dp_cpu.max())
+        return tokens if tokens <= self.ep_static_limit else None
 
     def finalize_mega_moe_weights(self) -> None:
         pass
@@ -453,6 +508,8 @@ class RlkMoE(nn.Module):
     def forward(self, x: torch.Tensor, input_ids: torch.Tensor | None = None) -> torch.Tensor:
         if self.moe is None:
             raise RuntimeError(f"layer {self.layer}: the RL-Kernel MoE is not loaded")
+        if self.moe.ep_group is not None:
+            self.moe.ep_static_tokens = self._ep_static_tokens()
         return self.moe.forward(x, None, input_ids.long() if self.hash_routing else None)
 
 
@@ -665,7 +722,25 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
             attn.rlk_o_proj = load_output_projection(src, self.rlk_config, i, dev)
 
     def rlk_set_lora(self, adapters: list[tuple[dict, object]]) -> None:
-        """Install adapters, one ``(attention dict, MoeLora | None)`` per local layer."""
+        """Install adapters, one ``(attention dict, MoeLora | None)`` per local layer.
+
+        Adapters with the installed ones' targets, shapes and alpha are copied into them, so
+        CUDA graphs captured with the installed ones read the new values. Once
+        ``RL_KERNEL_DSV4_LORA`` has reserved adapters (before the capture), others are refused.
+        """
+        cur = getattr(self, "rlk_lora", None)
+        if cur is not None and _same_lora_layout(cur, adapters):
+            with torch.no_grad():
+                for old, new in zip(_lora_list(cur), _lora_list(adapters)):
+                    old.a.copy_(new.a)
+                    old.b.copy_(new.b)
+            return
+        if getattr(self, "rlk_lora_reserved", False):
+            raise ValueError(
+                f"the adapters differ from the ones {ENV_LORA} reserved (targets, shapes or "
+                "alpha), with which the CUDA graphs were captured"
+            )
+        self.rlk_lora = adapters
         for layer, (attn_lora, moe_lora) in zip(self.rlk_layers(), adapters):
             attn = layer.attn
             for mod, targets in ((attn.fused_wqa_wkv, ("wq_a", "wkv")), (attn.wq_b, ("wq_b",))):
@@ -786,7 +861,28 @@ class RlkDeepseekV4ForCausalLM(vm.DeepseekV4ForCausalLM):
         with _float32_default():
             self.model.rlk_load()
             self._rlk_test_lora()
+            self._rlk_reserve_lora()
         return loaded
+
+    def _rlk_reserve_lora(self) -> None:
+        """``RL_KERNEL_DSV4_LORA=rank,alpha``: install zero-``B`` adapters on every target
+        (the ``rlkernel`` engine's default set) before vLLM captures its CUDA graphs; the
+        synced adapters are then copied into them (:meth:`RlkDeepseekV4Model.rlk_set_lora`).
+        A zero ``B`` adds an exact zero, so until the first sync the bytes are the base
+        model's."""
+        spec = os.environ.get(ENV_LORA)
+        if not spec or os.environ.get(ENV_TEST_LORA):
+            return
+        from rl_engine.models.deepseek_v4.model import build_lora_adapters
+
+        rank, alpha = spec.split(",")
+        layers = [layer.ffn.layer for layer in self.model.rlk_layers()]
+        dev = self.model.hc_head_fn.device
+        cfg = self.model.rlk_config
+        self.model.rlk_set_lora(
+            build_lora_adapters(cfg, layers, int(rank), float(alpha), device=dev, zero_b=True)
+        )
+        self.model.rlk_lora_reserved = True
 
     def _rlk_test_lora(self) -> None:
         spec = os.environ.get(ENV_TEST_LORA)

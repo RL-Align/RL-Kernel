@@ -23,6 +23,10 @@ tokens are compared with the same single-GPU ``Dsv4Model`` (EP 1).
 
     PYTHONPATH=. python scripts/check_dsv4_vllm_gate.py --ckpt DIR --dp 2 --lora 16,32,7
 
+``--graph`` runs vLLM with its CUDA graphs (the plugin's dumps then cover only the eager
+steps; every sampled log-prob is still compared). ``--lora-sync`` installs the adapters the
+way verl does: reserved at load (``RL_KERNEL_DSV4_LORA``), copied in after the engine starts.
+
 ``--non-bi`` runs the plugin's non-invariant ablation (``RL_KERNEL_DSV4_NON_BI=1``,
 ``VLLM_BATCH_INVARIANT=0``, paged FP8 decode): the bytes then differ by design, and the
 report shows by how much (with ``--lora``, a small difference also shows the adapters ran).
@@ -50,6 +54,19 @@ def rank_inputs(args, r: int):
     return prompts_n[k:] + prompts_n[:k], generate[k:] + generate[:k], args.seed + 1000 * r
 
 
+def _install_lora(worker, rank: int, alpha: float, seed: int) -> None:
+    """On a vLLM worker: the adapters ``attach_lora(..., seed, zero_b=False)`` gives the actor."""
+    from rl_engine.models.deepseek_v4.model import build_lora_adapters
+
+    m = worker.model_runner.get_model().model
+    layers = [layer.ffn.layer for layer in m.rlk_layers()]
+    dev = m.hc_head_fn.device
+    adapters = build_lora_adapters(
+        m.rlk_config, layers, rank, alpha, device=dev, seed=seed, zero_b=False
+    )
+    m.rlk_set_lora(adapters)
+
+
 def run_vllm(args, dump: pathlib.Path) -> None:
     os.environ["RL_KERNEL_DSV4_ROLLOUT"] = "1"
     if args.non_bi:
@@ -59,7 +76,11 @@ def run_vllm(args, dump: pathlib.Path) -> None:
     else:
         os.environ["VLLM_BATCH_INVARIANT"] = "1"
     os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"  # register() reaches the engine
-    if args.lora:
+    if args.lora and args.lora_sync:
+        # verl's order: reserve zero adapters at load (before any graph capture), install the
+        # real ones once the engine runs (rlk_set_lora copies them in place).
+        os.environ["RL_KERNEL_DSV4_LORA"] = ",".join(args.lora.split(",")[:2])
+    elif args.lora:
         os.environ["RL_KERNEL_DSV4_TEST_LORA"] = args.lora
     # Before vLLM: the plugin must load RL-Kernel's FlashMLA ahead of vLLM's attention ops.
     # isort: off
@@ -80,6 +101,12 @@ def run_vllm(args, dump: pathlib.Path) -> None:
         # The data-parallel size and rank come from VLLM_DP_* (run_dp); LLM() refuses
         # data_parallel_size itself (that is the in-process launcher).
         dp = {"enable_expert_parallel": True}
+    # --graph: vLLM's breakable CUDA graphs (the fork's default for DSv4) for uniform decode
+    # batches; capture sizes up to --max-seqs keep the startup short.
+    graph_kw = {}
+    if args.graph:
+        sizes = [n for n in (1, 2, 4, 8, 16, 32, 64, 128, 256) if n <= args.max_seqs]
+        graph_kw = {"compilation_config": {"cudagraph_capture_sizes": sizes}}
     llm = LLM(
         **dp,
         model=args.ckpt,
@@ -90,13 +117,21 @@ def run_vllm(args, dump: pathlib.Path) -> None:
         enable_chunked_prefill=True,
         enable_prefix_caching=False,
         gpu_memory_utilization=args.gpu_util,
-        enforce_eager=True,
+        enforce_eager=not args.graph,
+        **graph_kw,
         kv_cache_dtype="fp8",
         logprobs_mode="processed_logprobs",  # verl's: log softmax(z / T)
         generation_config="vllm",  # no checkpoint sampling defaults (top-k / top-p)
         skip_tokenizer_init=True,
         seed=args.seed,
     )
+    if args.lora and args.lora_sync:
+        import functools
+
+        rank, alpha, lseed = args.lora.split(",")
+        llm.collective_rpc(
+            functools.partial(_install_lora, rank=int(rank), alpha=float(alpha), seed=int(lseed))
+        )
     prompts_n, generate, seed = rank_inputs(args, args.dp_rank)
     if args.dp > 1:
         dump = dump / f"dp{args.dp_rank}"  # the plugin writes under <root>/dp<r>/
@@ -264,7 +299,10 @@ def compare(args, dump: pathlib.Path) -> dict:
         }
         for i in range(layers + 1)
     ]
-    passed = compared == expected and not any(differ) and lp_total and not lp_differ
+    # Graph replays skip the plugin's Python, so --graph dumps only the eager (prefill) steps:
+    # every dumped token and every sampled log-prob must still match.
+    covered = compared <= expected if args.graph else compared == expected
+    passed = covered and not any(differ) and lp_total and not lp_differ
     return {
         "sub_layers": [{"layer": li, **sub_differ[li]} for li in range(layers)],
         "attention_out_differ": [sorted(o) for o in o_bad],
@@ -359,6 +397,12 @@ def main() -> int:
     ap.add_argument("--out", help="write the JSON report here")
     ap.add_argument("--non-bi", action="store_true", help="the plugin's non-invariant ablation")
     ap.add_argument("--dp", type=int, default=1, help="data-parallel ranks (EP over them)")
+    ap.add_argument("--graph", action="store_true", help="vLLM CUDA graphs (not eager)")
+    ap.add_argument(
+        "--lora-sync",
+        action="store_true",
+        help="with --lora: reserve adapters at load, install them after the engine starts",
+    )
     ap.add_argument("--dp-rank", type=int, default=0, help=argparse.SUPPRESS)
     args = ap.parse_args()
     dump = pathlib.Path(args.dump).resolve()
