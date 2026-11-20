@@ -101,7 +101,10 @@ Design doc 10.1 has the pieces. Things that cost time:
     are bitwise too (3 steps, 2026-11-19). The full model with the DAPO math reward
     (32 x 8, 1024 + 2048 tokens) is bitwise at all of 100 steps (2026-11-20); the same
     run continues to 200;
-  - CUDA graphs in the rollout (eager today);
+  - CUDA graphs in the rollout: done (2026-11-20, launcher `GRAPH=1`; bytes unchanged,
+    `gen` about 2.4x faster on the full model). Under graphs the MoE uses the static EP
+    exchange and the adapters must be reserved at load (`RL_KERNEL_DSV4_LORA=rank,alpha`,
+    which the launcher sets): a sync copies into them, a different layout is refused;
   - the layerwise gate on the real checkpoint beyond the first 4 layers;
   - the older `scripts/verl_e2e/README.md` guide (verl #7688 baseline, full-parameter).
 

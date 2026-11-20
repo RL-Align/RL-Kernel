@@ -619,14 +619,23 @@ Open, needs the multi-GPU machine:
       over a per-user limit of 2048 (`ulimit -u`). On cluster u4478697 that limit reaches
       Slurm job steps from the login node; a shell reached by ssh into the allocated node
       has the node's own limit, and the run goes there.
-- [ ] Parameter offload, CUDA graphs in the rollout. Persisted W8 expert weights cost
+- [ ] Parameter offload. Persisted W8 expert weights cost
       E x N x K bytes per weight in both the actor and the rollout, about 0.8 GB per layer
       per GPU at EP 8; `RL_KERNEL_DSV4_PERSIST_W8=0` expands them per call instead.
 - [x] Rollout plugin at EP > 1 (vLLM DP attention + EP MoE, `--dp N` in
       `scripts/check_dsv4_vllm_gate.py`) on the real checkpoint's first 4 layers: DP 2 and
       DP 4 bitwise equal to `Dsv4Model`, with and without LoRA (2026-11-17); DP 8 the same
       (8 x H200, 2026-11-19).
-- [ ] Rollout plugin with CUDA graphs.
+- [x] Rollout plugin with CUDA graphs (2026-11-20): the fork's breakable graphs (attention
+      eager inside them). The MoE uses a static EP exchange for forwards up to vLLM's largest
+      capture size (fixed tokens x top-k rows per rank pair, counts on the device, same row
+      order, no host sync); the adapters are reserved at load (`RL_KERNEL_DSV4_LORA`) and
+      each sync copies into them; launcher `GRAPH=1`. Bytes unchanged:
+      `check_dsv4_moe_ep.py --graph` (EP 8, with LoRA), the vLLM gate `--graph` at DP 1 and
+      DP 8 (with LoRA and `--lora-sync`, 0 of 2680 log-probs differ), verl GRPO on the full
+      model (mismatch 0). Speed, full model, 8 x H200: `timing_s/gen` 61 -> 17-21 s on the
+      8 x 4 / 256-token workload, 404 -> 165 s on 32 x 8 / 2048 (about 204 -> 80 ms per decode
+      step); the step 430 -> 194 s.
 - [ ] Baseline first: verl + vLLM batch-invariant (verl #7688) end to end on 8 Hopper GPUs,
       bitwise and speed (`scripts/verl_e2e/README.md`, a guide for another machine; not run yet).
 - [ ] Layerwise gate on the real checkpoint
