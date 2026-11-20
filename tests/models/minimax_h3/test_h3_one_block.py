@@ -19,6 +19,7 @@ the graph's structure.
 from __future__ import annotations
 
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -77,7 +78,27 @@ def test_graph_is_well_formed():
         "h3_rmsnorm",
         "adaln_gate_residual",
         "h3_qkv_gemm",
+        "h3_mm_rope_3axis_partial",
     }
+
+
+def test_rope_nodes_call_the_candidate_operator():
+    """A missing candidate call must not pass as trivially equal provider replay."""
+    x = torch.ones(1, 2, 1, 128)
+    cos, sin = torch.ones(2, 96), torch.zeros(2, 96)
+    output = torch.empty_like(x)
+    calls = []
+
+    def rope(tensor, cosine, sine):
+        calls.append((tensor, cosine, sine))
+        return output
+
+    for node in h3_block.NODES:
+        if node.name in ("rope_q", "rope_k"):
+            assert node.candidate(SimpleNamespace(rope=rope), {"rope": (cos, sin)}, x) is output
+    assert len(calls) == 2
+    for tensor, cosine, sine in calls:
+        assert tensor is x and cosine is cos and sine is sin
 
 
 def test_partial_rope_rotates_96_of_128_channels():
@@ -92,8 +113,9 @@ def test_partial_rope_rotates_96_of_128_channels():
         assert not torch.equal(out[..., :96].float(), x[..., :96].float())
 
 
-@pytest.fixture(scope="module")
-def ops():
+@pytest.fixture
+def ops(require_h3_kernels):
+    """Check optional extensions before constructing any candidate backend."""
     return h3_block.CandidateOps()
 
 
@@ -102,12 +124,17 @@ def test_stack_rows_dispatch_to_cuda(require_h3_kernels, ops):
     backends = ops.backends()
     for name in ("projection", "norm", "gate"):
         assert backends[name].endswith("CudaOp"), backends
+    assert backends["rope"].endswith("TritonH3MMRoPEOp"), backends
 
 
 @needs_gpu
 @pytest.mark.parametrize("layout", ["tiny", "small"])
 def test_block_forward(h3_block_weights_cuda, ops, layout):
     report = h3_block.run_block_case(h3_block_weights_cuda, layout=layout, ops=ops)
+    assert report["rope_acceptance_reference"] == "isolated_model_boundary_reference"
+    for entry in report["nodes"]:
+        if entry["node"] in ("rope_q", "rope_k"):
+            assert entry["isolated_model_boundary_accuracy"]["passed"], entry
     nodes = {node.name: node for node in h3_block.NODES}
     for entry in report["nodes"]:
         name = entry["node"]
