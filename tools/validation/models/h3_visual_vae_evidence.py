@@ -19,7 +19,9 @@ measures, with the released weights:
 * tiling: tiled run-to-run equality, tile-plan digests, and tiled-vs-untiled distance;
 * preprocessing: CPU vs CUDA disagreement of ``uint8 / 255`` and the LUT's agreement with CUDA;
 * latency (CUDA events, median) of the contract and of the Diffusers calls it wraps;
-* the attention/convolution kernels that actually ran (``torch.profiler``).
+* the attention/convolution kernels that actually ran (``torch.profiler``);
+* ``peak_memory_gib``: the CUDA allocator peak over the whole run (model load, every check
+  and timing loop), not the memory of one step.
 
 Paths are not written to the report.
 """
@@ -81,25 +83,42 @@ def _pixels(shape: tuple[int, ...], seed: int) -> torch.Tensor:
     return ((base + noise).clamp(0, 1) * 255).round().to(torch.uint8)
 
 
-def _cmp(a: torch.Tensor, b: torch.Tensor) -> dict[str, Any]:
-    """``max_abs`` is ``None`` (JSON ``null``) when there is no finite max: a shape mismatch
-    (``shape_a``/``shape_b`` record it) or a non-finite difference. The plots print
-    "differs" for it."""
+def _element_bits(t: torch.Tensor) -> torch.Tensor:
+    """``[numel, itemsize]`` raw bytes of ``t``, one row per element."""
 
-    a, b = a.float().cpu(), b.float().cpu()
+    t = t.detach().contiguous().cpu()
+    return t.reshape(-1).view(torch.uint8).view(t.numel(), t.element_size())
+
+
+def _cmp(a: torch.Tensor, b: torch.Tensor) -> dict[str, Any]:
+    """Compare ``a`` with ``b``. ``bitwise_equal`` means same dtype, shape and bytes (so equal
+    NaNs count as equal and ``-0.0`` differs from ``0.0``); ``mismatches`` counts elements
+    whose bytes differ (values, when the dtypes differ). ``max_abs`` is in FP32, ``0`` when
+    bitwise equal, and ``None`` (JSON ``null``) when there is no finite max: a shape mismatch
+    (``shape_a``/``shape_b`` record it) or a non-finite difference. The plots print
+    "differs" for ``None``."""
+
+    same_dtype = a.dtype == b.dtype
     if a.shape != b.shape:
         return {
             "bitwise_equal": False,
+            "same_dtype": same_dtype,
             "shape_a": list(a.shape),
             "shape_b": list(b.shape),
             "max_abs": None,
         }
-    diff = (a - b).abs()
-    max_abs = float(diff.max())
+    fa, fb = a.float().cpu(), b.float().cpu()
+    if same_dtype:
+        mismatches = int((_element_bits(a) != _element_bits(b)).any(dim=1).sum())
+    else:
+        mismatches = int((fa != fb).sum())
+    bitwise = same_dtype and mismatches == 0
+    max_abs = 0.0 if bitwise else float((fa - fb).abs().max())
     return {
-        "bitwise_equal": bool(torch.equal(a, b)),
+        "bitwise_equal": bitwise,
+        "same_dtype": same_dtype,
         "max_abs": max_abs if math.isfinite(max_abs) else None,
-        "mismatches": int((a != b).sum()),
+        "mismatches": mismatches,
         "numel": a.numel(),
     }
 
@@ -415,6 +434,7 @@ def main() -> int:
             "encode_keyframe": _kernels(lambda: contract.encode(one_key)),
             "decode_video": _kernels(lambda: contract.decode(one_lat)),
         }
+    # Process-wide CUDA peak since start (load, every check and timing loop), not per step.
     report["peak_memory_gib"] = torch.cuda.max_memory_allocated() / 2**30
 
     verdicts = {

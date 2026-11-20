@@ -351,6 +351,84 @@ def test_load_release_vae_reads_only_the_pinned_shards(tmp_path, monkeypatch) ->
     assert torch.equal(vae.w.detach(), torch.ones(4))
 
 
+class _TwoParams(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.a = torch.nn.Parameter(torch.zeros(4))
+        self.b = torch.nn.Parameter(torch.zeros(4))
+
+    @classmethod
+    def from_config(cls, config):
+        return cls()
+
+
+def _pinned_folder(tmp_path, monkeypatch, shards: dict[str, dict[str, torch.Tensor]]) -> None:
+    """A release-like folder with these shards, all listed in a patched fingerprint."""
+
+    from safetensors.torch import save_file
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config.json").write_text(json.dumps({"k": 1}))
+    for name, tensors in shards.items():
+        save_file(tensors, str(tmp_path / name))
+    files = [
+        {"path": f"vae/{name}", "size": (tmp_path / name).stat().st_size}
+        for name in ("config.json", *shards)
+    ]
+    fingerprint = {"config": {"k": 1}, "checkpoint": {"files": files}}
+    monkeypatch.setattr(vv, "release_fingerprint", lambda: fingerprint)
+
+
+def test_load_release_vae_holds_one_shard_at_a_time(tmp_path, monkeypatch) -> None:
+    """The host must not keep a second full copy of the weights while loading."""
+
+    import weakref
+
+    import safetensors.torch
+
+    shards = {
+        "s1.safetensors": {"a": torch.ones(4)},
+        "s2.safetensors": {"b": torch.full((4,), 2.0)},
+    }
+    _pinned_folder(tmp_path, monkeypatch, shards)
+    real_load = safetensors.torch.load_file
+    earlier: list[weakref.ref] = []
+
+    def load_file(path, device="cpu"):
+        assert all(ref() is None for ref in earlier), "an earlier shard is still alive"
+        out = real_load(path, device=device)
+        earlier.extend(weakref.ref(t) for t in out.values())
+        return out
+
+    monkeypatch.setattr(safetensors.torch, "load_file", load_file)
+    vae = vv.load_release_vae(_TwoParams, tmp_path)
+    assert torch.equal(vae.a.detach(), torch.ones(4))
+    assert torch.equal(vae.b.detach(), torch.full((4,), 2.0))
+
+
+def test_load_release_vae_rejects_missing_and_repeated_keys(tmp_path, monkeypatch) -> None:
+    _pinned_folder(tmp_path / "missing", monkeypatch, {"s1.safetensors": {"a": torch.ones(4)}})
+    with pytest.raises((ValueError, RuntimeError), match="b"):
+        vv.load_release_vae(_TwoParams, tmp_path / "missing")
+    shards = {
+        "s1.safetensors": {"a": torch.ones(4), "b": torch.ones(4)},
+        "s2.safetensors": {"b": torch.full((4,), 2.0)},
+    }
+    _pinned_folder(tmp_path / "repeated", monkeypatch, shards)
+    with pytest.raises(ValueError, match="more than one shard"):
+        vv.load_release_vae(_TwoParams, tmp_path / "repeated")
+
+
+def test_release_fingerprint_cannot_be_changed_by_callers() -> None:
+    vv.release_fingerprint()["config"]["latent_channels"] = 16
+    vv.release_config()["latents_mean"][0] = 9.0
+    vv.contract_manifest()["checkpoint"]["files"].clear()
+    assert vv.release_config()["latent_channels"] == 24
+    assert vv.release_latent_stats()[0][0].item() != 9.0
+    assert len(vv.release_fingerprint()["checkpoint"]["files"]) == 5
+    assert vv.contract_manifest() == vv.contract_manifest()
+
+
 # --- encode/decode with a small Diffusers model -------------------------------------------
 
 
