@@ -848,3 +848,48 @@ def test_layout_matches_sglang_ref2va_blocks_prefix():
         assert torch.equal(packed["token_tags"][:used], layout.token_tags)
         assert torch.equal(packed["img_pos"], layout.video_indices)
         assert torch.equal(packed["audio_pos"], layout.audio_indices)
+
+
+def test_report_counts_a_dtype_change_as_a_difference(monkeypatch):
+    """The evidence tool's SGLang count must see dtypes: a stand-in that returns our own
+    layout with int32 indices is equal by value and not bitwise."""
+
+    import importlib.util
+    import types
+
+    sys.path.insert(0, str(REPO / "tools/validation/models"))
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "h3_ref2va_report", REPO / "tools/validation/models/h3_ref2va_report.py"
+        )
+        assert spec is not None and spec.loader is not None
+        report = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(report)
+    finally:
+        sys.path.remove(str(REPO / "tools/validation/models"))
+    built: list = []
+    build = ref2va.build_ref2va_layout
+    monkeypatch.setattr(
+        ref2va, "build_ref2va_layout", lambda *a, **k: built.append(build(*a, **k)) or built[-1]
+    )
+
+    def stand_in(index_dtype):
+        def packed_sequence(**kw):
+            ours = built[-1]  # the layout the report built just before calling SGLang
+            return {
+                "img_position_ids": ours.position_ids,
+                "token_tags": ours.token_tags,
+                "img_pos": ours.video_indices.to(index_dtype),
+                "audio_pos": ours.audio_indices.to(index_dtype),
+            }
+
+        return types.SimpleNamespace(minimax_h3_packed_sequence_ref2va_blocks=packed_sequence)
+
+    sglang = "sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3"
+    monkeypatch.setitem(sys.modules, "diffusers.modular_pipelines.minimax_h3", None)
+    for index_dtype, equal in ((torch.long, 100), (torch.int32, 0)):
+        fake = types.ModuleType(sglang)
+        fake.packed_sequence = stand_in(index_dtype)  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, sglang, fake)
+        out = report.reference()["sglang_prefix"]
+        assert (out["cases"], out["bitwise_equal"]) == (100, equal), index_dtype
