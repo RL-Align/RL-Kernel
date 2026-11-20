@@ -25,6 +25,7 @@ def make_operator_inputs(
     device: torch.device,
 ) -> dict[str, Any]:
     builders = {
+        "adaln_modulation": _make_adaln_modulation_inputs,
         "qwenimage_adaln_mod_projection": _make_qwenimage_projection_inputs,
         "qwenimage_final_adaln_out": _make_qwenimage_final_inputs,
         "rms_norm": _make_rms_norm_inputs,
@@ -33,6 +34,7 @@ def make_operator_inputs(
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
         "attention": _make_attention_inputs,
+        "joint_attn_softmax": _make_joint_attn_softmax_inputs,
         "prefix_shared_attention": _make_prefix_shared_attention_inputs,
         "cp_attention": _make_cp_attention_inputs,
         "logp": _make_logp_inputs,
@@ -55,6 +57,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
+        "adaln_modulation": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qwenimage_adaln_mod_projection": f"{batch}x3072x18432",
         "qwenimage_final_adaln_out": f"{batch}x{seq}x3072",
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
@@ -64,6 +67,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
+        "joint_attn_softmax": f"{batch}x{seq}",
         "prefix_shared_attention": f"{batch}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}"
         f"x{seq}x{DEFAULT_HEAD_DIM}",
         "cp_attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}xcp2",
@@ -81,6 +85,18 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         return names[op_name]
     except KeyError as exc:
         raise ValueError(f"unsupported operator shape: {op_name}") from exc
+
+
+def _make_adaln_modulation_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    hidden = _normalized_dim(args)
+    return {
+        "x": _floating_tensor((batch, seq, hidden), args, dtype, device, offset=0),
+        "modulation": _floating_tensor((batch, 3 * hidden), args, dtype, device, offset=1),
+        "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
+    }
 
 
 def _make_rms_norm_inputs(
@@ -106,6 +122,15 @@ def _make_qk_norm_inputs(
         "x": _floating_tensor((batch, seq * n_heads, head_dim), args, dtype, device, offset=0),
         "weight": _floating_tensor((head_dim,), args, dtype, device, offset=1),
         "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
+    }
+
+
+def _make_joint_attn_softmax_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, key_length = _batch_seq(args)
+    return {
+        "scores": _floating_tensor((batch, key_length), args, dtype, device, offset=0),
     }
 
 
