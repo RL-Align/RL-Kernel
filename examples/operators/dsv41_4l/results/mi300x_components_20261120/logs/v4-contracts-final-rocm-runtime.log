@@ -1,0 +1,42 @@
+........................................................................ [ 27%]
+........................................................................ [ 54%]
+........................................................................ [ 81%]
+................................................                         [100%]
+=============================== warnings summary ===============================
+../opt/dsv4-venv/lib/python3.12/site-packages/ray/util/state/util.py:55
+  /opt/dsv4-venv/lib/python3.12/site-packages/ray/util/state/util.py:55: DeprecationWarning: Ray state API is no longer experimental. Please import from `ray.util.state`. instead. Importing from `ray.experimental` will be deprecated in future releases. 
+    warnings.warn(
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+../usr/local/lib/python3.12/dist-packages/torch/jit/_script.py:365: 14 warnings
+  /usr/local/lib/python3.12/dist-packages/torch/jit/_script.py:365: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+../opt/dsv4/vllm/vllm/entrypoints/openai/api_server.py:24
+  /opt/dsv4/vllm/vllm/entrypoints/openai/api_server.py:24: DeprecationWarning: `vllm.entrypoints.openai.api_server` is deprecated and we will removethis file in v0.37.0. Use the corresponding function from`vllm.entrypoints.launchers` instead.
+    warnings.warn(
+
+tests/integrations/common/test_native_pipeline_partition.py::test_pinned_bridge_builds_the_actual_uneven_native_pipeline_layout
+  /opt/dsv4/Megatron-LM/megatron/core/models/mimo/config/base_configs.py:12: UserWarning: MimoModelConfig is experimental and still under active development. The API may change without notice in future releases.
+    class MimoModelConfig:
+
+tests/integrations/common/test_native_megatron_mhc.py::test_real_hybrid_model_forward_backward_and_version_update
+  /opt/dsv4/Megatron-LM/megatron/core/transformer/transformer_config.py:2585: UserWarning: moe_ffn_hidden_size is not set, using ffn_hidden_size instead.
+    warnings.warn("moe_ffn_hidden_size is not set, using ffn_hidden_size instead.")
+
+tests/integrations/common/test_native_megatron_mhc.py::test_real_hybrid_model_forward_backward_and_version_update
+  /opt/dsv4/Megatron-LM/megatron/core/transformer/transformer_config.py:3341: UserWarning: HyperConnections are enabled but 'mhc' is not in recompute_modules with selective recompute. Consider adding 'mhc' to recompute_modules with selective recompute to reduce activation memory.
+    warnings.warn(
+
+tests/integrations/common/test_native_megatron_mhc.py::test_real_hybrid_model_forward_backward_and_version_update
+  /opt/dsv4/Megatron-LM/megatron/core/transformer/transformer_config.py:4184: UserWarning: full scope is deprecated. Use empty cuda_graph_modules to capture the whole layer.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+264 passed, 22 warnings in 24.48s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

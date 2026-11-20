@@ -32,5 +32,7 @@
   "resolved-failures/acceptance-1gpu/container.log": "8acf512e7fd959e29c69b5c22b1d4e93670e3927948ad1ed287fb8dd050d9795",
   "resolved-failures/acceptance-2gpu-final/operator-rank-1.json": "bf18f51122f8b58c1c792f5fa33c4e2d8398e5df48fc57a8178e6aacd718a440",
   "resolved-failures/acceptance-2gpu-final/container.log": "3adb7fd7d5b3426dc6e3e5ffcac1ffb33737079432577e660209b1e5790a4ece",
-  "logs/layout-final-with-reasons.log": "a9c0af4eaebf176ac3d4e3559a022a1991786a2d95d956630be55ffb39be9d2d"
+  "logs/layout-final-with-reasons.log": "a9c0af4eaebf176ac3d4e3559a022a1991786a2d95d956630be55ffb39be9d2d",
+  "logs/reproduce-entrypoint-check.log": "8dc9dbf751af58214e33e1b7c7edd0fb508df367545ed2a5eb405e46acc89585",
+  "reproduce-check.json": "a5988e03c7af0bbc214f9703f963a5246199e53839f05c7d56b53b73008d1fd6"
 }

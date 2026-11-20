@@ -1,0 +1,2 @@
+W1120 07:23:34.662293       1 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 1137470240 (priority and CU-mask from the descriptor are not preserved)
+{"rank": 0, "status": "PASS", "cases": 12}

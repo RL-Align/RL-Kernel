@@ -1,0 +1,13 @@
+[W1120 07:20:18.275139800 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+[W1120 07:20:20.981783096 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+[W1120 07:20:20.984836343 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+W1120 07:20:20.111790      14 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 1122753552 (priority and CU-mask from the descriptor are not preserved)
+W1120 07:20:20.113871      15 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 987085008 (priority and CU-mask from the descriptor are not preserved)
+W1120 07:20:44.280127      15 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 987085008 (priority and CU-mask from the descriptor are not preserved)
+W1120 07:20:44.283923      14 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 1122753552 (priority and CU-mask from the descriptor are not preserved)
+W1120 07:20:44.312576      15 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 987085008 (priority and CU-mask from the descriptor are not preserved)
+W1120 07:20:44.317031      14 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 1122753552 (priority and CU-mask from the descriptor are not preserved)
+W1120 07:20:44.343556      15 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 987085008 (priority and CU-mask from the descriptor are not preserved)
+W1120 07:20:44.348324      14 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 1122753552 (priority and CU-mask from the descriptor are not preserved)
+{"rank": 1, "status": "PASS", "cases": 12}
+{"rank": 0, "status": "PASS", "cases": 12}

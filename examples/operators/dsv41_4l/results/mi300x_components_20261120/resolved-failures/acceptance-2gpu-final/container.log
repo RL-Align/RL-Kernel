@@ -1,0 +1,68 @@
+[W1120 07:19:26.484666421 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+[W1120 07:19:28.139890554 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+[W1120 07:19:28.139892791 socket.cpp:207] [c10d] The hostname of the client socket cannot be retrieved. err=-3
+W1120 07:19:28.269131      15 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 206984512 (priority and CU-mask from the descriptor are not preserved)
+W1120 07:19:28.270853      14 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 1099367952 (priority and CU-mask from the descriptor are not preserved)
+W1120 07:19:28.780916      15 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 207179184 (priority and CU-mask from the descriptor are not preserved)
+Traceback (most recent call last):
+  File "/work/examples/operators/dsv41_4l/operator_acceptance.py", line 308, in main
+    record = validate_case(
+             ^^^^^^^^^^^^^^
+  File "/work/examples/operators/dsv41_4l/operator_acceptance.py", line 45, in validate_case
+    y, grads, dy = run()
+                   ^^^^^
+  File "/work/examples/operators/dsv41_4l/operator_acceptance.py", line 39, in run
+    y = fn(*xs)
+        ^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/rl_engine/backends/rocm/gemm/v41_fp8.py", line 153, in forward
+    raise ValueError("projection input shape/device mismatch")
+ValueError: projection input shape/device mismatch
+
+{"rank": 1, "status": "FAIL", "cases": 0}
+W1120 07:19:29.495000 1 torch/distributed/elastic/multiprocessing/api.py:1028] Sending process 14 closing signal SIGTERM
+E1120 07:19:29.609000 1 torch/distributed/elastic/multiprocessing/api.py:1002] failed (exitcode: 1) local_rank: 1 (pid: 15) of binary: /opt/dsv4-venv/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/run.py", line 1032, in <module>
+    main()
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 367, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/run.py", line 1028, in main
+    run(args)
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/run.py", line 1019, in run
+    elastic_launch(
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/launcher/api.py", line 194, in __call__
+    return launch_agent(
+           ^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/torch/distributed/launcher/api.py", line 383, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+examples.operators.dsv41_4l.operator_acceptance FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-11-20_07:19:29
+  host      : f54127a65942
+  rank      : 0 (local_rank: 0)
+  exitcode  : -15 (pid: 14)  (SIGTERM)
+  error_file: <N/A>
+  traceback : Signal 15 (SIGTERM) received by PID 14
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-11-20_07:19:29
+  host      : f54127a65942
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 15) 
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

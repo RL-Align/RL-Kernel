@@ -1,0 +1,68 @@
+...............................F......................................   [100%]
+=================================== FAILURES ===================================
+__________ test_official_fp4_expert_forward_input_and_route_gradients __________
+
+checkpoint = <rl_engine.models.deepseek_v41.checkpoint.LayerCheckpoint object at 0x7946aa499370>
+
+    def test_official_fp4_expert_forward_input_and_route_gradients(checkpoint):
+        layers=[]
+        dense=[]
+        for name in ('w1','w2','w3'):
+            w,s=checkpoint.projection('layers.2.ffn.experts.0.'+name,device='cuda')
+            layers.append(V41FP4Linear(w,s))
+            dense.append(dequantize_fp4(w,s))
+        expert=V41Expert(*layers)
+        torch.manual_seed(42)
+        x=(torch.randn(3,5120,device='cuda')*.1).bfloat16().requires_grad_()
+        p=torch.tensor([.01,.2,.9],device='cuda',requires_grad=True)
+        dy=torch.randn_like(x)
+        def reference(x,p):
+            g=quantized_linear_reference(x,dense[0]).float().clamp_max(10)
+            u=quantized_linear_reference(x,dense[2]).float().clamp(-10,10)
+            h=(torch.nn.functional.silu(g)*u*p[:,None]).bfloat16()
+            return quantized_linear_reference(h,dense[1])
+>       y=expert(x,p)
+          ^^^^^^^^^^^
+
+tests/models/deepseek_v41/test_official_operators_rocm.py:43: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1778: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py:1789: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+rl_engine/models/deepseek_v41/expert.py:88: in forward
+    return self.w2(_Activation.apply(self.w1(x),self.w3(x),routing_weights))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/autograd/function.py:625: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+ctx = <torch.autograd.function._ActivationBackward object at 0x7946a5d5b050>
+gate = tensor([[-0.0513, -0.2520, -0.2773,  ...,  0.0635,  0.0208,  0.0796],
+        [ 0.0391, -0.0850,  0.0684,  ..., -0.5352,  0.0447,  0.1719],
+        [-0.1299, -0.2139, -0.2148,  ...,  0.0221, -0.1279, -0.2988]],
+       device='cuda:0')
+up = tensor([[-0.2432,  0.0234,  0.0447,  ...,  0.0596,  0.0366, -0.2295],
+        [-0.0767,  0.0684, -0.0317,  ..., -0.5078,  0.1689, -0.1455],
+        [ 0.1367, -0.0815, -0.1367,  ..., -0.0806, -0.0410,  0.2461]],
+       device='cuda:0')
+weights = tensor([0.0100, 0.2000, 0.9000], device='cuda:0', requires_grad=True)
+
+    @staticmethod
+    def forward(ctx,gate,up,weights):
+        # Released projection outputs are rounded to BF16 before float() here.
+        gate,up=gate.float(),up.float()
+        y,state=RocmClampSwiGLUWeighted.forward(gate,up,weights)
+>       ctx.save_for_backward(gate,up,weights,*state)
+E       TypeError: Value after * must be an iterable, not ClampSwiGLUState
+
+rl_engine/models/deepseek_v41/expert.py:65: TypeError
+----------------------------- Captured stderr call -----------------------------
+W1120 07:11:45.867226     502 agent.cpp:157] Attempt to enable hip visibility for agent-2 which is not visible to HSA (ROCR)
+W1120 07:11:46.037552     502 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 600286240 (priority and CU-mask from the descriptor are not preserved)
+=========================== short test summary info ============================
+FAILED tests/models/deepseek_v41/test_official_operators_rocm.py::test_official_fp4_expert_forward_input_and_route_gradients
+1 failed, 69 passed in 8.56s

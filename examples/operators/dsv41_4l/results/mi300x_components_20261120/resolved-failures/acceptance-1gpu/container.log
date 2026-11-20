@@ -1,0 +1,14 @@
+W1120 07:15:23.200849     559 agent.cpp:157] Attempt to enable hip visibility for agent-2 which is not visible to HSA (ROCR)
+fatal: not a git repository: /home/rl-kernel/dsv4-grpo8-20261120T062453Z/src/RL-Kernel/.git/worktrees/RL-Kernel
+Traceback (most recent call last):
+  File "/work/examples/operators/dsv41_4l/operator_acceptance.py", line 160, in main
+    report['rlk_commit']=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 466, in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['git', 'rev-parse', 'HEAD']' returned non-zero exit status 128.
+
+{"rank": 0, "status": "FAIL", "cases": 0}

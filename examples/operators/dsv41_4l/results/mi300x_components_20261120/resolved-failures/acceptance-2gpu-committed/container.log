@@ -1,0 +1,11 @@
+[W1120 07:18:05.015909483 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:05.396108532 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:06.356328671 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:07.394562382 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:09.232782573 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:10.839984217 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:13.038258933 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:16.604487805 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:22.496731239 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:34.022032013 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).
+[W1120 07:18:46.277302204 socket.cpp:764] [c10d] The IPv6 network addresses of (cd7ee6c4daa9, 37011) cannot be retrieved (gai error: -3 - Temporary failure in name resolution).

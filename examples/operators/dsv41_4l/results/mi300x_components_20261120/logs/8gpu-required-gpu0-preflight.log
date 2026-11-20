@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/rl-kernel/RL-Kernel/examples/operators/dsv4_4l/guard_gpu.py", line 23, in <module>
+    assert not used, f"physical GPU{gpu} occupied by {used}"
+           ^^^^^^^^
+AssertionError: physical GPU0 occupied by [3131740]

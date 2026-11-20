@@ -1,0 +1,66 @@
+
+==================================== ERRORS ====================================
+__ ERROR collecting tests/integrations/common/test_pipeline_rollout_config.py __
+tests/integrations/common/test_pipeline_rollout_config.py:8: in <module>
+    from rl_engine.integrations.orchestrators.verl.pipeline_rollout import (  # noqa: E402
+rl_engine/integrations/orchestrators/verl/pipeline_rollout.py:12: in <module>
+    from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer
+/opt/dsv4/verl/verl/workers/rollout/vllm_rollout/__init__.py:17: in <module>
+    from .vllm_rollout import ServerAdapter  # noqa: F401
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/dsv4/verl/verl/workers/rollout/vllm_rollout/vllm_rollout.py:39: in <module>
+    from verl.third_party.vllm import VLLM_SLEEP_LEVEL
+/opt/dsv4/verl/verl/third_party/vllm/__init__.py:49: in <module>
+    from vllm import LLM
+<frozen importlib._bootstrap>:1412: in _handle_fromlist
+    ???
+/opt/dsv4/vllm/vllm/__init__.py:70: in __getattr__
+    module = import_module(module_name, __package__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/dsv4/vllm/vllm/entrypoints/llm.py:13: in <module>
+    from vllm.config import (
+/opt/dsv4/vllm/vllm/config/__init__.py:6: in <module>
+    from vllm.config.cache import CacheConfig
+/opt/dsv4/vllm/vllm/config/cache.py:14: in <module>
+    from vllm.utils.torch_utils import (
+/opt/dsv4/vllm/vllm/utils/torch_utils.py:1064: in <module>
+    PIN_MEMORY = is_pin_memory_available()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/dsv4/vllm/vllm/utils/platform_utils.py:45: in is_pin_memory_available
+    from vllm.platforms import current_platform
+<frozen importlib._bootstrap>:1412: in _handle_fromlist
+    ???
+/opt/dsv4/vllm/vllm/platforms/__init__.py:318: in __getattr__
+    _current_platform = resolve_obj_by_qualname(platform_cls_qualname)()
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/dsv4/vllm/vllm/utils/import_utils.py:122: in resolve_obj_by_qualname
+    module = importlib.import_module(module_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/dsv4/vllm/vllm/platforms/rocm.py:216: in <module>
+    _GCN_ARCH = _get_gcn_arch()
+                ^^^^^^^^^^^^^^^
+/opt/dsv4/vllm/vllm/platforms/rocm.py:210: in _get_gcn_arch
+    return torch.cuda.get_device_properties("cuda").gcnArchName
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:747: in get_device_properties
+    _lazy_init()  # will define _get_device_properties
+    ^^^^^^^^^^^^
+/usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:539: in _lazy_init
+    torch._C._cuda_init()
+E   RuntimeError: No CUDA GPUs are available
+=============================== warnings summary ===============================
+../opt/dsv4-venv/lib/python3.12/site-packages/ray/util/state/util.py:55
+  /opt/dsv4-venv/lib/python3.12/site-packages/ray/util/state/util.py:55: DeprecationWarning: Ray state API is no longer experimental. Please import from `ray.util.state`. instead. Importing from `ray.experimental` will be deprecated in future releases. 
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/integrations/common/test_pipeline_rollout_config.py - RuntimeErro...
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 warning, 1 error in 5.53s

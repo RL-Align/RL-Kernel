@@ -108,6 +108,10 @@ Engram gate 的 stress 为两条独立执行的 3-step SGD 轨迹，每步累积
 
 ## 复现与后续验收
 
+一键复现脚本已经在新目录完整执行：12 个记录式 case 和 71 项测试通过，见
+[复现记录](reproduce-check.json) 与 [日志](logs/reproduce-entrypoint-check.log)。
+该额外复现未加入上面的 43,125,577 计数。
+
 复现命令见 [入口 README](../../README.md#可复现运行) 和
 [reproduce.sh](../../reproduce.sh)。所有输出必须使用新目录。
 汇总原始 rank JSON 的命令写在 [summarize_acceptance.py](../../summarize_acceptance.py) 的 CLI 中；

@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "scope": "one-click operator reproduction, not model execution",
+  "tested_commit": "099ec53db1af953e57567451f9d69bb841c41e41",
+  "gpu_count": 1,
+  "physical_gpu": 7,
+  "command": "examples/operators/dsv41_4l/reproduce.sh rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x 7 /home/rl-kernel/dsv41-artifacts/reproduce-entrypoint-check",
+  "operator_cases": 12,
+  "pytest_passed": 71,
+  "evidence": "logs/reproduce-entrypoint-check.log",
+  "included_in_43125577_count": false
+}
