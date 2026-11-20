@@ -113,6 +113,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     )
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
+    MUSA_DET_GEMM = "rl_engine.backends.musa.gemm.det_gemm.MusaDetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
     TRITON_VIDEO_INPUT_PROJECTION_FP32 = (
         "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
@@ -188,6 +189,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ASCEND_SILU = "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp"
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
     TRITON_SWIGLU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp"
+    TRITON_FINAL_LOGIT_SOFTCAP = (
+        "rl_engine.kernels.ops.triton.activation.final_logit_softcap.TritonFinalLogitSoftcapOp"
+    )
+    PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP = (
+        "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap.NativeFinalLogitSoftcapOp"
+    )
 
     # WS1 pure-PyTorch ground-truth attention reference (hand-written fp32 softmax).
     # Distinct from PYTORCH_ATTN above, which is the production SDPA fallback.
@@ -235,6 +242,28 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_H3_TIMESTEP_MLP = "rl_engine.reference.minimax_h3.timestep_mlp.NativeH3TimestepMLPOp"
     CUDA_H3_TIMESTEP_MLP = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.timestep_mlp.H3TimestepMLPCudaOp"
+    )
+    PYTORCH_H3_AUDIO_INPUT_PROJECTION = (
+        "rl_engine.reference.minimax_h3.projection.NativeH3AudioInputProjectionOp"
+    )
+    CUDA_H3_AUDIO_INPUT_PROJECTION = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioInputProjectionCudaOp"
+    )
+    PYTORCH_H3_AUDIO_OUTPUT_PROJECTION = (
+        "rl_engine.reference.minimax_h3.projection.NativeH3AudioOutputProjectionOp"
+    )
+    CUDA_H3_AUDIO_OUTPUT_PROJECTION = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioOutputProjectionCudaOp"
+    )
+    PYTORCH_H3_TEXT_CONTEXT_PROJECTION = (
+        "rl_engine.reference.minimax_h3.projection.NativeH3TextContextProjectionOp"
+    )
+    CUDA_H3_TEXT_CONTEXT_PROJECTION = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3TextContextProjectionCudaOp"
+    )
+    PYTORCH_H3_QKV_GEMM = "rl_engine.reference.minimax_h3.projection.NativeH3QKVGemmOp"
+    CUDA_H3_QKV_GEMM = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3QKVGemmCudaOp"
     )
     PYTORCH_H3_ADALN_PROJECTION = (
         "rl_engine.reference.minimax_h3.adaln_projection.NativeH3AdaLNProjectionOp"
@@ -867,6 +896,10 @@ class KernelRegistry:
                     OpBackend.TRITON_SWIGLU,
                     OpBackend.PYTORCH_NATIVE_SWIGLU,
                 ],
+                "final_logit_softcap": [
+                    OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
+                    OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
+                ],
                 # Default dispatch logic for new operators
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rope": [
@@ -888,6 +921,18 @@ class KernelRegistry:
                     OpBackend.CUDA_H3_TIMESTEP_MLP,
                     OpBackend.PYTORCH_H3_TIMESTEP_MLP,
                 ],
+                "audio_input_projection_fp32": [
+                    OpBackend.CUDA_H3_AUDIO_INPUT_PROJECTION
+                ],  # strict row: no cuBLAS reference behind it
+                "audio_output_projection_fp32": [
+                    OpBackend.CUDA_H3_AUDIO_OUTPUT_PROJECTION
+                ],  # strict row: no cuBLAS reference behind it
+                "text_context_projection": [
+                    OpBackend.CUDA_H3_TEXT_CONTEXT_PROJECTION
+                ],  # strict row: no cuBLAS reference behind it
+                "h3_qkv_gemm": [
+                    OpBackend.CUDA_H3_QKV_GEMM
+                ],  # strict row: no cuBLAS reference behind it
                 "adaln_projection_3mod": [
                     OpBackend.CUDA_H3_ADALN_PROJECTION,
                     OpBackend.PYTORCH_H3_ADALN_PROJECTION,
@@ -949,11 +994,19 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "audio_input_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_INPUT_PROJECTION],
+                "audio_output_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_OUTPUT_PROJECTION],
+                "text_context_projection": [OpBackend.PYTORCH_H3_TEXT_CONTEXT_PROJECTION],
+                "h3_qkv_gemm": [OpBackend.PYTORCH_H3_QKV_GEMM],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
+                "final_logit_softcap": [
+                    OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
+                    OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
+                ],
             },
             "musa": {
                 "logp": [
@@ -987,7 +1040,7 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
-                "det_gemm": [OpBackend.TRITON_DET_GEMM],
+                "det_gemm": [OpBackend.MUSA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -1006,11 +1059,16 @@ class KernelRegistry:
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "audio_input_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_INPUT_PROJECTION],
+                "audio_output_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_OUTPUT_PROJECTION],
+                "text_context_projection": [OpBackend.PYTORCH_H3_TEXT_CONTEXT_PROJECTION],
+                "h3_qkv_gemm": [OpBackend.PYTORCH_H3_QKV_GEMM],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
+                "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -1040,11 +1098,16 @@ class KernelRegistry:
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
                 "timestep_mlp_fp32": [OpBackend.PYTORCH_H3_TIMESTEP_MLP],
+                "audio_input_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_INPUT_PROJECTION],
+                "audio_output_projection_fp32": [OpBackend.PYTORCH_H3_AUDIO_OUTPUT_PROJECTION],
+                "text_context_projection": [OpBackend.PYTORCH_H3_TEXT_CONTEXT_PROJECTION],
+                "h3_qkv_gemm": [OpBackend.PYTORCH_H3_QKV_GEMM],
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
+                "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only

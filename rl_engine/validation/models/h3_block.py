@@ -83,7 +83,7 @@ class CandidateOps:
     deterministic on every GPU this replay runs on.
     """
 
-    def __init__(self, registry: KernelRegistry | None = None) -> None:
+    def __init__(self, registry: KernelRegistry | None = None, attention: str = "auto") -> None:
         from rl_engine.backends.cuda.activation.swiglu import SwiGLUCudaOp
         from rl_engine.backends.cuda.attention.deterministic_attn import DeterministicAttentionOp
         from rl_engine.backends.shared.triton.gemm.det_gemm import TritonDetGemmOp
@@ -93,12 +93,29 @@ class CandidateOps:
         self.norm = registry.get_op("h3_rmsnorm", device="cuda")
         self.gate = registry.get_op("adaln_gate_residual", device="cuda")
         self.gemm = TritonDetGemmOp()
+        self.qkv = registry.get_op("h3_qkv_gemm", device="cuda")
         self.attention = DeterministicAttentionOp()
+        self.attention_h3 = None
+        if attention != "interim":
+            # h3_full_attention (#553): query-chunked, bounded workspace, same #240 arithmetic
+            try:
+                from rl_engine.backends.cuda.attention.h3_full_attention import (
+                    H3FullAttentionOp,
+                    _extension,
+                )
+
+                _extension()
+                self.attention_h3 = H3FullAttentionOp()
+            except (ImportError, RuntimeError):
+                if attention == "h3_full":
+                    raise
         self.swiglu = SwiGLUCudaOp()
 
     def backends(self) -> dict[str, str]:
         return {
-            name: f"{type(op).__module__}.{type(op).__name__}" for name, op in vars(self).items()
+            name: f"{type(op).__module__}.{type(op).__name__}"
+            for name, op in vars(self).items()
+            if op is not None
         }
 
 
@@ -145,6 +162,9 @@ def _cand_linear(ops: CandidateOps, x: torch.Tensor, weight: torch.Tensor) -> to
 
 
 def _cand_attention(ops: CandidateOps, q, k, v) -> torch.Tensor:
+    if ops.attention_h3 is not None:  # BSHD, bounded workspace
+        q, k, v = (t.contiguous() for t in (q, k, _heads(v)))
+        return ops.attention_h3(q, k, v).flatten(2, 3)
     q, k, v = (t.transpose(1, 2).contiguous() for t in (q, k, _heads(v)))
     out = ops.attention(q, k, v, causal=False)
     return out.transpose(1, 2).flatten(2, 3)
@@ -166,6 +186,81 @@ def _linear_node(name: str, source: str, weight: str, row: str, status: str) -> 
         provider=lambda ctx, x: prov.provider_linear(x, _w(ctx, weight)),
         golden=lambda ctx, x: gold.golden_linear(x, _w(ctx, weight)),
         provider_bitwise_isolated=False,  # tree reduction vs cuBLAS
+    )
+
+
+def _row_keys(x: torch.Tensor) -> torch.Tensor:
+    """Logical identity ``(batch row, token position)`` of every flattened row of ``[B, S, C]``.
+
+    The parameter-gradient reduction of a projection sorts its rows by this key, so dW does not
+    depend on the physical order the rows reach the GEMM in.
+    """
+
+    batch, seq = x.shape[0], x.shape[1]
+    rows = torch.arange(batch, device=x.device).repeat_interleave(seq)
+    positions = torch.arange(seq, device=x.device).repeat(batch)
+    return torch.stack([rows, positions], dim=1)
+
+
+QKV_WEIGHTS = ("attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight")
+FUSED_QKV_CACHE = "_fused_qkv"
+
+
+def evaluation_ctx(ctx: dict[str, Any]) -> dict[str, Any]:
+    """``ctx`` for one evaluation of a graph: a shallow copy with its own fused-QKV cache.
+
+    The three projection nodes of that evaluation share one combined call; a repeated
+    evaluation of the same ``ctx`` (a repeat or determinism check), or one with other ops,
+    always recomputes and never reads an earlier evaluation's outputs.
+    """
+
+    return {**ctx, FUSED_QKV_CACHE: {}}
+
+
+def fused_qkv(
+    ctx: dict[str, Any], x: torch.Tensor, weights: tuple[torch.Tensor, ...], ops: Any
+) -> Any:
+    """``(q, k, v)`` of one combined ``h3_qkv_gemm`` call, shared by the three projection nodes.
+
+    The first node to run on ``x`` makes the call (``ops.qkv(x2d, wq, wk, wv)``, with the rows'
+    logical keys); the others read its outputs. The cache lives for one graph evaluation
+    (``evaluation_ctx``, used by ``run_graph`` / ``run_isolated``) and is keyed on the identity of
+    ``ops``, ``x`` and the three weights, so other ops, inputs or weights always recompute.
+    """
+
+    key = (ops, x, *weights)
+    cache = ctx.setdefault(FUSED_QKV_CACHE, {})
+    cached = cache.get("key")
+    if cached is None or any(a is not b for a, b in zip(cached, key, strict=True)):
+        flat = x.reshape(-1, x.shape[-1])
+        cache.update(key=key, outputs=ops.qkv(flat, *weights, logical_keys=_row_keys(x)))
+    return cache["outputs"]
+
+
+def _qkv_node(name: str, weight: str) -> Node:
+    """Q, K or V projection: the ``h3_qkv_gemm`` row (fixed-order Triton GEMM, BF16).
+
+    The three nodes share one call of the row's combined operator, so the input gradient is the
+    fused ``[Q; K; V]`` backward (FP32 over all three, one rounding) the row promises, not three
+    separately rounded gradients added by autograd. The forward bytes are those of each
+    projection alone.
+    """
+
+    index = QKV_WEIGHTS.index(weight)
+
+    def candidate(ops, ctx, x):
+        """This node's slice of the one fused ``[Q; K; V]`` call, shaped like ``x``."""
+        weights = tuple(_w(ctx, w) for w in QKV_WEIGHTS)
+        return fused_qkv(ctx, x, weights, ops)[index].view(*x.shape[:-1], -1)
+
+    return Node(
+        name=name,
+        inputs=("norm1",),
+        binding=Binding("h3_qkv_gemm", "row", "H3QKVGemmCudaOp.forward"),
+        candidate=candidate,
+        provider=lambda ctx, x: prov.provider_linear(x, _w(ctx, weight)),
+        golden=lambda ctx, x: gold.golden_linear(x, _w(ctx, weight)),
+        provider_bitwise_isolated=False,  # fixed-order K loop vs cuBLAS
     )
 
 
@@ -240,9 +335,9 @@ NODES: list[Node] = [
         provider_bitwise_isolated=False,  # tensor-core tree vs cuBLAS
     ),
     _norm_modulate_node("norm1", "hidden", "norm1.weight", shift=0, scale=1),
-    _linear_node("q_proj", "norm1", "attn.to_q.weight", "h3_qkv_gemm", "interim"),
-    _linear_node("k_proj", "norm1", "attn.to_k.weight", "h3_qkv_gemm", "interim"),
-    _linear_node("v_proj", "norm1", "attn.to_v.weight", "h3_qkv_gemm", "interim"),
+    _qkv_node("q_proj", "attn.to_q.weight"),
+    _qkv_node("k_proj", "attn.to_k.weight"),
+    _qkv_node("v_proj", "attn.to_v.weight"),
     _head_norm_node("q_norm", "q_proj", "attn.norm_q.weight"),
     _head_norm_node("k_norm", "k_proj", "attn.norm_k.weight"),
     _rope_node("rope_q", "q_norm"),
@@ -366,6 +461,7 @@ def strict_fp32_matmul():
 def run_graph(mode: str, ctx: dict[str, Any], ops: CandidateOps | None = None) -> dict[str, Any]:
     """Every node's output for one mode ("candidate", "provider" or "golden")."""
 
+    ctx = evaluation_ctx(ctx)
     values: dict[str, Any] = {"hidden": ctx["hidden"], "temb": ctx["temb"]}
     # Diagnostic hybrids only: these candidate nodes run their provider replay instead.
     provider_nodes = ctx.get("provider_nodes", ())
@@ -391,6 +487,7 @@ def run_isolated(
 ) -> dict[str, Any]:
     """Each candidate node fed the provider's inputs to that node."""
 
+    ctx = evaluation_ctx(ctx)
     return {
         node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
         for node in NODES
