@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,11 @@ def _report(reference: dict) -> dict:
 
     return {
         "row": "fl2va_pipeline_contract",
-        "environment": {"gpus": [], "commit": "0" * 40},
+        "environment": {
+            "gpus": [],
+            "commit": "0" * 40,
+            "provider_source_sha256": _tool().PROVIDER_SOURCE_SHA256,
+        },
         "repeatability": {"case": {"runs": 5, "identical": True, "sequence_length": 10}},
         "reference": reference,
         "timing": {"rl_kernel": {"median_ms": 1.0, "min_ms": 0.9, "runs": 15, "label": "toy"}},
@@ -76,3 +81,30 @@ def test_an_empty_comparison_is_not_a_pass():
     assert tool.verdict(report) is True
     report["repeatability"] = {}
     assert tool.verdict(report) is False
+
+
+def test_a_diffusers_comparison_counts_only_against_the_pinned_source(tmp_path, monkeypatch):
+    tool = _tool()
+    compared = {**SKIPPED, "diffusers_static": {"cases": 3, "bitwise_equal": 3}}
+    report = _report(compared)
+    assert tool.verdict(report) is True
+    for other in (None, "0" * 64):  # no Diffusers source found, or another one
+        report["environment"]["provider_source_sha256"] = other
+        assert tool.verdict(report) is False
+    # SGLang is prior art without a pin: its comparison alone does not need one.
+    sglang_only = _report({**SKIPPED, "sglang_prefix": {"cases": 3, "bitwise_equal": 3}})
+    sglang_only["environment"]["provider_source_sha256"] = None
+    assert tool.verdict(sglang_only) is True
+
+    # A Diffusers whose files differ from the pinned ones (a stand-in package here) does
+    # not hash to the pin.
+    package = tmp_path / "diffusers"
+    (package / "modular_pipelines" / "minimax_h3").mkdir(parents=True)
+    for name in ("__init__.py", "modular_pipelines/__init__.py", "image_processor.py"):
+        (package / name).write_text("")
+    (package / "modular_pipelines" / "minimax_h3" / "__init__.py").write_text("")
+    for name in [m for m in sys.modules if m == "diffusers" or m.startswith("diffusers.")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    source = tool.provider_source_sha256()
+    assert source is not None and source != tool.PROVIDER_SOURCE_SHA256
