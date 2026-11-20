@@ -33,12 +33,47 @@ class Grid:
     cp_rank: int
     tp_collective: Any = None
     cp_group: Any = None
+    # "interim": the block's DeterministicAttentionOp (Ulysses only; its dK/dV is one GEMM, not a
+    # chain a ring could continue). "h3_full": the H3 full-attention kernels (#553), which both
+    # Ulysses and the ring (``cp_mode="ring"``, any CP size) reproduce bitwise.
+    attention: str = "interim"
+    cp_mode: str = "ulysses"
 
     def seq_shard(self, length: int) -> par.SeqShard:
         return par.SeqShard(length, self.cp, self.cp_rank)
 
 
-def make_grid(tp: int, cp: int, *, local_size: int | None = None) -> Grid:
+def check_ulysses_heads(tp: int, cp: int, *, attention: str, cp_mode: str) -> None:
+    """Refuse, before any group exists, a Ulysses split the H3 attention kernels cannot run.
+
+    Ulysses gives each rank ``56 / tp / cp`` heads. The H3 kernels take the head counts of a TP
+    rank (``ring_attention.LEGAL_HEADS``), so e.g. CP7 (8 heads) is refused here instead of
+    inside the first block; the ring keeps all local heads and covers those CP sizes.
+    """
+
+    if cp == 1 or cp_mode != "ulysses":
+        return
+    local = par.HEADS // tp
+    if attention == "h3_full":
+        from rl_engine.backends.cuda.model_specific.minimax_h3.ring_attention import LEGAL_HEADS
+
+        if local % cp or local // cp not in LEGAL_HEADS:
+            raise ValueError(
+                f"Ulysses splits {local} heads over cp={cp}, the H3 attention kernels take "
+                f"{LEGAL_HEADS} heads: use cp_mode='ring'"
+            )
+    elif local % cp:
+        raise ValueError(f"Ulysses cannot split {local} heads over cp={cp}")
+
+
+def make_grid(
+    tp: int,
+    cp: int,
+    *,
+    local_size: int | None = None,
+    attention: str = "interim",
+    cp_mode: str = "ulysses",
+) -> Grid:
     """Rank ``r`` is ``(cp_rank, tp_rank) = divmod(r, tp)``; TP groups are consecutive ranks.
 
     ``local_size`` (ranks per node) selects the cross-node collective when the TP group spans
@@ -48,6 +83,11 @@ def make_grid(tp: int, cp: int, *, local_size: int | None = None) -> Grid:
     from rl_engine.distributed.algorithms.collectives import DeterministicCollective
     from rl_engine.distributed.algorithms.hierarchical import HierarchicalCollective
 
+    if attention not in ("interim", "h3_full") or cp_mode not in ("ulysses", "ring"):
+        raise ValueError(f"unknown attention {attention!r} or cp_mode {cp_mode!r}")
+    if cp_mode == "ring" and attention != "h3_full":
+        raise ValueError("the ring continues the H3 kernels' dK/dV chain: use attention='h3_full'")
+    check_ulysses_heads(tp, cp, attention=attention, cp_mode=cp_mode)
     world, rank = dist.get_world_size(), dist.get_rank()
     if world != tp * cp:
         raise ValueError(f"world {world} != tp {tp} x cp {cp}")
@@ -70,7 +110,16 @@ def make_grid(tp: int, cp: int, *, local_size: int | None = None) -> Grid:
             collective = DeterministicCollective(
                 mine, torch.cuda.current_device(), max_size_bytes=256 << 20
             )
-    return Grid(tp, cp, tp_rank, cp_rank, collective, cp_groups[tp_rank] if cp > 1 else None)
+    return Grid(
+        tp,
+        cp,
+        tp_rank,
+        cp_rank,
+        collective,
+        cp_groups[tp_rank] if cp > 1 else None,
+        attention,
+        cp_mode,
+    )
 
 
 def _attention_fn(ops):
@@ -105,7 +154,7 @@ def run_tp_block(
 
     if hidden.shape[0] != 1:
         raise ValueError("the parallel block takes one packed sequence (batch 1)")
-    tp, w = grid.tp, (lambda name: weights[f"{hb.BLOCK}.{name}"])
+    tp = grid.tp
     seq = seq_len or hidden.shape[1]
     shard = grid.seq_shard(seq)
     par.require_rows_on_every_rank(shard)  # every rank refuses alike, before any collective
@@ -121,20 +170,66 @@ def run_tp_block(
         h_res, idx_res = h[:, lo:hi].contiguous(), idx[lo:hi].contiguous()
     else:
         h_res, idx_res = h, idx
+    return run_tp_block_rows(
+        weights, h_res, idx_res, cos, sin, temb, ops, grid, sp=sp, shard=shard, leaves=leaves
+    )
+
+
+def shard_leaf(
+    name: str, tensor: torch.Tensor, leaves: dict[str, torch.Tensor] | None
+) -> torch.Tensor:
+    """A detached view (or contiguous copy) of ``tensor``; a gradient leaf in ``leaves`` if set.
+
+    A contiguous shard (all of the weight for tp=1, a row slice otherwise) stays a view of it: a
+    leaf is only read, and a copy per block would keep the weights twice over for as long as
+    autograd holds the leaf (all 50 blocks of a checkpointed forward). A tensor that is not
+    contiguous is copied.
+    """
+
+    tensor = tensor.detach().contiguous()
+    if leaves is not None:
+        tensor.requires_grad_(True)
+        leaves[name] = tensor
+    return tensor
+
+
+def run_tp_block_rows(
+    weights: dict[str, torch.Tensor],
+    h_res: torch.Tensor,
+    idx_res: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+    temb: torch.Tensor,
+    ops: hb.CandidateOps,
+    grid: Grid,
+    *,
+    sp: bool,
+    shard: par.SeqShard,
+    leaves: dict[str, torch.Tensor] | None = None,
+) -> torch.Tensor:
+    """The block body for rows this rank already holds (what a chained model hands each block).
+
+    ``h_res`` / ``idx_res`` are this rank's residual rows (its CP rows, or its TP share of them
+    with ``sp``), ``cos`` / ``sin`` the rotary tables of its CP rows. Returns the residual rows.
+    """
+
+    par.require_rows_on_every_rank(shard)  # the chained model enters here, not through run_tp_block
+    tp, w = grid.tp, (lambda name: weights[f"{hb.BLOCK}.{name}"])
+    rows = shard.sizes[grid.cp_rank]
     coll = grid.tp_collective
 
     def leaf(name, tensor):
-        tensor = tensor.detach().clone()
-        if leaves is not None:
-            tensor.requires_grad_(True)
-            leaves[name] = tensor
-        return tensor
+        """This block's weight shard ``name`` (see ``shard_leaf``)."""
+        return shard_leaf(name, tensor, leaves)
 
     table = ops.projection(temb, w("adaln_proj.linear.weight"), w("adaln_proj.linear.bias"))
 
+    cp_shard = shard if grid.cp > 1 else None  # dW sweeps every CP rank's rows
+    cp_args = dict(cp_shard=cp_shard, cp_group=grid.cp_group)
+
     def proj_in(x, name_weights, gather):
         flat = x.reshape(-1, HIDDEN)
-        return par.column_parallel_linear(flat, name_weights, coll, tp, gather=gather)
+        return par.column_parallel_linear(flat, name_weights, coll, tp, gather=gather, **cp_args)
 
     x = ops.norm.forward_modulated(h_res, w("norm1.weight"), table[0], table[1], idx_res)
     q, k, v = proj_in(
@@ -155,13 +250,22 @@ def run_tp_block(
     from rl_engine.validation.models import h3_provider as prov
 
     q, k = prov.provider_apply_rotary(q, cos, sin), prov.provider_apply_rotary(k, cos, sin)
-    attn = par.ulysses_attention(q, k, heads(v), _attention_fn(ops), shard, grid.cp_group)
+    if grid.attention == "h3_full":
+        from rl_engine.backends.cuda.model_specific.minimax_h3 import ring_attention as ring
+
+        if grid.cp_mode == "ring":
+            attn = ring.ring_attention(q, k, heads(v), shard, grid.cp_group)
+        else:
+            attn = par.ulysses_attention(q, k, heads(v), ring.local_attention, shard, grid.cp_group)
+    else:
+        attn = par.ulysses_attention(q, k, heads(v), _attention_fn(ops), shard, grid.cp_group)
     o = par.row_parallel_linear(
         attn.reshape(rows, local_heads * HEAD_DIM),
         leaf("attn.to_out.0.weight", par.shard_cols(w("attn.to_out.0.weight"), tp, grid.tp_rank)),
         coll,
         tp,
         scatter=sp,
+        **cp_args,
     )
     h1 = ops.gate(h_res, o.view(1, -1, HIDDEN), table[2], idx_res)
     x2 = ops.norm.forward_modulated(h1, w("norm2.weight"), table[3], table[4], idx_res)
@@ -182,6 +286,7 @@ def run_tp_block(
         coll,
         tp,
         scatter=sp,
+        **cp_args,
     )
     return ops.gate(h1, down.view(1, -1, HIDDEN), table[5], idx_res)
 
@@ -198,13 +303,21 @@ def block_target(
     local_size: int = -1,
     layout: str = "tiny",
     seed: int = 0,
+    attention: str = "interim",
+    cp_mode: str = "ulysses",
 ):
     """``run_world`` target: this rank's rows of the parallel block (and gradients) for one case."""
 
     del collective  # the grid builds its own TP/CP groups
     from rl_engine.validation.models.h3_weights import load_h3_block_weights
 
-    grid = make_grid(tp, cp, local_size=local_size if local_size > 0 else None)
+    grid = make_grid(
+        tp,
+        cp,
+        local_size=local_size if local_size > 0 else None,
+        attention=attention,
+        cp_mode=cp_mode,
+    )
     return block_case(
         load_h3_block_weights("cuda"),
         grid,
