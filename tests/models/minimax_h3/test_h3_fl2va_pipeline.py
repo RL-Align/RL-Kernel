@@ -209,9 +209,8 @@ def test_repeated_preprocessing_is_byte_identical(anchors):
 def test_repeated_preprocessing_in_a_fresh_process_is_byte_identical():
     code = (
         "import json, sys; sys.path.insert(0, sys.argv[1]);"
-        "from tests.models.minimax_h3.test_h3_fl2va_pipeline import fl2va_preprocess;"
-        "print(json.dumps([fl2va_preprocess(a) for a in "
-        "[(), ('first',), ('last',), ('first', 'last')]]))"
+        "from tests.models.minimax_h3.test_h3_fl2va_pipeline import fl2va, fl2va_preprocess;"
+        "print(json.dumps([fl2va_preprocess(a) for a in fl2va.ANCHOR_SETS]))"
     )
     env = {**os.environ, "OMP_NUM_THREADS": "3", "PYTHONHASHSEED": "1"}
     out = subprocess.run(
