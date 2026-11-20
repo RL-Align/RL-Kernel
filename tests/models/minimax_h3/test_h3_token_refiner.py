@@ -229,7 +229,9 @@ def test_refiner_qkv_nodes_share_one_combined_row_call():
     nodes = {n.name: n for n in hr.NODES}
     prefix = "token_refiner.refiner_blocks.0"
     names = ("attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight")
-    ctx = {"prefix": prefix, "weights": {f"{prefix}.{w}": torch.randn(4, 6) for w in names}}
+    ctx = hb.evaluation_ctx(
+        {"prefix": prefix, "weights": {f"{prefix}.{w}": torch.randn(4, 6) for w in names}}
+    )
     x = torch.randn(1, 3, 6)
     outs = [nodes[n].candidate(_Ops, ctx, x) for n in ("q_proj", "k_proj", "v_proj")]
     assert len(calls) == 1
