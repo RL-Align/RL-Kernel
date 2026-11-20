@@ -11,6 +11,7 @@ torch::Tensor qwenimage_det_linear_backward_bias(torch::Tensor, c10::ScalarType)
 std::vector<torch::Tensor> qwenimage_det_linear_forward(torch::Tensor, torch::Tensor, c10::optional<torch::Tensor>, int64_t, bool);
 torch::Tensor qwenimage_det_linear_backward_input(torch::Tensor, torch::Tensor, c10::ScalarType);
 std::vector<torch::Tensor> qwenimage_det_linear_backward_weight(torch::Tensor, torch::Tensor, c10::ScalarType, bool);
+torch::Tensor latent_pack_unpack_cuda(torch::Tensor x, int64_t B, int64_t C, int64_t H, int64_t W, bool unpack);
 #endif
 
 // Fused LogP Declarations
@@ -517,6 +518,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("qwenimage_det_linear_backward_weight", &qwenimage_det_linear_backward_weight);
   m.def("qwenimage_strict_math_compiled", &qwenimage_strict_math_compiled);
   m.def("qwenimage_det_linear_backward_bias", &qwenimage_det_linear_backward_bias);
+  m.def("latent_pack_unpack", &latent_pack_unpack_cuda, "Qwen-Image bitwise latent pack/unpack CUDA");
 #endif
 
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
