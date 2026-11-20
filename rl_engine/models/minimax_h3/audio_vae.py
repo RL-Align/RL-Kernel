@@ -151,6 +151,8 @@ def prepare_stereo_waveform(
         raise TypeError(f"waveform must be floating point, got {waveform.dtype}")
     waveform = waveform.to(torch.float32)
     if max_duration is not None:
+        if not max_duration > 0:
+            raise ValueError(f"max_duration must be positive, got {max_duration}")
         waveform = waveform[:, : int(max_duration * sample_rate)]
     if waveform.shape[-1] == 0:
         raise ValueError("waveform is empty after truncation")
@@ -730,6 +732,13 @@ class H3AudioVAEContract:
         self.model = model.eval()
         self.latents_mean = torch.tensor(list(latents_mean), dtype=torch.float32)
         self.latents_std = torch.tensor(list(latents_std), dtype=torch.float32)
+        for name, stats in (("latents_mean", self.latents_mean), ("latents_std", self.latents_std)):
+            if stats.shape != (LATENT_CHANNELS,) or not bool(torch.isfinite(stats).all()):
+                raise ValueError(
+                    f"{name} must be {LATENT_CHANNELS} finite values, got {tuple(stats.shape)}"
+                )
+        if not bool((self.latents_std > 0).all()):
+            raise ValueError("latents_std must be positive")
         self.encode_policy = encode_policy
         self.decode_policy = decode_policy
 

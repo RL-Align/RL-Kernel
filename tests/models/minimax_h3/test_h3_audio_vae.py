@@ -148,6 +148,8 @@ def test_prepare_stereo_waveform_rejects():
         av.prepare_stereo_waveform(torch.zeros(2, 10, dtype=torch.int16), av.SAMPLE_RATE)
     with pytest.raises(ValueError, match="non-finite"):
         av.prepare_stereo_waveform(torch.tensor([[0.0, float("nan")]]), av.SAMPLE_RATE)
+    with pytest.raises(ValueError, match="max_duration"):
+        av.prepare_stereo_waveform(stereo(100), av.SAMPLE_RATE, max_duration=-1.0)
 
 
 @pytest.mark.parametrize(("channels", "rate"), [(1, 32_000), (2, 32_000), (1, 44_100), (2, 48_000)])
@@ -229,6 +231,15 @@ def test_encode_matches_explicit_mono_calls(contract):
 def test_contract_rejects_bad_inputs(tiny_model, tiny_stats, contract):
     with pytest.raises(TypeError, match="FP32"):
         av.H3AudioVAEContract(av.H3AudioVAE(**TINY).to(torch.bfloat16), *tiny_stats)
+    mean, std = tiny_stats
+    for bad_mean, bad_std in (
+        ([0.0], std),  # one value would broadcast over all 32 channels
+        (mean, std[:31]),
+        (mean[:31] + [float("nan")], std),
+        (mean, std[:31] + [0.0]),
+    ):
+        with pytest.raises(ValueError, match="latents_"):
+            av.H3AudioVAEContract(tiny_model, bad_mean, bad_std)
     with pytest.raises(ValueError):
         contract.encode_stereo(stereo(800)[:1])
     with pytest.raises(ValueError):
@@ -365,7 +376,10 @@ def test_strict_policy_is_close_to_diffusers(diffusers_pair, contract):
 # --- checkpoint reader ----------------------------------------------------------------------
 
 
-def _fake_component(root: Path, **overrides) -> Path:
+def _fake_component(root: Path, meta_overrides: dict | None = None, **overrides) -> Path:
+    """Write a fake component; ``overrides`` go to ``config.json``, ``meta_overrides`` to the
+    metadata kwargs (``sample_rate`` is in both)."""
+
     meta = {
         "attn_proj": True,
         "decoder_dim": 1024,
@@ -385,8 +399,10 @@ def _fake_component(root: Path, **overrides) -> Path:
         "source_metadata_path": "metadata.json",
         "source_safetensors_path": "model.safetensors",
     }
-    for key, value in overrides.items():
-        (meta if key in meta and key not in config else config)[key] = value
+    unknown = (set(overrides) - set(config)) | (set(meta_overrides or {}) - set(meta))
+    assert not unknown, f"no such fake key: {sorted(unknown)}"
+    config.update(overrides)
+    meta.update(meta_overrides or {})
     (root / "metadata.json").write_text(json.dumps({"metadata": {"kwargs": meta}}))
     (root / "config.json").write_text(json.dumps(config))
     (root / "model.safetensors").write_bytes(b"not weights")
@@ -396,15 +412,16 @@ def _fake_component(root: Path, **overrides) -> Path:
 def test_checkpoint_reader_validates_contract(tmp_path):
     ck = av.AudioVAECheckpoint.read(_fake_component(tmp_path))
     assert ck.latents_std == (1.0,) * 32 and ck.kwargs["latent_dim"] == 2048 and ck.sha256 is None
-    for bad in (
-        {"sample_rate": 44100},
-        {"latent_channels": 64},
-        {"encoder_rates": [2, 4, 8, 8]},
-        {"latents_std": [0.0] * 32},
-        {"decoder_type": "hifigan"},
+    for bad_config, bad_meta in (
+        ({"sample_rate": 44100}, {}),
+        ({}, {"sample_rate": 44100}),
+        ({"latent_channels": 64}, {}),
+        ({}, {"encoder_rates": [2, 4, 8, 8]}),
+        ({"latents_std": [0.0] * 32}, {}),
+        ({}, {"decoder_type": "hifigan"}),
     ):
         with pytest.raises(ValueError, match="not the H3 audio VAE contract"):
-            av.AudioVAECheckpoint.read(_fake_component(tmp_path, **bad))
+            av.AudioVAECheckpoint.read(_fake_component(tmp_path, bad_meta, **bad_config))
     with pytest.raises(ValueError, match="sha256"):
         av.AudioVAECheckpoint.read(_fake_component(tmp_path), verify_sha256="0" * 64)
 
