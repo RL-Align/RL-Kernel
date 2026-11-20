@@ -13,8 +13,13 @@ import types
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
-from rl_engine.contracts.operators.fixed_output_combine import prepare_fixed_output_combine
-from rl_engine.contracts.operators.moe import MoEOutputCombineInputs, MoEOutputCombinePlan
+from rl_engine.contracts.operators.fixed_output_combine import (
+    prepare_fixed_output_combine,
+)
+from rl_engine.contracts.operators.moe import (
+    MoEOutputCombineInputs,
+    MoEOutputCombinePlan,
+)
 from rl_engine.ops.moe.output_combine import output_combine
 
 
@@ -49,9 +54,29 @@ class _FixedReduce(TorchDispatchMode):
             .reshape(-1)[order]
         )
         if not torch.equal(tokens, expected_tokens):
-            raise ValueError("native expert-major rows do not match actual Top6 routing")
+            raise ValueError(
+                "native expert-major rows do not match actual Top6 routing"
+            )
         experts = self.ids.reshape(-1)[order].long()
         tokens = tokens.long()
+        active = ((self.ids >= 0) & (self.ids < 256)).all(-1)
+        inactive = (self.ids == -1).all(-1)
+        if not bool((active | inactive).all()):
+            raise ValueError("partial or invalid Top6 routing row")
+        active_rows = torch.nonzero(active).flatten()
+        num_tokens = active_rows.numel()
+        if num_tokens == 0:
+            self.calls += 1
+            return target.zero_()
+        if num_tokens != self.ids.shape[0]:
+            selected = experts >= 0
+            values, experts, tokens = (
+                values[selected],
+                experts[selected],
+                tokens[selected],
+            )
+            dense_tokens = active.long().cumsum(0) - 1
+            tokens = dense_tokens[tokens]
         canonical = (tokens * 256 + experts).argsort(stable=True)
         slots = torch.empty_like(tokens)
         slots[canonical] = torch.arange(tokens.numel(), device=tokens.device) % 6
@@ -60,17 +85,23 @@ class _FixedReduce(TorchDispatchMode):
             6, values.shape[1], expert_weight_applied=True, output_dtype="float32"
         )
         inputs = MoEOutputCombineInputs(
-            values, tokens, experts, slots, mapping_run_id=run_id,
+            values,
+            tokens,
+            experts,
+            slots,
+            mapping_run_id=run_id,
             producer_backend="vllm.native.W4A16",
             producer_build_fingerprint="triton-kernels-3.8-unfused",
-            num_tokens=self.ids.shape[0],
+            num_tokens=num_tokens,
         )
         prepared = prepare_fixed_output_combine(
             plan, inputs, expected_mapping_run_id=run_id, num_experts=256
         )
         reduced = output_combine(prepared, values, mapping_run_id=run_id)
         self.calls += 1
-        return target.copy_(reduced)
+        if num_tokens == self.ids.shape[0]:
+            return target.copy_(reduced)
+        return target.zero_().index_copy_(0, active_rows, reduced)
 
 
 def bind_fixed_combine(ffn):
@@ -85,7 +116,9 @@ def bind_fixed_combine(ffn):
         or function.__globals__.get("triton_kernels_version") != "3.8"
         or "index_add_" not in function.__code__.co_names
     ):
-        raise ValueError("fixed combine requires pinned unfused triton-kernels 3.8 W4A16")
+        raise ValueError(
+            "fixed combine requires pinned unfused triton-kernels 3.8 W4A16"
+        )
     signature = inspect.signature(original)
 
     def apply(self, *args, **kwargs):
@@ -98,10 +131,17 @@ def bind_fixed_combine(ffn):
         with mode:
             result = original(*args, **kwargs)
         if mode.calls != 1:
-            raise RuntimeError("native expert apply did not execute exactly one fixed combine")
+            raise RuntimeError(
+                "native expert apply did not execute exactly one fixed combine"
+            )
         return result
 
     backend.apply = types.MethodType(apply, backend)
     backend._rlk_fixed_combine = True
-    print("RLK_FIXED_ROLLOUT_COMBINE_BOUND", __file__, "FP32 expert ascending; original GEMMs", flush=True)
+    print(
+        "RLK_FIXED_ROLLOUT_COMBINE_BOUND",
+        __file__,
+        "FP32 expert ascending; original GEMMs",
+        flush=True,
+    )
     return backend
