@@ -46,9 +46,7 @@ def test_megatron_runtime_does_not_import_the_vime_package():
     )
 
     assert result.returncode == 0, result.stderr[-2000:]
-    markers = [
-        line for line in result.stdout.splitlines() if line.startswith("VIME_IMPORTED=")
-    ]
+    markers = [line for line in result.stdout.splitlines() if line.startswith("VIME_IMPORTED=")]
     assert markers == ["VIME_IMPORTED=False"]
 
 
