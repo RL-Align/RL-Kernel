@@ -10,7 +10,7 @@ Run it after a passing certified chain at the same commit, on the same four GPUs
     python benchmarks/models/qwen3_next/qwen3_next_e2e_bench.py --run <l2 run dir> --out <dir>
     python benchmarks/models/qwen3_next/plot_qwen3_next_e2e_bench.py <dir>/report.json
 
-Phases and arms (same TP4 topology and EP as the l2 run, same synthetic inputs):
+Phases and arms (the same four GPUs and synthetic inputs; rollout at the l2 run's TP4/EP):
 - rollout: vLLM generate. ``strict`` is the certified RL-Kernel engine (CUSTOM attention,
   shared model, batch-invariant mode, eager) with vLLM's own scheduler and no tracing.
   ``native_graph`` / ``native_eager`` / ``native_bi`` are stock vLLM with CUDA graphs,
@@ -18,14 +18,20 @@ Phases and arms (same TP4 topology and EP as the l2 run, same synthetic inputs):
 - replay: one VIME/Megatron forward over packed prompt+response plus the selected-token
   logprob. ``strict`` uses the RL-Kernel spec and logprob provider, ``native`` the stock
   VIME Qwen3-Next spec and its logprob.
-- train: VIME ``train_one_step`` (4 samples, 4 micro-batches, CPU-offloaded Adam), with the
-  optimizer step timed separately.
+- train: VIME ``train_one_step`` (4 samples per step, one-sample micro-batches on each
+  data-parallel rank, CPU-offloaded Adam), with the optimizer step timed separately.
 
-The stock VIME arms of replay and train need an EP4 l2 run (``--ep 4``, expert tensor
-parallel 1). At EP1 the experts are split four ways by expert tensor parallelism, which
-stock VIME's HuggingFace loader does not shard: Megatron's grouped expert layers carry no
-tensor-parallel flag, so the loader copies the full expert tensor and stops on its shape.
-On an EP1 run those arms are reported as unsupported without being started.
+Actor layouts (``layouts`` in the report). The strict replay/train arm runs the l2 run's
+certified layout: TP4 with its EP (training only on an EP1 run). The stock VIME arm cannot
+run TP4 at all: Qwen3-Next has two KV heads, and when TP exceeds them Megatron gives each
+rank the query heads of a whole KV group, keeps its share for attention, but does not
+narrow the attention output gate, so the forward fails on the gate's shape. Its expert
+weights also only load with expert tensor parallel 1 (Megatron's grouped expert layers
+carry no tensor-parallel flag, so VIME's loader copies the whole expert tensor). So stock
+VIME runs its own recipe's layout on the same four GPUs: TP2, expert tensor parallel 1,
+experts over all four ranks, data parallel 2. Each step processes the same samples; the
+two data-parallel replicas split them (a single sample leaves one replica a filler copy)
+and the step time is the slowest rank's.
 
 Every arm × phase × workload runs in its own process; rounds alternate the arm order.
 Timing only; the l2 run is the consistency evidence for the strict arm.
@@ -49,9 +55,13 @@ sys.path.insert(0, str(ROOT / "tools/validation/models/qwen3_next"))
 from benchmarks.models.qwen3_next.e2e_bench_cases import (  # noqa: E402
     PHASES,
     STRICT_ARM,
+    STOCK_VIME_LAYOUT,
     WORKLOADS,
+    actor_layout,
+    actor_unsupported,
     arm_environment,
     arm_order,
+    data_parallel_share,
     merge_rounds,
     prompts,
     ratios,
@@ -244,13 +254,18 @@ def replay_shapes(manifest, arm, workload, repeats):
     )
 
     spec = WORKLOADS[workload]
+    layout = actor_layout(manifest["topology"]["ep"], arm)
     _, model, _, _ = create_actor(
         manifest["checkpoint"],
         training=False,
-        ep=manifest["topology"]["ep"],
+        ep=layout["ep"],
         providers=arm == STRICT_ARM,
         seq_length=spec["max_model_len"],
+        tp=layout["tp"],
     )
+    dp_rank, dp_size = mpu.get_data_parallel_rank(), mpu.get_data_parallel_world_size()
+    if dp_size != layout["dp"]:
+        raise RuntimeError(f"Expected data parallel {layout['dp']}, Megatron built {dp_size}")
     model[0].eval()
     raw = model[0]
     while hasattr(raw, "module"):
@@ -264,7 +279,7 @@ def replay_shapes(manifest, arm, workload, repeats):
     raw.output_layer.register_forward_hook(keep_logits)
     records = {}
     for shape in spec["replay"]:
-        rows = sequences(shape)
+        rows, _filler = data_parallel_share(sequences(shape), dp_rank, dp_size)
         lengths = [len(row) for row in rows]
         tokens = torch.tensor([t for row in rows for t in row], device="cuda").reshape(1, -1)
         cu = torch.tensor(
@@ -278,7 +293,7 @@ def replay_shapes(manifest, arm, workload, repeats):
             qkv_format="thd",
         )
         positions, targets = (
-            torch.tensor(value, device="cuda") for value in response_positions(shape)
+            torch.tensor(value, device="cuda") for value in response_positions(shape, rows)
         )
 
         def step(tokens=tokens, packed=packed, positions=positions, targets=targets):
@@ -302,35 +317,40 @@ def replay_shapes(manifest, arm, workload, repeats):
     return records
 
 
-def train_batch(shape, device):
-    """VIME policy-loss fields for synthetic samples (same keys as the acceptance fixture)."""
+def train_batch(shape, device, dp_rank=0, dp_size=1):
+    """VIME policy-loss fields for a data-parallel rank's synthetic samples.
+
+    Same keys as the acceptance fixture. The four samples of a step are split round-robin
+    over the data-parallel ranks, as VIME gives each rank its own share of the rollout.
+    """
     import torch
 
     prompt, batch, response = shape
-    if batch != 4:
+    if batch != 4 or batch % dp_size:
         raise ValueError("The pinned policy settings train four samples per step")
     advantages = [1.0, -0.5, 0.75, -0.25]
+    rows = sequences(shape)
+    local = list(range(batch))[dp_rank::dp_size]
     return {
-        "tokens": [torch.tensor(row, device=device) for row in sequences(shape)],
+        "tokens": [torch.tensor(rows[i], device=device) for i in local],
         "rollout_log_probs": [
-            torch.full((response,), -2.0, dtype=torch.float32, device=device) for _ in range(batch)
+            torch.full((response,), -2.0, dtype=torch.float32, device=device) for _ in local
         ],
         "advantages": [
             torch.full((response,), advantages[i], dtype=torch.float32, device=device)
-            for i in range(batch)
+            for i in local
         ],
-        "loss_masks": [
-            torch.ones(response, dtype=torch.int32, device=device) for _ in range(batch)
-        ],
-        "rollout_mask_sums": torch.full((batch,), float(response), device=device),
-        "total_lengths": [prompt + response] * batch,
-        "response_lengths": [response] * batch,
-        "partition": list(range(batch)),
+        "loss_masks": [torch.ones(response, dtype=torch.int32, device=device) for _ in local],
+        "rollout_mask_sums": torch.full((len(local),), float(response), device=device),
+        "total_lengths": [prompt + response] * len(local),
+        "response_lengths": [response] * len(local),
+        "partition": local,
     }
 
 
 def train_shapes(manifest, arm, workload, repeats):
     import torch
+    from megatron.core import mpu
     from megatron.core.distributed import finalize_model_grads
     from megatron.core.utils import get_model_config
     from vime.backends.megatron_utils.data import DataIterator
@@ -341,13 +361,18 @@ def train_shapes(manifest, arm, workload, repeats):
     )
 
     spec = WORKLOADS[workload]
+    layout = actor_layout(manifest["topology"]["ep"], arm)
     args, model, optimizer, scheduler = create_actor(
         manifest["checkpoint"],
         training=True,
-        ep=manifest["topology"]["ep"],
+        ep=layout["ep"],
         providers=arm == STRICT_ARM,
         seq_length=spec["max_model_len"],
+        tp=layout["tp"],
     )
+    dp_rank, dp_size = mpu.get_data_parallel_rank(), mpu.get_data_parallel_world_size()
+    if dp_size != layout["dp"]:
+        raise RuntimeError(f"Expected data parallel {layout['dp']}, Megatron built {dp_size}")
     for chunk in model:
         chunk.train()
         config = get_model_config(chunk)
@@ -355,7 +380,8 @@ def train_shapes(manifest, arm, workload, repeats):
         config.finalize_model_grads_func = finalize_model_grads
         config.timers = None
     shape = spec["train"]
-    batch = train_batch(shape, torch.cuda.current_device())
+    batch = train_batch(shape, torch.cuda.current_device(), dp_rank, dp_size)
+    local = len(batch["tokens"])
     original_step = optimizer.step
     optimizer_seconds = []
 
@@ -370,7 +396,7 @@ def train_shapes(manifest, arm, workload, repeats):
     optimizer.step = timed_optimizer_step
     steps, optimizer_steps = [], []
     for index in range(1 + repeats):
-        iterator = DataIterator(dict(batch), [[0], [1], [2], [3]])
+        iterator = DataIterator(dict(batch), [[i] for i in range(local)])
         seconds = _synchronized(
             lambda iterator=iterator, index=index: train_one_step(
                 args,
@@ -380,8 +406,8 @@ def train_shapes(manifest, arm, workload, repeats):
                 model=model,
                 optimizer=optimizer,
                 opt_param_scheduler=scheduler,
-                num_microbatches=4,
-                step_global_batch_size=4,
+                num_microbatches=local,
+                step_global_batch_size=shape[1],
             )
         )
         if len(optimizer_seconds) != index + 1:
@@ -503,19 +529,6 @@ def wait_gpus_idle(timeout=120):
 UNSUPPORTED_MESSAGES = ("VLLM batch_invariant mode is not supported for",)
 
 
-STOCK_VIME_NEEDS_EP4 = (
-    "stock VIME loads HuggingFace experts only with expert tensor parallel 1; "
-    "run this phase on an EP4 l2 run"
-)
-
-
-def stock_vime_unsupported(manifest, phase, arm):
-    """Why stock VIME cannot run this replay/train arm on this run's topology, or None."""
-    if phase in ("replay", "train") and arm != STRICT_ARM and manifest["topology"]["ep"] != 4:
-        return STOCK_VIME_NEEDS_EP4
-    return None
-
-
 def unsupported_reason(log_text):
     for marker in UNSUPPORTED_MESSAGES:
         index = log_text.find(marker)
@@ -589,7 +602,11 @@ def orchestrate(args):
                 if phase == "rollout" and arm not in args.rollout_arms:
                     continue
                 for workload in args.workloads:
-                    refusal = stock_vime_unsupported(manifest, phase, arm)
+                    refusal = (
+                        None
+                        if phase == "rollout"
+                        else actor_unsupported(manifest["topology"]["ep"], phase, arm)
+                    )
                     record = (
                         {"unsupported": refusal}
                         if refusal
@@ -651,6 +668,8 @@ def build_report(manifest, identity, raw, found_versions, args):
                     }
                     summary["rounds"] = len(good)
                     target[key] = summary
+        if phase != "rollout":
+            extras["layouts"] = {arm: actor_layout(manifest["topology"]["ep"], arm) for arm in arms}
         phases[phase] = {"results": results, "strict_over_native": ratios(phase, results), **extras}
     return {
         "schema_version": 1,
@@ -671,6 +690,12 @@ def build_report(manifest, identity, raw, found_versions, args):
             "workloads": {name: WORKLOADS[name] for name in args.workloads},
             "statistic": "median over rounds x repeats; actor phases take the slowest rank",
             "strict_over_native": "strict seconds / native seconds; above 1 means strict is slower",
+            "stock_vime_layout": STOCK_VIME_LAYOUT,
+            "stock_vime_layout_reason": (
+                "stock VIME cannot run Qwen3-Next at TP4 (2 KV heads; Megatron's attention "
+                "output gate is not narrowed below one KV group per rank), so it runs its "
+                "recipe's TP2 with expert tensor parallel 1 on the same four GPUs"
+            ),
         },
         "phases": phases,
     }

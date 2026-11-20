@@ -38,18 +38,27 @@ SHARED_SPEC = (
     "rl_engine.integrations.orchestrators.vime.providers.qwen3_next_vime",
     "get_qwen3_next_shared_spec",
 )
+# Stock VIME's parallel layout on the same four GPUs: TP2 and expert tensor parallel 1 as in
+# its recipe (scripts/run-qwen3-next-80B-A3B.sh), experts over all four ranks, so data
+# parallel 2. Stock VIME cannot run TP4: Qwen3-Next has two KV heads, and Megatron's
+# attention output gate is not narrowed when a rank keeps part of a KV group's query heads.
+STOCK_TP, STOCK_EP = 2, 4
 
 
-def runtime_argv(checkpoint, *, training, ep=1, providers=True, seq_length=1040):
+def runtime_argv(checkpoint, *, training, ep=1, providers=True, seq_length=1040, tp=4):
     """Use native argument parsing/validation; no precision-policy overrides.
 
-    ``providers=False`` builds the same actor on stock VIME: its own Qwen3-Next spec and
-    model provider, with the MoE fusion its recipe enables. Only speed comparisons use
-    it; every acceptance stage runs the RL-Kernel providers.
+    ``providers=False`` builds the actor on stock VIME: its own Qwen3-Next spec and model
+    provider, the MoE fusion its recipe enables, and its layout (``tp=STOCK_TP``,
+    ``ep=STOCK_EP``, expert tensor parallel 1). Only speed comparisons use it; every
+    acceptance stage runs the RL-Kernel providers at TP4.
     """
     checkpoint = str(Path(checkpoint).absolute())
-    if ep not in (1, 4) or (training and ep != 1):
-        raise ValueError("Native VIME runs EP4 for recompute only; training stays EP1")
+    if providers:
+        if tp != 4 or ep not in (1, 4) or (training and ep != 1):
+            raise ValueError("Native VIME runs EP4 for recompute only; training stays EP1")
+    elif (tp, ep) != (STOCK_TP, STOCK_EP):
+        raise ValueError(f"Stock VIME runs Qwen3-Next at TP{STOCK_TP} EP{STOCK_EP} here")
     if type(seq_length) is not int or seq_length < 1040:
         raise ValueError("The actor sequence budget cannot be below the certified 1040 tokens")
     values = {
@@ -58,11 +67,11 @@ def runtime_argv(checkpoint, *, training, ep=1, providers=True, seq_length=1040)
         "actor-num-nodes": 1,
         "actor-num-gpus-per-node": 4,
         "num-gpus-per-node": 4,
-        "tensor-model-parallel-size": 4,
+        "tensor-model-parallel-size": tp,
         "pipeline-model-parallel-size": 1,
         "context-parallel-size": 1,
         "expert-model-parallel-size": ep,
-        "expert-tensor-parallel-size": 4 // ep,
+        "expert-tensor-parallel-size": 4 // ep if providers else 1,
         "num-attention-heads": 16,
         "num-query-groups": 2,
         "kv-channels": 256,
@@ -149,10 +158,10 @@ def runtime_argv(checkpoint, *, training, ep=1, providers=True, seq_length=1040)
     return argv
 
 
-def create_actor(checkpoint, *, training, ep=1, providers=True, seq_length=1040):
+def create_actor(checkpoint, *, training, ep=1, providers=True, seq_length=1040, tp=4):
     """Call real native setup/load after the caller initializes Torch distributed.
 
-    ``providers`` and ``seq_length`` are documented on :func:`runtime_argv`.
+    ``providers``, ``seq_length`` and ``tp`` are documented on :func:`runtime_argv`.
     """
     import torch
     import torch.distributed as dist
@@ -166,7 +175,12 @@ def create_actor(checkpoint, *, training, ep=1, providers=True, seq_length=1040)
     saved_argv = sys.argv
     try:
         sys.argv = runtime_argv(
-            checkpoint, training=training, ep=ep, providers=providers, seq_length=seq_length
+            checkpoint,
+            training=training,
+            ep=ep,
+            providers=providers,
+            seq_length=seq_length,
+            tp=tp,
         )
         args = parse_args()
     finally:

@@ -66,15 +66,54 @@ def sequences(shape):
     ]
 
 
-def response_positions(shape):
-    """Packed rows whose logits predict the response tokens, and those targets."""
-    prompt, batch, response = shape
-    rows, targets, start = [], [], 0
-    for sequence in sequences(shape):
-        rows.extend(range(start + prompt - 1, start + prompt + response - 1))
+def response_positions(shape, rows=None):
+    """Packed rows whose logits predict the response tokens, and those targets.
+
+    ``rows`` defaults to every sequence of ``shape``; pass a data-parallel rank's share.
+    """
+    prompt = shape[0]
+    positions, targets, start = [], [], 0
+    for sequence in sequences(shape) if rows is None else rows:
+        positions.extend(range(start + prompt - 1, start + len(sequence) - 1))
         targets.extend(sequence[prompt:])
         start += len(sequence)
-    return rows, targets
+    return positions, targets
+
+
+# Actor layouts. The strict arm is certified at TP4 with the l2 run's EP (expert tensor
+# parallel 4 // EP); its training is certified at EP1 only. Stock VIME cannot run TP4 (two
+# KV heads; Megatron's attention output gate breaks when TP exceeds them), so it runs its
+# recipe's TP2 with expert tensor parallel 1 and experts over all four ranks: data parallel 2.
+STOCK_VIME_LAYOUT = {"tp": 2, "ep": 4, "etp": 1, "dp": 2}
+STRICT_TRAINING_NEEDS_EP1 = (
+    "the certified strict training profile is EP1; run train on an EP1 l2 run"
+)
+
+
+def actor_layout(run_ep, arm):
+    """Parallel layout of a replay/train arm on the run's four GPUs."""
+    if arm == STRICT_ARM:
+        return {"tp": 4, "ep": run_ep, "etp": 4 // run_ep, "dp": 1}
+    return dict(STOCK_VIME_LAYOUT)
+
+
+def actor_unsupported(run_ep, phase, arm):
+    """Why this replay/train arm cannot run on the run's topology, or None."""
+    if phase == "train" and arm == STRICT_ARM and run_ep != 1:
+        return STRICT_TRAINING_NEEDS_EP1
+    return None
+
+
+def data_parallel_share(items, rank, size):
+    """A data-parallel rank's share of a batch, and whether it is only a filler copy.
+
+    Items go round-robin. A rank left without any (a batch smaller than ``size``) gets a
+    copy of the first item: every rank must still run the forward, because the MoE
+    all-to-all spans the data-parallel ranks. Its result is discarded; the time is the
+    slowest rank's, so the filler cannot make a step look faster.
+    """
+    share = list(items)[rank::size]
+    return (share, False) if share else ([items[0]], True)
 
 
 def arm_environment(base, arm):
