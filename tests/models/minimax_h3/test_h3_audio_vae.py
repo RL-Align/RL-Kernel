@@ -148,6 +148,8 @@ def test_prepare_stereo_waveform_rejects():
         av.prepare_stereo_waveform(torch.zeros(2, 10, dtype=torch.int16), av.SAMPLE_RATE)
     with pytest.raises(ValueError, match="non-finite"):
         av.prepare_stereo_waveform(torch.tensor([[0.0, float("nan")]]), av.SAMPLE_RATE)
+    with pytest.raises(ValueError, match="max_duration"):
+        av.prepare_stereo_waveform(stereo(100), av.SAMPLE_RATE, max_duration=-1.0)
 
 
 @pytest.mark.parametrize(("channels", "rate"), [(1, 32_000), (2, 32_000), (1, 44_100), (2, 48_000)])
@@ -229,6 +231,15 @@ def test_encode_matches_explicit_mono_calls(contract):
 def test_contract_rejects_bad_inputs(tiny_model, tiny_stats, contract):
     with pytest.raises(TypeError, match="FP32"):
         av.H3AudioVAEContract(av.H3AudioVAE(**TINY).to(torch.bfloat16), *tiny_stats)
+    mean, std = tiny_stats
+    for bad_mean, bad_std in (
+        ([0.0], std),  # one value would broadcast over all 32 channels
+        (mean, std[:31]),
+        (mean[:31] + [float("nan")], std),
+        (mean, std[:31] + [0.0]),
+    ):
+        with pytest.raises(ValueError, match="latents_"):
+            av.H3AudioVAEContract(tiny_model, bad_mean, bad_std)
     with pytest.raises(ValueError):
         contract.encode_stereo(stereo(800)[:1])
     with pytest.raises(ValueError):
