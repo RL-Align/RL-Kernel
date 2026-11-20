@@ -30,12 +30,14 @@ Formal matrix, still awaiting hardware qualification:
 
 | Engine | Training precision | Training TP | Rollout |
 |---|---|---|---|
-| Megatron and DeepSpeed | FP32/BF16 | 2/4 | Same frozen vLLM TP2 rollout |
+| Megatron and DeepSpeed | FP32/BF16 | 2/4 (Megatron BF16 actor: 4) | Same frozen vLLM TP2 rollout |
 | Megatron and DeepSpeed | FP32 tiny GPT | Actor 2, Critic 1 | Existing vLLM TP1 regression |
 
 The matrix is sized for four 80-94 GB GPUs. Qwen3-8B with FP32 AdamW state needs about
-131 GB at TP1 and about 82 GB at TP2 BF16, so TP1 is not part of it. The HF reference runs
-on one GPU; `hf_ppo_reference` keeps the AdamW moments and the BF16 FP32 masters in host
+131 GB at TP1, so TP1 is not part of it. The Megatron BF16 actor peaked at 92.9 GiB per rank
+at TP2 (B200 probe), so it runs at TP4 only and has no TP2-vs-TP4 comparison;
+`fixed_matrix.sh` holds the TP sizes of each row for the candidate and the memory probe.
+The HF reference runs on one GPU; `hf_ppo_reference` keeps the AdamW moments and the BF16 FP32 masters in host
 memory between steps (`--optimizer-state cpu`, the default) and applies the same per-tensor
 `torch.optim.AdamW` update on the GPU one parameter at a time, so the values match a
 resident optimizer bit for bit. The frozen manifest records where the reference kept it.

@@ -16,6 +16,7 @@ reference_root=$6
 acceptance_manifest=$7
 result_root=$8
 cd "$source_dir"
+source tools/validation/models/qwen3_ppo/fixed_matrix.sh
 [[ -z $(git status --porcelain) ]]
 run_id=${SLURM_JOB_ID:+job-$SLURM_JOB_ID-attempt-${SLURM_RESTART_COUNT:-0}}
 result_dir="$result_root/${run_id:-run-$(date -u +%Y%m%dT%H%M%SZ)}"
@@ -32,7 +33,8 @@ git rev-parse HEAD > "$result_dir/commit.txt"
 for engine in megatron deepspeed; do
   for precision in fp32 bf16; do
     for role in actor critic; do
-      for tp in 2 4; do
+      sizes=$(fixed_tp_sizes "$engine" "$precision" "$role")
+      for tp in $sizes; do
         run="$result_dir/$engine-$precision-$role-tp$tp"
         "$python_bin" -m torch.distributed.run --standalone --nproc_per_node="$tp" \
           -m tests.distributed.tp.check_qwen3_fixed --framework "$engine" --precision "$precision" \
@@ -45,6 +47,7 @@ for engine in megatron deepspeed; do
           --other "$run" --thresholds "$bounds" --acceptance-manifest "$acceptance_manifest" \
           --reference-root "$reference_root" --output "$run/comparison.json"
       done
+      if [[ "$sizes" != "2 4" ]]; then continue; fi
       "$python_bin" -m tools.validation.models.qwen3_ppo.compare_fixed --tp-comparison \
         --reference "$result_dir/$engine-$precision-$role-tp2" --other "$result_dir/$engine-$precision-$role-tp4" \
         --thresholds "$reference_root/$role-$precision-repeat-bounds.json" --acceptance-manifest "$acceptance_manifest" \
