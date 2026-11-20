@@ -212,3 +212,56 @@ def test_two_ranks_give_the_single_process_norm(tmp_path):
     )
     expected = norm_from_bins(reference_bins(values.tolist()))
     assert out[0] == out[1] == expected
+
+
+def _stub_megatron(monkeypatch):
+    """Install stand-in ``megatron.core.optimizer.{clip_grads,optimizer}`` modules for the test."""
+
+    import sys
+    import types
+
+    calls = []
+
+    def original(grads_for_norm, norm_type=2, grad_stats_parallel_group=None):
+        calls.append(norm_type)
+        return -1.0
+
+    clip_grads = types.ModuleType("megatron.core.optimizer.clip_grads")
+    clip_grads.get_grad_norm_fp32 = original
+    optimizer = types.ModuleType("megatron.core.optimizer.optimizer")
+    optimizer.get_grad_norm_fp32 = original
+    package = types.ModuleType("megatron.core.optimizer")
+    package.clip_grads, package.optimizer = clip_grads, optimizer
+    for name, module in {
+        "megatron": types.ModuleType("megatron"),
+        "megatron.core": types.ModuleType("megatron.core"),
+        "megatron.core.optimizer": package,
+        "megatron.core.optimizer.clip_grads": clip_grads,
+        "megatron.core.optimizer.optimizer": optimizer,
+    }.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    return clip_grads, optimizer, calls
+
+
+@CUDA
+def test_megatron_hook_returns_the_exact_norm(monkeypatch):
+    """``install`` patches both Megatron entry points with ``exact_norm`` for the L2 norm,
+    leaves other norm types to Megatron, and installs once."""
+
+    from rl_engine.ops.norm import reproducible
+
+    clip_grads, optimizer, calls = _stub_megatron(monkeypatch)
+    reproducible.install()
+    patched = clip_grads.get_grad_norm_fp32
+    assert optimizer.get_grad_norm_fp32 is patched
+    reproducible.install()
+    assert clip_grads.get_grad_norm_fp32 is patched
+
+    values = torch.randn(4099, generator=torch.Generator().manual_seed(5))
+    grads = [values[:1000].cuda(), values[1000:].cuda()]
+    expected = norm_from_bins(reference_bins(values.tolist()))
+    assert patched(grads, 2) == expected
+    assert patched(grads[0], 2.0) == norm_from_bins(reference_bins(values[:1000].tolist()))
+    assert calls == []
+    assert patched(grads, 1) == -1.0
+    assert calls == [1]
