@@ -38,6 +38,23 @@ def _args(**overrides):
     return argparse.Namespace(**values)
 
 
+def test_packed_index_select_validation_entry():
+    from rl_engine.validation.operators.op_checks import run_operator_suite
+
+    args = _args(op="packed_index_select", candidate="pytorch", batch=2, seq=7, n_dim=32)
+    inputs = make_operator_inputs("packed_index_select", args, torch.float32, torch.device("cpu"))
+    assert inputs["x"].shape == (2, 7, 32)
+    assert inputs["index"].tolist() == [3, 3, 2, 2, 1, 1, 0]
+    assert operator_shape_name("packed_index_select", args) == "2x7x32"
+    report = run_operator_suite(
+        "packed_index_select",
+        candidates=[make_candidate(args)],
+        cases=[make_operator_case(args, torch.float32, torch.device("cpu"))],
+        check_grad=True,
+    )
+    assert report.passed
+
+
 def test_video_input_projection_contract_and_logical_keys():
     args = _args(batch=2, seq=3)
     inputs = make_operator_inputs(
