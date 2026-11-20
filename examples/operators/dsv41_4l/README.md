@@ -1,111 +1,116 @@
-# DeepSeek V4.1 ROCm：组件开发与验收入口
+# DeepSeek V4.1 ROCm：真实四层模型与 GPU 验收
 
-**状态：BLOCKED，尚未完成完整 text-only 模型集成。** 本目录当前执行隔离算子、
-官方权重组件、连续 optimizer 更新和组件级 RCCL 检查，不构造四层模型。
-不能把这些结果用于宣称四层 Forward/Backward、模型 logits/logprobs 或模型级训推一致性通过。
+原始层 **0/1/2/3** 的 text-only 图已接入并执行真实 checkpoint Forward/Backward。
+已运行 TP1 PP1、PP2、TP2、TP2 PP2、PP2 DP2；逐项证据见
+[本轮模型报告](results/mi300x_model_20261120/README.md)。8 卡验收仍受 GPU 占用阻塞。
+[上一轮组件报告](results/mi300x_components_20261120/README.md) 保持原样，不能作为模型证据。
 
-唯一开发分支为 `dsv4.1-rocm`；不创建 PR，不修改 `main` / `dsv4-rocm`。
-V4 合并提交为 `4b41ae76d2b4cd3f87ba71c7b56868d888ee15bd`。
+唯一开发分支 `dsv4.1-rocm`，保留 V4 merge `4b41ae76d2b4cd3f87ba71c7b56868d888ee15bd`。
+没有修改 `main`、`dsv4-rocm` 或外部框架，没有创建 PR。
 
-## 官方来源与数值契约
+## 来源、范围和数值契约
 
-固定 checkpoint revision：`08c8657f02291e11b6f6b63e0e16014f8e748518`。
+模型 `deepseek-ai/DeepSeek-V4.1-Flash-1017`，固定 revision
+`08c8657f02291e11b6f6b63e0e16014f8e748518`。
+[composite config](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/config.json)、
+[inference model](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/inference/model.py)、
+[quantization/mHC](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/inference/kernel.py)、
+[Engram](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/inference/engram.py)。
 
-- [官方 composite config](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/config.json)
-- [官方 inference config](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/inference/config.json)
-- [官方计算定义](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/inference/model.py)
-- [官方量化与 mHC 定义](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/inference/kernel.py)
-- [官方 Engram 哈希定义](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/08c8657f02291e11b6f6b63e0e16014f8e748518/inference/engram.py)
+四层保留 hidden5120、64 heads、384 experts/top6、HC4、原始层号与压缩率 0/0/2/2。
+Engram 在层 1，层 2 生成 compressed KV/index，层 3 消费同一 source state。
+额外的真实权重隔离测试覆盖 Engram14、KV sources8/14/20、index sources24/28/32/36、C1/C2。
+这些隔离测试不构成后续完整 block 或完整40层验证。
 
-配置来自 `text_config`；不套用 V4 的默认值。原始层 0/1/2/3 的压缩率为 0/0/2/2，
-layer 1 包含 Engram，layer 2 产生被 layer 3 复用的 KV/index 状态。
-配置规划器拒绝缺失 source 的层选择，不重编号原始层。
-layer 14 Engram、KV sources 8/14/20 和 index sources 的配置依赖已经覆盖；
-这些 source 层的真实计算尚未全部覆盖。
+当前训练 profile 为 `dsv41-text-frozen-quant-embedding-head-input-ste-shared-kernels-v1`：
 
-V4.1 激活 FP8 scale 是 `2**ceil(log2(max(amax, 1e-4)/448))`，
-与现有 V4 packed-MX quantizer 的规则不同。FP8 权重 scale 为 32×32；
-FP4 expert 是按 K 每 32 个元素一个 E8M0 scale，原始 checkpoint 以 I8 保存打包字节。
-expert 每次 projection 先舍入 BF16，再以 FP32 进入 clamp/SwiGLU。
-RMSNorm 使用配置中的 `1e-20`；Engram 按每个 HC copy 独立归一化。
-
-当前 packed 权重和量化 scale 均冻结，激活量化 backward 明确采用 identity STE。
-已验证 input / routing / norm / Engram gain / compressor dense-weight 梯度；
-没有实现或声称 packed FP8/FP4 权重的可学习量化梯度。
+- 原始 packed FP8/FP4 权重及 scales、embedding、head 冻结；其余 dense/FP32 参数可求梯度和更新。
+  尚未实现 packed 权重的可学习量化或全参数训练。
+- 激活量化 VJP 使用明确的 identity STE。离散 index top-k 不制造梯度；没有新增 indexer 辅助训练损失。
+- RMS epsilon `1e-20`；mHC epsilon `1e-6`、20 次 Sinkhorn；mHC pre 延迟至下一 sublayer 使用。
+- FP8 权重 block32×32，激活 scale `2**ceil(log2(max(amax,1e-4)/448))`。
+  Indexer FP4 group32/E8M0；compressed KV FP4 group16/E4M3；不添加 V4 Hadamard。
+- sparse attention 复用固定 AITER forward/CSR backward；codec、RMSNorm、mHC、路由/合并使用 RLK Triton。
+  非量化 dense/grouped projection 和控制器明确使用 PyTorch ROCm library GEMM。
+- head 将原 BF16 权重精确提升 FP32，输出完整 FP32 logits 和未舍入的 FP32 token logprobs。
+  默认输出相邻 token 的 logprobs；`target_ids` 可为 decode 的每个位置指定真实目标。
+- 训练 autograd 与 `torch.inference_mode()` 共享 kernels：只能称 **shared-kernel parity**。
+  没有独立训练/推理后端或跨框架 bitwise 结论。
+- TP 目前分片 attention Q heads、输出 groups、wo_b 输入维，复制 FFN 和 source caches。
+  分片投影按 BF16 求和，与 TP1 的未分片 GEMM 是不同数值契约。
+- PP2 cut 位于层1和层2之间，P2P 传递 residual 与 delayed-pre 及各自 VJP。
+  不支持将同一 source 与其消费者任意拆到不同 pipeline stage；EP/CP 未接入此模型。
+- 支持全有效 text tokens、连续 positions、prefill 后单 token decode。
+  任意 padding mask/非连续 position 会明确报错。Engram 只加载本次输入实际需要的真实行；缺行报错。
 
 ## Compatibility matrix
 
-`Action` 是适配动作；最后一列另列当前实现和实际覆盖，不能据此推断完整模型通过。
-路径均相对仓库根目录。
+路径相对仓库根目录。PASS 只覆盖报告记录的形状、权重和 topology。
 
-| Module | Existing V4 path | V4.1 change | Action | Test coverage / current status |
+| Module | Existing V4 path | V4.1 change | Action | Test coverage |
 | --- | --- | --- | --- | --- |
-| Model config | `rl_engine/models/deepseek_v4/` component contracts | composite text config、40 层、5120 hidden | IMPLEMENT | parser、原始层/source 规划与 topology 算术 PASS；model builder BLOCKED |
-| Checkpoint loading | `rl_engine/backends/rocm/gemm/checkpoint_fp8.py` | 原名 layer keys、FP8 block32、Engram 大表 | MODIFY | 固定 revision 按 tensor/按行加载 PASS；完整模型绑定 BLOCKED |
-| RMSNorm | `rl_engine/backends/rocm/norm/rmsnorm_residual.py` | epsilon 1e-20，5120/1280 等维度 | IMPLEMENT | 新 Triton forward/dx/dweight、dtype/shape/replay PASS |
-| Q projection / LoRA | `rl_engine/backends/rocm/gemm/checkpoint_fp8.py` | q rank 1280，block32 | IMPLEMENT | 官方 layer 2 wq_a forward/input STE PASS；V4.1 LoRA 未接入 |
-| RoPE | `rl_engine/models/deepseek_v4/partial_rope.py` | source 共享且无 V4 indexer Hadamard | MODIFY | 尚未接入 V4.1；BLOCKED |
-| Attention | `rl_engine/models/deepseek_v4/joint_attention.py` | 共享压缩 KV，source-owned indexer | MODIFY | 完整 attention forward/backward BLOCKED |
-| KV compressor | `rl_engine/models/deepseek_v4/kv_compressor_c4.py`、`kv_compressor_c128.py` | C1/C2，无 V4 overlap/position bias | IMPLEMENT | C2 pooling及官方 layer 2 compressor 全梯度、partial/decode/reset PASS；C1完整层未验证 |
-| Indexer | `rl_engine/models/deepseek_v4/indexer_training.py` | 32 heads、共享 key、candidate blocks | IMPLEMENT | 参数/source 规划 PASS；计算路径 BLOCKED |
-| Sparse attention | `rl_engine/backends/rocm/attention/native_sparse.py` | 新 KV/index operand binding | MODIFY | V4 后端保留；V4.1 operand 接线/数值验收 BLOCKED |
-| KV cache/state | `rl_engine/models/deepseek_v4/compressor_state.py` | 跨层压缩 KV/index/candidate 生命周期 | IMPLEMENT | compressor 与 hash 自身 state PASS；跨层 attention state BLOCKED |
-| MoE router | `rl_engine/models/deepseek_v4/gate.py`、`hash_router.py` | 384 experts，全部采用 V4.1 learned routing | MODIFY | V4.1 router/dispatch BLOCKED |
-| Expert forward | `rl_engine/backends/rocm/moe/packed_mx.py` | hidden5120/ffn2304，ceil-scale，BF16边界 | MODIFY | 原 FP4 GEMM 复用；官方 layer 2 expert 0 PASS |
-| Expert backward | `rl_engine/models/deepseek_v4/expert_training.py` | 保留新 projection 边界的 input/routing VJP | MODIFY | 官方 expert input/routing 梯度 PASS；384-expert整体未验证 |
-| mHC | `rl_engine/backends/rocm/mhc/triton_mhc.py` | pre-mix 由前一 sublayer 传入，RMS eps 改变 | MODIFY | 不直接冒用 V4 layer semantics；V4.1 delayed-mix 集成 BLOCKED |
-| Engram | V4 无对应组件 | tokenizer 压缩、ngram、FP8表、gated residual | IMPLEMENT | 真实 tokenizer、layer1/14 hash、真实4行 lookup、gate forward/backward PASS；完整 wkv/table 绑定未验证 |
-| Residual/output merge | `rl_engine/models/deepseek_v4/layer_end.py` | delayed pre-mix、Engram前置、终层collapse | MODIFY | V4.1 模型 merge/head 接线 BLOCKED |
-| PP/TP/EP/CP | V4 parallel/PP/CP modules | source state 跨 stage/rank 所有权 | IMPLEMENT | 仅配置算术 PASS；模型各 topology BLOCKED |
-| Model autograd | V4 component autograd / integrations | 完整 V4.1 text-only 图 | IMPLEMENT | 已实现组件有 autograd；四层模型图 BLOCKED |
-| Quantization scales | `rl_engine/backends/rocm/gemm/checkpoint_fp8.py`、`moe/packed_mx.py` | FP8 block32、FP4专家、两种FP4 activation scale | MODIFY | FP8激活/权重和FP4 expert PASS；attention KV FP4 scale16/E4M3与index FP4路径 BLOCKED |
-| Distributed communication | `rl_engine/models/deepseek_v4/parallel_collectives.py` | 模型 rank/state 与更新后权重同步 | REUSE | 2/4 rank RCCL gradient smoke/replay PASS；模型通信与权重同步 BLOCKED |
+| Model config | `models/deepseek_v4/` | composite config、原始 source 依赖 | IMPLEMENT | parser/source planning PASS |
+| Checkpoint | `backends/rocm/gemm/checkpoint_fp8.py` | 原始 tensor/scales、精确 HTTP ranges | MODIFY | 原始四层完整绑定 PASS |
+| RMSNorm | `backends/rocm/norm/` | eps1e-20 | IMPLEMENT | forward/input/gain VJP PASS |
+| Q / LoRA | `models/deepseek_v4/lora.py` | rank1280、block32 | MODIFY | Q forward/input VJP PASS；V4.1 LoRA NOT RUN |
+| RoPE | `models/deepseek_v4/partial_rope.py` | YaRN、无 index Hadamard | IMPLEMENT | GPU forward/transpose VJP PASS |
+| Attention | `backends/rocm/attention/native_sparse.py` | C1/C2 source-owned operands | MODIFY | 四层及后续 source 隔离 Forward/Backward PASS |
+| Compressor | `models/deepseek_v4/kv_compressor_c4.py` | C1/C2、partial group | IMPLEMENT | 2/8/14/20、decode、dense weight VJP PASS |
+| Indexer | `models/deepseek_v4/indexer_training.py` | group32 FP4、shared key、candidate blocks | IMPLEMENT | 2/8/14/20/24/28/32/36 前向 PASS；无辅助训练损失 |
+| Sparse attention | `backends/rocm/attention/native_sparse.py` | 新 KV/index binding | REUSE | AITER forward/CSR VJP 实际执行 PASS |
+| KV state | `models/deepseek_v4/compressor_state.py` | 原始 owner、跨层复用 | IMPLEMENT | 四层/后续source、reset/partial/decode PASS |
+| MoE router | `models/deepseek_v4/gate.py` | 384-way sqrtsoftplus/top6 | IMPLEMENT | selection、route VJP、重放 PASS |
+| Expert forward | `backends/rocm/moe/packed_mx.py` | ceil-scale、BF16 boundaries | MODIFY | 真实 FP4 routed + FP8 shared expert PASS |
+| Expert backward | `models/deepseek_v4/expert_training.py` | input/route VJP | MODIFY | 选中 experts VJP PASS；packed weight grads 未实现 |
+| mHC | `backends/rocm/mhc/triton_mhc.py` | delayed-pre、FP32 controller | IMPLEMENT | controller/gains/Sinkhorn/collapse/post VJP PASS |
+| Engram | V4 无 | compressed tokenizer/hash/real-row lookup/gate | IMPLEMENT | 1/14 实际 weights、gain/input VJP PASS |
+| Residual / head | `models/deepseek_v4/layer_end.py` | delayed pre、final collapse、FP32 head | IMPLEMENT | 四层 hidden/logits/raw logprobs PASS |
+| TP/PP/DP/EP/CP | V4 parallel modules | attention TP、PP边界、DP梯度/权重同步 | IMPLEMENT | TP1/2、PP2、DP2 已测；EP/CP 不支持；8卡 BLOCKED |
+| Autograd | V4 component autograd | 四层连接图、状态保留 graph | IMPLEMENT | 四层/跨 decode backward PASS；非全参数训练 |
+| Quantization | `backends/rocm/gemm/`、`moe/` | FP8 block32、两种 FP4 activation scales | MODIFY | GPU codec/reference/STE/replay PASS |
+| Communication | V4 distributed components | 模型 activation/VJP 和 DP 参数 | MODIFY | 实际模型 P2P/RCCL、重放及同步见逐项报告 |
 
-## 可复现运行
+## 模型复现
 
-使用原测试机已存在的镜像：
-`rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x`。
-该标签是本地依赖镜像，当前不是公共 registry 下载地址。
-镜像 ID 已保存于结果目录 `1gpu/image.json`；复现需要取得相同依赖环境。
-运行时通过只读 mount 使用已提交的 RLK 源码，不使用镜像中较旧的 RLK 实现。
-不修改镜像内的 vime、verl 或 vLLM 源码。
+测试镜像 `rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x` 是本机已有依赖镜像，
+不是公共下载地址。实际 image ID 和源码 commit 保存在每次运行的 provenance 中。
+源码只读挂载，未修改镜像内 vime/verl/vLLM。GPU CSV 必须空闲，launcher 不终止任务。
+以下命令在仓库根目录执行，每个输出目录必须尚不存在。
 
-从仓库根目录，在干净且已提交的 `dsv4.1-rocm` 工作树执行：
+先在同镜像的 CPU 容器内下载精确权重；`--metadata` 指向已保存的官方 config 目录：
 
 ```bash
-# 新目录；GPU CSV 必须全部空闲。脚本逐个检查，不会终止其他任务。
-examples/operators/dsv41_4l/reproduce.sh \
-  rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x \
-  7 /home/rl-kernel/dsv41-reproduce-single
+python -m examples.operators.dsv41_4l.fetch_model_weights /artifacts/model-4l \
+  --metadata /artifacts/official/DeepSeek-V4.1-Flash-1017
+python -m examples.operators.dsv41_4l.fetch_attention_weights /artifacts/attention-sources
 ```
 
-已有权重切片时，单独执行记录式验收：
+主体四层约31GB，包含384个专家的全部原始 tensors/scales；不会用随机权重补缺。
+Engram 仅获取 `cases.json` 中三组真实 tokenizer 输入所需行，缺失原始行必须重新准备。
+checkpoint 与 baseline/outputs 大文件保存在 `/home/rl-kernel/dsv41-artifacts/`，不提交到 Git。
 
 ```bash
-examples/operators/dsv41_4l/run_operator_acceptance.sh \
-  rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x \
-  2,4 /home/rl-kernel/dsv41-artifacts/checkpoint-slice \
-  /home/rl-kernel/dsv41-reproduce-two /home/rl-kernel/dsv41-reproduce-cache
+image=rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x
+weights=/home/rl-kernel/dsv41-artifacts/model-4l
+out=/home/rl-kernel/dsv41-new-reproduction
+mkdir "$out"
+run=examples/operators/dsv41_4l/run_model_gpu.sh
+"$run" "$image" 6 "$weights" "$out/tp1" 1 1 1 -
+"$run" "$image" 5,7 "$weights" "$out/tp2" 2 1 1 -
+"$run" "$image" 1,2 "$weights" "$out/pp2" 1 2 1 "$out/tp1/baseline.pt"
+"$run" "$image" 1,2,3,4 "$weights" "$out/tp2pp2" 2 2 1 "$out/tp2"
+DSV41_MODEL_OPTIMIZER_STEPS=2 "$run" "$image" 1,2,3,4 "$weights" \
+  "$out/pp2dp2" 1 2 2 "$out/tp1/baseline.pt"
 ```
 
-`fetch_operator_weights.py` 只下载当前组件需要的约 35 MiB tensor 和 4 个真实 Engram 行，
-不会生成伪造状态，也不会把该切片命名为四层 checkpoint。
-`PinnedCheckpointReader` 要求固定 SHA、HTTP 206 与精确 Content-Range；
-服务端忽略 range 时，在读取大型 body 前报错。缺失 tensor 或 Engram 行必须报错。
+`run_model_state.py` 运行真实四层奇数 prefill 和连续 decode Backward；
+`run_training_stress.py` 覆盖 seeds17/1234、两组不同 prompt 梯度累积、batch1/2、长度7/8、
+两次 SGD 更新、整段重放和更新后 shared-kernel parity。详细命令及实际状态见本轮报告。
 
-`operator_acceptance.py` 分别报告容差 correctness、storage-bit replay、
-operator autograd-forward/inference-mode parity。两种 mode 共享相同算子 kernel，
-没有跨后端或跨框架一致性结论。2/4 rank 还执行 RCCL 梯度重复归约和数值检查，
-不是 TP/PP/EP/CP 模型执行。没有跨 topology bitwise equality 结论。
+`compare_bits` 比较原 dtype 的 storage bytes，区分 signed zero/NaN payload，不使用 allclose 或舍入。
+Operator correctness 的 reference 数值容差测试单列；其 PASS 不等于独立模型后端 bitwise PASS。
+所有 mismatch 保存 first operator/layer-key/rank/bit patterns。数量是包含重复比较的存储元素数。
 
-## 已测结果及剩余工作
-
-见 [2026-11-20 实测报告](results/mi300x_components_20261120/README.md)、
-[summary.json](results/mi300x_components_20261120/summary.json) 和
-[consistency.csv](results/mi300x_components_20261120/consistency.csv)。
-
-下一阶段必须实现模型 construction、attention/indexer/candidate 与跨层状态、
-delayed mHC、384-expert 路由/合并、shared expert 和最终 norm/head，
-然后按原始 layers 0/1/2/3 实测 Forward/Backward、logits/raw FP32 logprobs 和独立模型级训推路径。
-这些是**尚未完成的开发**，不是由于外部训练框架不支持而免除的验收项目。
-完整模型不在当前已验证范围内。
+组件级旧入口 `reproduce.sh` / `run_operator_acceptance.sh` 继续保留；它们执行的是隔离组件，
+不是上述模型 launcher。40层、全参数训练、独立后端、长上下文 candidate pruning 和全部 topology
+仍不能由当前结果推断通过。
