@@ -308,7 +308,10 @@ class _MlpUpGemmGeluFunction(torch.autograd.Function):
         from rl_engine.ops.autograd.backward_runtime import record_backward
 
         x2d, weight, bias, pre = ctx.saved_tensors
-        if pre.numel() == 0:
+        # `emit_pre` is the decision the forward recorded; `pre.numel()` cannot
+        # stand in for it because an empty batch legitimately materializes a
+        # [0, N] pre-activation (numel 0) that the gate/db kernels handle.
+        if not ctx.emit_pre:
             raise RuntimeError(
                 "mlp_up_gemm_gelu: the forward ran without materializing the fp32 "
                 "pre-activation (it was inferred that no gradient could be requested), "
