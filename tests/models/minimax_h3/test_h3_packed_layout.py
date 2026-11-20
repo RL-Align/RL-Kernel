@@ -361,6 +361,27 @@ def test_artifact_is_sealed_and_names_the_first_difference(tmp_path):
         pl.check_pipeline_identity(other, artifact=artifact)
 
 
+def test_artifact_identity_covers_what_the_tensors_do_not():
+    # Same tensors, same structural workflow, but other condition counts or geometry: the
+    # row-timestep plan or the initial rows would differ from what was sealed.
+    keyframed = _toy_layout("fl2va", cond=2)
+    keyframed.position_ids[3:5, 0] = 3.0  # keyframes on the target's first frame time
+    referenced = _toy_layout("ref2va", cond=2, origin_shift=1.0)
+    for layout, change in (
+        (keyframed, {"num_condition_video_rows": 1}),
+        (referenced, {"num_condition_audio_rows": 1}),
+        (keyframed, {"geometry": {"toy": False}}),
+    ):
+        artifact = pl.layout_artifact(layout)
+        changed = dataclasses.replace(layout, **change)
+        changed.validate()
+        assert pl.structural_workflow(changed) == pl.structural_workflow(layout)
+        assert changed.component_hashes() == layout.component_hashes()
+        with pytest.raises(pl.VariantMismatch, match=f"artifact {next(iter(change))} does not"):
+            pl.check_pipeline_identity(changed, artifact=artifact)
+        pl.check_pipeline_identity(layout, artifact=artifact)
+
+
 def test_denoiser_inputs_move_without_a_byte_change():
     layout = _toy_layout("fl2va", cond=2)
     device = "cuda" if torch.cuda.is_available() else "cpu"
