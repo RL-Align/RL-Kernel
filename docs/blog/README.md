@@ -4,6 +4,14 @@ Release notes and engineering writeups for RL-Kernel.
 
 <div class="grid cards" markdown>
 
+-   **[RL-Kernel Train–Rollout Consistency: A Practical Guide](2026-11-02-rl-kernel-practical-guide.md)**
+
+    ---
+
+    Why exact training/rollout agreement matters in RL post-training, with
+    commands to configure Qwen3-8B on H100 or MI300X, check consistency, and
+    compare native execution.
+
 -   **[RL-Kernel v0.1.0: Achieving Bitwise Consistency Between Training and Rollout](2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md)**
 
     ---
