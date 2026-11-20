@@ -329,6 +329,18 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
     ]
 
 
+def test_npu_mlp_down_gemm_row_fails_closed(monkeypatch):
+    """NPU must not inherit the CPU reference: this row has no NPU kernel."""
+
+    registry = KernelRegistry()
+    assert registry._priority_map["npu"]["mlp_down_gemm"] == []
+
+    monkeypatch.setattr(device_ctx, "device_type", "npu")
+    monkeypatch.setattr(device_ctx, "is_rocm", False)
+    with pytest.raises(RuntimeError, match="No functional backend found for mlp_down_gemm on npu"):
+        registry.get_op("mlp_down_gemm")
+
+
 def test_npu_available_handles_runtime_failure(monkeypatch):
     class BrokenNPU:
         @staticmethod

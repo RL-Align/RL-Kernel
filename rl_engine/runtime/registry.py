@@ -804,19 +804,10 @@ class KernelRegistry:
                 # gold with itself.
                 "mlp_down_gemm": [OpBackend.PYTORCH_MLP_DOWN_GEMM],
             },
-            # Ascend NPU: op types without an entry fall back to their CPU
-            # candidates (see the runtime override below), so only
-            # Ascend-accelerated ops are listed.
-            "npu": {
-                "batch_invariant_logp": [
-                    OpBackend.ASCEND_BATCH_INVARIANT_LOGP,
-                    OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
-                ],
-                "attention": [
-                    OpBackend.ASCEND_DETERMINISTIC_ATTENTION,
-                    OpBackend.PYTORCH_NATIVE_ATTENTION,
-                ],
-            },
+            # Ascend NPU is filled from the CPU candidates immediately below,
+            # then the Ascend-accelerated rows are overridden. Dispatch preserves
+            # an explicitly empty list (fail closed) instead of falling back.
+            "npu": {},
         }
         # Preserve the former CPU fallback behavior for every operator on NPU,
         # then override only the operators with an Ascend-specific backend.
