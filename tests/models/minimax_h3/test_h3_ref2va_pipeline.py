@@ -319,6 +319,13 @@ def test_reference_blocks_pair_encoder_outputs_with_kinds():
         )
     with pytest.raises(ValueError, match="1 latent frame"):
         ref2va.reference_blocks([("image", False)], [(1, 24, 2, 8, 8)], [])
+    # Fewer encoder outputs than references that need them.
+    with pytest.raises(ValueError, match="fewer visual latents"):
+        ref2va.reference_blocks(kinds, [(1, 24, 1, 8, 12), (1, 24, 7, 8, 14)], [20, 10])
+    with pytest.raises(ValueError, match="fewer soundtracks"):
+        ref2va.reference_blocks(
+            kinds, [(1, 24, 1, 8, 12), (1, 24, 7, 8, 14), (1, 24, 2, 4, 4)], [20]
+        )
 
 
 def test_clock_advance_per_reference_kind():
@@ -453,6 +460,8 @@ def test_transformer_ref_maps_through_the_shared_tables():
     assert len(mapped.state) == 638 - 2 * 52  # q/k/v fused per attention (50 blocks + 2 refiners)
     with pytest.raises(pl.VariantMismatch, match="not the transformer_ref"):
         ref2va.map_transformer_ref(state, source_variant="FL2VA")
+    with pytest.raises(pl.VariantMismatch, match="not the transformer_ref"):
+        ref2va.map_transformer_ref(state, source_variant="ref2va")  # a workflow name
 
 
 def test_ref2va_layout_refuses_fl2va_pieces():

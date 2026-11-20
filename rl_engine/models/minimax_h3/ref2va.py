@@ -437,9 +437,14 @@ def reference_blocks(
     audio = iter(int(n) for n in audio_row_counts)
     blocks = []
     for kind, has_audio in kinds_with_audio:
-        rows = next(audio) if has_audio else 0
+        rows = next(audio, None) if has_audio else 0
+        if rows is None:
+            raise ValueError("fewer soundtracks than references that carry sound")
         if kind in ("image", "video"):
-            frames, height, width = next(visual)
+            shape = next(visual, None)
+            if shape is None:
+                raise ValueError("fewer visual latents than image and video references")
+            frames, height, width = shape
             if kind == "image" and frames != 1:
                 raise ValueError(f"an image reference encodes to 1 latent frame, got {frames}")
             blocks.append(ReferenceBlock(kind, frames, height, width, rows))
@@ -641,9 +646,10 @@ def map_transformer_ref(
     """
 
     if source_variant != "Ref2VA":
+        known = pl.PIPELINES.get(source_variant)
+        where = f"{known.transformer_dir}/" if known is not None else "unknown variant"
         raise pl.VariantMismatch(
-            f"{source_variant} weights ({pl.PIPELINES[source_variant].transformer_dir}/) are not "
-            "the transformer_ref partition"
+            f"{source_variant} weights ({where}) are not the transformer_ref partition"
         )
     native = checkpoint_mapper.diffusers_to_native(state, qkv_layout=qkv_layout)
     return VariantState("Ref2VA", pl.PIPELINES["Ref2VA"].transformer_dir, native)
