@@ -96,11 +96,15 @@ def write_table(path: Path, header: list[str], rows: list[list[str]], source: st
 
 
 def max_abs(entry: dict) -> float:
-    """``max_abs`` of a comparison; NaN when the report has none (``null``, or ``NaN`` in
-    reports written before the evidence tool switched to strict JSON)."""
+    """``max_abs`` of a comparison; NaN ("differs") when the report has none (``null``, or
+    ``NaN`` in reports written before the evidence tool switched to strict JSON), and when
+    the values are equal but the bytes are not (``-0.0`` vs ``0.0``, another dtype), so a
+    zero is charted as bitwise only when it is."""
 
     value = entry["max_abs"]
-    return math.nan if value is None else float(value)
+    if value is None or (value == 0.0 and entry.get("bitwise_equal") is False):
+        return math.nan
+    return float(value)
 
 
 def accuracy_rows(report: dict) -> list[tuple[str, float]]:

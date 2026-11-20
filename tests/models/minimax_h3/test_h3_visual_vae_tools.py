@@ -61,6 +61,26 @@ def test_cmp_records_a_max_on_shape_mismatch() -> None:
     assert ev._cmp(torch.zeros(2), torch.tensor([0.0, math.nan]))["max_abs"] is None
 
 
+def test_cmp_compares_bytes_and_dtypes() -> None:
+    wide = ev._cmp(torch.tensor([0.5, 1.0]), torch.tensor([0.5, 1.0], dtype=torch.float16))
+    assert wide["bitwise_equal"] is False and wide["same_dtype"] is False
+    signed_zero = ev._cmp(torch.tensor([0.0, 1.0]), torch.tensor([-0.0, 1.0]))
+    assert signed_zero["bitwise_equal"] is False and signed_zero["mismatches"] == 1
+    assert signed_zero["max_abs"] == 0.0
+    nan = torch.tensor([math.nan, 1.0])
+    same_nan = ev._cmp(nan, nan.clone())
+    assert same_nan["bitwise_equal"] is True and same_nan["mismatches"] == 0
+    assert same_nan["max_abs"] == 0.0
+    equal = ev._cmp(torch.arange(6.0).view(2, 3), torch.arange(6.0).view(2, 3))
+    assert equal == {
+        "bitwise_equal": True,
+        "same_dtype": True,
+        "max_abs": 0.0,
+        "mismatches": 0,
+        "numel": 6,
+    }
+
+
 def _strict_loads(text: str):
     def reject(name: str):
         raise ValueError(f"non-standard JSON constant {name}")
@@ -165,6 +185,13 @@ def test_accuracy_rows_state_the_recorded_repeat_count(plot) -> None:
 def test_shape_mismatch_charts_as_differs(plot, missing) -> None:
     rows = plot.accuracy_rows(_report("NVIDIA B200", max_abs=missing))
     assert plot.fmt_delta(rows[3][1]) == plot.DIFFERS
+
+
+def test_equal_values_with_other_bytes_chart_as_differs(plot) -> None:
+    assert plot.max_abs({"max_abs": 0.0, "bitwise_equal": False}) != 0.0
+    assert plot.max_abs({"max_abs": 0.0, "bitwise_equal": True}) == 0.0
+    assert plot.max_abs({"max_abs": 0.0}) == 0.0  # parity entries without the flag
+    assert plot.fmt_delta(plot.max_abs({"max_abs": 0.0, "bitwise_equal": False})) == plot.DIFFERS
 
 
 def test_contract_batch_cases_are_charted_per_case(plot) -> None:
