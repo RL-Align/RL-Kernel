@@ -38,6 +38,12 @@ class OperatorReadback:
         return payload
 
 
+def _resolve_readback_dir(value: str | None) -> str | None:
+    if value is not None:
+        return value.strip() or None
+    return os.getenv("RL_KERNEL_READBACK_DIR", "").strip() or None
+
+
 class FrameworkOperatorIntegration:
     """Route framework calls without importing or modifying framework packages."""
 
@@ -48,10 +54,12 @@ class FrameworkOperatorIntegration:
         target: str,
         plan: IntegrationPlan,
         rl_kernel_operators: Mapping[str, Callable[..., Any]],
+        readback_dir: str | None = None,
     ) -> None:
         self.framework = framework
         self.target = target
         self.plan = plan
+        self._readback_dir = _resolve_readback_dir(readback_dir)
         self._rl_kernel_operators = dict(rl_kernel_operators)
         self._counts: Counter[str] = Counter()
         self._profile_counts: Counter[str] = Counter()
@@ -61,7 +69,7 @@ class FrameworkOperatorIntegration:
         self._reported_routes: set[str] = set()
         self._persisted_route_fingerprints: dict[str, tuple[Any, ...]] = {}
         self._lock = Lock()
-        if os.getenv("RL_KERNEL_READBACK_DIR", "").strip():
+        if self._readback_dir:
             atexit.register(self._persist_readback)
 
     def install_operator(self, module: str, operator: Callable[..., Any]) -> None:
@@ -282,10 +290,9 @@ class FrameworkOperatorIntegration:
             )
 
     def _persist_readback(self) -> None:
-        directory = os.getenv("RL_KERNEL_READBACK_DIR", "").strip()
-        if not directory:
+        if not self._readback_dir:
             return
-        target = Path(directory)
+        target = Path(self._readback_dir)
         target.mkdir(parents=True, exist_ok=True)
         path = target / f"{self.framework}-{self.target}-{os.getpid()}.json"
         temporary = path.with_suffix(".tmp")
