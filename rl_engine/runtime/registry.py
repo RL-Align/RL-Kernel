@@ -116,6 +116,26 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.reference.model_specific.qwenimage."
         "adaln_mod_projection.QwenImageAdaLNModProjectionReference"
     )
+    PYTORCH_LATENT_PACK = (
+        "rl_engine.reference.model_specific.qwenimage.latent_pack_unpack.NativeLatentPackOp"
+    )
+    PYTORCH_LATENT_UNPACK = (
+        "rl_engine.reference.model_specific.qwenimage.latent_pack_unpack.NativeLatentUnpackOp"
+    )
+    CUDA_LATENT_PACK = (
+        "rl_engine.backends.cuda.model_specific.qwenimage.latent_pack_unpack.CudaLatentPackOp"
+    )
+    CUDA_LATENT_UNPACK = (
+        "rl_engine.backends.cuda.model_specific.qwenimage.latent_pack_unpack.CudaLatentUnpackOp"
+    )
+    TRITON_LATENT_PACK = (
+        "rl_engine.backends.shared.triton.model_specific.qwenimage."
+        "latent_pack_unpack.TritonLatentPackOp"
+    )
+    TRITON_LATENT_UNPACK = (
+        "rl_engine.backends.shared.triton.model_specific.qwenimage."
+        "latent_pack_unpack.TritonLatentUnpackOp"
+    )
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     TRITON_DET_GEMM = "rl_engine.kernels.ops.triton.matmul.det_gemm.TritonDetGemmOp"
@@ -803,6 +823,16 @@ class KernelRegistry:
         self._priority_map["cpu"]["qwenimage_adaln_mod_projection"] = [
             OpBackend.PYTORCH_QWENIMAGE_ADALN_MOD_PROJECTION
         ]
+        # Qwen-Image latent pack/unpack are exact permutations; every platform
+        # keeps the bit-identical PyTorch reference as the final fallback.
+        for platform, ops in self._priority_map.items():
+            for direction in ("PACK", "UNPACK"):
+                backends = [OpBackend[f"PYTORCH_LATENT_{direction}"]]
+                if platform in ("cuda", "rocm"):
+                    backends.insert(0, OpBackend[f"TRITON_LATENT_{direction}"])
+                if platform == "cuda":
+                    backends.insert(0, OpBackend[f"CUDA_LATENT_{direction}"])
+                ops[f"latent_{direction.lower()}"] = backends
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
