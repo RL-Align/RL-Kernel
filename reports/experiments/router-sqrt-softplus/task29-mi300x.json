@@ -1,0 +1,434 @@
+{
+  "schema": "rlkernel.router_sqrt_softplus.task29.v1",
+  "created_utc": "2026-10-27T03:45:51.899197+00:00",
+  "fixture": {
+    "kind": "synthetic_fp32_logits_and_upstream",
+    "cpu_seed": 29,
+    "experts": 256,
+    "model_weights_used": false,
+    "tokenizer_used": false,
+    "row_sha256": "c3360467aa5baa4d8d63350106deb6bd73e8a3cc41d7707a09daeac232a49393",
+    "grad_row_sha256": "b8a3c94f0ebf1d610ddfc1f7389f45fe0ab0f6ba70a13eab0ab3d487377e251e",
+    "edge_values": [
+      -3.4028234663852886e+38,
+      -1000.0,
+      -400.0,
+      -300.0,
+      -220.0,
+      -200.0,
+      -180.0,
+      -160.0,
+      -120.0,
+      -100.0,
+      -80.0,
+      -20.0,
+      -16.0,
+      -1.0,
+      -0.0,
+      0.0,
+      1.0,
+      20.0,
+      80.0,
+      1000.0,
+      3.4028234663852886e+38
+    ]
+  },
+  "accuracy": {
+    "score_rtol": 5e-07,
+    "vjp_rtol": 2e-05,
+    "subnormal_atol": 1.1210387714598537e-44,
+    "oracle": "independent CPU FP64 logaddexp/sqrt and analytic VJP"
+  },
+  "timing": {
+    "warmup": 10,
+    "samples": 30,
+    "method": "GPU events around Python calls",
+    "adapter_includes": "validation, finite checks, synchronization, provenance, autograd"
+  },
+  "cases": [
+    {
+      "m": 1,
+      "positions": [
+        0
+      ],
+      "input_sha256": "c3360467aa5baa4d8d63350106deb6bd73e8a3cc41d7707a09daeac232a49393",
+      "upstream_sha256": "b8a3c94f0ebf1d610ddfc1f7389f45fe0ab0f6ba70a13eab0ab3d487377e251e",
+      "scores_sha256": "795d730f561856b3b73312c55a5fa50e81ce68d21383258ea5689dbe2833df30",
+      "vjp_sha256": "7885d28ed7a33ac2d84a5f69a27220ee0b2d2bc69cfcde5f864bdd0065af5405",
+      "row_score_bit_mismatches": 0,
+      "row_vjp_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "max_normal_score_relative_error_vs_fp64": 7.152954705038281e-08,
+      "max_normal_vjp_relative_error_vs_fp64": 5.876967768415402e-06,
+      "median_adapter_forward_us": 117.26650223135948,
+      "median_aiter_forward_us": 27.74300053715706,
+      "median_aiter_backward_us": 31.91250003874302,
+      "execution": {
+        "task": 29,
+        "contract_id": "rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+        "actual_backend": "aiter.triton.router_sqrt_softplus",
+        "aiter_base_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+        "aiter_companion_patch": "router-sqrt-softplus.patch",
+        "aiter_patch_sha256": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+        "source_sha256": {
+          "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e",
+          "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+          "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9"
+        },
+        "forward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_fwd",
+        "backward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_bwd",
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "triton": "3.7.0",
+        "config": {
+          "block_size": 256,
+          "num_warps": 4,
+          "num_stages": 1,
+          "enable_fp_fusion": false
+        },
+        "graph": false,
+        "input_dtype": "float32",
+        "output_dtype": "float32",
+        "input_shape": [
+          1,
+          256
+        ],
+        "input_stride": [
+          256,
+          1
+        ],
+        "input_domain": "finite FP32",
+        "kernel_launched": true,
+        "model_version": "task29-synthetic-arithmetic-v1",
+        "grad_enabled": true,
+        "requires_grad": true
+      }
+    },
+    {
+      "m": 16,
+      "positions": [
+        0,
+        8,
+        15
+      ],
+      "input_sha256": "2496711cda4a7032f8be6a1db781763a100c5666dbe9526b18ca4d13fa4b92af",
+      "upstream_sha256": "b1797063db32e9acad7acb6a22882e1082120531c64fcd520b2d063d066f8ac1",
+      "scores_sha256": "97535d3e882ae158cef3e3b45213da4625a50028e41bf3307a4d64eb020c6256",
+      "vjp_sha256": "a5b1aad6a66dc528574db1b737aa52b4911e110894c21642deb9195d0c1670cb",
+      "row_score_bit_mismatches": 0,
+      "row_vjp_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "max_normal_score_relative_error_vs_fp64": 1.1545002540620932e-07,
+      "max_normal_vjp_relative_error_vs_fp64": 5.876967768415402e-06,
+      "median_adapter_forward_us": 116.78550019860268,
+      "median_aiter_forward_us": 27.54299994558096,
+      "median_aiter_backward_us": 30.950999818742275,
+      "execution": {
+        "task": 29,
+        "contract_id": "rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+        "actual_backend": "aiter.triton.router_sqrt_softplus",
+        "aiter_base_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+        "aiter_companion_patch": "router-sqrt-softplus.patch",
+        "aiter_patch_sha256": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+        "source_sha256": {
+          "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e",
+          "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+          "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9"
+        },
+        "forward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_fwd",
+        "backward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_bwd",
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "triton": "3.7.0",
+        "config": {
+          "block_size": 256,
+          "num_warps": 4,
+          "num_stages": 1,
+          "enable_fp_fusion": false
+        },
+        "graph": false,
+        "input_dtype": "float32",
+        "output_dtype": "float32",
+        "input_shape": [
+          16,
+          256
+        ],
+        "input_stride": [
+          256,
+          1
+        ],
+        "input_domain": "finite FP32",
+        "kernel_launched": true,
+        "model_version": "task29-synthetic-arithmetic-v1",
+        "grad_enabled": true,
+        "requires_grad": true
+      }
+    },
+    {
+      "m": 17,
+      "positions": [
+        0,
+        8,
+        16
+      ],
+      "input_sha256": "5931668bff2af312996bef617b30d339b3c191d50700b6cdeef45c5533990977",
+      "upstream_sha256": "4d994aef68d7f2490f88a74119e93c2a93079ed4bd0a0891389f7f2bad880f8a",
+      "scores_sha256": "e2c814984c4da4d1885026a494bccf15d44c35b3c39cd8fa96011e47019d4424",
+      "vjp_sha256": "824a043cf84b8160dbb3b1ac113c8e3bd1f426fea113619d68459aa20dfad709",
+      "row_score_bit_mismatches": 0,
+      "row_vjp_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "max_normal_score_relative_error_vs_fp64": 8.790192284923372e-08,
+      "max_normal_vjp_relative_error_vs_fp64": 5.876967768415402e-06,
+      "median_adapter_forward_us": 115.86299911141396,
+      "median_aiter_forward_us": 27.622999623417854,
+      "median_aiter_backward_us": 31.41150064766407,
+      "execution": {
+        "task": 29,
+        "contract_id": "rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+        "actual_backend": "aiter.triton.router_sqrt_softplus",
+        "aiter_base_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+        "aiter_companion_patch": "router-sqrt-softplus.patch",
+        "aiter_patch_sha256": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+        "source_sha256": {
+          "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e",
+          "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+          "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9"
+        },
+        "forward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_fwd",
+        "backward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_bwd",
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "triton": "3.7.0",
+        "config": {
+          "block_size": 256,
+          "num_warps": 4,
+          "num_stages": 1,
+          "enable_fp_fusion": false
+        },
+        "graph": false,
+        "input_dtype": "float32",
+        "output_dtype": "float32",
+        "input_shape": [
+          17,
+          256
+        ],
+        "input_stride": [
+          256,
+          1
+        ],
+        "input_domain": "finite FP32",
+        "kernel_launched": true,
+        "model_version": "task29-synthetic-arithmetic-v1",
+        "grad_enabled": true,
+        "requires_grad": true
+      }
+    },
+    {
+      "m": 32,
+      "positions": [
+        0,
+        16,
+        31
+      ],
+      "input_sha256": "acb82cbd0da0e5beb733f9f431e8b0f30f67fd3db6b1c71efb8c598f6f268ea7",
+      "upstream_sha256": "2421b732888fb40f5d3f3031b1ccdafc5ef342899b7bd96bb20d28d0c67c659f",
+      "scores_sha256": "8e669ec6b214e73eb29c8e2c02df544e6c9bd8de18a412578cbc2c654ff768c2",
+      "vjp_sha256": "6d8e54eabca75891880a5fda49d55f0fd2e765468e82e71b9223117a5cf56342",
+      "row_score_bit_mismatches": 0,
+      "row_vjp_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "max_normal_score_relative_error_vs_fp64": 9.283453277553816e-08,
+      "max_normal_vjp_relative_error_vs_fp64": 5.876967768415402e-06,
+      "median_adapter_forward_us": 140.71999490261078,
+      "median_aiter_forward_us": 33.99699926376343,
+      "median_aiter_backward_us": 38.62749971449375,
+      "execution": {
+        "task": 29,
+        "contract_id": "rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+        "actual_backend": "aiter.triton.router_sqrt_softplus",
+        "aiter_base_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+        "aiter_companion_patch": "router-sqrt-softplus.patch",
+        "aiter_patch_sha256": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+        "source_sha256": {
+          "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e",
+          "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+          "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9"
+        },
+        "forward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_fwd",
+        "backward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_bwd",
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "triton": "3.7.0",
+        "config": {
+          "block_size": 256,
+          "num_warps": 4,
+          "num_stages": 1,
+          "enable_fp_fusion": false
+        },
+        "graph": false,
+        "input_dtype": "float32",
+        "output_dtype": "float32",
+        "input_shape": [
+          32,
+          256
+        ],
+        "input_stride": [
+          256,
+          1
+        ],
+        "input_domain": "finite FP32",
+        "kernel_launched": true,
+        "model_version": "task29-synthetic-arithmetic-v1",
+        "grad_enabled": true,
+        "requires_grad": true
+      }
+    },
+    {
+      "m": 65,
+      "positions": [
+        0,
+        32,
+        64
+      ],
+      "input_sha256": "5c83c6596e122a90543e09997b2242cc5722149ed4091b2952ddc3213a7c9118",
+      "upstream_sha256": "e1acf99544a52dcd740c753771241c9f59a3201ecfdae4be612989bb01ef71be",
+      "scores_sha256": "31d152a85c3351ffa1b98df46157df6181e4504397458e7fff41b72fe8a3384f",
+      "vjp_sha256": "a76039c439797c909fdaa6793cb8eecd692d07d138510d28f79c2e549496cfe6",
+      "row_score_bit_mismatches": 0,
+      "row_vjp_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "max_normal_score_relative_error_vs_fp64": 1.1248107951117924e-07,
+      "max_normal_vjp_relative_error_vs_fp64": 5.876967768415402e-06,
+      "median_adapter_forward_us": 133.28300416469574,
+      "median_aiter_forward_us": 31.11100010573864,
+      "median_aiter_backward_us": 35.11999920010567,
+      "execution": {
+        "task": 29,
+        "contract_id": "rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+        "actual_backend": "aiter.triton.router_sqrt_softplus",
+        "aiter_base_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+        "aiter_companion_patch": "router-sqrt-softplus.patch",
+        "aiter_patch_sha256": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+        "source_sha256": {
+          "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e",
+          "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+          "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9"
+        },
+        "forward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_fwd",
+        "backward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_bwd",
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "triton": "3.7.0",
+        "config": {
+          "block_size": 256,
+          "num_warps": 4,
+          "num_stages": 1,
+          "enable_fp_fusion": false
+        },
+        "graph": false,
+        "input_dtype": "float32",
+        "output_dtype": "float32",
+        "input_shape": [
+          65,
+          256
+        ],
+        "input_stride": [
+          256,
+          1
+        ],
+        "input_domain": "finite FP32",
+        "kernel_launched": true,
+        "model_version": "task29-synthetic-arithmetic-v1",
+        "grad_enabled": true,
+        "requires_grad": true
+      }
+    },
+    {
+      "m": 257,
+      "positions": [
+        0,
+        128,
+        256
+      ],
+      "input_sha256": "68658bcf19c4efed52f279c1538187a1475576840b729b2257a75cd1b5c93f13",
+      "upstream_sha256": "047c09b0d6ce0efd3ee3c0efb2f26302454206b6cd9ce61cdda2c6acb9446770",
+      "scores_sha256": "825509013f2eaa8f28d4ee24993a0824f4d8bf46dd73f223cf81e5aa14ec01e1",
+      "vjp_sha256": "4e047963c466398ac893d23ca6b1a3552f36fec6aedb077b81ef2e7cdf2c6d4f",
+      "row_score_bit_mismatches": 0,
+      "row_vjp_bit_mismatches": 0,
+      "mode_bit_mismatches": 0,
+      "max_normal_score_relative_error_vs_fp64": 1.1430887594034016e-07,
+      "max_normal_vjp_relative_error_vs_fp64": 5.876967768415402e-06,
+      "median_adapter_forward_us": 123.34049865603447,
+      "median_aiter_forward_us": 27.943500317633152,
+      "median_aiter_backward_us": 30.348999425768852,
+      "execution": {
+        "task": 29,
+        "contract_id": "rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+        "actual_backend": "aiter.triton.router_sqrt_softplus",
+        "aiter_base_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+        "aiter_companion_patch": "router-sqrt-softplus.patch",
+        "aiter_patch_sha256": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+        "source_sha256": {
+          "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e",
+          "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+          "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9"
+        },
+        "forward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_fwd",
+        "backward_kernel": "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus._router_sqrt_softplus_bwd",
+        "gpu": "AMD Instinct MI300X VF",
+        "arch": "gfx942:sramecc+:xnack-",
+        "device": "cuda:0",
+        "torch": "2.12.0+rocm7.14.0a20260608",
+        "rocm": "7.14.60850",
+        "triton": "3.7.0",
+        "config": {
+          "block_size": 256,
+          "num_warps": 4,
+          "num_stages": 1,
+          "enable_fp_fusion": false
+        },
+        "graph": false,
+        "input_dtype": "float32",
+        "output_dtype": "float32",
+        "input_shape": [
+          257,
+          256
+        ],
+        "input_stride": [
+          256,
+          1
+        ],
+        "input_domain": "finite FP32",
+        "kernel_launched": true,
+        "model_version": "task29-synthetic-arithmetic-v1",
+        "grad_enabled": true,
+        "requires_grad": true
+      }
+    }
+  ],
+  "passed": true,
+  "not_validated": [
+    "MI355X",
+    "NVIDIA",
+    "Graph",
+    "full model",
+    "framework integration"
+  ]
+}

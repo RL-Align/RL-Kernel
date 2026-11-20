@@ -1,0 +1,13 @@
+{
+  "aiter_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+  "patch_sha256": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+  "original_source_sha256": {
+    "aiter/ops/triton/_triton_kernels/moe/moe_routing/topk.py": "2ffa638e1454ab3eca3a55a4ba2df74dfe118de6c06e3d56503bdc5b8d263235",
+    "aiter/ops/triton/moe/moe_routing/topk.py": "66759bb06e6bd03a4655d9ec054cec9a0306bdadd232e0e73ce75ba9813fe504"
+  },
+  "source_sha256": {
+    "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+    "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9",
+    "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e"
+  }
+}

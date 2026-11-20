@@ -1,0 +1,184 @@
+{
+  "date": "2026-11-03",
+  "time_zone": "Asia/Shanghai",
+  "main": "d00d444b46858b5109acafd29b5e6af70ac73370",
+  "dsv4_rocm": "f947f7136690bae79ec6e6e8b8052f41800aa281",
+  "tests": {"suite": "joint attention, autograd, and backward model/ROCm tests", "passed": 196, "skipped": 0, "coverage": "not collected for this rerun"},
+  "benchmark_validity": "20 repetitions after warmup. HIP event and synchronized wall windows use the same pass; event windows include host launch gaps and are not isolated kernel instruction times. Backward-only and forward-plus-backward scopes are labeled per record. No baseline engine speedup is claimed.",
+  "tested_sources": {
+    "benchmarks/benchmark_joint_backward.py": "56884dbd0caf549f403423aa6627e20cf28b86c815839871f03e4bc1824a2a52",
+    "rl_engine/backends/rocm/attention/joint_attention.py": "cf0d34f027dd39119b37fb973cc2c01dc6a0c2a5cbe6db52a848c2715bdb78bd",
+    "rl_engine/backends/rocm/attention/joint_backward.py": "67ab5a1b140303feb64f9e9fc26ddfb36501ea4a4485f5b8c025dfc63cead4bc",
+    "rl_engine/contracts/operators/joint_attention.py": "1b72d2491514cfa4bc1334c7cb5970bdc33df5a3261124b5102f6095cc2683ec",
+    "rl_engine/models/deepseek_v4/joint_attention.py": "da5e542ea9ba39b61c2ff386b148fe1a2611498232fa5b7a5d8e9b3beefd7922",
+    "rl_engine/models/deepseek_v4/joint_backward.py": "50cf90154d29c7f895aa2e7732237b362659cff99ed1718657387861d562efb3",
+    "rl_engine/models/deepseek_v4/joint_autograd.py": "e81497b9077917d2c48ea6dfa7b25ecd2f9906c147f99dc760011a4c8deb9830"
+  },
+  "records": [
+    {
+      "m": 7,
+      "h": 13,
+      "d": 128,
+      "selected": 6,
+      "native_workspace": 92252,
+      "timings": {
+        "native_pipeline": {
+          "event_us": 293.63739490509033,
+          "wall_us": 295.3659510239959
+        },
+        "graph_core": {
+          "event_us": 64.72554802894592,
+          "wall_us": 66.99830119032413
+        },
+        "checked_eager_vjp": {
+          "event_us": 518.0410385131836,
+          "wall_us": 519.3620483623818
+        },
+        "checked_graph_vjp": {
+          "event_us": 168.23149919509888,
+          "wall_us": 169.1733516054228
+        },
+        "canonical_forward_backward_validation": {
+          "event_us": 3220.4734802246094,
+          "wall_us": 3221.8210020801052
+        }
+      },
+      "timing_scope": {
+        "native_pipeline": "backward_only",
+        "graph_core": "backward_only",
+        "checked_eager_vjp": "backward_only",
+        "checked_graph_vjp": "backward_only",
+        "canonical_forward_backward_validation": "forward_backward_validation"
+      },
+      "backward_implementation": "d0f239cc727e1d7d55da3e093da409ae149456e13f01e057daae8d3f2dfe8ca1"
+    },
+    {
+      "m": 7,
+      "h": 64,
+      "d": 512,
+      "selected": 6,
+      "native_workspace": 1102592,
+      "timings": {
+        "native_pipeline": {
+          "event_us": 264.32855129241943,
+          "wall_us": 265.8300014445558
+        },
+        "graph_core": {
+          "event_us": 84.98774766921997,
+          "wall_us": 85.92605008743703
+        },
+        "checked_eager_vjp": {
+          "event_us": 487.86816596984863,
+          "wall_us": 489.1363496426493
+        },
+        "checked_graph_vjp": {
+          "event_us": 162.77910470962524,
+          "wall_us": 163.6799017433077
+        },
+        "canonical_forward_backward_validation": {
+          "event_us": 3247.433090209961,
+          "wall_us": 3248.655950301327
+        }
+      },
+      "timing_scope": {
+        "native_pipeline": "backward_only",
+        "graph_core": "backward_only",
+        "checked_eager_vjp": "backward_only",
+        "checked_graph_vjp": "backward_only",
+        "canonical_forward_backward_validation": "forward_backward_validation"
+      },
+      "backward_implementation": "66d38309cdd8533b912ef01cefc5ae4b041468528b496a370f79184f5f677b05"
+    },
+    {
+      "m": 65,
+      "h": 13,
+      "d": 128,
+      "selected": 6,
+      "native_workspace": 855764,
+      "timings": {
+        "native_pipeline": {
+          "event_us": 255.22584915161133,
+          "wall_us": 256.7572984844446
+        },
+        "graph_core": {
+          "event_us": 73.91650080680847,
+          "wall_us": 74.9341503251344
+        },
+        "checked_eager_vjp": {
+          "event_us": 488.4234428405762,
+          "wall_us": 490.40345184039325
+        },
+        "checked_graph_vjp": {
+          "event_us": 170.42855024337769,
+          "wall_us": 171.3861507596448
+        },
+        "canonical_forward_backward_validation": {
+          "event_us": 3419.573211669922,
+          "wall_us": 3420.793899567798
+        }
+      },
+      "timing_scope": {
+        "native_pipeline": "backward_only",
+        "graph_core": "backward_only",
+        "checked_eager_vjp": "backward_only",
+        "checked_graph_vjp": "backward_only",
+        "canonical_forward_backward_validation": "forward_backward_validation"
+      },
+      "backward_implementation": "cfae669fa63c5b313675d371b3e67c0375d2d5fff4459eb1a58d507d93193337"
+    },
+    {
+      "m": 1,
+      "h": 128,
+      "d": 512,
+      "selected": 640,
+      "native_workspace": 3212800,
+      "timings": {
+        "native_pipeline": {
+          "event_us": 441.7088985443115,
+          "wall_us": 443.30730161163956
+        },
+        "graph_core": {
+          "event_us": 441.0093307495117,
+          "wall_us": 442.08274921402335
+        },
+        "checked_eager_vjp": {
+          "event_us": 620.4123973846436,
+          "wall_us": 622.8208512766287
+        },
+        "checked_graph_vjp": {
+          "event_us": 524.6099948883057,
+          "wall_us": 525.6365489913151
+        },
+        "canonical_forward_backward_validation": {
+          "event_us": 3475.3921508789062,
+          "wall_us": 3476.564900483936
+        }
+      },
+      "timing_scope": {
+        "native_pipeline": "backward_only",
+        "graph_core": "backward_only",
+        "checked_eager_vjp": "backward_only",
+        "checked_graph_vjp": "backward_only",
+        "canonical_forward_backward_validation": "forward_backward_validation"
+      },
+      "backward_implementation": "58ce579babbbefa5e7d9871f6269118dd049e1593bd9d498f78ff1d96badad7b"
+    }
+  ],
+  "provider": {
+    "profile": "aiter.326c.h16.k32.csr64.sink32.canonical_queries.v1",
+    "forward": {
+      "profile": "aiter.326c.single_split.h32.k32.bf16_p.fp32_lse.v1",
+      "arch": "gfx942",
+      "torch": "2.11.0+gitd0c8b1f",
+      "hip": "7.2.53211",
+      "triton": "3.6.0",
+      "aiter_commit": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+      "kernel_sha256": "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844",
+      "cache_source_sha256": "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3",
+      "adapter_sha256": "cf0d34f027dd39119b37fb973cc2c01dc6a0c2a5cbe6db52a848c2715bdb78bd"
+    },
+    "wrapper_sha256": "ede08814720b9c783c7375cab9f95ee38bf6212ca77ba23149e33309b72842ff",
+    "delta_source_sha256": "e9183920ca149205978c1aace8f07ff69a271c51104cb6de3d829e29632bc33e",
+    "adapter_sha256": "67ab5a1b140303feb64f9e9fc26ddfb36501ea4a4485f5b8c025dfc63cead4bc"
+  }
+}

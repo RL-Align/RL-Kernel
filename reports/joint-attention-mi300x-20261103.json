@@ -1,0 +1,135 @@
+{
+  "records": [
+    {
+      "m": 1,
+      "heads": 8,
+      "dim": 128,
+      "selected": 6,
+      "workspace": 5721,
+      "timing": {
+        "eager_core": {
+          "event_us": 64.3411676088969,
+          "wall_us": 65.40870138754447
+        },
+        "eager_forward_record": {
+          "event_us": 475.2490997314453,
+          "wall_us": 476.187599512438
+        },
+        "captured_core": {
+          "event_us": 19.61403290430705,
+          "wall_us": 20.365700280914705
+        },
+        "graph_forward_record": {
+          "event_us": 389.074166615804,
+          "wall_us": 389.7434993026157
+        }
+      },
+      "implementation": "3ecc6fc9974306091b58bd633689ad6e48f09e7010c421a48a6abf8d89428cc4"
+    },
+    {
+      "m": 32,
+      "heads": 64,
+      "dim": 512,
+      "selected": 6,
+      "workspace": 4400160,
+      "timing": {
+        "eager_core": {
+          "event_us": 63.36433490117391,
+          "wall_us": 64.98879908273618
+        },
+        "eager_forward_record": {
+          "event_us": 532.6826095581055,
+          "wall_us": 533.7050669671347
+        },
+        "captured_core": {
+          "event_us": 32.55950013796488,
+          "wall_us": 33.32056803628802
+        },
+        "graph_forward_record": {
+          "event_us": 441.5095965067546,
+          "wall_us": 442.25960155017674
+        }
+      },
+      "implementation": "6740d31a4ceaa1c770f921a0908f6ec5709cb1fc20f973bca3494f2ae38dba82"
+    },
+    {
+      "m": 128,
+      "heads": 64,
+      "dim": 512,
+      "selected": 6,
+      "workspace": 17599872,
+      "timing": {
+        "eager_core": {
+          "event_us": 62.75893449783325,
+          "wall_us": 63.77613365960618
+        },
+        "eager_forward_record": {
+          "event_us": 498.9176432291667,
+          "wall_us": 499.85259926567477
+        },
+        "captured_core": {
+          "event_us": 46.090300877889,
+          "wall_us": 46.80920004223784
+        },
+        "graph_forward_record": {
+          "event_us": 457.4779192606608,
+          "wall_us": 458.20703186715645
+        }
+      },
+      "implementation": "6dcdb94cfaf7ff0dfdb592318d68fbf749eb6beb49e42b97884739d0f1472624"
+    },
+    {
+      "m": 1,
+      "heads": 128,
+      "dim": 512,
+      "selected": 640,
+      "workspace": 921089,
+      "timing": {
+        "eager_core": {
+          "event_us": 95.92649936676025,
+          "wall_us": 97.00613251576821
+        },
+        "eager_forward_record": {
+          "event_us": 590.1748021443685,
+          "wall_us": 591.2425675584624
+        },
+        "captured_core": {
+          "event_us": 99.23400084177653,
+          "wall_us": 100.08073295466602
+        },
+        "graph_forward_record": {
+          "event_us": 473.0654716491699,
+          "wall_us": 473.8428668739895
+        }
+      },
+      "implementation": "5407a0f642087d16890803f50e4829efe0511feeb8c1044af94bc1fb8a1dc258"
+    }
+  ],
+  "date": "2026-11-03",
+  "time_zone": "Asia/Shanghai",
+  "base_main": "d00d444b46858b5109acafd29b5e6af70ac73370",
+  "target": "dsv4-rocm",
+  "test_result": "254 passed, 14 warnings, zero skipped",
+  "test_scope": "tests/contracts/operators tests/models/deepseek_v4/test_joint_attention.py tests/models/deepseek_v4/test_joint_attention_rocm.py",
+  "benchmark_validity": "Eager timing precedes Graph capture; captured timing follows it. Both core variants execute the same padded work. Each event and wall timing is from the same synchronized 30-call pass; HIP event windows include host and launch gaps. No baseline engine or full-model speedup claim.",
+  "tested_sources_sha256": {
+    "benchmarks/benchmark_joint_attention.py": "1ee58efdc23838d3e02cbc57acd2a29deb98ef938c471b1d0fe9fc8931a63e8d",
+    "rl_engine/backends/rocm/attention/joint_attention.py": "cf0d34f027dd39119b37fb973cc2c01dc6a0c2a5cbe6db52a848c2715bdb78bd",
+    "rl_engine/contracts/operators/joint_attention.py": "1b72d2491514cfa4bc1334c7cb5970bdc33df5a3261124b5102f6095cc2683ec",
+    "rl_engine/models/deepseek_v4/joint_attention.py": "da5e542ea9ba39b61c2ff386b148fe1a2611498232fa5b7a5d8e9b3beefd7922",
+    "tests/models/deepseek_v4/joint_attention_helpers.py": "4ec7d9c8e57a9aa2bb0edf58fd83ad11fe480a0976898fc18cba18151d125bda",
+    "tests/models/deepseek_v4/test_joint_attention.py": "66a86371931067f91258de7afd57efd9ae05483e4203685fff384faf34d477b9",
+    "tests/models/deepseek_v4/test_joint_attention_rocm.py": "862f0144c579123edc7a78e7325cb736690fad22c1568adadac8db86325b0525"
+  },
+  "provider": {
+    "profile": "aiter.326c.single_split.h32.k32.bf16_p.fp32_lse.v1",
+    "arch": "gfx942",
+    "torch": "2.11.0+gitd0c8b1f",
+    "hip": "7.2.53211",
+    "triton": "3.6.0",
+    "aiter_commit": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+    "kernel_sha256": "56db3b46c58f8fb30912d4564189b214e2c9a37fa2138a155b45a4ce51b5c844",
+    "cache_source_sha256": "0d65322289248b9062580f8bcee90997fedf6378de456f1af8a2203484fbaee3",
+    "adapter_sha256": "cf0d34f027dd39119b37fb973cc2c01dc6a0c2a5cbe6db52a848c2715bdb78bd"
+  }
+}

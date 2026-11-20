@@ -1,0 +1,14 @@
+--- a/verl/experimental/rl_kernel/rollout_worker.py
++++ b/verl/experimental/rl_kernel/rollout_worker.py
+@@ -22,7 +22,10 @@
+ 
+ class RLKVerlDSV4Worker(Worker):
+     def load_model(self, **kwargs):
+-        super().load_model(**kwargs)
++        from rl_engine.integrations.engines.rollout.vllm.mi35x_moe import native_w4a16_loading
++
++        with native_w4a16_loading():
++            super().load_model(**kwargs)
+         from rl_engine.integrations.common.device_identity import hip_device_identity
+         from rl_engine.integrations.engines.rollout.vllm.group_projection import (
+             bind_original_group_projection,

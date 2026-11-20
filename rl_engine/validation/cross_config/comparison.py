@@ -12,6 +12,12 @@ from typing import Any
 import torch
 
 from rl_engine.contracts.numerical import resolve_logprob_threshold, tolerance_contract_fingerprint
+from rl_engine.validation.cross_config.divergence import (
+    COMPARISON_SEMANTICS_VERSION,
+    compute_mismatch_mask,
+    first_divergence,
+    runtime_identity,
+)
 from rl_engine.validation.cross_config.schema import (
     AlignmentResult,
     AlignmentStatus,
@@ -51,7 +57,7 @@ def recompute_mismatch_mask(
         raise ValueError("fixed_threshold must be non-negative")
     active = active_mask.to(device=rollout_logprobs.device, dtype=torch.bool)
     training = training_logprobs.to(device=rollout_logprobs.device)
-    return active & (torch.abs(training - rollout_logprobs) > fixed_threshold)
+    return compute_mismatch_mask(rollout_logprobs, training, active, fixed_threshold)
 
 
 class FixedThresholdComparator:
@@ -163,6 +169,22 @@ class FixedThresholdComparator:
 
         mismatch_count = int(mismatch_mask.sum().item())
         passed = mismatch_count == 0
+        try:
+            comparison_provenance = _comparison_provenance(rollout, training)
+        except ValueError as exc:
+            return AlignmentResult(
+                case_id=rollout.case_id,
+                attempt_id=rollout.attempt_id,
+                status=AlignmentStatus.INVALID_ARTIFACT,
+                comparable=False,
+                passed=False,
+                active_token_count=active_token_count,
+                mismatch_count=0,
+                contract_fingerprint=contract_fingerprint,
+                fixed_threshold=fixed_threshold,
+                artifact_errors=(f"runtime provenance is invalid: {exc}",),
+                token_artifact=token_artifact,
+            )
         return AlignmentResult(
             case_id=rollout.case_id,
             attempt_id=rollout.attempt_id,
@@ -179,6 +201,9 @@ class FixedThresholdComparator:
                 active_mask,
                 absolute_diff,
                 mismatch_count,
+                provenance=comparison_provenance,
+                mismatch_mask=mismatch_mask,
+                fixed_threshold=fixed_threshold,
             ),
             token_artifact=token_artifact,
         )
@@ -284,6 +309,9 @@ def _diagnostics(
     active_mask: torch.Tensor,
     absolute_diff: torch.Tensor,
     mismatch_count: int,
+    provenance: dict[str, Any],
+    mismatch_mask: torch.Tensor,
+    fixed_threshold: float,
 ) -> dict[str, Any]:
     active_diff = absolute_diff[active_mask].float()
     delta = (training_logprobs[active_mask] - rollout_logprobs[active_mask]).float()
@@ -293,7 +321,18 @@ def _diagnostics(
     approximate_kl = torch.exp(delta.double()) - delta.double() - 1.0
     approximate_kl_mean = _finite_float_or_none(approximate_kl.mean())
     active_count = int(active_diff.numel())
+    divergence = first_divergence(
+        rollout_logprobs,
+        training_logprobs,
+        tensor_name="selected_logprobs",
+        active_mask=active_mask,
+        axis_names=("sample", "token") if rollout_logprobs.ndim == 2 else None,
+        provenance=provenance,
+        mismatch_mask=mismatch_mask,
+        atol=fixed_threshold,
+    )
     return {
+        "comparison_semantics_version": COMPARISON_SEMANTICS_VERSION,
         "mean_abs_diff": _finite_float_or_none(active_diff.mean()),
         "p95_abs_diff": _finite_float_or_none(torch.quantile(active_diff, 0.95)),
         "p99_abs_diff": _finite_float_or_none(torch.quantile(active_diff, 0.99)),
@@ -302,7 +341,27 @@ def _diagnostics(
         "approximate_kl_mean": approximate_kl_mean,
         "approximate_kl_finite": approximate_kl_mean is not None,
         "worst_token_index": worst_coordinate,
+        "divergence": divergence.to_dict(),
     }
+
+
+def _comparison_provenance(rollout: ScoreArtifact, training: ScoreArtifact) -> dict[str, Any]:
+    """Capture both sides' runtime identity without claiming backend equivalence."""
+
+    return {
+        "case_id": rollout.case_id,
+        "attempt_id": rollout.attempt_id,
+        "rollout": _runtime_identity(rollout),
+        "training": _runtime_identity(training),
+    }
+
+
+def _runtime_identity(artifact: ScoreArtifact) -> dict[str, Any]:
+    return runtime_identity(
+        artifact.provenance.to_dict(),
+        model_version=artifact.identity.model_version,
+        checkpoint_id=artifact.identity.checkpoint_id,
+    )
 
 
 def _finite_float_or_none(value: torch.Tensor) -> float | None:

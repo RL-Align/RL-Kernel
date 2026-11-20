@@ -1,0 +1,18 @@
+{
+  "aiter_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+  "patch_sha256": {
+    "router-sqrt-softplus.patch": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+    "stable-topk6.patch": "820237c1f1897d29ae8b744a19e5e6f920fe40580e0bef55d3e55dd1088d721b",
+    "learned-route.patch": "7c17c9be9bb26d1ef02eebd1c1d983bd6872591f521e85a8a060f4a68529f22c",
+    "router-aux-loss.patch": "e9d7789932098829ea137d752c2861f8e6e292c57fda4f8a8b9b90bd53b17e23"
+  },
+  "source_sha256": {
+    "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+    "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9",
+    "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e",
+    "aiter.ops.triton._triton_kernels.moe.moe_routing.stable_topk6": "414d804af857f49c88e100ffd5e8d28714ccdda9c0878c6d092dca87a3801228",
+    "aiter.ops.triton.moe.moe_routing.stable_topk6": "e4b4314cfd7826719b709796481e50b336bf8392696f9403e8f08d434bf4880e",
+    "aiter.ops.triton.moe.moe_routing.learned_route": "1367332865f1f1356b371f429334b5ca624765af0aa92f63b0119c79bc8e21a5",
+    "aiter.ops.triton.moe.moe_routing.router_aux_loss": "0bb3ad000ce5e7b6f5d7c887e9cb0758f6eef8de93ae4ea141bcc12f71953fcb"
+  }
+}

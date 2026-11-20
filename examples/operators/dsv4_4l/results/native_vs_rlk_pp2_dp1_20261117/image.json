@@ -1,0 +1,22 @@
+{
+  "tag": "rlk/dsv4-4l-rocm:3779aac-comparison-20261117",
+  "id": "sha256:cc58a6f77dd4b350a7a5abfd53b8595f6908412e30b92452f99fa6f36655558e",
+  "tested_source_sha": "3779aac8a112118567d341e213a97dea293c36e8",
+  "tree": "e9018c1929d68af43bb2aebc6528b06f5e0964f7",
+  "parent_tag": "rlk/dsv4-4l-rocm:0967c0b",
+  "parent_id": "sha256:c98ee8aad117509b7757893a1582ab662c91771531024471a1efeabe6e762c1d",
+  "build_args": [
+    "docker",
+    "build",
+    "--network=none",
+    "--pull=false",
+    "--progress=plain",
+    "--build-arg",
+    "BASE_IMAGE=rlk/dsv4-4l-rocm:0967c0b",
+    "--build-arg",
+    "RLK_SHA=3779aac8a112118567d341e213a97dea293c36e8",
+    "-t",
+    "rlk/dsv4-4l-rocm:3779aac-comparison-20261117",
+    "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T105017Z-native-vs-rlk/build/3779aac8a112118567d341e213a97dea293c36e8"
+  ]
+}

@@ -159,6 +159,15 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_RMS_NORM = "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp"
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
 
+    # DeepSeek-V4 mHC on ROCm: Triton kernels copied from aiter, batch invariant by construction
+    ROCM_TRITON_MHC_PRE = "rl_engine.backends.rocm.mhc.triton_mhc.TritonMHCPreOp"
+    ROCM_TRITON_MHC_POST = "rl_engine.backends.rocm.mhc.triton_mhc.TritonMHCPostOp"
+    ROCM_TRITON_MHC_HEAD = "rl_engine.backends.rocm.mhc.triton_mhc.TritonMHCHeadOp"
+    # Batch-invariant linear y = x @ w^T + bias on ROCm: aiter's gemm_a16w16 kernel, copied
+    ROCM_TRITON_BATCH_INVARIANT_LINEAR = (
+        "rl_engine.backends.rocm.gemm.triton_gemm.TritonBatchInvariantLinearOp"
+    )
+
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"
     PYTORCH_ATTN = "rl_engine.kernels.ops.pytorch.attention.NativeAttentionOp"
@@ -208,8 +217,65 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
 
+# The topology of the batch-invariant linear and the mHC descriptors: they are tested
+# on one GPU without tensor parallelism only.
+_SINGLE_GPU_TP1 = {
+    "rollout": {"world_size": (1,), "tensor_parallel_size": (1,)},
+    "training": {"world_size": (1,), "tensor_parallel_size": (1,)},
+}
+
+
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
+        OperatorBackendDescriptor(
+            semantic_op="moe_output_combine",
+            backend_id="rlkernel.reference.moe_output_combine.v1",
+            supported_targets=frozenset({"training"}),
+            supported_devices=frozenset({"cpu"}),
+            supported_dtypes=frozenset({"float32", "bfloat16", "float16"}),
+            supported_topologies={
+                "training": {
+                    "world_size": (1,),
+                    "sharding": ("unsharded",),
+                }
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "validated_p6_request_preparation_only",
+                "deterministic": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.PROCESS,
+            implementation_class_or_factory=(
+                "rl_engine.reference.moe.output_combine.MoEOutputCombineReferenceOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="MoEOutputCombineReferenceOp-p6-contract-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="router_gate_projection",
+            backend_id="rlkernel.aiter_fixed_bf16_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "output_dtype": "float32",
+                "split_k": 1,
+                "graph": False,
+                "architectures": ("gfx942", "gfx950"),
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=(
+                "rl_engine.ops.moe.router_gate.RouterGateProjectionOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.aiter_fixed_bf16_fp32.v1",
+        ),
         OperatorBackendDescriptor(
             semantic_op="selected_logprob",
             backend_id="rlkernel.reference_logp",
@@ -276,6 +342,137 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             ),
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="VocabParallelLogprobOp-fixed-tiles-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="router_aux_loss",
+            backend_id="rlkernel.router_aux_loss.preload.postcapacity.v1",
+            supported_targets=frozenset({"training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={"training": {"tensor_parallel_size": (1,)}},
+            determinism_or_alignment_properties={
+                "graph": False,
+                "optional_default_disabled": True,
+                "normal_routing": True,
+                "fixed_order_reduction": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory="rl_engine.ops.moe.router_aux_loss.RouterAuxLossOp",
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.router_aux_loss.preload.postcapacity.v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="router_training",
+            backend_id="rlkernel.router_training.selected_weights.records.v1",
+            supported_targets=frozenset({"training", "rollout"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "graph": False,
+                "discrete_indices_differentiable": False,
+                "normal_routing_required_for_acceptance": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory="rl_engine.ops.moe.router_training.RouterTrainingOp",
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.router_training.selected_weights.records.v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="learned_route",
+            backend_id="rlkernel.learned_route.fp32.bias_selection.capacity_mask.v1",
+            supported_targets=frozenset({"training", "rollout"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "output_dtype": "float32",
+                "graph": False,
+                "bias_role": "selection_only",
+                "capacity_policy": "complete_domain.global_logical_token_id_ascending.v1",
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory="rl_engine.ops.moe.learned_route.LearnedRouteOp",
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.learned_route.fp32.bias_selection.capacity_mask.v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="hash_route",
+            backend_id="rlkernel.hash_route.fp32.slot_order.clamp_min.v1",
+            supported_targets=frozenset({"training", "rollout"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "output_dtype": "float32",
+                "graph": False,
+                "slot_order": "tid2eid_column_order",
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory="rl_engine.ops.moe.hash_route.HashRouteOp",
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.hash_route.fp32.slot_order.clamp_min.v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="stable_topk6",
+            backend_id="rlkernel.stable_topk6.fp32.global_id.v1",
+            supported_targets=frozenset({"training", "rollout"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "output_dtype": "float32",
+                "graph": False,
+                "ordering": "score_descending.global_expert_id_ascending",
+                "complete_global_coverage": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory="rl_engine.ops.moe.stable_topk6.StableTopK6Op",
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.stable_topk6.fp32.global_id.v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="router_sqrt_softplus",
+            backend_id="rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
+            supported_targets=frozenset({"training", "rollout"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"float32"}),
+            supported_topologies={
+                "training": {"tensor_parallel_size": (1,)},
+                "rollout": {"tensor_parallel_size": (1,)},
+            },
+            determinism_or_alignment_properties={
+                "batch_invariant": True,
+                "graph": False,
+                "output_dtype": "float32",
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=(
+                "rl_engine.ops.moe.router_sqrt_softplus.RouterSqrtSoftplusOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel.router_sqrt_softplus.fp32.stable_tail.v1",
         ),
         OperatorBackendDescriptor(
             semantic_op="attention",
@@ -356,6 +553,96 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory=None,
             fallback_policy=OperatorFallbackPolicy.RUNTIME_MANAGED,
             version_or_build_fingerprint="runtime-native-ffn-unresolved-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="batch_invariant_linear",
+            backend_id="rlkernel.rocm.triton_gemm_a16w16.batch_invariant.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies=_SINGLE_GPU_TP1,
+            determinism_or_alignment_properties={
+                "algorithm": "whole_k_fixed_mfma_launch_config_by_m",
+                "batch_invariant": True,
+                "deterministic": True,
+                "backward": "triton_det_gemm_fp32",
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.backends.rocm.gemm.triton_gemm.TritonBatchInvariantLinearOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="TritonBatchInvariantLinearOp-whole-k-configs-table-v2",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="mhc_pre",
+            backend_id="rlkernel.rocm.triton_mhc_pre_dsv4.batch_invariant.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies=_SINGLE_GPU_TP1,
+            determinism_or_alignment_properties={
+                "algorithm": "four_k_splits_written_reduction_order_fp32_projection",
+                "batch_invariant": True,
+                "deterministic": True,
+                # Input gradients: Triton kernels with a written reduction order;
+                # fn, scale, base gradients through the canonical backward session.
+                "backward_batch_invariant": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.backends.rocm.mhc.triton_mhc.TritonMHCPreOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="TritonMHCPreOp-four-k-splits-triton-backward-v2",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="mhc_post",
+            backend_id="rlkernel.rocm.triton_mhc_post_dsv4.batch_invariant.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies=_SINGLE_GPU_TP1,
+            determinism_or_alignment_properties={
+                "algorithm": "rowwise_stream_order",
+                "batch_invariant": True,
+                "deterministic": True,
+                # Input gradients: Triton kernels with a written reduction order;
+                # fn, scale, base gradients through the canonical backward session.
+                "backward_batch_invariant": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.backends.rocm.mhc.triton_mhc.TritonMHCPostOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="TritonMHCPostOp-triton-backward-v2",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="mhc_head",
+            backend_id="rlkernel.rocm.triton_mhc_head_dsv4.batch_invariant.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"rocm"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies=_SINGLE_GPU_TP1,
+            determinism_or_alignment_properties={
+                "algorithm": "four_k_splits_written_reduction_order_fp32_projection",
+                "batch_invariant": True,
+                "deterministic": True,
+                # Input gradients: Triton kernels with a written reduction order;
+                # fn, scale, base gradients through the canonical backward session.
+                "backward_batch_invariant": True,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=(
+                "rl_engine.backends.rocm.mhc.triton_mhc.TritonMHCHeadOp"
+            ),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="TritonMHCHeadOp-four-k-splits-triton-backward-v2",
         ),
     )
 
@@ -597,6 +884,13 @@ class KernelRegistry:
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
                 ],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # No batch-invariant linear or mHC backend: an empty list makes
+                # get_op raise instead of falling back to the default
+                # PYTORCH_NATIVE (logp) op.
+                "batch_invariant_linear": [],
+                "mhc_pre": [],
+                "mhc_post": [],
+                "mhc_head": [],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [
@@ -656,6 +950,13 @@ class KernelRegistry:
                 ],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # No fallback: a failing op must raise, not fall back to one
+                # whose bits change with the batch. The ops raise on any GPU
+                # architecture other than gfx942 (their constructors).
+                "batch_invariant_linear": [OpBackend.ROCM_TRITON_BATCH_INVARIANT_LINEAR],
+                "mhc_pre": [OpBackend.ROCM_TRITON_MHC_PRE],
+                "mhc_post": [OpBackend.ROCM_TRITON_MHC_POST],
+                "mhc_head": [OpBackend.ROCM_TRITON_MHC_HEAD],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
@@ -705,6 +1006,11 @@ class KernelRegistry:
                     OpBackend.TRITON_RMS_NORM,
                     OpBackend.PYTORCH_NATIVE_RMS_NORM,
                 ],
+                # No batch-invariant linear or mHC backend; see the CUDA entries.
+                "batch_invariant_linear": [],
+                "mhc_pre": [],
+                "mhc_post": [],
+                "mhc_head": [],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [
                     OpBackend.TRITON_EMBEDDING,
@@ -734,6 +1040,11 @@ class KernelRegistry:
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
+                # No batch-invariant linear or mHC backend; see the CUDA entries.
+                "batch_invariant_linear": [],
+                "mhc_pre": [],
+                "mhc_post": [],
+                "mhc_head": [],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
@@ -802,6 +1113,11 @@ class KernelRegistry:
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,
         ]
+        # No mHC backend on NPU.
+        for op_type in ("mhc_pre", "mhc_post", "mhc_head"):
+            self._priority_map["npu"][op_type] = []
+        # No batch-invariant linear backend on NPU either.
+        self._priority_map["npu"]["batch_invariant_linear"] = []
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()

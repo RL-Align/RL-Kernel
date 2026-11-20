@@ -1,0 +1,127 @@
+Task 34 AITER fixed-order optional auxiliary loss; prerequisites tasks 29, 31, 32
+
+Copyright © Advanced Micro Devices, Inc. All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- /dev/null
++++ b/aiter/ops/triton/moe/moe_routing/router_aux_loss.py
+@@ -0,0 +1,100 @@
++# SPDX-License-Identifier: MIT
++# Copyright (c) 2026 RL-Kernel Contributors
++"""Atomic-free task-34 counts, masses, scalar loss and selected-weight adjoint."""
++
++import torch
++import triton
++import triton.language as tl
++
++AUX_LOSS_CONTRACT_ID = "aiter.router_aux_loss.canonical_fp32.v1"
++LAUNCH = {"num_warps": 4, "num_stages": 1, "enable_fp_fusion": False}
++
++
++@triton.jit
++def _expert_totals(WEIGHTS, IDS, COUNTS, MASSES, N):
++    expert = tl.program_id(0)
++    row = tl.arange(0, 32)
++    mass = tl.full((), 0.0, tl.float32)
++    count = tl.full((), 0, tl.int64)
++    # The caller canonicalizes global token IDs after transport. Each expert
++    # traverses those tokens in order; no M-dependent tree or atomic operation.
++    for start in range(tl.cdiv(N, 32)):
++        token = start * 32 + row
++        value = tl.full((32,), 0.0, tl.float32)
++        hits = tl.full((32,), 0, tl.int64)
++        for slot in tl.static_range(6):
++            eid = tl.load(IDS + token.to(tl.int64) * 6 + slot, mask=token < N, other=-1)
++            weight = tl.load(
++                WEIGHTS + token.to(tl.int64) * 6 + slot, mask=token < N, other=0.0
++            )
++            match = eid == expert
++            value += tl.where(match, weight, 0.0)
++            hits += match.to(tl.int64)
++        for i in tl.static_range(32):
++            mass += tl.sum(tl.where(row == i, value, 0.0), axis=0)
++        count += tl.sum(hits, axis=0)
++    tl.store(COUNTS + expert, count)
++    tl.store(MASSES + expert, mass)
++
++
++@triton.jit
++def _loss_and_coefficients(
++    COUNTS, MASSES, LOSS, COEFFICIENTS, N: tl.constexpr, ALPHA: tl.constexpr
++):
++    expert = tl.arange(0, 256)
++    count = tl.load(COUNTS + expert).to(tl.float32)
++    mass = tl.load(MASSES + expert)
++    frequency = count / (6.0 * N) if N else tl.full((256,), 0.0, tl.float32)
++    probability = mass / N if N else tl.full((256,), 0.0, tl.float32)
++    term = frequency * probability
++    total = tl.full((), 0.0, tl.float32)
++    for i in tl.static_range(256):
++        total += tl.sum(tl.where(expert == i, term, 0.0), axis=0)
++    loss = (total * 256.0) * ALPHA
++    coefficient = (
++        ((ALPHA * 256.0) * frequency) / N if N else tl.full((256,), 0.0, tl.float32)
++    )
++    tl.store(LOSS, loss)
++    tl.store(COEFFICIENTS + expert, coefficient)
++
++
++@triton.jit
++def _slot_adjoint(IDS, COEFFICIENTS, UPSTREAM, GRAD, SIZE, BLOCK: tl.constexpr):
++    index = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK)
++    expert = tl.load(IDS + index, mask=index < SIZE, other=0)
++    coefficient = tl.load(COEFFICIENTS + expert)
++    gradient = coefficient * tl.load(UPSTREAM)
++    tl.store(GRAD + index, gradient, mask=index < SIZE)
++
++
++def aux_loss_fwd(canonical_probabilities, canonical_expert_ids, alpha):
++    n = canonical_probabilities.shape[0]
++    device = canonical_probabilities.device
++    counts = torch.empty(256, device=device, dtype=torch.int64)
++    masses = torch.empty(256, device=device, dtype=torch.float32)
++    loss = torch.empty((), device=device, dtype=torch.float32)
++    coefficients = torch.empty(256, device=device, dtype=torch.float32)
++    _expert_totals[(256,)](
++        canonical_probabilities, canonical_expert_ids, counts, masses, n, **LAUNCH
++    )
++    _loss_and_coefficients[(1,)](
++        counts, masses, loss, coefficients, N=n, ALPHA=alpha, **LAUNCH
++    )
++    return loss, counts, masses, coefficients
++
++
++def aux_loss_bwd(local_expert_ids, coefficients, upstream):
++    grad = torch.empty(
++        local_expert_ids.shape, dtype=torch.float32, device=local_expert_ids.device
++    )
++    if grad.numel():
++        _slot_adjoint[(triton.cdiv(grad.numel(), 256),)](
++            local_expert_ids,
++            coefficients,
++            upstream,
++            grad,
++            grad.numel(),
++            BLOCK=256,
++            **LAUNCH,
++        )
++    return grad

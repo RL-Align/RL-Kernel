@@ -1,0 +1,219 @@
+AITER companion patch for RLK task 29
+Base: 326cffa38c9eda16bef19375ba55334e4d3acd59
+
+Copyright © Advanced Micro Devices, Inc. All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- a/aiter/ops/triton/_triton_kernels/moe/moe_routing/topk.py
++++ b/aiter/ops/triton/_triton_kernels/moe/moe_routing/topk.py
+@@ -1,5 +1,6 @@
+ import triton
+ import triton.language as tl
++import triton.language.extra.libdevice as libdevice
+ 
+ from aiter.ops.triton.utils._triton.kernel_repr import make_kernel_repr
+ 
+@@ -29,6 +30,17 @@
+ 
+ 
+ @triton.jit
++def _sqrt_softplus_fp32(x):
++    # log1p preserves negative-tail scores that log(1 + exp(x)) rounds to zero.
++    # Below -16 the relative error of exp(x/2) is at most exp(-16)/4;
++    # this branch also avoids underflow in exp(x) before taking the square root.
++    x_f = x.to(tl.float32)
++    sp = tl.maximum(x_f, 0.0) + libdevice.log1p(libdevice.exp(-tl.abs(x_f)))
++    tail = libdevice.exp(0.5 * tl.minimum(x_f, 0.0))
++    return tl.where(x_f < -16.0, tail, tl.sqrt(sp))
++
++
++@triton.jit
+ def _apply_score_mode(x, SCORE_MODE: tl.constexpr):
+     """Pre-transform raw logits before topk selection.
+ 
+@@ -42,9 +54,7 @@
+         router (config scoring_func="sigmoid").
+     """
+     if SCORE_MODE == "sqrtsoftplus":
+-        x_f = x.to(tl.float32)
+-        softplus_x = tl.maximum(x_f, 0.0) + tl.log(1.0 + tl.exp(-tl.abs(x_f)))
+-        return tl.sqrt(softplus_x).to(x.dtype)
++        return _sqrt_softplus_fp32(x).to(x.dtype)
+     if SCORE_MODE == "sigmoid":
+         return (1.0 / (1.0 + tl.exp(-x.to(tl.float32)))).to(x.dtype)
+     # "softmax" (and default): identity
+@@ -440,8 +450,7 @@
+         )
+         # sqrt(softplus(x)) — numerically stable
+         if SCORE_MODE == "sqrtsoftplus":
+-            softplus_x = tl.maximum(x, 0.0) + tl.log(1.0 + tl.exp(-tl.abs(x)))
+-            scores = tl.sqrt(softplus_x)
++            scores = _sqrt_softplus_fp32(x)
+         else:
+             scores = x
+         # For each (m, k): if expt_indx[m, k] is in [i*BLOCK_N, (i+1)*BLOCK_N), pick scores[m, expt_indx[m, k] - i*BLOCK_N]
+@@ -588,9 +597,7 @@
+     elif SCORE_MODE == "sigmoid":
+         scores = 1.0 / (1.0 + tl.exp(-x.to(tl.float32)))
+     elif SCORE_MODE == "sqrtsoftplus":
+-        x_f = x.to(tl.float32)
+-        sp = tl.maximum(x_f, 0.0) + tl.log(1.0 + tl.exp(-tl.abs(x_f)))
+-        scores = tl.sqrt(sp)
++        scores = _sqrt_softplus_fp32(x)
+     else:
+         scores = x.to(tl.float32)
+ 
+--- a/aiter/ops/triton/moe/moe_routing/topk.py
++++ b/aiter/ops/triton/moe/moe_routing/topk.py
+@@ -153,6 +153,7 @@
+         APPLY_RENORM=renorm,
+         ROUTED_SCALING=routed_scaling_factor,
+         num_warps=4,
++        enable_fp_fusion=(score_mode != "sqrtsoftplus"),
+     )
+ 
+     bitmatrix = Bitmatrix(
+@@ -286,6 +287,7 @@
+         ROUTED_SCALING=routed_scaling_factor,
+         Pop=pop_out,
+         WRITE_POP=pop_out is not None,
++        enable_fp_fusion=(score_mode != "sqrtsoftplus"),
+     )
+     bitmatrix_shape = [n_rows, n_cols_words * 32]
+     bitmatrix = Bitmatrix(
+@@ -394,6 +396,7 @@
+         APPLY_RENORM=renorm,
+         ROUTED_SCALING=routed_scaling_factor,
+         num_warps=8,
++        enable_fp_fusion=False,
+     )
+ 
+     bitmatrix_shape = [n_rows, n_cols_words * 32]
+--- /dev/null
++++ b/aiter/ops/triton/moe/moe_routing/router_sqrt_softplus.py
+@@ -0,0 +1,106 @@
++# SPDX-License-Identifier: MIT
++# Copyright (c) 2026 RL-Kernel Contributors
++"""Standalone FP32 sqrt-softplus and its first-order VJP for DSV4 task 29.
++
++The caller validates finite FP32 [M,E] inputs on the same device. Both paths
++use fixed elementwise programs; neither selection nor normalization is fused.
++"""
++
++import torch
++import triton
++import triton.language as tl
++import triton.language.extra.libdevice as libdevice
++
++from aiter.ops.triton._triton_kernels.moe.moe_routing.topk import _apply_score_mode
++
++ROUTER_SQRT_SOFTPLUS_CONTRACT_ID = "aiter.router_sqrt_softplus.fp32.stable_tail.v1"
++BLOCK = 256
++LAUNCH = {"num_warps": 4, "num_stages": 1, "enable_fp_fusion": False}
++
++
++@triton.jit
++def _router_sqrt_softplus_fwd(
++    X,
++    Y,
++    SIZE,
++    COLS: tl.constexpr,
++    STRIDE_M: tl.constexpr,
++    STRIDE_E: tl.constexpr,
++    BLOCK_SIZE: tl.constexpr,
++):
++    i = tl.program_id(0).to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
++    x = tl.load(
++        X + (i // COLS) * STRIDE_M + (i % COLS) * STRIDE_E, mask=i < SIZE, other=0.0
++    )
++    y = _apply_score_mode(x, "sqrtsoftplus")
++    tl.store(Y + i, y, mask=i < SIZE)
++
++
++@triton.jit
++def _router_sqrt_softplus_bwd(
++    X,
++    Y,
++    DY,
++    DX,
++    SIZE,
++    COLS: tl.constexpr,
++    STRIDE_M: tl.constexpr,
++    STRIDE_E: tl.constexpr,
++    BLOCK_SIZE: tl.constexpr,
++):
++    i = tl.program_id(0).to(tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
++    x = tl.load(
++        X + (i // COLS) * STRIDE_M + (i % COLS) * STRIDE_E, mask=i < SIZE, other=0.0
++    )
++    y = tl.load(Y + i, mask=i < SIZE, other=1.0)
++    dy = tl.load(DY + i, mask=i < SIZE, other=0.0)
++    e = libdevice.exp(-tl.abs(x))
++    sigmoid = tl.where(x >= 0.0, 1.0 / (1.0 + e), e / (1.0 + e))
++    # Do not form 0/0 in the negative tail. Multiply the completed slope by
++    # the FP32 upstream gradient last, with FP fusion disabled.
++    safe_y = tl.where(x < -16.0, 1.0, y)
++    regular_slope = sigmoid / (2.0 * safe_y)
++    slope = tl.where(x < -16.0, 0.5 * y, regular_slope)
++    ordinary_vjp = dy * slope
++    # A subnormal/zero FP32 score must not erase a representable VJP when
++    # multiplied by a large finite upstream gradient. Rescale in log space
++    # in the deep tail; log(0)=-inf gives a signed zero contribution.
++    tail_log = (libdevice.log(tl.abs(dy)) + 0.5 * x) - 0.6931471805599453
++    tail_vjp = libdevice.copysign(libdevice.exp(tail_log), dy)
++    vjp = tl.where(x < -160.0, tail_vjp, ordinary_vjp)
++    tl.store(DX + i, vjp, mask=i < SIZE)
++
++
++def router_sqrt_softplus_fwd(x):
++    y = torch.empty(x.shape, dtype=torch.float32, device=x.device)
++    if x.numel():
++        _router_sqrt_softplus_fwd[(triton.cdiv(x.numel(), BLOCK),)](
++            x,
++            y,
++            x.numel(),
++            x.shape[1],
++            x.stride(0),
++            x.stride(1),
++            BLOCK_SIZE=BLOCK,
++            **LAUNCH,
++        )
++    return y
++
++
++def router_sqrt_softplus_bwd(x, y, grad_output):
++    grad = grad_output.contiguous()
++    dx = torch.empty(x.shape, dtype=torch.float32, device=x.device)
++    if x.numel():
++        _router_sqrt_softplus_bwd[(triton.cdiv(x.numel(), BLOCK),)](
++            x,
++            y,
++            grad,
++            dx,
++            x.numel(),
++            x.shape[1],
++            x.stride(0),
++            x.stride(1),
++            BLOCK_SIZE=BLOCK,
++            **LAUNCH,
++        )
++    return dx

@@ -1,0 +1,14 @@
+{
+  "aiter_revision": "326cffa38c9eda16bef19375ba55334e4d3acd59",
+  "patch_sha256": {
+    "router-sqrt-softplus.patch": "7ee39f746894895b2d17a434a2187177cbdf59d30f92c155366e159a24d87cd9",
+    "hash-route.patch": "4585a054073b1a7365089eb2a4614ef6e22ed98672cb59be70f206cb6d78acee"
+  },
+  "source_sha256": {
+    "aiter.ops.triton._triton_kernels.moe.moe_routing.topk": "fdfd3b2ae8466b8fd7b23fa31a95b9de85689835455f59ec3e222fa06f77d304",
+    "aiter.ops.triton.moe.moe_routing.topk": "cbb3c72bc923b4d50d675d8b1867d7c6025f38bcad315a100f0ef0289070cec9",
+    "aiter.ops.triton.moe.moe_routing.router_sqrt_softplus": "f9efd5e205cf3060e19e3b0c3b63c0aac7547ba018cbc6fc4ba66bd8964baf9e",
+    "aiter.ops.triton._triton_kernels.moe.moe_routing.hash_route": "596dae7232a4b56bf1550921bb116476fe32afeb7b62e2796642bbf28f361bb6",
+    "aiter.ops.triton.moe.moe_routing.hash_route": "fbc35963d2bcc67bd3873eb80b133af43add2cd3b0b9de6387d3221c3a131344"
+  }
+}

@@ -1,0 +1,66 @@
+/usr/local/lib/python3.12/dist-packages/pytest_asyncio/plugin.py:299: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+EE                                                                       [100%]
+==================================== ERRORS ====================================
+____ ERROR at setup of test_original_checkpoint_fusion_and_token_invariance ____
+
+    @pytest.fixture
+    def operands():
+        capture = os.environ.get("DSV4_COMPRESSOR_CAPTURE")
+        checkpoint = os.environ.get("DSV4_ORIGINAL_CHECKPOINT")
+        if not capture or not checkpoint:
+            pytest.skip("requires the original checkpoint and captured failing input on MI300X")
+        assert torch.cuda.is_available()
+        assert torch.cuda.get_device_properties(0).gcnArchName.split(":")[0] == "gfx942"
+        from examples.operators.dsv4_4l.trace_store import load_capture
+
+        root = Path(capture)
+>       x = load_capture(root / "policy-sync/traces/actor-rank-0/00166.json")[0][:, 0].cuda()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       torch.AcceleratorError: CUDA error: invalid argument
+E       Search for `hipErrorInvalidValue' in https://rocm.docs.amd.com/projects/HIP/en/latest/index.html for more information.
+E       For more detailed error information, run with CUDA_LOG_FILE=stderr
+E       Device-side assertion tracking was not enabled by user.
+
+tests/integrations/common/test_compressor_projection_checkpoint.py:25: AcceleratorError
+---------------------------- Captured stderr setup -----------------------------
+RLK_KFD_APERTURE_ISOLATION input=8 kept=1
+W1117 18:45:28.037678       1 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 566490144 (priority and CU-mask from the descriptor are not preserved)
+_ ERROR at setup of test_original_bf16_leaf_parameters_receive_finite_effective_vjp _
+
+    @pytest.fixture
+    def operands():
+        capture = os.environ.get("DSV4_COMPRESSOR_CAPTURE")
+        checkpoint = os.environ.get("DSV4_ORIGINAL_CHECKPOINT")
+        if not capture or not checkpoint:
+            pytest.skip("requires the original checkpoint and captured failing input on MI300X")
+        assert torch.cuda.is_available()
+        assert torch.cuda.get_device_properties(0).gcnArchName.split(":")[0] == "gfx942"
+        from examples.operators.dsv4_4l.trace_store import load_capture
+
+        root = Path(capture)
+>       x = load_capture(root / "policy-sync/traces/actor-rank-0/00166.json")[0][:, 0].cuda()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       torch.AcceleratorError: CUDA error: invalid argument
+E       Search for `hipErrorInvalidValue' in https://rocm.docs.amd.com/projects/HIP/en/latest/index.html for more information.
+E       For more detailed error information, run with CUDA_LOG_FILE=stderr
+E       Device-side assertion tracking was not enabled by user.
+
+tests/integrations/common/test_compressor_projection_checkpoint.py:25: AcceleratorError
+---------------------------- Captured stderr setup -----------------------------
+W1117 18:45:28.131487       1 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 566490144 (priority and CU-mask from the descriptor are not preserved)
+=============================== warnings summary ===============================
+../../../usr/local/lib/python3.12/dist-packages/anyio/pytest_plugin.py:14
+  /usr/local/lib/python3.12/dist-packages/anyio/pytest_plugin.py:14: PytestRemovedIn10Warning: _pytest.python.CallSpec2 has been renamed to CallSpec.
+  The CallSpec2 alias will be removed in pytest 10.
+  Update imports to use CallSpec instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#callspec2-renamed
+    from _pytest.python import CallSpec2
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR tests/integrations/common/test_compressor_projection_checkpoint.py::test_original_checkpoint_fusion_and_token_invariance
+ERROR tests/integrations/common/test_compressor_projection_checkpoint.py::test_original_bf16_leaf_parameters_receive_finite_effective_vjp
+1 warning, 2 errors in 1.57s

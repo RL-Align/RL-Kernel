@@ -1,0 +1,68 @@
+--- a/experimental/lite/megatron/lite/model/deepseek_v4/vllm/model.py
++++ b/experimental/lite/megatron/lite/model/deepseek_v4/vllm/model.py
+@@ -182,6 +182,8 @@
+ 
+ 
+ class DeepseekV4Model(LiteDeepseekV4Model):
++    rlk_p1_head_hook = True
++
+     def __init__(
+         self,
+         config: DeepseekV4Config,
+@@ -304,27 +306,35 @@
+             }
+         if self.norm is None or self.hc_head is None or self.lm_head is None:
+             raise RuntimeError("final pipeline stage is missing the output head")
+-        hidden_states = mhc_head(
+-            lambda *args: mhc_kernel(
+-                "head",
+-                *args, self.config.rms_norm_eps, self.config.hc_eps
+-            ),
+-            hidden_states,
+-            self.hc_head.hc_fn.float().contiguous(),
+-            self.hc_head.hc_scale.float().contiguous(),
+-            self.hc_head.hc_base.float().contiguous(),
+-            eps=self.config.hc_eps,
+-        )
+-        from vllm.model_executor.layers.batch_invariant import (
+-            rms_norm_batch_invariant,
+-        )
+-
+-        hidden_states = rms_norm(
+-            rms_norm_batch_invariant,
+-            hidden_states,
+-            self.norm.weight,
+-            self.config.rms_norm_eps,
+-        )
++        if hasattr(self, "_rlk_p1"):
++            p1 = self._rlk_p1
++            p1.check_config(self.config.rms_norm_eps, self.config.hc_eps)
++            hidden_states = p1.head(
++                hidden_states, self.hc_head.hc_fn, self.hc_head.hc_scale, self.hc_head.hc_base
++            )
++            hidden_states = p1.norm(hidden_states, self.norm.weight)
++        else:
++            hidden_states = mhc_head(
++                lambda *args: mhc_kernel(
++                    "head",
++                    *args, self.config.rms_norm_eps, self.config.hc_eps
++                ),
++                hidden_states,
++                self.hc_head.hc_fn.float().contiguous(),
++                self.hc_head.hc_scale.float().contiguous(),
++                self.hc_head.hc_base.float().contiguous(),
++                eps=self.config.hc_eps,
++            )
++            from vllm.model_executor.layers.batch_invariant import (
++                rms_norm_batch_invariant,
++            )
++
++            hidden_states = rms_norm(
++                rms_norm_batch_invariant,
++                hidden_states,
++                self.norm.weight,
++                self.config.rms_norm_eps,
++            )
+         result = {"hidden_states": hidden_states}
+         if labels is not None:
+             temperature_value = float(

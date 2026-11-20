@@ -1,0 +1,5907 @@
+{
+  "expanded1": {
+    "driver-identity.json": {
+      "role": "driver",
+      "pid": 7,
+      "projects": {
+        "verl": {
+          "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+          "url": "https://github.com/RL-Align/verl.git",
+          "import_path": "/opt/dsv4/verl/verl/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.10.0.dev0"
+        },
+        "RL-Kernel": {
+          "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+          "url": "https://github.com/RL-Align/RL-Kernel.git",
+          "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.1.1"
+        },
+        "vllm": {
+          "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+          "url": "https://github.com/vllm-project/vllm.git",
+          "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.34.0rc1.dev366+gc07d58dc8"
+        },
+        "Megatron-LM": {
+          "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+          "url": "https://github.com/NVIDIA/Megatron-LM.git",
+          "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.21.0+97b50bd"
+        }
+      },
+      "dependencies": {
+        "megatron-bridge": "0.7.0",
+        "torch": "2.13.0+rocm10.0.0",
+        "triton": "3.8.0+git669b31ac",
+        "amd-aiter": "0.1.29",
+        "ray": "2.60.0",
+        "TransferQueue": "0.1.11"
+      },
+      "hip": "7.15.26333",
+      "ray_accelerator_ids": null,
+      "visibility": {
+        "HIP_VISIBLE_DEVICES": "0,1,2,3",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+        "ROCR_VISIBLE_DEVICES": null
+      }
+    },
+    "actor-rank-0-identity.json": {
+      "rank": 0,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "embedding.word_embeddings.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.2.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.2.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.2.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.2.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.2.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.2.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.3.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.3.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.3.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.3.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.4.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            4,
+            1024
+          ],
+          "dtype": "torch.float32",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.linear_weights_proj.weight": {
+          "shape": [
+            64,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 262144
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.ape": {
+          "shape": [
+            4,
+            256
+          ],
+          "dtype": "torch.float32",
+          "elements": 1024
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wkv.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wgate.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.norm.weight": {
+          "shape": [
+            128
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 128
+        },
+        "decoder.layers.4.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.4.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.4.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.5.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.5.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.5.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.5.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        }
+      },
+      "pid": 3231,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3231,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "GPU": [
+            "0"
+          ],
+          "HPU": [],
+          "TPU": [],
+          "NPU": [],
+          "neuron_cores": [],
+          "FURIOSA": [],
+          "TTNPU": [],
+          "RBLN": [],
+          "MBLT": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:a3:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        0,
+        1,
+        2
+      ]
+    },
+    "actor-rank-1-identity.json": {
+      "rank": 1,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "decoder.hc_head_fn": {
+          "shape": [
+            4,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.hc_head_base": {
+          "shape": [
+            4
+          ],
+          "dtype": "torch.float32",
+          "elements": 4
+        },
+        "decoder.hc_head_scale": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            128,
+            512
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.final_norm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "output_layer.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        }
+      },
+      "pid": 3232,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3232,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "TTNPU": [],
+          "NPU": [],
+          "neuron_cores": [],
+          "RBLN": [],
+          "TPU": [],
+          "GPU": [
+            "1"
+          ],
+          "FURIOSA": [],
+          "HPU": [],
+          "MBLT": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:ab:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        3
+      ]
+    },
+    "actual_stdout_processes": {
+      "driver/7": {
+        "role": "driver",
+        "pid": 7,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "0,1,2,3",
+          "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3231": {
+        "role": "actor",
+        "pid": 3231,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "GPU": [
+            "0"
+          ],
+          "HPU": [],
+          "TPU": [],
+          "NPU": [],
+          "neuron_cores": [],
+          "FURIOSA": [],
+          "TTNPU": [],
+          "RBLN": [],
+          "MBLT": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3232": {
+        "role": "actor",
+        "pid": 3232,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "TTNPU": [],
+          "NPU": [],
+          "neuron_cores": [],
+          "RBLN": [],
+          "TPU": [],
+          "GPU": [
+            "1"
+          ],
+          "FURIOSA": [],
+          "HPU": [],
+          "MBLT": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "rollout-ray-server/4410": {
+        "role": "rollout-ray-server",
+        "pid": 4410,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "TTNPU": [],
+          "TPU": [],
+          "neuron_cores": [],
+          "RBLN": [],
+          "MBLT": [],
+          "GPU": [],
+          "NPU": [],
+          "HPU": [],
+          "FURIOSA": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4664": {
+        "role": "vllm-mp-worker",
+        "pid": 4664,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4663": {
+        "role": "vllm-mp-worker",
+        "pid": 4663,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      }
+    }
+  },
+  "expanded2": {
+    "driver-identity.json": {
+      "role": "driver",
+      "pid": 7,
+      "projects": {
+        "verl": {
+          "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+          "url": "https://github.com/RL-Align/verl.git",
+          "import_path": "/opt/dsv4/verl/verl/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.10.0.dev0"
+        },
+        "RL-Kernel": {
+          "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+          "url": "https://github.com/RL-Align/RL-Kernel.git",
+          "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.1.1"
+        },
+        "vllm": {
+          "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+          "url": "https://github.com/vllm-project/vllm.git",
+          "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.34.0rc1.dev366+gc07d58dc8"
+        },
+        "Megatron-LM": {
+          "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+          "url": "https://github.com/NVIDIA/Megatron-LM.git",
+          "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.21.0+97b50bd"
+        }
+      },
+      "dependencies": {
+        "megatron-bridge": "0.7.0",
+        "torch": "2.13.0+rocm10.0.0",
+        "triton": "3.8.0+git669b31ac",
+        "amd-aiter": "0.1.29",
+        "ray": "2.60.0",
+        "TransferQueue": "0.1.11"
+      },
+      "hip": "7.15.26333",
+      "ray_accelerator_ids": null,
+      "visibility": {
+        "HIP_VISIBLE_DEVICES": "0,1,2,3",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+        "ROCR_VISIBLE_DEVICES": null
+      }
+    },
+    "actor-rank-0-identity.json": {
+      "rank": 0,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "embedding.word_embeddings.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.2.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.2.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.2.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.2.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.2.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.2.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.3.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.3.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.3.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.3.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.4.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            4,
+            1024
+          ],
+          "dtype": "torch.float32",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.linear_weights_proj.weight": {
+          "shape": [
+            64,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 262144
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.ape": {
+          "shape": [
+            4,
+            256
+          ],
+          "dtype": "torch.float32",
+          "elements": 1024
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wkv.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wgate.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.norm.weight": {
+          "shape": [
+            128
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 128
+        },
+        "decoder.layers.4.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.4.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.4.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.5.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.5.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.5.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.5.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        }
+      },
+      "pid": 3226,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3226,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "TTNPU": [],
+          "MBLT": [],
+          "HPU": [],
+          "neuron_cores": [],
+          "NPU": [],
+          "GPU": [
+            "0"
+          ],
+          "RBLN": [],
+          "TPU": [],
+          "FURIOSA": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:a3:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        0,
+        1,
+        2
+      ]
+    },
+    "actor-rank-1-identity.json": {
+      "rank": 1,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "decoder.hc_head_fn": {
+          "shape": [
+            4,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.hc_head_base": {
+          "shape": [
+            4
+          ],
+          "dtype": "torch.float32",
+          "elements": 4
+        },
+        "decoder.hc_head_scale": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            128,
+            512
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.final_norm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "output_layer.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        }
+      },
+      "pid": 3227,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3227,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "GPU": [
+            "1"
+          ],
+          "neuron_cores": [],
+          "NPU": [],
+          "FURIOSA": [],
+          "MBLT": [],
+          "RBLN": [],
+          "TTNPU": [],
+          "TPU": [],
+          "HPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:ab:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        3
+      ]
+    },
+    "actual_stdout_processes": {
+      "driver/7": {
+        "role": "driver",
+        "pid": 7,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "0,1,2,3",
+          "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3227": {
+        "role": "actor",
+        "pid": 3227,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "GPU": [
+            "1"
+          ],
+          "neuron_cores": [],
+          "NPU": [],
+          "FURIOSA": [],
+          "MBLT": [],
+          "RBLN": [],
+          "TTNPU": [],
+          "TPU": [],
+          "HPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3226": {
+        "role": "actor",
+        "pid": 3226,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "TTNPU": [],
+          "MBLT": [],
+          "HPU": [],
+          "neuron_cores": [],
+          "NPU": [],
+          "GPU": [
+            "0"
+          ],
+          "RBLN": [],
+          "TPU": [],
+          "FURIOSA": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "rollout-ray-server/4405": {
+        "role": "rollout-ray-server",
+        "pid": 4405,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "TTNPU": [],
+          "TPU": [],
+          "FURIOSA": [],
+          "NPU": [],
+          "MBLT": [],
+          "GPU": [],
+          "neuron_cores": [],
+          "HPU": [],
+          "RBLN": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4660": {
+        "role": "vllm-mp-worker",
+        "pid": 4660,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4659": {
+        "role": "vllm-mp-worker",
+        "pid": 4659,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "06b8d414869b3d35175e78e02d022f10a83a3dd1",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      }
+    }
+  },
+  "long-audit1": {
+    "driver-identity.json": {
+      "role": "driver",
+      "pid": 7,
+      "projects": {
+        "verl": {
+          "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+          "url": "https://github.com/RL-Align/verl.git",
+          "import_path": "/opt/dsv4/verl/verl/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.10.0.dev0"
+        },
+        "RL-Kernel": {
+          "sha": "df4b1f974d374d46f21d95937b983ee1f8acf552",
+          "url": "https://github.com/RL-Align/RL-Kernel.git",
+          "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.1.1"
+        },
+        "vllm": {
+          "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+          "url": "https://github.com/vllm-project/vllm.git",
+          "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.34.0rc1.dev366+gc07d58dc8"
+        },
+        "Megatron-LM": {
+          "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+          "url": "https://github.com/NVIDIA/Megatron-LM.git",
+          "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.21.0+97b50bd"
+        }
+      },
+      "dependencies": {
+        "megatron-bridge": "0.7.0",
+        "torch": "2.13.0+rocm10.0.0",
+        "triton": "3.8.0+git669b31ac",
+        "amd-aiter": "0.1.29",
+        "ray": "2.60.0",
+        "TransferQueue": "0.1.11"
+      },
+      "hip": "7.15.26333",
+      "ray_accelerator_ids": null,
+      "visibility": {
+        "HIP_VISIBLE_DEVICES": "0,1,2,3",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+        "ROCR_VISIBLE_DEVICES": null
+      }
+    },
+    "actor-rank-0-identity.json": {
+      "rank": 0,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "embedding.word_embeddings.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.2.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.2.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.2.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.2.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.2.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.2.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.3.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.3.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.3.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.3.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.4.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            4,
+            1024
+          ],
+          "dtype": "torch.float32",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.linear_weights_proj.weight": {
+          "shape": [
+            64,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 262144
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.ape": {
+          "shape": [
+            4,
+            256
+          ],
+          "dtype": "torch.float32",
+          "elements": 1024
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wkv.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wgate.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.norm.weight": {
+          "shape": [
+            128
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 128
+        },
+        "decoder.layers.4.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.4.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.4.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.5.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.5.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.5.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.5.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        }
+      },
+      "pid": 3225,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3225,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "df4b1f974d374d46f21d95937b983ee1f8acf552",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "NPU": [],
+          "MBLT": [],
+          "neuron_cores": [],
+          "TTNPU": [],
+          "RBLN": [],
+          "HPU": [],
+          "TPU": [],
+          "FURIOSA": [],
+          "GPU": [
+            "0"
+          ]
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:a3:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        0,
+        1,
+        2
+      ]
+    },
+    "actor-rank-1-identity.json": {
+      "rank": 1,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "decoder.hc_head_fn": {
+          "shape": [
+            4,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.hc_head_base": {
+          "shape": [
+            4
+          ],
+          "dtype": "torch.float32",
+          "elements": 4
+        },
+        "decoder.hc_head_scale": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            128,
+            512
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.final_norm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "output_layer.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        }
+      },
+      "pid": 3226,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3226,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "df4b1f974d374d46f21d95937b983ee1f8acf552",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "TPU": [],
+          "FURIOSA": [],
+          "GPU": [
+            "1"
+          ],
+          "neuron_cores": [],
+          "RBLN": [],
+          "MBLT": [],
+          "NPU": [],
+          "TTNPU": [],
+          "HPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:ab:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        3
+      ]
+    },
+    "actual_stdout_processes": {
+      "driver/7": {
+        "role": "driver",
+        "pid": 7,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "df4b1f974d374d46f21d95937b983ee1f8acf552",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "0,1,2,3",
+          "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3225": {
+        "role": "actor",
+        "pid": 3225,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "df4b1f974d374d46f21d95937b983ee1f8acf552",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "NPU": [],
+          "MBLT": [],
+          "neuron_cores": [],
+          "TTNPU": [],
+          "RBLN": [],
+          "HPU": [],
+          "TPU": [],
+          "FURIOSA": [],
+          "GPU": [
+            "0"
+          ]
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3226": {
+        "role": "actor",
+        "pid": 3226,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "df4b1f974d374d46f21d95937b983ee1f8acf552",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "TPU": [],
+          "FURIOSA": [],
+          "GPU": [
+            "1"
+          ],
+          "neuron_cores": [],
+          "RBLN": [],
+          "MBLT": [],
+          "NPU": [],
+          "TTNPU": [],
+          "HPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "rollout-ray-server/4402": {
+        "role": "rollout-ray-server",
+        "pid": 4402,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "df4b1f974d374d46f21d95937b983ee1f8acf552",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "neuron_cores": [],
+          "FURIOSA": [],
+          "RBLN": [],
+          "NPU": [],
+          "TPU": [],
+          "MBLT": [],
+          "HPU": [],
+          "TTNPU": [],
+          "GPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4657": {
+        "role": "vllm-mp-worker",
+        "pid": 4657,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "df4b1f974d374d46f21d95937b983ee1f8acf552",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4656": {
+        "role": "vllm-mp-worker",
+        "pid": 4656,
+        "projects": {
+          "verl": {
+            "sha": "c835e6c77821bee7dc9feee3d8b936774335680c",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "df4b1f974d374d46f21d95937b983ee1f8acf552",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      }
+    }
+  },
+  "stress2": {
+    "driver-identity.json": {
+      "role": "driver",
+      "pid": 7,
+      "projects": {
+        "verl": {
+          "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+          "url": "https://github.com/RL-Align/verl.git",
+          "import_path": "/opt/dsv4/verl/verl/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.10.0.dev0"
+        },
+        "RL-Kernel": {
+          "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+          "url": "https://github.com/RL-Align/RL-Kernel.git",
+          "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.1.1"
+        },
+        "vllm": {
+          "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+          "url": "https://github.com/vllm-project/vllm.git",
+          "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.34.0rc1.dev366+gc07d58dc8"
+        },
+        "Megatron-LM": {
+          "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+          "url": "https://github.com/NVIDIA/Megatron-LM.git",
+          "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.21.0+97b50bd"
+        }
+      },
+      "dependencies": {
+        "megatron-bridge": "0.7.0",
+        "torch": "2.13.0+rocm10.0.0",
+        "triton": "3.8.0+git669b31ac",
+        "amd-aiter": "0.1.29",
+        "ray": "2.60.0",
+        "TransferQueue": "0.1.11"
+      },
+      "hip": "7.15.26333",
+      "ray_accelerator_ids": null,
+      "visibility": {
+        "HIP_VISIBLE_DEVICES": "0,1,2,3",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+        "ROCR_VISIBLE_DEVICES": null
+      }
+    },
+    "actor-rank-0-identity.json": {
+      "rank": 0,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "embedding.word_embeddings.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.2.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.2.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.2.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.2.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.2.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.2.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.3.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.3.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.3.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.3.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.4.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            4,
+            1024
+          ],
+          "dtype": "torch.float32",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.linear_weights_proj.weight": {
+          "shape": [
+            64,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 262144
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.ape": {
+          "shape": [
+            4,
+            256
+          ],
+          "dtype": "torch.float32",
+          "elements": 1024
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wkv.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wgate.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.norm.weight": {
+          "shape": [
+            128
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 128
+        },
+        "decoder.layers.4.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.4.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.4.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.5.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.5.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.5.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.5.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        }
+      },
+      "pid": 3235,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3235,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "RBLN": [],
+          "TPU": [],
+          "GPU": [
+            "0"
+          ],
+          "FURIOSA": [],
+          "TTNPU": [],
+          "neuron_cores": [],
+          "MBLT": [],
+          "HPU": [],
+          "NPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:a3:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        0,
+        1,
+        2
+      ]
+    },
+    "actor-rank-1-identity.json": {
+      "rank": 1,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "decoder.hc_head_fn": {
+          "shape": [
+            4,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.hc_head_base": {
+          "shape": [
+            4
+          ],
+          "dtype": "torch.float32",
+          "elements": 4
+        },
+        "decoder.hc_head_scale": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            128,
+            512
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.final_norm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "output_layer.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        }
+      },
+      "pid": 3236,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3236,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "NPU": [],
+          "neuron_cores": [],
+          "GPU": [
+            "1"
+          ],
+          "HPU": [],
+          "TTNPU": [],
+          "TPU": [],
+          "RBLN": [],
+          "FURIOSA": [],
+          "MBLT": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:ab:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        3
+      ]
+    },
+    "actual_stdout_processes": {
+      "driver/7": {
+        "role": "driver",
+        "pid": 7,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "0,1,2,3",
+          "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3235": {
+        "role": "actor",
+        "pid": 3235,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "RBLN": [],
+          "TPU": [],
+          "GPU": [
+            "0"
+          ],
+          "FURIOSA": [],
+          "TTNPU": [],
+          "neuron_cores": [],
+          "MBLT": [],
+          "HPU": [],
+          "NPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3236": {
+        "role": "actor",
+        "pid": 3236,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "NPU": [],
+          "neuron_cores": [],
+          "GPU": [
+            "1"
+          ],
+          "HPU": [],
+          "TTNPU": [],
+          "TPU": [],
+          "RBLN": [],
+          "FURIOSA": [],
+          "MBLT": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "rollout-ray-server/4411": {
+        "role": "rollout-ray-server",
+        "pid": 4411,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "MBLT": [],
+          "GPU": [],
+          "HPU": [],
+          "NPU": [],
+          "neuron_cores": [],
+          "RBLN": [],
+          "TPU": [],
+          "FURIOSA": [],
+          "TTNPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4666": {
+        "role": "vllm-mp-worker",
+        "pid": 4666,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4665": {
+        "role": "vllm-mp-worker",
+        "pid": 4665,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      }
+    }
+  },
+  "stress3": {
+    "driver-identity.json": {
+      "role": "driver",
+      "pid": 7,
+      "projects": {
+        "verl": {
+          "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+          "url": "https://github.com/RL-Align/verl.git",
+          "import_path": "/opt/dsv4/verl/verl/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.10.0.dev0"
+        },
+        "RL-Kernel": {
+          "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+          "url": "https://github.com/RL-Align/RL-Kernel.git",
+          "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.1.1"
+        },
+        "vllm": {
+          "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+          "url": "https://github.com/vllm-project/vllm.git",
+          "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.34.0rc1.dev366+gc07d58dc8"
+        },
+        "Megatron-LM": {
+          "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+          "url": "https://github.com/NVIDIA/Megatron-LM.git",
+          "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+          "dirty": false,
+          "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "version": "0.21.0+97b50bd"
+        }
+      },
+      "dependencies": {
+        "megatron-bridge": "0.7.0",
+        "torch": "2.13.0+rocm10.0.0",
+        "triton": "3.8.0+git669b31ac",
+        "amd-aiter": "0.1.29",
+        "ray": "2.60.0",
+        "TransferQueue": "0.1.11"
+      },
+      "hip": "7.15.26333",
+      "ray_accelerator_ids": null,
+      "visibility": {
+        "HIP_VISIBLE_DEVICES": "0,1,2,3",
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+        "ROCR_VISIBLE_DEVICES": null
+      }
+    },
+    "actor-rank-0-identity.json": {
+      "rank": 0,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "embedding.word_embeddings.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.2.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.2.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.2.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.2.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.2.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.2.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.2.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.3.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.3.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.3.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.3.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.3.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.4.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            4,
+            1024
+          ],
+          "dtype": "torch.float32",
+          "elements": 4096
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            1024,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4194304
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.linear_weights_proj.weight": {
+          "shape": [
+            64,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 262144
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.ape": {
+          "shape": [
+            4,
+            256
+          ],
+          "dtype": "torch.float32",
+          "elements": 1024
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wkv.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.linear_wgate.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.4.inner_layer.self_attention.core_attention.indexer.compressor.norm.weight": {
+          "shape": [
+            128
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 128
+        },
+        "decoder.layers.4.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.4.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.4.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.4.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.4.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.5.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.5.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.5.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.5.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.5.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        }
+      },
+      "pid": 3228,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3228,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "NPU": [],
+          "GPU": [
+            "0"
+          ],
+          "neuron_cores": [],
+          "RBLN": [],
+          "MBLT": [],
+          "TPU": [],
+          "TTNPU": [],
+          "FURIOSA": [],
+          "HPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:a3:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        0,
+        1,
+        2
+      ]
+    },
+    "actor-rank-1-identity.json": {
+      "rank": 1,
+      "actual_model_class": "megatron.core.models.hybrid.hybrid_model.HybridModel",
+      "actual_model_source": "/opt/dsv4/Megatron-LM/megatron/core/models/hybrid/hybrid_model.py",
+      "trainable_inventory": {
+        "decoder.hc_head_fn": {
+          "shape": [
+            4,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.hc_head_base": {
+          "shape": [
+            4
+          ],
+          "dtype": "torch.float32",
+          "elements": 4
+        },
+        "decoder.hc_head_scale": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.inner_layer.input_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.attn_sink": {
+          "shape": [
+            64
+          ],
+          "dtype": "torch.float32",
+          "elements": 64
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.ape": {
+          "shape": [
+            128,
+            512
+          ],
+          "dtype": "torch.float32",
+          "elements": 65536
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wkv.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.linear_wgate.weight": {
+          "shape": [
+            512,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 2097152
+        },
+        "decoder.layers.0.inner_layer.self_attention.core_attention.compressor.norm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.kv_layernorm.weight": {
+          "shape": [
+            512
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 512
+        },
+        "decoder.layers.0.inner_layer.self_attention.q_layernorm.weight": {
+          "shape": [
+            1024
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1024
+        },
+        "decoder.layers.0.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.0.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.0.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.layers.1.inner_layer.pre_mlp_layernorm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "decoder.layers.1.inner_layer.mlp.router.weight": {
+          "shape": [
+            256,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 1048576
+        },
+        "decoder.layers.1.hyper_connection.alpha_pre": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_post": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.alpha_res": {
+          "shape": [
+            1
+          ],
+          "dtype": "torch.float32",
+          "elements": 1
+        },
+        "decoder.layers.1.hyper_connection.bias": {
+          "shape": [
+            24
+          ],
+          "dtype": "torch.float32",
+          "elements": 24
+        },
+        "decoder.layers.1.hyper_connection.mapping_proj.weight": {
+          "shape": [
+            24,
+            16384
+          ],
+          "dtype": "torch.float32",
+          "elements": 393216
+        },
+        "decoder.final_norm.weight": {
+          "shape": [
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 4096
+        },
+        "output_layer.weight": {
+          "shape": [
+            129280,
+            4096
+          ],
+          "dtype": "torch.bfloat16",
+          "elements": 529530880
+        }
+      },
+      "pid": 3229,
+      "source_identity": {
+        "role": "actor",
+        "pid": 3229,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "NPU": [],
+          "MBLT": [],
+          "FURIOSA": [],
+          "neuron_cores": [],
+          "HPU": [],
+          "RBLN": [],
+          "TTNPU": [],
+          "GPU": [
+            "1"
+          ],
+          "TPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "device_identity": {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:ab:00.0",
+        "architecture": "gfx942:sramecc+:xnack-",
+        "device_name": "AMD Instinct MI300X VF"
+      },
+      "original_layer_ids": [
+        3
+      ]
+    },
+    "actual_stdout_processes": {
+      "driver/7": {
+        "role": "driver",
+        "pid": 7,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "0,1,2,3",
+          "CUDA_VISIBLE_DEVICES": "0,1,2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3229": {
+        "role": "actor",
+        "pid": 3229,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "NPU": [],
+          "MBLT": [],
+          "FURIOSA": [],
+          "neuron_cores": [],
+          "HPU": [],
+          "RBLN": [],
+          "TTNPU": [],
+          "GPU": [
+            "1"
+          ],
+          "TPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "1",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "actor/3228": {
+        "role": "actor",
+        "pid": 3228,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "NPU": [],
+          "GPU": [
+            "0"
+          ],
+          "neuron_cores": [],
+          "RBLN": [],
+          "MBLT": [],
+          "TPU": [],
+          "TTNPU": [],
+          "FURIOSA": [],
+          "HPU": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": "0",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "rollout-ray-server/4406": {
+        "role": "rollout-ray-server",
+        "pid": 4406,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": {
+          "NPU": [],
+          "TTNPU": [],
+          "FURIOSA": [],
+          "TPU": [],
+          "GPU": [],
+          "MBLT": [],
+          "HPU": [],
+          "RBLN": [],
+          "neuron_cores": []
+        },
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4662": {
+        "role": "vllm-mp-worker",
+        "pid": 4662,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      },
+      "vllm-mp-worker/4661": {
+        "role": "vllm-mp-worker",
+        "pid": 4661,
+        "projects": {
+          "verl": {
+            "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+            "url": "https://github.com/RL-Align/verl.git",
+            "import_path": "/opt/dsv4/verl/verl/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.10.0.dev0"
+          },
+          "RL-Kernel": {
+            "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+            "url": "https://github.com/RL-Align/RL-Kernel.git",
+            "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.1.1"
+          },
+          "vllm": {
+            "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+            "url": "https://github.com/vllm-project/vllm.git",
+            "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.34.0rc1.dev366+gc07d58dc8"
+          },
+          "Megatron-LM": {
+            "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+            "url": "https://github.com/NVIDIA/Megatron-LM.git",
+            "import_path": null,
+            "dirty": false,
+            "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "version": "0.21.0+97b50bd"
+          }
+        },
+        "dependencies": {
+          "megatron-bridge": "0.7.0",
+          "torch": "2.13.0+rocm10.0.0",
+          "triton": "3.8.0+git669b31ac",
+          "amd-aiter": "0.1.29",
+          "ray": "2.60.0",
+          "TransferQueue": "0.1.11"
+        },
+        "hip": "7.15.26333",
+        "ray_accelerator_ids": null,
+        "visibility": {
+          "HIP_VISIBLE_DEVICES": "2,3",
+          "CUDA_VISIBLE_DEVICES": "2,3",
+          "ROCR_VISIBLE_DEVICES": null
+        }
+      }
+    }
+  }
+}

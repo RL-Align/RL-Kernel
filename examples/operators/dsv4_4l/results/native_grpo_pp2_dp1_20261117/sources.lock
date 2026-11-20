@@ -1,0 +1,40 @@
+{
+  "verl": {
+    "sha": "8196af485ae50e09aa42c1fc6e399f266fb166d3",
+    "url": "https://github.com/RL-Align/verl.git",
+    "import_path": "/opt/dsv4/verl/verl/__init__.py",
+    "dirty": false,
+    "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "version": "0.10.0.dev0",
+    "branch": "vensen/dsv4-rlk-verl-glue",
+    "initial_pr_head": "0d5a434cfefd1b83e543a4061590e36a36b513df",
+    "base": "cc35929bf8eedf5f3eb7c4ace3441dfd9f6d4c0e"
+  },
+  "RL-Kernel": {
+    "sha": "478caf1a787f6c9d9d3747a45ad79756b6c2c616",
+    "url": "https://github.com/RL-Align/RL-Kernel.git",
+    "import_path": "/opt/dsv4/RL-Kernel/rl_engine/__init__.py",
+    "dirty": false,
+    "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "version": "0.1.1",
+    "branch": "vensen/dsv4-4l-pp2-dp2-20261116",
+    "initial_pr_head": "306c0bafe5be667d06989a163304c45496cc7daf",
+    "base": "f3fc610c39316e44f70f77e742784b9c7673373a"
+  },
+  "vllm": {
+    "sha": "c07d58dc82d75f7d1a947b3264b460384ec3e18d",
+    "url": "https://github.com/vllm-project/vllm.git",
+    "import_path": "/opt/dsv4/vllm/vllm/__init__.py",
+    "dirty": false,
+    "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "version": "0.34.0rc1.dev366+gc07d58dc8"
+  },
+  "Megatron-LM": {
+    "sha": "97b50bdd936022ef58031c35db6d10581c181be0",
+    "url": "https://github.com/NVIDIA/Megatron-LM.git",
+    "import_path": "/opt/dsv4/Megatron-LM/megatron/core/__init__.py",
+    "dirty": false,
+    "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "version": "0.21.0+97b50bd"
+  }
+}

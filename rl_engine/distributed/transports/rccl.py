@@ -54,20 +54,24 @@ class TorchDistributedDeterministicCollective:
     ) -> None:
         if not dist.is_available() or not dist.is_initialized():
             raise RuntimeError("torch.distributed must be initialized before collectives")
-        if max_size_bytes <= 0:
-            raise ValueError("max_size_bytes must be positive")
-
         self.group = group if group is not None else dist.group.WORLD
         self.rank = int(dist.get_rank(group=self.group))
         self.world_size = int(dist.get_world_size(group=self.group))
-        if self.world_size not in _SUPPORTED_WORLD_SIZES:
-            raise ValueError(
-                "deterministic collectives require world_size in "
-                f"{_SUPPORTED_WORLD_SIZES}, got {self.world_size}"
-            )
-
-        self.device = self._normalize_device(device)
-        self.max_size_bytes = int(max_size_bytes)
+        local_error = None
+        try:
+            if max_size_bytes <= 0:
+                raise ValueError("max_size_bytes must be positive")
+            if self.world_size not in _SUPPORTED_WORLD_SIZES:
+                raise ValueError(
+                    "deterministic collectives require world_size in "
+                    f"{_SUPPORTED_WORLD_SIZES}, got {self.world_size}"
+                )
+            self.device = self._normalize_device(device)
+            self.max_size_bytes = int(max_size_bytes)
+        except Exception as exc:
+            local_error = exc
+            self.device = torch.device("cpu")
+            self.max_size_bytes = max_size_bytes
         self._backend = str(dist.get_backend(self.group)).lower()
         self._lock = threading.Lock()
         self._closed = False
@@ -84,7 +88,7 @@ class TorchDistributedDeterministicCollective:
         # the standard collective contract that ranks call operations in the
         # same order.
         self._validated_signatures: set[tuple[Any, ...]] = set()
-        self._validate_matching_capacity()
+        self._validate_matching_capacity(local_error)
 
     @staticmethod
     def _normalize_device(
@@ -535,12 +539,19 @@ class TorchDistributedDeterministicCollective:
             )
         self._validated_signatures.add(signature)
 
-    def _validate_matching_capacity(self) -> None:
+    def _validate_matching_capacity(self, local_error: Exception | None = None) -> None:
         if self.world_size == 1:
+            if local_error is not None:
+                raise local_error
             return
-        capacities: list[int | None] = [None] * self.world_size
-        dist.all_gather_object(capacities, self.max_size_bytes, group=self.group)
-        if any(peer_capacity != self.max_size_bytes for peer_capacity in capacities):
+        states = [None] * self.world_size
+        dist.all_gather_object(states, (self.max_size_bytes, local_error is None), group=self.group)
+        if local_error is not None:
+            raise local_error
+        if not all(valid for _, valid in states):
+            raise ValueError("invalid deterministic collective construction on a rank")
+        capacities = [capacity for capacity, _ in states]
+        if any(capacity != self.max_size_bytes for capacity in capacities):
             raise ValueError(f"all ranks must use the same max_size_bytes; got {capacities}")
 
     def _all_gather_transport(
@@ -713,10 +724,13 @@ class RCCLDeterministicCollective(TorchDistributedDeterministicCollective):
     def _initialize_ipc_transport(self) -> None:
         if self.world_size == 1:
             return
+        native = None
         try:
             from rl_engine import _C
         except ImportError:
-            return
+            pass
+        else:
+            native = _C
         required_symbols = (
             "deterministic_collective_rocm_ipc_allocate",
             "deterministic_collective_rocm_ipc_meta",
@@ -734,21 +748,34 @@ class RCCLDeterministicCollective(TorchDistributedDeterministicCollective):
             "deterministic_collective_rocm_ipc_all_gather",
             "deterministic_collective_rocm_ipc_all_gather_input",
         )
-        if any(not hasattr(_C, symbol) for symbol in required_symbols):
+        available = native is not None and all(
+            hasattr(native, symbol) for symbol in required_symbols
+        )
+        availability = [None] * self.world_size
+        dist.all_gather_object(availability, available, group=self.group)
+        if not all(availability):
             return
 
-        staging = _C.deterministic_collective_rocm_ipc_allocate(self.max_size_bytes)
-        handle, offset = _C.deterministic_collective_rocm_ipc_meta(staging)
-        local_metadata = (socket.gethostname(), handle, int(offset))
-        gathered_metadata: list[tuple[str, list[int], int] | None] = [None] * self.world_size
+        local_error = None
+        local_metadata = None
+        try:
+            staging = native.deterministic_collective_rocm_ipc_allocate(self.max_size_bytes)
+            handle, offset = native.deterministic_collective_rocm_ipc_meta(staging)
+            local_metadata = (socket.gethostname(), handle, int(offset))
+        except Exception as exc:
+            local_error = exc
+        gathered_metadata = [None] * self.world_size
         dist.all_gather_object(gathered_metadata, local_metadata, group=self.group)
         if any(metadata is None for metadata in gathered_metadata):
-            raise RuntimeError("failed to exchange ROCm IPC metadata")
-        complete_metadata = [metadata for metadata in gathered_metadata if metadata is not None]
+            error = RuntimeError("failed to allocate or exchange ROCm IPC metadata on a rank")
+            if local_error is not None:
+                raise error from local_error
+            raise error
+        complete_metadata = gathered_metadata
         if len({metadata[0] for metadata in complete_metadata}) != 1:
             return
         self._ipc_handle = int(
-            _C.deterministic_collective_rocm_ipc_create(
+            native.deterministic_collective_rocm_ipc_create(
                 staging,
                 [metadata[1] for metadata in complete_metadata],
                 [metadata[2] for metadata in complete_metadata],

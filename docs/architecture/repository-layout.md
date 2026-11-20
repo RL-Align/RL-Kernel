@@ -17,7 +17,7 @@ RL-Kernel/
 │   │   └── workloads/              # Packaged, versioned WS1 workload identity
 │   ├── models/
 │   │   ├── qwen3/                  # Pinned Dense spec, operator inventory, model assembly
-│   │   ├── deepseek_v4/             # Reserved; no registered implementation
+│   │   ├── deepseek_v4/             # Layer end only (mHC head to logprob); no model spec yet
 │   │   ├── gemma/                   # Reserved; no registered implementation
 │   │   └── minimax_h3/              # Reserved; no registered implementation
 │   ├── layers/                     # Extension point for reusable model layers

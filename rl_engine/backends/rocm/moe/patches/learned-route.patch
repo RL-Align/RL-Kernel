@@ -1,0 +1,142 @@
+Task 32 AITER learned router; prerequisites router-sqrt-softplus.patch and stable-topk6.patch
+
+Copyright © Advanced Micro Devices, Inc. All rights reserved.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- /dev/null
++++ b/aiter/ops/triton/moe/moe_routing/learned_route.py
+@@ -0,0 +1,115 @@
++# SPDX-License-Identifier: MIT
++# Copyright (c) 2026 RL-Kernel Contributors
++"""Task-32 normal routing and unbiased, post-capacity normalized weights/VJP."""
++
++import torch
++import triton
++import triton.language as tl
++import triton.language.extra.libdevice as libdevice
++
++from aiter.ops.triton.moe.moe_routing.router_sqrt_softplus import (
++    router_sqrt_softplus_fwd,
++)
++from aiter.ops.triton.moe.moe_routing.stable_topk6 import stable_topk6_fwd
++
++LEARNED_ROUTE_CONTRACT_ID = "aiter.learned_route.fp32.bias_selection.capacity_mask.v1"
++LAUNCH = {"num_warps": 4, "num_stages": 1, "enable_fp_fusion": False}
++
++
++@triton.jit
++def _selection_bias(SCORES, BIAS, GIDS, CHOICE, SIZE, BLOCK: tl.constexpr):
++    i = tl.program_id(0).to(tl.int64) * BLOCK + tl.arange(0, BLOCK)
++    score = tl.load(SCORES + i, mask=i < SIZE, other=0.0)
++    gid = tl.load(GIDS + (i % 256))
++    bias = tl.load(BIAS + gid)
++    tl.store(CHOICE + i, score + bias, mask=i < SIZE)
++
++
++@triton.jit
++def _weights(SCORES, COLUMNS, KEEP, WEIGHTS, DENOM, SCALE: tl.constexpr):
++    row = tl.program_id(0).to(tl.int64)
++    slot = tl.arange(0, 8)
++    column = tl.load(COLUMNS + row * 6 + slot, mask=slot < 6, other=0)
++    keep = tl.load(KEEP + row * 6 + slot, mask=slot < 6, other=0)
++    # Gather the original pre-bias scores. Never subtract bias from a rounded choice.
++    score = tl.load(SCORES + row * 256 + column, mask=slot < 6, other=0.0)
++    survived = tl.where(keep, score, 0.0)
++    total = tl.full((), 0.0, tl.float32)
++    for i in tl.static_range(6):
++        total += tl.sum(tl.where(slot == i, survived, 0.0), axis=0)
++    denominator = tl.maximum(total, 1e-20)
++    weight = (survived / denominator) * SCALE
++    tl.store(WEIGHTS + row * 6 + slot, weight, mask=slot < 6)
++    tl.store(DENOM + row, denominator)
++
++
++@triton.jit
++def _weight_vjp(X, SCORES, COLUMNS, KEEP, GRAD, DX, SCALE: tl.constexpr):
++    row = tl.program_id(0).to(tl.int64)
++    slot = tl.arange(0, 8)
++    column = tl.load(COLUMNS + row * 6 + slot, mask=slot < 6, other=0)
++    keep = tl.load(KEEP + row * 6 + slot, mask=slot < 6, other=0)
++    score = tl.load(SCORES + row * 256 + column, mask=slot < 6, other=0.0)
++    x = tl.load(X + row * 256 + column, mask=slot < 6, other=0.0)
++    g = tl.load(GRAD + row * 6 + slot, mask=slot < 6, other=0.0)
++    h = tl.where(keep, g * SCALE, 0.0)
++    survived = tl.where(keep, score, 0.0)
++    total = tl.full((), 0.0, tl.float32)
++    for i in tl.static_range(6):
++        total += tl.sum(tl.where(slot == i, survived, 0.0), axis=0)
++    denominator = tl.maximum(total, 1e-20)
++    dot = tl.full((), 0.0, tl.float32)
++    contribution = tl.where(keep, h * (survived / denominator), 0.0)
++    for i in tl.static_range(6):
++        dot += tl.sum(tl.where(slot == i, contribution, 0.0), axis=0)
++    numerator = tl.where(keep, h - tl.where(total >= 1e-20, dot, 0.0), 0.0)
++    e = libdevice.exp(-tl.abs(x))
++    sigmoid = tl.where(x >= 0, 1.0 / (1.0 + e), e / (1.0 + e))
++    safe_score = tl.where((x < -16.0) | ~keep, 1.0, score)
++    ordinary = (numerator / denominator) * (sigmoid / (2.0 * safe_score))
++    tail_log = (
++        (libdevice.log(tl.abs(numerator)) + 0.5 * x) - 0.6931471805599453
++    ) - libdevice.log(denominator)
++    tail = libdevice.copysign(libdevice.exp(tail_log), numerator)
++    dx = tl.where(keep, tl.where(x < -16.0, tail, ordinary), 0.0)
++    # Six selected columns are distinct. No atomic or cross-row reduction.
++    tl.store(DX + row * 256 + column, dx, mask=slot < 6)
++
++
++def learned_route_select(logits, bias, global_expert_ids):
++    scores = router_sqrt_softplus_fwd(logits)
++    choice = torch.empty_like(scores)
++    if logits.numel():
++        _selection_bias[(triton.cdiv(logits.numel(), 256),)](
++            scores,
++            bias,
++            global_expert_ids,
++            choice,
++            logits.numel(),
++            BLOCK=256,
++            **LAUNCH,
++        )
++    _, ids, columns = stable_topk6_fwd(choice, global_expert_ids)
++    return scores, ids, columns
++
++
++def learned_route_weights(scores, columns, keep, scale):
++    weights = torch.empty(columns.shape, device=scores.device, dtype=torch.float32)
++    denominator = torch.empty(
++        (scores.shape[0],), device=scores.device, dtype=torch.float32
++    )
++    if scores.shape[0]:
++        _weights[(scores.shape[0],)](
++            scores, columns, keep, weights, denominator, SCALE=scale, **LAUNCH
++        )
++    return weights, denominator
++
++
++def learned_route_bwd(logits, scores, columns, keep, grad_weights, scale):
++    grad = grad_weights.contiguous()
++    dx = torch.zeros_like(logits)
++    if logits.shape[0]:
++        _weight_vjp[(logits.shape[0],)](
++            logits, scores, columns, keep, grad, dx, SCALE=scale, **LAUNCH
++        )
++    return dx

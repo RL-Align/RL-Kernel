@@ -1,6 +1,6 @@
 {
   "include": [
-    "**/*.{cu,cuh,hip}",
+    "**/*.{cu,cuh,hip,asc}",
     "tests/**",
     "rl_engine/validation/**"
   ],

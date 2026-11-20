@@ -65,8 +65,9 @@ class _FakeDistributed:
 
     def all_gather_object(self, output: list[Any], value: Any, *, group: Any) -> None:
         self.object_gather_calls += 1
-        if isinstance(value, int):
-            values = self.peer_capacities or [value] * len(self.peer_inputs)
+        if isinstance(value, tuple) and len(value) == 2 and isinstance(value[1], bool):
+            capacities = self.peer_capacities or [value[0]] * len(self.peer_inputs)
+            values = [(capacity, value[1]) for capacity in capacities]
         else:
             values = self.peer_signatures or [value] * len(self.peer_inputs)
         output[:] = values

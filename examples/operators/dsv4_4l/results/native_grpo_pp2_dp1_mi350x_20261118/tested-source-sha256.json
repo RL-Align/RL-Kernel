@@ -1,0 +1,16 @@
+{
+  "rl_engine/backends/rocm/attention/joint_attention.py": "f54f30698ba9c9d6f4128826561907afc1f7379c2bd12beb4cd942d8a54ea40b",
+  "rl_engine/backends/rocm/attention/qkv_preprocess.py": "94ea8929fe091fe0391478c7c6e2b746c1c4182b7231797facf4bb3e7b93e1cf",
+  "rl_engine/backends/rocm/fp8.py": "ca567618af2693e53f1e74142cdcdad51edf051cb5c5b1f9ce884489b6ee6d57",
+  "rl_engine/backends/rocm/gemm/checkpoint_fp8.py": "b08375168fe497e7bcae4da6744dbd1aeda0b6bbbabe79603a72425f78d35cd0",
+  "rl_engine/backends/rocm/gemm/shared_down_fp8.py": "537ddeb18baba750045ac6ee8edfeb9d27ecf55b9fedb886cc8b533854980d07",
+  "rl_engine/backends/rocm/mhc/triton_mhc.py": "7f63b18721e8fb449f9233e95bc3e5d8e880f046e030bd54e9d31470c0d1d791",
+  "rl_engine/backends/rocm/moe/native_hash_route.py": "0f0dbd27a1aec74d9c02dc733fb6c62658d51be492dc723c3fa8ac385764f623",
+  "rl_engine/backends/rocm/moe/packed_w4a16.py": "a04ea21b5bcafc936204a0c86f0ddae86f4fe8c34f1072e9eb5add6064888a02",
+  "rl_engine/backends/rocm/moe/router_projection.py": "fbda7621e5076dc5cb24a6a6d8342ae03592818cc75c9807800a964ebd379269",
+  "rl_engine/backends/rocm/norm/qnorm_fp8.py": "a67fadd5877ea3d3c2083d1a072baafd10a87c5583865eef811b5427396d3daf",
+  "rl_engine/contracts/operators/mhc.py": "a04f906961fd33833dabd27c2a7b268553bb9a53a1a9e7e9658622056b241e46",
+  "rl_engine/integrations/engines/rollout/vllm/native_decode.py": "c042fa9bbc148fe22235a835b1de4451736beb46f6347798f53c454b7048579f",
+  "rl_engine/integrations/engines/rollout/vllm/mi35x_moe.py": "cb8a536d6cfad6e121ba44d99a969582cd695088cea88b3b6039960b5586b511",
+  "verl/experimental/rl_kernel/rollout_worker.py": "e7a59fc846288b2e697044688c399e809bad8b75791e5c1b9ba69fb150486754"
+}

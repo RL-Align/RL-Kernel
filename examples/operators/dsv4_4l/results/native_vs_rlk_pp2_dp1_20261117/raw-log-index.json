@@ -1,0 +1,6 @@
+{
+  "native": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T105017Z-native-vs-rlk/logs/native-PP-20261117T110114Z",
+  "rlk": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T105017Z-native-vs-rlk/logs/rlk-RR-rocm_triton-20261117T110351Z",
+  "native_job": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T105017Z-native-vs-rlk/artifacts/job-native-PP.json",
+  "rlk_job": "/scratch/rl-kernel/vensen/dsv4-4l/runs/20261117T105017Z-native-vs-rlk/artifacts/job-rlk-RR-rocm_triton.json"
+}

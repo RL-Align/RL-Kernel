@@ -1,0 +1,17 @@
+{
+  "base_image": "vensenmu/rl-kernel:pr711-grpo-stress",
+  "base_manifest": "sha256:45307c791baa2db3c4fc6f70be960b301fcc390d3a103d07bdd991f479b2396c",
+  "gpu_arch": "gfx950",
+  "te_source_commit_recorded_in_image": "b5c00f43283086bf0751f3bf3a179f1e921bbe59",
+  "te_supplied_source_hashes_unchanged": 24730,
+  "te_files": {
+    "opt/dsv4/TransformerEngine/libtransformer_engine.so": "b9495d7871022e808fd4468c01d03d5c925ca95d4c0300543d281ac495cef3d4",
+    "opt/dsv4/TransformerEngine/transformer_engine/build_info.txt": "3285e58295a207bc7023dcd74cbfdeb78630f138ce040d7ca3be8c914f0918c8",
+    "opt/dsv4/TransformerEngine/transformer_engine/lib/libck_fused_attn.so": "b962cd7e856014a82b41790e2d38fa168e193c99ef014ee4be72591e6989d630",
+    "opt/dsv4/TransformerEngine/transformer_engine/lib/libkittens_gemm.so": "b16c126a2a1c79c86b43d50e8ff4dd85c021669cfe0351dc5f1a2d81213a8600",
+    "opt/dsv4/TransformerEngine/transformer_engine/lib/te_libmha_bwd.so": "17b06b3ad3a56fb7fb811c0037824bb613c0904594fcefaf20de64846701bc8f",
+    "opt/dsv4/TransformerEngine/transformer_engine/lib/te_libmha_fwd.so": "bda6730899d8e4d8515fa85fe5a5d1a80cbbb6129385b00a8ee9112ed10dff11"
+  },
+  "te_l2norm_tests_passed": 288,
+  "te_adamw_probe_steps": 7
+}

@@ -1,0 +1,44 @@
+[
+  {
+    "run": "stress2",
+    "status": "PASS",
+    "weight_version": 3,
+    "repeats": 1000,
+    "completed_repeats": 1000,
+    "expected_tokens": 14869,
+    "compared_tokens": 14869,
+    "mismatch_count": 0,
+    "seconds": 142.720518482849,
+    "pids": {
+      "0": 4665,
+      "1": 4666
+    },
+    "additional_optimizer_updates": 0,
+    "finite": true,
+    "mean_abs_diff": 0.0,
+    "max_abs_diff": 0.0,
+    "actor_state_unchanged": true,
+    "rollout_state_unchanged": true
+  },
+  {
+    "run": "stress3",
+    "status": "PASS",
+    "weight_version": 3,
+    "repeats": 1000,
+    "completed_repeats": 1000,
+    "expected_tokens": 14869,
+    "compared_tokens": 14869,
+    "mismatch_count": 0,
+    "seconds": 141.99346618214622,
+    "pids": {
+      "0": 4661,
+      "1": 4662
+    },
+    "additional_optimizer_updates": 0,
+    "finite": true,
+    "mean_abs_diff": 0.0,
+    "max_abs_diff": 0.0,
+    "actor_state_unchanged": true,
+    "rollout_state_unchanged": true
+  }
+]
