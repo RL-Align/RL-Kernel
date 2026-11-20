@@ -237,7 +237,12 @@ def mm_token_type_ids(token_ids: Sequence[int]) -> list[int]:
 
 
 def vision_block(kind: str, num_tokens: int) -> list[int]:
-    """``<|vision_start|>``, ``num_tokens`` pads of ``kind`` (image/video), ``<|vision_end|>``."""
+    """``<|vision_start|>``, ``num_tokens`` pads of ``kind`` (image/video), ``<|vision_end|>``.
+
+    One block per image. A video is ``t`` blocks, one per merged frame pair, of
+    ``h * w / merge_size**2`` pads each, as transformers' ``Qwen3VLProcessor`` and Diffusers emit
+    them (each after its ``<x.x seconds>`` text): call this once per block.
+    """
 
     if kind not in ("image", "video") or num_tokens <= 0:
         raise PresentationError(f"bad vision block {kind!r} x {num_tokens}")
