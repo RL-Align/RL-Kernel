@@ -20,6 +20,7 @@ Every operator page should include:
 
 - [SiLU / SwiGLU Activation](activation.md)
 - [Standard Attention](attention.md)
+- [Conditioning Noise Mix](conditioning-noise-mix.md)
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
 - [Batch-Invariant LogP](batch-invariant-logp.md)
@@ -49,6 +50,7 @@ Every operator page should include:
 - [Operator Doc Template](../contributing/operator-doc-template.md)
 - [MiniMax-H3 Trajectory Artifact](h3-trajectory-artifact.md)
 - [MiniMax-H3 Projection Rows](h3-projection-rows.md)
+- [MiniMax-H3 SGLang Rollout Adapter](h3-sglang-rollout.md)
 - [MiniMax-H3 Tensor/Sequence/Context Parallel Rows](h3-parallel.md)
 - [MiniMax-H3 Token Refiner Block](h3-token-refiner.md)
 - [MiniMax-H3 Full Transformer and Dual Trajectory](h3-full-transformer.md)
