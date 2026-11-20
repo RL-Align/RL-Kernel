@@ -143,8 +143,8 @@ def packed_w4a16(x, codes, scales, offsets, gammas=None):
     if not torch.version.hip or not x.is_cuda:
         raise RuntimeError("original W4A16 projection requires a ROCm GPU")
     arch = torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0]
-    if arch != "gfx942":
-        raise ValueError("the original W4A16 profile is validated on gfx942 only")
+    if arch not in ("gfx942", "gfx950"):
+        raise ValueError("the original W4A16 profile requires gfx942/gfx950")
     if x.ndim != 2 or codes.ndim != 3 or codes.shape[0] < 1:
         raise ValueError("W4A16 requires [M,K] inputs and nonempty [E,N,K/2] codes")
     if codes.device != x.device or scales.device != x.device:

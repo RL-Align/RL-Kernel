@@ -63,7 +63,7 @@ class AiterJointAttentionBackend:
         require(torch.version.hip is not None and torch.cuda.is_available(), "ROCm is required")
         self.device = torch.device("cuda", torch.cuda.current_device())
         arch = torch.cuda.get_device_properties(self.device).gcnArchName.split(":")[0]
-        require(arch == "gfx942", "only the validated MI300X/gfx942 profile is enabled")
+        require(arch in ("gfx942", "gfx950"), "joint attention requires gfx942/gfx950")
         source = kernel_source or os.environ.get("RLK_AITER_DSV4_SPARSE_KERNEL_SOURCE", "")
         require(bool(source), "pinned aiter sparse kernel source is required")
         self.module = load_pinned_kernel(source)

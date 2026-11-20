@@ -76,9 +76,9 @@ from rl_engine.ops.autograd.canonical_backward import active_session
 from rl_engine.utils.logger import logger
 
 # Part of the arithmetic: changing them changes the bits. These values, and the
-# launch configs below, are validated on gfx942 only; the op constructors raise on
-# any other architecture (_require_rocm).
-VALIDATED_ARCH = "gfx942"
+# launch configs below are shared by gfx942 and gfx950. Other architectures
+# remain disabled (_require_rocm).
+VALIDATED_ARCHS = ("gfx942", "gfx950")
 NUM_KSPLIT = 4
 BLOCK_K = 128
 DOT_OPTIONS = {"matrix_instr_nonkdim": 16, "kpack": 1}
@@ -1925,13 +1925,13 @@ def check_head_inputs(residual, fn, scale, base):
 
 
 def _require_rocm():
-    """Raise unless the current GPU is a ROCm GPU of a validated architecture (gfx942)."""
+    """Raise unless the current GPU is a ROCm GPU of a validated architecture."""
     if torch.version.hip is None or not torch.cuda.is_available():
         raise RuntimeError("The Triton mHC ops require a ROCm GPU.")
     arch = torch.cuda.get_device_properties(torch.cuda.current_device()).gcnArchName.split(":")[0]
-    if arch != VALIDATED_ARCH:
+    if arch not in VALIDATED_ARCHS:
         raise RuntimeError(
-            f"The Triton mHC ops are validated on {VALIDATED_ARCH} only; this GPU is {arch}."
+            f"The Triton mHC ops require gfx942/gfx950; this GPU is {arch}."
         )
 
 

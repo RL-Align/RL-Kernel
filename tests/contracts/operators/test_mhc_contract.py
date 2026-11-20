@@ -34,7 +34,7 @@ def test_describe_reports_provenance(op):
     assert info["hc_mult"] == 4
     assert info["batch_invariance"]["forward"] is True
     assert info["batch_invariance"]["backward"] is True
-    assert info["batch_invariance"]["validated_on"] == "gfx942"
+    assert info["batch_invariance"]["validated_on"] == "gfx942/gfx950"
     assert info["arithmetic"]["downcast_points"]
     assert info["arithmetic"]["backward"]
 

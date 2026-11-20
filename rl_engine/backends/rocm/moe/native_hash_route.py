@@ -15,8 +15,8 @@ class _Hash(torch.autograd.Function):
         if not torch.version.hip or not logits.is_cuda:
             raise RuntimeError("native hash routing requires a ROCm GPU")
         arch = torch.cuda.get_device_properties(logits.device).gcnArchName.split(":")[0]
-        if arch != "gfx942":
-            raise ValueError("native hash routing profile is validated on gfx942 only")
+        if arch not in ("gfx942", "gfx950"):
+            raise ValueError("native hash routing profile requires gfx942/gfx950")
         if logits.dtype != torch.float32 or logits.ndim != 2 or logits.shape[1] != 256:
             raise ValueError("initial hash route requires original FP32 [M,256] logits")
         if (

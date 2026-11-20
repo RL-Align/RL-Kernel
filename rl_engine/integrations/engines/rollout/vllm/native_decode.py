@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from rl_engine.backends.rocm.attention.native_sparse import NativeSparseAttention
+from rl_engine.backends.rocm.fp8 import fp8_dtype
 
 
 def _gather(cache, slots, fnuz):
@@ -71,7 +72,7 @@ class _DecodeBoundary(ast.NodeTransformer):
 
 def bind_rollout_decode(attention, observer=None, record_if=None):
     if attention._use_aiter_sparse_mla_decode or attention._wo_a_fp8_weight is not None:
-        raise ValueError("initial fixed decode requires the pinned gfx942 ordinary cache path")
+        raise ValueError("fixed decode requires the pinned ordinary cache path")
     original = type(attention)._forward_decode
     native = original.__globals__["rocm_sparse_attn_decode"]
     tree = ast.parse(textwrap.dedent(inspect.getsource(original)))
@@ -97,7 +98,11 @@ def bind_rollout_decode(attention, observer=None, record_if=None):
         offset = 0
         for i in range(q.shape[0]):
             recent = _slots(kwargs, "swa", i)
-            kv = _gather(kwargs["swa_k_cache"], recent, True)
+            kv = _gather(
+                kwargs["swa_k_cache"],
+                recent,
+                fp8_dtype(q.device) == torch.float8_e4m3fnuz,
+            )
             if not kwargs["swa_only"]:
                 ids = _slots(kwargs, "topk", i)
                 if ids.numel():

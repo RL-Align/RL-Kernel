@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Eager original block-FP8 projection with frozen packed weights and input VJP.
 
-Production AITER group128 FNUZ activation quantization and fixed CK no-split
+Production AITER group128 native FP8 activation quantization and fixed CK no-split
 forward; original block128 checkpoint weights and an explicit Triton input VJP. Original
 checkpoint weight bytes/scales remain resident; no BF16 weight cache is built.
 """
@@ -10,6 +10,7 @@ import torch
 import triton
 import triton.language as tl
 
+from rl_engine.backends.rocm.fp8 import fp8_dtype
 from rl_engine.kernels.ops.triton.moe.fused_mlp import _decode_e4m3, _e8m0_scale
 
 
@@ -51,26 +52,32 @@ class _Projection(torch.autograd.Function):
         x = x.reshape(-1, shape[-1]).contiguous()
         m, k = x.shape
         n = codes.shape[0]
+        dtype = fp8_dtype(x.device)
         # Reuse the production ROCm activation quantizer selected by vLLM.
         # FNUZ changes the interpretation of the original OCP weight bytes by
         # exactly 1/2; double their original E8M0 scale to preserve the values.
         if activation_codes is None:
             q, activation_scale = get_hip_quant(QuantType.per_1x128)(
-                x, quant_dtype=torch.float8_e4m3fnuz, transpose_scale=False
+                x, quant_dtype=dtype, transpose_scale=False
             )
         else:
             q, activation_scale = activation_codes, activation_scales
-            if q.shape != x.shape or q.dtype != torch.float8_e4m3fnuz:
+            if q.shape != x.shape or q.dtype != dtype:
                 raise ValueError("invalid prequantized QNorm codes")
             if activation_scale.shape != (m, k // 128) or activation_scale.dtype != torch.float32:
                 raise ValueError("invalid prequantized QNorm scales")
-        fnuz_codes = torch.where(codes == 128, 0, codes).to(torch.uint8)
-        fnuz_weight = fnuz_codes.view(torch.float8_e4m3fnuz)
-        weight_scale = scales.view(torch.float8_e8m0fnu).float() * 2.0
+        weight_scale = scales.view(torch.float8_e8m0fnu).float()
+        if dtype == torch.float8_e4m3fnuz:
+            fnuz_codes = torch.where(codes == 128, 0, codes).to(torch.uint8)
+            weight = fnuz_codes.view(dtype)
+            weight_scale = weight_scale * 2.0
+        else:
+            # gfx950 consumes the original OCP bytes with their original scale.
+            weight = codes.view(dtype)
         y = torch.empty((m, n), device=x.device, dtype=torch.bfloat16)
         with torch.cuda.device(x.device):
             gemm_a8w8_blockscale_ck(
-                q, fnuz_weight, activation_scale, weight_scale, y, splitK=0, kernelName=KERNEL
+                q, weight, activation_scale, weight_scale, y, splitK=0, kernelName=KERNEL
             )
         ctx.save_for_backward(codes, scales)
         ctx.input_shape = shape
@@ -96,9 +103,9 @@ class CheckpointFP8Linear(torch.nn.Module):
         super().__init__()
         if not torch.version.hip or weight.device.type != "cuda":
             raise RuntimeError("checkpoint FP8 projection requires a ROCm GPU")
+        fp8_dtype(weight.device)
         arch = torch.cuda.get_device_properties(weight.device).gcnArchName.split(":")[0]
-        if arch != "gfx942":
-            raise ValueError(f"checkpoint FP8 profile requires gfx942, got {arch}")
+        self.profile = f"dsv4-block128-checkpoint-aiter-ck-nosplit-{arch}-v1"
         if weight.dtype != torch.float8_e4m3fn or scales.dtype != torch.float8_e8m0fnu:
             raise TypeError("expected original E4M3/E8M0 checkpoint tensors")
         if tuple(scales.shape) != (

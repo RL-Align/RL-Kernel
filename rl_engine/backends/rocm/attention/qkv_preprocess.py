@@ -5,6 +5,7 @@ from contextlib import nullcontext
 
 import torch
 
+from rl_engine.backends.rocm.fp8 import fp8_dtype
 from rl_engine.backends.rocm.norm.qnorm_fp8 import rmsnorm_vjp
 
 
@@ -58,7 +59,14 @@ class _QKV(torch.autograd.Function):
         lengths = torch.full((b,), t, dtype=torch.int32, device=query.device)
         table = torch.arange(b * pages, dtype=torch.int32, device=query.device).reshape(b, pages)
         dequantize_and_gather_k_cache(
-            gathered, packed, lengths, None, table, block, 0, use_fnuz=True
+            gathered,
+            packed,
+            lengths,
+            None,
+            table,
+            block,
+            0,
+            use_fnuz=fp8_dtype(query.device) == torch.float8_e4m3fnuz,
         )
         ctx.save_for_backward(query, positions, cache)
         ctx.epsilon = epsilon
@@ -98,6 +106,8 @@ class DSV4QKVPreprocess(torch.nn.Module):
             )
         self.register_buffer("cos_sin_cache", rope.cos_sin_cache, persistent=False)
         self.epsilon = config.rms_norm_eps
+        arch = torch.cuda.get_device_properties(self.cos_sin_cache.device).gcnArchName.split(":")[0]
+        self.profile = f"dsv4-vllm-qnorm-rope-fp8dsmla-{arch}-v1"
 
     def _apply(self, fn, recurse=True):
         # Native Float16Module casts floating model buffers to BF16. Rotary

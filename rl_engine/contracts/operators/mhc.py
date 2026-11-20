@@ -122,7 +122,7 @@ BACKWARD_ARITHMETIC_CONSTANTS = {"DOT_BLOCK": 128}
 BATCH_INVARIANCE = {
     "forward": True,
     "backward": True,
-    "validated_on": "gfx942",
+    "validated_on": "gfx942/gfx950",
     "validated_shape": "n=4, C=4096 (DeepSeek-V4-Flash) and C=7168",
     "launch_configs": "one config per op for every M; the bits do not depend on it",
     "backward_implementation": (
