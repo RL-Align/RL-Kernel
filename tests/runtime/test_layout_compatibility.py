@@ -123,6 +123,9 @@ def test_packaged_contract_bytes_match_main(package, resource, digest):
     [
         "rl_engine/repro.py",
         "scripts/ws1_reference.py",
+        "scripts/check_operator.py",
+        "tools/validation/operators/check_operator.py",
+        "benchmarks/operators/norm/benchmark_adaln_modulation.py",
         "rl_engine/testing/logprob_comparison.py",
         "examples/vime_rocm_attention_ablation/run.py",
     ],
