@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "manifest_id": "qwen3_6_35b_a3b_text_v1",
+  "model_identity": {
+    "model_id": "Qwen/Qwen3.6-35B-A3B",
+    "hf_repo": "Qwen/Qwen3.6-35B-A3B",
+    "revision": "345d467b117d1fd5eda9b879a5988de9ae5f47a7",
+    "architecture": "Qwen3_5MoeForConditionalGeneration",
+    "model_type": "qwen3_5_moe",
+    "text_model_type": "qwen3_5_moe_text",
+    "density": "hybrid_moe_gdn",
+    "config_fingerprint": {
+      "model_type": "qwen3_5_moe_text",
+      "dtype": "bfloat16",
+      "num_hidden_layers": 40,
+      "layer_types_summary": "3x linear_attention + 1x full_attention per group of 4, 10 groups",
+      "full_attention_interval": 4,
+      "hidden_size": 2048,
+      "moe_intermediate_size": 512,
+      "shared_expert_intermediate_size": 512,
+      "num_experts": 256,
+      "num_experts_per_tok": 8,
+      "num_attention_heads": 16,
+      "num_key_value_heads": 2,
+      "head_dim": 256,
+      "attn_output_gate": true,
+      "vocab_size": 248320,
+      "max_position_embeddings": 262144,
+      "bos_token_id": 248044,
+      "eos_token_id": 248044,
+      "pad_token_id": null,
+      "rms_norm_eps": 1e-06,
+      "hidden_act": "silu",
+      "tie_word_embeddings": false,
+      "attention_bias": false,
+      "attention_dropout": 0.0,
+      "use_cache": true,
+      "initializer_range": 0.02,
+      "linear_conv_kernel_dim": 4,
+      "linear_key_head_dim": 128,
+      "linear_value_head_dim": 128,
+      "linear_num_key_heads": 16,
+      "linear_num_value_heads": 32,
+      "mamba_ssm_dtype": "float32",
+      "rope_theta": 10000000,
+      "rope_type": "default",
+      "partial_rotary_factor": 0.25,
+      "mrope_interleaved": true,
+      "mrope_section": [
+        11,
+        11,
+        10
+      ],
+      "output_router_logits": false,
+      "router_aux_loss_coef": 0.001,
+      "mtp_num_hidden_layers": 1,
+      "mtp_use_dedicated_embeddings": false
+    },
+    "weight_snapshot": {
+      "pin_method": "hf_revision_plus_index_sha256_plus_all_lfs_shard_sha256",
+      "index_file": "model.safetensors.index.json",
+      "index_sha256": "41b9356101ebf8e7519e150dc811f80c4226e727301fbb032b890f006ed0be83",
+      "tensor_total_size_bytes": 71903645408,
+      "weight_files_total_size_bytes": 71903776776,
+      "content_hash_algorithm": "sha256-of-sorted-shard-records-v1",
+      "content_hash": "3e176afaf7e538187ccea85473850e554715a14b90f50b270242c830701ae4c3",
+      "shards": [
+        {
+          "filename": "model-00001-of-00026.safetensors",
+          "sha256": "adee7bcb930aed22e0677e58d4873b48dadb1ed8001cb5c6a0487286eadb3478",
+          "size_bytes": 3996199712
+        },
+        {
+          "filename": "model-00002-of-00026.safetensors",
+          "sha256": "88f2dfd2b9e73e4b70be533dbf61bcfa3c9a0003758900fcbc9d9b96f5751d4b",
+          "size_bytes": 1284907696
+        },
+        {
+          "filename": "model-00003-of-00026.safetensors",
+          "sha256": "8f7d72178d3f4431864978e5bcfa4c6cb1c204bc00590644d90bb19d6d522eeb",
+          "size_bytes": 3357898360
+        },
+        {
+          "filename": "model-00004-of-00026.safetensors",
+          "sha256": "12d7db38689ba3c8af74b23ef8523eca41e0cd95db870583d0663a3ee8a6bd60",
+          "size_bytes": 3370808712
+        },
+        {
+          "filename": "model-00005-of-00026.safetensors",
+          "sha256": "a836047305d0f7a7b50f0815d09d5c03ec03d59ec2c763fcdc4bf7e9936bf902",
+          "size_bytes": 3357898360
+        },
+        {
+          "filename": "model-00006-of-00026.safetensors",
+          "sha256": "c9080d718e9c5f9e337443225aa417d4c24d00ae7995d76ee3f1cc296b557d15",
+          "size_bytes": 3959424904
+        },
+        {
+          "filename": "model-00007-of-00026.safetensors",
+          "sha256": "e8c05e23131b1dd45a455ec38cfac7db14667358268623c3938d00cf3e959a68",
+          "size_bytes": 1096788232
+        },
+        {
+          "filename": "model-00008-of-00026.safetensors",
+          "sha256": "4b6a6d495053089f4a80e7cbc82e848fba44e2c0c60122233d8fdff79fa7b296",
+          "size_bytes": 3946842008
+        },
+        {
+          "filename": "model-00009-of-00026.safetensors",
+          "sha256": "a31a954bb72d1c714e751bf0aabf2ff533f5a509693ebf7dd22ad6e90be46f67",
+          "size_bytes": 1096460848
+        },
+        {
+          "filename": "model-00010-of-00026.safetensors",
+          "sha256": "246560e66570fe746653b8443e245dc334c9b8b831ea43d2d9f1b7d98623994e",
+          "size_bytes": 3946841992
+        },
+        {
+          "filename": "model-00011-of-00026.safetensors",
+          "sha256": "7180392817fe3ecb3a27a1da43b7ff22c1a94806bac49975f9f122c3126df675",
+          "size_bytes": 1096460752
+        },
+        {
+          "filename": "model-00012-of-00026.safetensors",
+          "sha256": "043fb525f6625c2f2acb75e65a9959ee3fa7b6e3fdd2034b5cfe1859b01d3cfb",
+          "size_bytes": 3409971080
+        },
+        {
+          "filename": "model-00013-of-00026.safetensors",
+          "sha256": "33a20fb20a21379bf43c84a43105f9c0cc35bd50d740b1c302dcbe4b700f5425",
+          "size_bytes": 1633331664
+        },
+        {
+          "filename": "model-00014-of-00026.safetensors",
+          "sha256": "be823e33c5cb6120ad3769d081f34a2449dc2358041fca7c29d636c1ba19130d",
+          "size_bytes": 3422553872
+        },
+        {
+          "filename": "model-00015-of-00026.safetensors",
+          "sha256": "a89d547c6f9d0b535ee5ea2f2478f163089539f3f0dd330cb23d278a19d76123",
+          "size_bytes": 1633659224
+        },
+        {
+          "filename": "model-00016-of-00026.safetensors",
+          "sha256": "69fc3ae0316482288afdcdd0b9eb7d626703ae26f7567e89aa3fc8d1ffd4ff5b",
+          "size_bytes": 3946842136
+        },
+        {
+          "filename": "model-00017-of-00026.safetensors",
+          "sha256": "e356e3943cf3852b76bb8992e674f3256013e27d54b78e8250514151cdc29637",
+          "size_bytes": 1096460608
+        },
+        {
+          "filename": "model-00018-of-00026.safetensors",
+          "sha256": "9e5e63fd1cc7d6848330c1fa363dfcb661bbc2ac87e672d0e28b71c9cb7f3c7f",
+          "size_bytes": 3946841992
+        },
+        {
+          "filename": "model-00019-of-00026.safetensors",
+          "sha256": "708644ad34f1de727bf484f396944d8ec628645d52c183e9a992e65671685e21",
+          "size_bytes": 1096460808
+        },
+        {
+          "filename": "model-00020-of-00026.safetensors",
+          "sha256": "ca083a1d1aa64f8e8a785998f543a43374f13436dc85d396eee4e72c7a84e1ae",
+          "size_bytes": 3409971072
+        },
+        {
+          "filename": "model-00021-of-00026.safetensors",
+          "sha256": "ada4ae48f3d48fe01b4c53f2f82bce25e798a9631fd33959c881156fef2ccbce",
+          "size_bytes": 1633331744
+        },
+        {
+          "filename": "model-00022-of-00026.safetensors",
+          "sha256": "def207fb42d7db31efb512755557763c23233c6e4d4c433027cb5102a7bce2f7",
+          "size_bytes": 3370808752
+        },
+        {
+          "filename": "model-00023-of-00026.safetensors",
+          "sha256": "864d52ca7768a36f514069222e8de8626264ae124097ba8fcce5b5da2c6e2ed7",
+          "size_bytes": 3357898392
+        },
+        {
+          "filename": "model-00024-of-00026.safetensors",
+          "sha256": "391acd27420cdce5935ff18152423c70620d19dac3c39a5ef1a81d369f82d737",
+          "size_bytes": 3370808752
+        },
+        {
+          "filename": "model-00025-of-00026.safetensors",
+          "sha256": "778e7f76602f05042b69ba7f3ec91f1fdffef390540b16074041c258fb81d154",
+          "size_bytes": 3832888256
+        },
+        {
+          "filename": "model-00026-of-00026.safetensors",
+          "sha256": "1a97404220077ed3d4182e10385b152004cab608377f50cec9f54a6b8d28b613",
+          "size_bytes": 2231416848
+        }
+      ],
+      "source": "each value computed from the actual shard files; SHA-256 values cross-check equal to the HF LFS oids at the pinned revision"
+    },
+    "tokenizer_snapshot": {
+      "pin_revision": "345d467b117d1fd5eda9b879a5988de9ae5f47a7",
+      "files": {
+        "tokenizer.json": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+        "tokenizer_config.json": "a39230de929388c748904265340616449f3bdeeb324d99385c6243d0577f98ed",
+        "chat_template.jinja": "1b8361565cc35d47551d342214cff341c0f1a9685ce529c7ce31de0ed3616248",
+        "vocab.json": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003",
+        "merges.txt": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+      },
+      "note": "each sha256 computed from the actual tokenizer files; tokenizer.json equals the upstream LFS oid"
+    }
+  },
+  "initial_scope": {
+    "included": [
+      "text_backbone",
+      "bf16_execution",
+      "ordinary_decode_generation"
+    ],
+    "excluded": [
+      "vision_tower_and_image_video_inputs",
+      "mtp_training",
+      "speculative_decoding",
+      "fp8_quantization",
+      "lora_adapters",
+      "prefill_decode_disaggregation"
+    ],
+    "notes": {
+      "vision": "config declares vision_config and image_token_id 248056, video_token_id 248057, vision_start_token_id 248053, vision_end_token_id 248054; excluded from the initial scope",
+      "mtp": "mtp_num_hidden_layers 1 recorded from the official config; MTP training and speculative decoding stay excluded from the initial scope",
+      "loss": "router_aux_loss_coef 0.001 is the official model config value; training recipes belong to later tasks"
+    }
+  }
+}
