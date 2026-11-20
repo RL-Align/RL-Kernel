@@ -10,6 +10,7 @@ from rl_engine.backends.cuda.attention.flash_attn import (
     StrictFlashAttention4Core,
     StrictFlashAttentionUnavailable,
 )
+from rl_engine.backends.cuda.attention.joint_attn_softmax import JointAttnSoftmaxCudaOp
 from rl_engine.backends.cuda.attention.prefix_shared_attn import PrefixSharedAttentionOp
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "DeterministicAttentionOp",
     "RLKernelDeterministicAttentionCore",
     "FlashAttentionOp",
+    "JointAttnSoftmaxCudaOp",
     "PrefixSharedAttentionOp",
     "StrictFlashAttention4Core",
     "StrictFlashAttentionUnavailable",
