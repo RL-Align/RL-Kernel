@@ -15,6 +15,14 @@ from __future__ import annotations
 import importlib
 import sys
 
+from rl_engine.integrations.common.linear_logp_provider import (
+    LinearLogpProviderUnavailable,
+    LinearLogpResult,
+    provider,
+)
+
 sys.modules[__name__] = importlib.import_module(
     "rl_engine.integrations.common.linear_logp_provider"
 )
+
+__all__ = ["LinearLogpResult", "LinearLogpProviderUnavailable", "provider"]
