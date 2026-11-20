@@ -148,7 +148,10 @@ class LayerCheckpoint:
         path = (self.directory / self.index[key]).resolve()
         if not path.is_relative_to(self.directory):
             raise ValueError("checkpoint shard escapes its directory")
-        with safe_open(path, framework="pt", device=str(device)) as shard:
+        target = torch.device(device)
+        if target.type == "cuda" and target.index is None:
+            target = torch.device("cuda", torch.cuda.current_device())
+        with safe_open(path, framework="pt", device=str(target)) as shard:
             return shard.get_tensor(key)
 
     def projection(self, prefix, *, device):
