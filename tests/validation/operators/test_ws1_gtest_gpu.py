@@ -49,6 +49,7 @@ def test_all_ws1_single_ops_are_registered():
         "pack",
         "linear_logp",
         "prefix_shared_attention",
+        "scaled_token_embedding",
     } <= names
 
 
@@ -61,6 +62,7 @@ def test_all_ws1_single_ops_are_registered():
         ("swiglu", "triton"),
         ("rope", "triton"),
         ("pack", "pytorch"),
+        ("scaled_token_embedding", "triton"),
     ],
 )
 def test_check_operator_runs_ported_ops(op, candidate):

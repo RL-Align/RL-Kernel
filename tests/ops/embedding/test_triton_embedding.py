@@ -26,11 +26,15 @@ class _FakeForwardKernel:
             out: torch.Tensor,
             n_tokens: int,
             vocab_size: int,
+            scale: float,
             *,
             hidden: int,
             block_h: int,
+            apply_scale: bool,
         ) -> None:
             del vocab_size, block_h
+            # These fakes only stand in for the plain embedding, which must not scale.
+            assert scale == 1.0 and apply_scale is False
             assert n_tokens == ids.numel()
             assert hidden == weight.size(1)
             out.copy_(weight.index_select(0, ids))
@@ -51,12 +55,16 @@ class _FakeBackwardKernel:
             grad_weight: torch.Tensor,
             n_tokens: int,
             vocab_size: int,
+            scale: float,
             *,
             hidden: int,
             block_h: int,
+            apply_scale: bool,
             num_warps: int,
+            enable_fp_fusion: bool,
         ) -> None:
-            del block_h, num_warps
+            del block_h, num_warps, enable_fp_fusion
+            assert scale == 1.0 and apply_scale is False
             assert n_tokens == sorted_ids.numel()
             assert hidden == sorted_grad_rows.size(1)
             for position in range(n_tokens):
@@ -396,3 +404,66 @@ def test_triton_embedding_cuda_backward_is_repeatable() -> None:
 
     assert torch.equal(gradients[0], gradients[1])
     assert torch.equal(gradients[0], gradients[2])
+
+
+# The oracles below do not touch the kernels, so a kernel change cannot move both sides.
+_BITS_DTYPE = {torch.float32: torch.int32, torch.bfloat16: torch.int16, torch.float16: torch.int16}
+# +-0, +-smallest and largest subnormal, smallest normal, NaNs (quiet, signed, payload,
+# signaling), +-inf, largest finite and one.
+_EDGE_BITS = {
+    torch.float32: [
+        0x00000000, 0x80000000, 0x00000001, 0x80000001, 0x007FFFFF, 0x807FFFFF, 0x00800000,
+        0x7FC00000, 0xFFC00000, 0x7FC12345, 0x7F812345, 0xFF812345,
+        0x7F800000, 0xFF800000, 0x7F7FFFFF, 0x3F800000,
+    ],
+    torch.bfloat16: [
+        0x0000, 0x8000, 0x0001, 0x8001, 0x007F, 0x807F, 0x0080,
+        0x7FC0, 0xFFC0, 0x7FC5, 0x7F85, 0xFF85,
+        0x7F80, 0xFF80, 0x7F7F, 0x3F80,
+    ],
+    torch.float16: [
+        0x0000, 0x8000, 0x0001, 0x8001, 0x03FF, 0x83FF, 0x0400,
+        0x7E00, 0xFE00, 0x7E55, 0x7C55, 0xFC55,
+        0x7C00, 0xFC00, 0x7BFF, 0x3C00,
+    ],
+}  # fmt: skip
+
+
+def _accelerator_device() -> str:
+    if not torch.cuda.is_available():
+        pytest.skip("A CUDA or ROCm GPU is required")
+    return "cuda"
+
+
+@pytest.mark.parametrize("dtype", _EDGE_BITS)
+def test_plain_forward_stores_the_weight_bits_unchanged(dtype: torch.dtype) -> None:
+    device = _accelerator_device()
+    edge_row = torch.tensor(_EDGE_BITS[dtype]).to(_BITS_DTYPE[dtype]).view(dtype)
+    weight = torch.stack((edge_row, torch.ones_like(edge_row))).to(device)
+    token_ids = torch.tensor([[0, 1], [0, 0]], device=device)
+
+    output = embedding_module.TritonEmbeddingOp()(token_ids, weight)
+
+    # Raw bits: a float comparison would reject every NaN and accept -0 for +0.
+    expected = weight.index_select(0, token_ids.reshape(-1)).view(_BITS_DTYPE[dtype])
+    assert torch.equal(output.reshape(4, -1).view(_BITS_DTYPE[dtype]), expected)
+
+
+@pytest.mark.parametrize("dtype", _EDGE_BITS)
+def test_plain_backward_matches_left_fold_oracle(dtype: torch.dtype) -> None:
+    device = _accelerator_device()
+    vocab_size, hidden = 37, 64
+    generator = torch.Generator().manual_seed(415)
+    token_ids = torch.randint(0, vocab_size, (4, 16), generator=generator)
+    token_ids[1, :8] = 7
+    grad_output = torch.randn(4, 16, hidden, generator=generator).to(dtype)
+    weight = torch.randn(vocab_size, hidden, generator=generator).to(device=device, dtype=dtype)
+    weight.requires_grad_(True)
+
+    output = embedding_module.TritonEmbeddingOp()(token_ids.to(device), weight)
+    (grad_weight,) = torch.autograd.grad(output, weight, grad_outputs=grad_output.to(device))
+
+    expected = _left_fold_grad_weight(
+        token_ids, grad_output, vocab_size=vocab_size, output_dtype=dtype
+    )
+    assert torch.equal(grad_weight.cpu(), expected)

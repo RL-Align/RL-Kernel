@@ -41,6 +41,7 @@ def make_operator_inputs(
         "swiglu": _make_swiglu_inputs,
         "final_logit_softcap": _make_final_logit_softcap_inputs,
         "embedding": _make_embedding_inputs,
+        "scaled_token_embedding": _make_scaled_token_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
     }
@@ -72,6 +73,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "final_logit_softcap": f"{batch}x{seq}x{vocab}",
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
+        "scaled_token_embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
     }
@@ -302,6 +304,15 @@ def _make_embedding_inputs(
         "token_ids": _token_ids((batch, seq), vocab, args, device),
         "weight": _floating_tensor((vocab, hidden_dim), args, dtype, device, 0),
     }
+
+
+def _make_scaled_token_embedding_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    inputs = _make_embedding_inputs(args, dtype, device)
+    # Gemma scales by sqrt(hidden); the ops round it to the weight dtype themselves.
+    inputs["embed_scale"] = float(_normalized_dim(args)) ** 0.5
+    return inputs
 
 
 def _make_lm_head_inputs(
