@@ -18,8 +18,8 @@ The contract makes every number a function of the *sample*, never of how samples
 * FP32 elementwise ops in exactly the order above (separate roundings, no fused contraction);
 * ``eps`` comes from ``step_noise(seed, step, sample_id, modality, shape)``, a per-sample
   generator, not one stream consumed in batch order;
-* the log-prob mean uses a fixed-order GEMM reduction (``h3-projection-gemm-v1``, FP32 ``ieee``),
-  each sample's row independent of the batch;
+* the log-prob mean uses a fixed-order FP32 row reduction (``h3-row-mean-v1``: fixed-size chunks,
+  then their sums), each sample's row independent of the batch;
 * ``noise_level == 0`` (a non-selected step) gives ``std == 0``, ``x_prev == mean`` and
   ``log_prob == 0``.
 """
@@ -61,20 +61,20 @@ class Transition:
 
 
 class _FixedOrderMean(torch.autograd.Function):
-    """Row means of a ``(B, K)`` FP32 matrix by the fixed-order GEMM, differentiable.
+    """Row means of a ``(B, K)`` FP32 matrix in a fixed order, differentiable.
 
-    The Triton GEMM writes into a fresh tensor and has no autograd of its own. The gradient
-    of a mean is ``grad / K`` for every element of the row: element-wise, no reduction, so
-    it needs no fixed order and is the same bits ``torch.mean`` gives.
+    The sums come from ``h3-row-mean-v1`` (fixed-size chunks, then the chunk sums, in an order
+    that depends only on ``K``), which has no autograd of its own. The gradient of a mean is
+    ``grad / K`` for every element of the row: element-wise, no reduction, so it needs no
+    fixed order and is the same bits ``torch.mean`` gives.
     """
 
     @staticmethod
     def forward(ctx, flat: torch.Tensor) -> torch.Tensor:
-        from rl_engine.backends.shared.triton.gemm import h3_projection as g
+        from rl_engine.backends.shared.triton.reduction import row_mean
 
         ctx.shape = flat.shape
-        ones = torch.ones(flat.shape[1], 1, device=flat.device, dtype=torch.float32)
-        return g.gemm(flat, ones)[:, 0] / flat.shape[1]
+        return row_mean.row_sums(flat) / flat.shape[1]
 
     @staticmethod
     def backward(ctx, grad: torch.Tensor) -> torch.Tensor:
