@@ -207,3 +207,12 @@ def test_engine_refusal_is_unsupported_not_a_crash():
     )
     assert bench.unsupported_reason(log).endswith("not supported for GDN_ATTN.")
     assert bench.unsupported_reason("CUDA out of memory") is None
+
+
+@pytest.mark.parametrize("phase", ["replay", "train"])
+def test_stock_vime_arms_need_an_ep4_run(phase):
+    ep1, ep4 = ({"topology": {"tp": 4, "ep": ep}} for ep in (1, 4))
+    assert bench.stock_vime_unsupported(ep1, phase, "native") == bench.STOCK_VIME_NEEDS_EP4
+    assert bench.stock_vime_unsupported(ep4, phase, "native") is None
+    assert bench.stock_vime_unsupported(ep1, phase, bench.STRICT_ARM) is None
+    assert bench.stock_vime_unsupported(ep1, "rollout", "native_graph") is None

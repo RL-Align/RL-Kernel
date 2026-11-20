@@ -21,6 +21,12 @@ Phases and arms (same TP4 topology and EP as the l2 run, same synthetic inputs):
 - train: VIME ``train_one_step`` (4 samples, 4 micro-batches, CPU-offloaded Adam), with the
   optimizer step timed separately.
 
+The stock VIME arms of replay and train need an EP4 l2 run (``--ep 4``, expert tensor
+parallel 1). At EP1 the experts are split four ways by expert tensor parallelism, which
+stock VIME's HuggingFace loader does not shard: Megatron's grouped expert layers carry no
+tensor-parallel flag, so the loader copies the full expert tensor and stops on its shape.
+On an EP1 run those arms are reported as unsupported without being started.
+
 Every arm × phase × workload runs in its own process; rounds alternate the arm order.
 Timing only; the l2 run is the consistency evidence for the strict arm.
 """
@@ -338,6 +344,7 @@ def train_shapes(manifest, arm, workload, repeats):
     args, model, optimizer, scheduler = create_actor(
         manifest["checkpoint"],
         training=True,
+        ep=manifest["topology"]["ep"],
         providers=arm == STRICT_ARM,
         seq_length=spec["max_model_len"],
     )
@@ -496,6 +503,19 @@ def wait_gpus_idle(timeout=120):
 UNSUPPORTED_MESSAGES = ("VLLM batch_invariant mode is not supported for",)
 
 
+STOCK_VIME_NEEDS_EP4 = (
+    "stock VIME loads HuggingFace experts only with expert tensor parallel 1; "
+    "run this phase on an EP4 l2 run"
+)
+
+
+def stock_vime_unsupported(manifest, phase, arm):
+    """Why stock VIME cannot run this replay/train arm on this run's topology, or None."""
+    if phase in ("replay", "train") and arm != STRICT_ARM and manifest["topology"]["ep"] != 4:
+        return STOCK_VIME_NEEDS_EP4
+    return None
+
+
 def unsupported_reason(log_text):
     for marker in UNSUPPORTED_MESSAGES:
         index = log_text.find(marker)
@@ -569,8 +589,13 @@ def orchestrate(args):
                 if phase == "rollout" and arm not in args.rollout_arms:
                     continue
                 for workload in args.workloads:
-                    record = run_worker(
-                        manifest, base_env, script, out, phase, arm, workload, round_index, args
+                    refusal = stock_vime_unsupported(manifest, phase, arm)
+                    record = (
+                        {"unsupported": refusal}
+                        if refusal
+                        else run_worker(
+                            manifest, base_env, script, out, phase, arm, workload, round_index, args
+                        )
                     )
                     raw.setdefault(phase, {}).setdefault(arm, {}).setdefault(workload, []).append(
                         record
