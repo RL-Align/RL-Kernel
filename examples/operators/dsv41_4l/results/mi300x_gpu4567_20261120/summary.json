@@ -1,0 +1,536 @@
+{
+  "status": "PASS",
+  "requested_gpu_matrix_complete": true,
+  "project_complete": false,
+  "allowed_physical_gpu_ids": [
+    4,
+    5,
+    6,
+    7
+  ],
+  "forbidden_physical_gpu_ids": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "eight_gpu_tests": {
+    "requested": false,
+    "status": "NOT RUN",
+    "reason": "canceled by user; not a current blocker"
+  },
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "revision": "08c8657f02291e11b6f6b63e0e16014f8e748518",
+  "training_profile": "frozen packed weights/scales, embedding and head; activation identity STE",
+  "parity": "shared-kernel parity; no independent backend/model oracle claim",
+  "matrix": [
+    {
+      "configuration": "tp1-pp1-dp1",
+      "status": "PASS",
+      "physical_gpu_ids": [
+        4
+      ],
+      "logical_gpu_ids": [
+        0
+      ],
+      "tp": 1,
+      "pp": 1,
+      "dp": 1,
+      "original_layers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "44ab6bd507bf50c4e8448308b2fd9b0fa3d61ca1",
+      "forward": "PASS",
+      "backward": "PASS",
+      "mapping": "PASS",
+      "checks": {
+        "deterministic": {
+          "compared_elements": 156610914,
+          "mismatched_elements": 0
+        },
+        "gradient": {
+          "compared_elements": 151352280,
+          "mismatched_elements": 0
+        },
+        "logprob": {
+          "compared_elements": 14,
+          "mismatched_elements": 0
+        },
+        "mode_parity": {
+          "compared_elements": 5258634,
+          "mismatched_elements": 0
+        }
+      },
+      "shared_kernel_parity": true,
+      "compared_elements": 161869548,
+      "mismatched_elements": 0,
+      "dp_inputs": null,
+      "optimizer_steps": false
+    },
+    {
+      "configuration": "tp2-pp1-dp1",
+      "status": "PASS",
+      "physical_gpu_ids": [
+        4,
+        5
+      ],
+      "logical_gpu_ids": [
+        0,
+        1
+      ],
+      "tp": 2,
+      "pp": 1,
+      "dp": 1,
+      "original_layers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "44ab6bd507bf50c4e8448308b2fd9b0fa3d61ca1",
+      "forward": "PASS",
+      "backward": "PASS",
+      "mapping": "PASS",
+      "checks": {
+        "deterministic": {
+          "compared_elements": 176906692,
+          "mismatched_elements": 0
+        },
+        "gradient": {
+          "compared_elements": 168486576,
+          "mismatched_elements": 0
+        },
+        "logprob": {
+          "compared_elements": 28,
+          "mismatched_elements": 0
+        },
+        "mode_parity": {
+          "compared_elements": 8420116,
+          "mismatched_elements": 0
+        }
+      },
+      "shared_kernel_parity": true,
+      "compared_elements": 185326808,
+      "mismatched_elements": 0,
+      "dp_inputs": null,
+      "optimizer_steps": false
+    },
+    {
+      "configuration": "tp1-pp2-dp1",
+      "status": "PASS",
+      "physical_gpu_ids": [
+        4,
+        5
+      ],
+      "logical_gpu_ids": [
+        0,
+        1
+      ],
+      "tp": 1,
+      "pp": 2,
+      "dp": 1,
+      "original_layers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "44ab6bd507bf50c4e8448308b2fd9b0fa3d61ca1",
+      "forward": "PASS",
+      "backward": "PASS",
+      "mapping": "PASS",
+      "checks": {
+        "deterministic": {
+          "compared_elements": 156610914,
+          "mismatched_elements": 0
+        },
+        "gradient": {
+          "compared_elements": 454056840,
+          "mismatched_elements": 0
+        },
+        "logprob": {
+          "compared_elements": 28,
+          "mismatched_elements": 0
+        },
+        "mode_parity": {
+          "compared_elements": 5258634,
+          "mismatched_elements": 0
+        }
+      },
+      "shared_kernel_parity": true,
+      "compared_elements": 475091376,
+      "mismatched_elements": 0,
+      "dp_inputs": "identical real-token microbatch on each replica",
+      "optimizer_steps": false
+    },
+    {
+      "configuration": "tp2-pp2-dp1",
+      "status": "PASS",
+      "physical_gpu_ids": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "logical_gpu_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "tp": 2,
+      "pp": 2,
+      "dp": 1,
+      "original_layers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "44ab6bd507bf50c4e8448308b2fd9b0fa3d61ca1",
+      "forward": "PASS",
+      "backward": "PASS",
+      "mapping": "PASS",
+      "checks": {
+        "deterministic": {
+          "compared_elements": 176906692,
+          "mismatched_elements": 0
+        },
+        "gradient": {
+          "compared_elements": 573996912,
+          "mismatched_elements": 0
+        },
+        "logprob": {
+          "compared_elements": 84,
+          "mismatched_elements": 0
+        },
+        "mode_parity": {
+          "compared_elements": 8420116,
+          "mismatched_elements": 0
+        }
+      },
+      "shared_kernel_parity": true,
+      "compared_elements": 620323304,
+      "mismatched_elements": 0,
+      "dp_inputs": "identical real-token microbatch on each replica",
+      "optimizer_steps": false
+    },
+    {
+      "configuration": "tp1-pp2-dp2",
+      "status": "PASS",
+      "physical_gpu_ids": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "logical_gpu_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "tp": 1,
+      "pp": 2,
+      "dp": 2,
+      "original_layers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "f6bdfd587938b8209c80ad646f1bb062a61d6a04",
+      "forward": "PASS",
+      "backward": "PASS",
+      "mapping": "PASS",
+      "checks": {
+        "deterministic": {
+          "compared_elements": 1545992620,
+          "mismatched_elements": 0
+        },
+        "gradient": {
+          "compared_elements": 2118931920,
+          "mismatched_elements": 0
+        },
+        "logprob": {
+          "compared_elements": 140,
+          "mismatched_elements": 0
+        },
+        "mode_parity": {
+          "compared_elements": 52586340,
+          "mismatched_elements": 0
+        }
+      },
+      "shared_kernel_parity": true,
+      "compared_elements": 4043086008,
+      "mismatched_elements": 0,
+      "dp_inputs": "two distinct real-token prompts; equal mean-loss replica weighting",
+      "optimizer_steps": true
+    },
+    {
+      "configuration": "tp1-pp1-dp1-case1",
+      "status": "PASS",
+      "physical_gpu_ids": [
+        4
+      ],
+      "logical_gpu_ids": [
+        0
+      ],
+      "tp": 1,
+      "pp": 1,
+      "dp": 1,
+      "original_layers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "44ab6bd507bf50c4e8448308b2fd9b0fa3d61ca1",
+      "forward": "PASS",
+      "backward": "PASS",
+      "mapping": "PASS",
+      "checks": {
+        "deterministic": {
+          "compared_elements": 156610914,
+          "mismatched_elements": 0
+        },
+        "gradient": {
+          "compared_elements": 151352280,
+          "mismatched_elements": 0
+        },
+        "logprob": {
+          "compared_elements": 14,
+          "mismatched_elements": 0
+        },
+        "mode_parity": {
+          "compared_elements": 5258634,
+          "mismatched_elements": 0
+        }
+      },
+      "shared_kernel_parity": true,
+      "compared_elements": 161869548,
+      "mismatched_elements": 0,
+      "dp_inputs": null,
+      "optimizer_steps": false
+    }
+  ],
+  "supplemental_model_tests": [
+    {
+      "configuration": "prefill-decode",
+      "status": "PASS",
+      "gpu_assignment": {
+        "allowed_physical_gpus": [
+          4,
+          5,
+          6,
+          7
+        ],
+        "physical_gpus": [
+          4
+        ],
+        "logical_gpus": [
+          0
+        ],
+        "rocr_visible_devices": "4",
+        "mapping": [
+          {
+            "logical_gpu": 0,
+            "physical_gpu": 4,
+            "pci_bus_id": "0000:a3:00.0",
+            "rocm_unique_id": "0xd51f48da8b8b8703"
+          }
+        ],
+        "status": "PASS",
+        "observed": [
+          {
+            "logical_gpu": 0,
+            "pci_bus_id": "0000:a3:00.0",
+            "torch_uuid": "64353166-3438-6461-3862-386238373033",
+            "name": "AMD Instinct MI300X VF"
+          }
+        ],
+        "secondary_filters": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": null,
+          "GPU_DEVICE_ORDINAL": null,
+          "HSA_VISIBLE_DEVICES": null
+        },
+        "torch": "2.13.0+rocm10.0.0",
+        "hip": "7.15.26333",
+        "allocation_roundtrip": false,
+        "rank": 0,
+        "local_rank": 0,
+        "assigned_physical_gpu": 4,
+        "assigned_logical_gpu": 0
+      },
+      "scope": "real checkpoint original layers 0,1,2,3 odd prefill and decode",
+      "mode_parity": "shared-kernel parity",
+      "chunked_vs_monolithic_bit_parity": "NOT RUN",
+      "cases": 3,
+      "forward": "PASS",
+      "backward": "PASS",
+      "compared_elements": 493547412,
+      "mismatched_elements": 0
+    },
+    {
+      "configuration": "optimizer-stress",
+      "status": "PASS",
+      "gpu_assignment": {
+        "allowed_physical_gpus": [
+          4,
+          5,
+          6,
+          7
+        ],
+        "physical_gpus": [
+          4
+        ],
+        "logical_gpus": [
+          0
+        ],
+        "rocr_visible_devices": "4",
+        "mapping": [
+          {
+            "logical_gpu": 0,
+            "physical_gpu": 4,
+            "pci_bus_id": "0000:a3:00.0",
+            "rocm_unique_id": "0xd51f48da8b8b8703"
+          }
+        ],
+        "status": "PASS",
+        "observed": [
+          {
+            "logical_gpu": 0,
+            "pci_bus_id": "0000:a3:00.0",
+            "torch_uuid": "64353166-3438-6461-3862-386238373033",
+            "name": "AMD Instinct MI300X VF"
+          }
+        ],
+        "secondary_filters": {
+          "HIP_VISIBLE_DEVICES": null,
+          "CUDA_VISIBLE_DEVICES": null,
+          "GPU_DEVICE_ORDINAL": null,
+          "HSA_VISIBLE_DEVICES": null
+        },
+        "torch": "2.13.0+rocm10.0.0",
+        "hip": "7.15.26333",
+        "allocation_roundtrip": false,
+        "rank": 0,
+        "local_rank": 0,
+        "assigned_physical_gpu": 4,
+        "assigned_logical_gpu": 0
+      },
+      "scope": "real original four layers; frozen quantized weights/embedding/head",
+      "steps": 2,
+      "seeds": [
+        17,
+        1234
+      ],
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "sequence_lengths": [
+        7,
+        8
+      ],
+      "mode_parity": "shared-kernel parity",
+      "optimizer": "SGD lr=1e-5 foreach=False",
+      "gradient_accumulation": "two distinct prompt microbatches; sum of NLL means divided by 2",
+      "updated_parameter_tensors_step0": 38,
+      "forward": "PASS",
+      "backward": "PASS",
+      "compared_elements": 1422081556,
+      "mismatched_elements": 0
+    }
+  ],
+  "regressions": {
+    "visibility-policy-tests": {
+      "status": "PASS",
+      "passed": 10,
+      "skipped": 0,
+      "physical_gpu_ids": [],
+      "logical_gpu_ids": [],
+      "log": "logs/visibility-policy-tests.log"
+    },
+    "v41-regression": {
+      "status": "PASS",
+      "passed": 95,
+      "skipped": 0,
+      "physical_gpu_ids": [
+        6
+      ],
+      "logical_gpu_ids": [
+        0
+      ],
+      "log": "logs/v41-regression.log"
+    },
+    "v4-gpu-regression": {
+      "status": "PASS",
+      "passed": 103,
+      "skipped": 4,
+      "physical_gpu_ids": [
+        6
+      ],
+      "logical_gpu_ids": [
+        0
+      ],
+      "log": "logs/v4-gpu-regression.log"
+    },
+    "v4-contract-regression": {
+      "status": "PASS",
+      "passed": 1004,
+      "skipped": 11,
+      "physical_gpu_ids": [
+        6
+      ],
+      "logical_gpu_ids": [
+        0
+      ],
+      "log": "logs/v4-contract-regression.log"
+    },
+    "layout-regression": {
+      "status": "PASS",
+      "passed": 16,
+      "skipped": 0,
+      "physical_gpu_ids": [
+        6
+      ],
+      "logical_gpu_ids": [
+        0
+      ],
+      "log": "logs/layout-regression.log"
+    }
+  },
+  "category_totals": {
+    "deterministic_replay": {
+      "compared_elements": 4181384308,
+      "mismatched_elements": 0
+    },
+    "train_inference_shared_kernel": {
+      "compared_elements": 189085880,
+      "mismatched_elements": 0
+    },
+    "partition_gradient_or_weight_consistency": {
+      "compared_elements": 3192725372,
+      "mismatched_elements": 0
+    }
+  },
+  "comparison_rows": 8840,
+  "compared_elements": 7563195560,
+  "mismatched_elements": 0,
+  "count_note": "Repeated storage-element comparisons across ranks/gradients/updates, not unique tokens.",
+  "push": {
+    "status": "BLOCKED",
+    "reason": "gh unauthenticated and SSH publickey denied; normal push authorized when authentication recovers"
+  },
+  "remaining": [
+    "independent backend/model oracle",
+    "full-parameter quantized training",
+    "full 40-layer execution",
+    "EP/CP and long-context pruning"
+  ]
+}

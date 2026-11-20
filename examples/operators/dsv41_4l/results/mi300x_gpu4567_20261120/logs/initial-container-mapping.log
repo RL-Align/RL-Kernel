@@ -1,0 +1,37 @@
+W1120 09:06:49.881723       1 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 180107168 (priority and CU-mask from the descriptor are not preserved)
+W1120 09:06:50.134777       1 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 177172208 (priority and CU-mask from the descriptor are not preserved)
+W1120 09:06:50.189926       1 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 177157824 (priority and CU-mask from the descriptor are not preserved)
+W1120 09:06:50.242086       1 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 177414848 (priority and CU-mask from the descriptor are not preserved)
+{
+  "env": {
+    "ROCR_VISIBLE_DEVICES": "4,5,6,7",
+    "HIP_VISIBLE_DEVICES": null,
+    "CUDA_VISIBLE_DEVICES": null
+  },
+  "mapping": [
+    {
+      "logical_gpu": 0,
+      "pci_bus_id": "0000:a3:00.0",
+      "name": "AMD Instinct MI300X VF",
+      "uuid": "64353166-3438-6461-3862-386238373033"
+    },
+    {
+      "logical_gpu": 1,
+      "pci_bus_id": "0000:ab:00.0",
+      "name": "AMD Instinct MI300X VF",
+      "uuid": "39396331-3739-3561-3461-313138346362"
+    },
+    {
+      "logical_gpu": 2,
+      "pci_bus_id": "0000:b3:00.0",
+      "name": "AMD Instinct MI300X VF",
+      "uuid": "36326632-3666-3836-3432-636336356135"
+    },
+    {
+      "logical_gpu": 3,
+      "pci_bus_id": "0000:bb:00.0",
+      "name": "AMD Instinct MI300X VF",
+      "uuid": "65303737-3934-6631-3535-643132313232"
+    }
+  ]
+}

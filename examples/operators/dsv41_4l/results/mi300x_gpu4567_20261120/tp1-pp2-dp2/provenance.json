@@ -1,0 +1,30 @@
+{
+  "source_commit": "f6bdfd587938b8209c80ad646f1bb062a61d6a04",
+  "image": "rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x",
+  "physical_gpus": "4,5,6,7",
+  "tp": 1,
+  "pp": 2,
+  "dp": 2,
+  "physical_gpu_ids": [
+    4,
+    5,
+    6,
+    7
+  ],
+  "logical_gpu_ids": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "rocr_visible_devices": "4,5,6,7",
+  "forbidden_physical_gpus": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "eight_gpu_tests": "CANCELED by current user instruction",
+  "scope": "real original-layer text model; frozen quantized weights/embedding/head",
+  "parity": "shared-kernel parity; TP shards attention, FFN replicated"
+}

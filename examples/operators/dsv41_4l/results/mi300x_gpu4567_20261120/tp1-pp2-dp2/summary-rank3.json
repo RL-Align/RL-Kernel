@@ -1,0 +1,107 @@
+{
+  "rank": 3,
+  "status": "PASS",
+  "gpu_assignment": {
+    "allowed_physical_gpus": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "physical_gpus": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "logical_gpus": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "rocr_visible_devices": "4,5,6,7",
+    "mapping": [
+      {
+        "logical_gpu": 0,
+        "physical_gpu": 4,
+        "pci_bus_id": "0000:a3:00.0",
+        "rocm_unique_id": "0xd51f48da8b8b8703"
+      },
+      {
+        "logical_gpu": 1,
+        "physical_gpu": 5,
+        "pci_bus_id": "0000:ab:00.0",
+        "rocm_unique_id": "0x99c1795a4a1184cb"
+      },
+      {
+        "logical_gpu": 2,
+        "physical_gpu": 6,
+        "pci_bus_id": "0000:b3:00.0",
+        "rocm_unique_id": "0x62f26f8642cc65a5"
+      },
+      {
+        "logical_gpu": 3,
+        "physical_gpu": 7,
+        "pci_bus_id": "0000:bb:00.0",
+        "rocm_unique_id": "0xe07794f155d12122"
+      }
+    ],
+    "status": "PASS",
+    "observed": [
+      {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:a3:00.0",
+        "torch_uuid": "64353166-3438-6461-3862-386238373033",
+        "name": "AMD Instinct MI300X VF"
+      },
+      {
+        "logical_gpu": 1,
+        "pci_bus_id": "0000:ab:00.0",
+        "torch_uuid": "39396331-3739-3561-3461-313138346362",
+        "name": "AMD Instinct MI300X VF"
+      },
+      {
+        "logical_gpu": 2,
+        "pci_bus_id": "0000:b3:00.0",
+        "torch_uuid": "36326632-3666-3836-3432-636336356135",
+        "name": "AMD Instinct MI300X VF"
+      },
+      {
+        "logical_gpu": 3,
+        "pci_bus_id": "0000:bb:00.0",
+        "torch_uuid": "65303737-3934-6631-3535-643132313232",
+        "name": "AMD Instinct MI300X VF"
+      }
+    ],
+    "secondary_filters": {
+      "HIP_VISIBLE_DEVICES": null,
+      "CUDA_VISIBLE_DEVICES": null,
+      "GPU_DEVICE_ORDINAL": null,
+      "HSA_VISIBLE_DEVICES": null
+    },
+    "torch": "2.13.0+rocm10.0.0",
+    "hip": "7.15.26333",
+    "allocation_roundtrip": false,
+    "rank": 3,
+    "local_rank": 3,
+    "assigned_physical_gpu": 7,
+    "assigned_logical_gpu": 3
+  },
+  "tp": 1,
+  "tp_scope": "attention heads/output groups sharded; FFN replicated",
+  "pp": 2,
+  "dp": 2,
+  "stage": 1,
+  "mode_parity": "shared-kernel parity",
+  "dp_batch": "two distinct real-token prompts; equal mean-loss replica weighting",
+  "checkpoint": "real original layers 0,1,2,3",
+  "independent_model_oracle": "NOT RUN",
+  "updated_parameter_tensors_step0": 20,
+  "optimizer_steps": "PASS",
+  "optimizer_steps_per_replay": 2,
+  "forward": "PASS",
+  "backward": "PASS",
+  "compared_elements": 1049070432,
+  "mismatched_elements": 0
+}

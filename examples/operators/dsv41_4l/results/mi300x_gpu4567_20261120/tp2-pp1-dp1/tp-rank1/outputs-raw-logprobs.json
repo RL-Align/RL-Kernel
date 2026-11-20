@@ -1,0 +1,40 @@
+{
+  "source_file": "outputs.pt",
+  "dtype": "torch.float32",
+  "shape": [
+    1,
+    7
+  ],
+  "physical_gpu_ids": [
+    4,
+    5
+  ],
+  "logical_gpu_ids": [
+    0,
+    1
+  ],
+  "assigned_physical_gpu": 5,
+  "assigned_logical_gpu": 1,
+  "values": [
+    [
+      -14.179407119750977,
+      -17.563674926757812,
+      -11.580533981323242,
+      -13.55319881439209,
+      -19.377029418945312,
+      -17.71782684326172,
+      -14.410198211669922
+    ]
+  ],
+  "uint32_hex": [
+    [
+      "0xc162deda",
+      "0xc18c8268",
+      "0xc13949de",
+      "0xc158d9e7",
+      "0xc19b0428",
+      "0xc18dbe1c",
+      "0xc166902c"
+    ]
+  ]
+}

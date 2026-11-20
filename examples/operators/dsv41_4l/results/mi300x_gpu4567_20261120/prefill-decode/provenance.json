@@ -1,0 +1,12 @@
+{
+  "source_commit": "d245d974dd63c5ca6cc5be6116a696df6604511b",
+  "physical_gpu_ids": [
+    4
+  ],
+  "logical_gpu_ids": [
+    0
+  ],
+  "tp": 1,
+  "pp": 1,
+  "dp": 1
+}

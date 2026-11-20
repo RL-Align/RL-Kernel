@@ -1,0 +1,23 @@
+{
+  "allowed_physical_gpus": [
+    4,
+    5,
+    6,
+    7
+  ],
+  "physical_gpus": [
+    6
+  ],
+  "logical_gpus": [
+    0
+  ],
+  "rocr_visible_devices": "6",
+  "mapping": [
+    {
+      "logical_gpu": 0,
+      "physical_gpu": 6,
+      "pci_bus_id": "0000:b3:00.0",
+      "rocm_unique_id": "0x62f26f8642cc65a5"
+    }
+  ]
+}

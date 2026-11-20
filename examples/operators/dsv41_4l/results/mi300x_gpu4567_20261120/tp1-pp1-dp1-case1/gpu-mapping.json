@@ -1,0 +1,41 @@
+{
+  "allowed_physical_gpus": [
+    4,
+    5,
+    6,
+    7
+  ],
+  "physical_gpus": [
+    4
+  ],
+  "logical_gpus": [
+    0
+  ],
+  "rocr_visible_devices": "4",
+  "mapping": [
+    {
+      "logical_gpu": 0,
+      "physical_gpu": 4,
+      "pci_bus_id": "0000:a3:00.0",
+      "rocm_unique_id": "0xd51f48da8b8b8703"
+    }
+  ],
+  "status": "PASS",
+  "observed": [
+    {
+      "logical_gpu": 0,
+      "pci_bus_id": "0000:a3:00.0",
+      "torch_uuid": "64353166-3438-6461-3862-386238373033",
+      "name": "AMD Instinct MI300X VF"
+    }
+  ],
+  "secondary_filters": {
+    "HIP_VISIBLE_DEVICES": null,
+    "CUDA_VISIBLE_DEVICES": null,
+    "GPU_DEVICE_ORDINAL": null,
+    "HSA_VISIBLE_DEVICES": null
+  },
+  "torch": "2.13.0+rocm10.0.0",
+  "hip": "7.15.26333",
+  "allocation_roundtrip": true
+}

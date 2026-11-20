@@ -1,0 +1,11 @@
+........................................................................ [ 67%]
+...................ssss............                                      [100%]
+=============================== warnings summary ===============================
+tests/backends/rocm/test_dsv4_mhc_post_pre.py::test_versioned_graph[split-training-verl]
+  /usr/local/lib/python3.12/dist-packages/torch/autograd/graph.py:979: UserWarning: The AccumulateGrad node's stream does not match the stream of the node that produced the incoming gradient. This may incur unnecessary synchronization and break CUDA graph capture if the AccumulateGrad node's stream is the default stream. This mismatch is caused by an AccumulateGrad node created prior to the current iteration being kept alive. This can happen if the autograd graph is still being kept alive by tensors such as the loss, or if you are using DDP, which will stash a reference to the node. To resolve the mismatch, delete all references to the autograd graph or ensure that DDP initialization is performed under the same stream as subsequent forwards. If the mismatch is intentional, you can use torch.autograd.graph.set_warn_on_accumulate_grad_stream_mismatch(False) to suppress this warning. (Triggered internally at /__w/rockrel/rockrel/external-builds/pytorch/pytorch/torch/csrc/autograd/input_buffer.cpp:310.)
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [4] tests/backends/rocm/test_dsv4_mhc_post_pre.py:40: run separately with TRITON_INTERPRET=1
+103 passed, 4 skipped, 1 warning in 17.52s

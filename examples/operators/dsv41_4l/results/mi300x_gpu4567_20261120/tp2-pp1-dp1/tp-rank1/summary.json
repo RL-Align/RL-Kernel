@@ -1,0 +1,125 @@
+{
+  "status": "PASS",
+  "gpu_assignment": {
+    "allowed_physical_gpus": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "physical_gpus": [
+      4,
+      5
+    ],
+    "logical_gpus": [
+      0,
+      1
+    ],
+    "rocr_visible_devices": "4,5",
+    "mapping": [
+      {
+        "logical_gpu": 0,
+        "physical_gpu": 4,
+        "pci_bus_id": "0000:a3:00.0",
+        "rocm_unique_id": "0xd51f48da8b8b8703"
+      },
+      {
+        "logical_gpu": 1,
+        "physical_gpu": 5,
+        "pci_bus_id": "0000:ab:00.0",
+        "rocm_unique_id": "0x99c1795a4a1184cb"
+      }
+    ],
+    "status": "PASS",
+    "observed": [
+      {
+        "logical_gpu": 0,
+        "pci_bus_id": "0000:a3:00.0",
+        "torch_uuid": "64353166-3438-6461-3862-386238373033",
+        "name": "AMD Instinct MI300X VF"
+      },
+      {
+        "logical_gpu": 1,
+        "pci_bus_id": "0000:ab:00.0",
+        "torch_uuid": "39396331-3739-3561-3461-313138346362",
+        "name": "AMD Instinct MI300X VF"
+      }
+    ],
+    "secondary_filters": {
+      "HIP_VISIBLE_DEVICES": null,
+      "CUDA_VISIBLE_DEVICES": null,
+      "GPU_DEVICE_ORDINAL": null,
+      "HSA_VISIBLE_DEVICES": null
+    },
+    "torch": "2.13.0+rocm10.0.0",
+    "hip": "7.15.26333",
+    "allocation_roundtrip": false,
+    "rank": 1,
+    "local_rank": 1,
+    "assigned_physical_gpu": 5,
+    "assigned_logical_gpu": 1
+  },
+  "scope": "real checkpoint original layers 0,1,2,3 text model",
+  "mode_parity": "shared-kernel parity, not independent backends",
+  "training_profile": "dsv41-text-frozen-quant-embedding-head-input-ste-shared-kernels-v1",
+  "topology": {
+    "tp": 2,
+    "pp": 1,
+    "dp": 1
+  },
+  "tp_scope": "attention heads/output groups sharded; FFN replicated",
+  "full_40_layers": "NOT RUN",
+  "independent_model_oracle": "NOT RUN",
+  "frozen_parameters": [
+    "packed FP8/FP4 weights and scales",
+    "token embedding",
+    "FP32 head"
+  ],
+  "backward_contract": "identity activation-quantization STE; discrete index/dispatch selection",
+  "torch": "2.13.0+rocm10.0.0",
+  "hip": "7.15.26333",
+  "device": "AMD Instinct MI300X VF",
+  "input_ids": [
+    [
+      0,
+      53091,
+      4374,
+      1465,
+      721,
+      22,
+      16,
+      19
+    ]
+  ],
+  "checkpoint_revision": "08c8657f02291e11b6f6b63e0e16014f8e748518",
+  "load_seconds": 48.91396575421095,
+  "repeat_0": {
+    "seconds": 23.42430236400105,
+    "loss": 15.483124732971191,
+    "gradient_parameters": 58,
+    "gradient_elements": 84243288,
+    "parameters_without_gradient": [
+      "blocks.2.attn.index_gain",
+      "blocks.2.attn.index_weights.weight",
+      "blocks.2.attn.index_k.weight"
+    ]
+  },
+  "repeat_1": {
+    "seconds": 0.5205190700944513,
+    "loss": 15.483124732971191,
+    "gradient_parameters": 58,
+    "gradient_elements": 84243288,
+    "parameters_without_gradient": [
+      "blocks.2.attn.index_gain",
+      "blocks.2.attn.index_weights.weight",
+      "blocks.2.attn.index_k.weight"
+    ]
+  },
+  "forward": "PASS",
+  "backward": "PASS",
+  "deterministic_replay": "PASS",
+  "shared_kernel_train_inference_parity": "PASS",
+  "compared_elements": 92663404,
+  "mismatched_elements": 0,
+  "peak_gpu_bytes": 34741938688
+}

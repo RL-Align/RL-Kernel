@@ -1,0 +1,47 @@
+{
+  "allowed_physical_gpus": [
+    4,
+    5,
+    6,
+    7
+  ],
+  "physical_gpus": [
+    4,
+    5,
+    6,
+    7
+  ],
+  "logical_gpus": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "rocr_visible_devices": "4,5,6,7",
+  "mapping": [
+    {
+      "logical_gpu": 0,
+      "physical_gpu": 4,
+      "pci_bus_id": "0000:a3:00.0",
+      "rocm_unique_id": "0xd51f48da8b8b8703"
+    },
+    {
+      "logical_gpu": 1,
+      "physical_gpu": 5,
+      "pci_bus_id": "0000:ab:00.0",
+      "rocm_unique_id": "0x99c1795a4a1184cb"
+    },
+    {
+      "logical_gpu": 2,
+      "physical_gpu": 6,
+      "pci_bus_id": "0000:b3:00.0",
+      "rocm_unique_id": "0x62f26f8642cc65a5"
+    },
+    {
+      "logical_gpu": 3,
+      "physical_gpu": 7,
+      "pci_bus_id": "0000:bb:00.0",
+      "rocm_unique_id": "0xe07794f155d12122"
+    }
+  ]
+}
