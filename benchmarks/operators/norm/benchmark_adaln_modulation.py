@@ -10,11 +10,11 @@ import argparse
 import contextlib
 import hashlib
 import json
-from pathlib import Path
 import platform
 import statistics
 import subprocess
 import sys
+from pathlib import Path
 
 import torch
 
@@ -103,8 +103,8 @@ def main(argv=None):
         raise SystemExit("CUDA device required")
     # Imports and extension diagnostics must not corrupt the JSON stdout stream.
     with contextlib.redirect_stdout(sys.stderr):
-        from rl_engine.runtime.adaln import SHARED_PROFILE, AdaLNDispatch
         from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
+        from rl_engine.runtime.adaln import SHARED_PROFILE, AdaLNDispatch
 
         backends = [("pytorch", NativeAdaLNModulationOp())]
         skipped = []

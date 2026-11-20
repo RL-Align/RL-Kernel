@@ -3,10 +3,10 @@ import os
 import pytest
 import torch
 
-from rl_engine.validation.operators.operator_specs import GtestAdaLNReference
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.reference.norm.adaln_modulation import NativeAdaLNModulationOp
 from rl_engine.runtime.registry import OpBackend, kernel_registry
+from rl_engine.validation.operators.operator_specs import GtestAdaLNReference
 
 
 def _assert_bytes_equal(actual, expected):

@@ -315,8 +315,12 @@ def adaln_modulation_forward(
     x: torch.Tensor, modulation: torch.Tensor, eps: float, threads: int = 256
 ) -> list[torch.Tensor]: ...
 def adaln_modulation_backward(
-    dy: torch.Tensor, dg: torch.Tensor, x: torch.Tensor, modulation: torch.Tensor,
-    eps: float, threads: int = 256
+    dy: torch.Tensor,
+    dg: torch.Tensor,
+    x: torch.Tensor,
+    modulation: torch.Tensor,
+    eps: float,
+    threads: int = 256,
 ) -> list[torch.Tensor]: ...
 def rmsnorm_forward(
     x: torch.Tensor,

@@ -216,9 +216,7 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
     TRITON_SWIGLU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSwiGLUOp"
 
-    PYTORCH_ADALN_MODULATION = (
-        "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
-    )
+    PYTORCH_ADALN_MODULATION = "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
     TRITON_ADALN_MODULATION = (
         "rl_engine.backends.shared.triton.norm.adaln_modulation.TritonAdaLNModulationOp"
     )

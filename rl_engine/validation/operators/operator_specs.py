@@ -40,9 +40,7 @@ OP_SPECS = {
         gold_path="rl_engine.validation.operators.operator_specs.GtestAdaLNReference",
         gold_method="forward_fp32",
         candidate_paths={
-            "pytorch": (
-                "rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"
-            ),
+            "pytorch": ("rl_engine.reference.norm.adaln_modulation.NativeAdaLNModulationOp"),
             "triton": (
                 "rl_engine.backends.shared.triton.norm.adaln_modulation.TritonAdaLNModulationOp"
             ),
