@@ -135,8 +135,9 @@ the plain PyTorch optimizer path is not sufficient.
 
 The validated engine configuration is **FP32, ZeRO-0, DP=1, accumulation=1**, with
 DeepSpeed gradient clipping disabled because the PPO worker clips the global TP
-gradient norm. The adapter rejects unsupported mixed precision, autocast,
-partitioned optimizers and mismatched TP groups. Megatron sequence/pipeline
+gradient norm. BF16 runs at ZeRO-1: DeepSpeed 0.19.7 builds its `BF16_Optimizer` with FP32
+gradient buffers only at that stage, and with DP=1 it partitions nothing. The adapter rejects
+unsupported mixed precision, autocast, partitioned optimizers and mismatched TP groups. Megatron sequence/pipeline
 parallelism is not supported by these adapters. The policy's model group must
 match Megatron's active TP group used by its vocabulary-parallel cross entropy.
 

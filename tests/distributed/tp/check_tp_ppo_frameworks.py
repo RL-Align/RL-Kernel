@@ -177,7 +177,10 @@ def snapshot(model, group, *, gradients=False):
 
 
 def initialize_engine(model, *, tp_group=None, dp_group=None, bf16=False, optimizer=None):
-    """Wrap ``model`` in a ZeRO stage-0 DeepSpeed engine over the given or global TP/DP groups.
+    """Wrap ``model`` in a DeepSpeed engine over the given or global TP/DP groups.
+
+    FP32 uses ZeRO stage 0. BF16 uses ZeRO stage 1, the only stage at which DeepSpeed builds
+    its ``BF16_Optimizer`` with FP32 gradient buffers; with DP=1 it partitions nothing.
 
     Without ``optimizer``, use AdamW (lr 1e-5) for BF16 and SGD (lr 0.01) otherwise.
     DeepSpeed gradient clipping is disabled.
@@ -210,7 +213,7 @@ def initialize_engine(model, *, tp_group=None, dp_group=None, bf16=False, optimi
             "train_micro_batch_size_per_gpu": 2,
             "gradient_accumulation_steps": 1,
             "train_batch_size": 2,
-            "zero_optimization": {"stage": 0},
+            "zero_optimization": {"stage": 1 if bf16 else 0},
             "fp16": {"enabled": False},
             "bf16": {"enabled": bf16},
             "data_types": {"grad_accum_dtype": "fp32"},

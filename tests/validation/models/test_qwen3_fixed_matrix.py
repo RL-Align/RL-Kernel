@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ ROWS = [
     for precision in ("fp32", "bf16")
     for role in ("actor", "critic")
 ]
-TP4_ONLY = "megatron-bf16-actor"
+TP4_ONLY = {"megatron-bf16-actor", "deepspeed-bf16-actor"}
 
 
 def _sizes(row: str) -> list[int]:
@@ -35,8 +36,8 @@ def _sizes(row: str) -> list[int]:
 
 
 @pytest.mark.parametrize("row", ROWS)
-def test_megatron_bf16_actor_is_the_only_tp4_only_row(row):
-    assert _sizes(row) == ([4] if row == TP4_ONLY else [2, 4])
+def test_bf16_actors_are_the_only_tp4_only_rows(row):
+    assert _sizes(row) == ([4] if row in TP4_ONLY else [2, 4])
 
 
 def _stage(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
@@ -52,7 +53,7 @@ def _stage(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     bin_dir.mkdir()
     (bin_dir / "python").write_text(
         "#!/usr/bin/env bash\n"
-        'if [[ "$1" == - ]]; then exec python3 "$@"; fi\n'
+        f'if [[ "$1" == - ]]; then exec "{sys.executable}" "$@"; fi\n'
         f'echo "$*" >> "{calls}"\n'
     )
     (bin_dir / "nvidia-smi").write_text("#!/usr/bin/env bash\n")
@@ -81,8 +82,8 @@ def _launches(calls: Path, probe: bool) -> list[tuple[str, int]]:
 @pytest.mark.parametrize(
     ("sizes", "expected"),
     [
-        ((), {(TP4_ONLY, 4)} | {(row, 2) for row in ROWS if row != TP4_ONLY}),
-        (("2",), {(row, 2) for row in ROWS if row != TP4_ONLY}),
+        ((), {(row, 4) for row in TP4_ONLY} | {(row, 2) for row in ROWS if row not in TP4_ONLY}),
+        (("2",), {(row, 2) for row in ROWS if row not in TP4_ONLY}),
         (("4",), {(row, 4) for row in ROWS}),
     ],
 )
@@ -95,7 +96,7 @@ def test_probe_runs_each_row_at_its_sizes(tmp_path, sizes, expected):
     assert set(_launches(calls, probe=True)) == expected
 
 
-def test_candidate_skips_megatron_bf16_actor_tp2_and_its_tp_comparison(tmp_path):
+def test_candidate_skips_bf16_actor_tp2_and_its_tp_comparison(tmp_path):
     source, calls, env = _stage(tmp_path)
     args = [
         str(source),
@@ -110,8 +111,8 @@ def test_candidate_skips_megatron_bf16_actor_tp2_and_its_tp_comparison(tmp_path)
     subprocess.run(
         ["bash", str(source / SCRIPTS / "qualify_candidate.sbatch"), *args], check=True, env=env
     )
-    expected = {(row, tp) for row in ROWS for tp in (2, 4)} - {(TP4_ONLY, 2)}
+    expected = {(row, tp) for row in ROWS for tp in (2, 4)} - {(row, 2) for row in TP4_ONLY}
     assert set(_launches(calls, probe=False)) == expected
     comparisons = [line for line in calls.read_text().splitlines() if "--tp-comparison" in line]
-    assert len(comparisons) == len(ROWS) - 1
-    assert not any(f"{TP4_ONLY}-tp-comparison" in line for line in comparisons)
+    assert len(comparisons) == len(ROWS) - len(TP4_ONLY)
+    assert not any(f"{row}-tp-comparison" in line for line in comparisons for row in TP4_ONLY)

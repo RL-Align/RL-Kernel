@@ -2,8 +2,10 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """DeepSpeed PPO engine steps for Megatron TP models.
 
-Supported configurations: FP32 or BF16 with FP32 gradients/masters, ZeRO-0, DP=1,
-accumulation=1. Hardware qualification is recorded separately in experiment reports.
+Supported configurations: DP=1, accumulation=1, and either FP32 at ZeRO-0 or BF16 with FP32
+gradients/masters at ZeRO-1. DeepSpeed (0.19.7) builds its ``BF16_Optimizer`` with FP32
+gradient buffers only at ZeRO-1, and with DP=1 ZeRO-1 partitions nothing. Hardware
+qualification is recorded separately in experiment reports.
 """
 
 from __future__ import annotations
@@ -90,12 +92,14 @@ def deepspeed_ppo_worker(
 ) -> PPOTrainingWorker:
     """Use engine.backward/step without bypassing DeepSpeed's lifecycle.
 
-    This boundary rejects optimizer partitioning and loss scaling. BF16 clipping
+    This boundary rejects optimizer partitioning and loss scaling: ZeRO-0 for FP32, ZeRO-1
+    only for BF16, where DeepSpeed's ``BF16_Optimizer`` lives, with DP=1. BF16 clipping
     operates on DeepSpeed's FP32 accumulation views, not low-precision .grad.
     DeepSpeed must receive an MPU describing the actual TP and singleton DP groups.
     """
-    if engine.zero_optimization_stage() != 0:
-        raise ValueError("DeepSpeed PPO currently requires ZeRO stage 0")
+    stage = engine.zero_optimization_stage()
+    if stage != (1 if engine.bfloat16_enabled() else 0):
+        raise ValueError("DeepSpeed PPO requires ZeRO stage 0 for FP32 and stage 1 for BF16")
     if engine.fp16_enabled() or engine.amp_enabled() or engine.torch_autocast_enabled():
         raise ValueError("DeepSpeed PPO supports FP32/BF16 without FP16 loss scaling")
     expected_dtype = torch.bfloat16 if engine.bfloat16_enabled() else torch.float32
