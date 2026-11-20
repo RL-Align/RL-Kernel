@@ -10,6 +10,7 @@ import torch
 
 from rl_engine.config.workload import LogicalSample
 from rl_engine.ops.rope.multi_axis_rope import build_multi_axis_cos_sin, qwen_image_positions
+from rl_engine.validation.operators import run_operator_suite
 from rl_engine.validation.operators.gradient_adapters import _row_inputs
 from rl_engine.validation.operators.operator_inputs import make_operator_inputs, operator_shape_name
 from rl_engine.validation.operators.operator_specs import (
@@ -50,6 +51,7 @@ def _args(**overrides):
         "matmul",
         "det_gemm",
         "attention",
+        "joint_attn_softmax",
         "logp",
         "linear_logp",
         "batch_invariant_logp",
@@ -61,7 +63,7 @@ def _args(**overrides):
         "kv_cache_attention",
     ],
 )
-def test_operator_inputs_support_all_issue_108_ops(op_name):
+def test_operator_inputs_support_registered_ops(op_name):
     args = _args()
     inputs = make_operator_inputs(op_name, args, torch.float32, torch.device("cpu"))
 
@@ -184,6 +186,31 @@ def test_multi_axis_rope_validation_preserves_logical_tables_across_layouts(layo
             sample_id, position = key
             for name in ("cos", "sin"):
                 assert torch.equal(inputs[name][row], expected[sample_id][name][position])
+
+
+def test_joint_attn_softmax_operator_spec_runs_forward_and_backward():
+    args = _args(
+        op="joint_attn_softmax",
+        candidate="pytorch",
+        input_mode="random",
+        batch=2,
+        seq=17,
+    )
+
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    candidate = make_candidate(args)
+    report = run_operator_suite(
+        "joint_attn_softmax",
+        candidates=[candidate],
+        cases=[case],
+        check_grad=True,
+    )
+
+    assert case.op_class == "reduction"
+    assert case.grad_input_names == ("scores",)
+    assert case.inputs["scores"].shape == (2, 17)
+    assert operator_shape_name("joint_attn_softmax", args) == "2x17"
+    assert report.passed
 
 
 def test_constant_linear_logp_inputs_match_operator_contract():

@@ -225,6 +225,61 @@ def deterministic_attention_backward(
     scale: float,
     key_padding_mask: torch.Tensor | None,
 ) -> list[torch.Tensor]: ...
+def joint_attn_softmax_build_key_mapping(
+    key_padding_mask: torch.Tensor,
+) -> list[torch.Tensor]: ...
+def joint_attn_softmax_forward(
+    scores: torch.Tensor,
+    logical_to_physical: torch.Tensor | None = None,
+    valid_key_counts: torch.Tensor | None = None,
+    rows_per_batch: int = 1,
+) -> torch.Tensor: ...
+def joint_attn_softmax_forward_fp32(
+    scores: torch.Tensor,
+    logical_to_physical: torch.Tensor | None = None,
+    valid_key_counts: torch.Tensor | None = None,
+    rows_per_batch: int = 1,
+) -> torch.Tensor: ...
+def joint_attn_softmax_forward_with_state(
+    scores: torch.Tensor,
+    logical_to_physical: torch.Tensor | None = None,
+    valid_key_counts: torch.Tensor | None = None,
+    rows_per_batch: int = 1,
+) -> list[torch.Tensor]: ...
+def joint_attn_softmax_backward(
+    probabilities: torch.Tensor,
+    grad_probabilities: torch.Tensor,
+    output_bf16: bool,
+    logical_to_physical: torch.Tensor | None = None,
+    valid_key_counts: torch.Tensor | None = None,
+    rows_per_batch: int = 1,
+) -> torch.Tensor: ...
+def _joint_attn_softmax_forward_trusted(
+    scores: torch.Tensor,
+    logical_to_physical: torch.Tensor,
+    valid_key_counts: torch.Tensor,
+    rows_per_batch: int,
+) -> torch.Tensor: ...
+def _joint_attn_softmax_forward_fp32_trusted(
+    scores: torch.Tensor,
+    logical_to_physical: torch.Tensor,
+    valid_key_counts: torch.Tensor,
+    rows_per_batch: int,
+) -> torch.Tensor: ...
+def _joint_attn_softmax_forward_with_state_trusted(
+    scores: torch.Tensor,
+    logical_to_physical: torch.Tensor,
+    valid_key_counts: torch.Tensor,
+    rows_per_batch: int,
+) -> list[torch.Tensor]: ...
+def _joint_attn_softmax_backward_trusted(
+    probabilities: torch.Tensor,
+    grad_probabilities: torch.Tensor,
+    output_bf16: bool,
+    logical_to_physical: torch.Tensor,
+    valid_key_counts: torch.Tensor,
+    rows_per_batch: int,
+) -> torch.Tensor: ...
 def deterministic_rope_apply_rocm(
     x: torch.Tensor,
     cos: torch.Tensor,
@@ -256,6 +311,33 @@ def swiglu_backward(
     gate: torch.Tensor,
     up: torch.Tensor,
 ) -> list[torch.Tensor]: ...
+def adaln_modulation_forward(
+    x: torch.Tensor, modulation: torch.Tensor, eps: float, threads: int = 256
+) -> list[torch.Tensor]: ...
+def adaln_modulation_backward(
+    dy: torch.Tensor,
+    dg: torch.Tensor,
+    x: torch.Tensor,
+    modulation: torch.Tensor,
+    eps: float,
+    threads: int = 256,
+) -> list[torch.Tensor]: ...
+def adaln_indexed_forward(
+    x: torch.Tensor,
+    modulation: torch.Tensor,
+    index: torch.Tensor,
+    eps: float,
+    threads: int = 256,
+) -> list[torch.Tensor]: ...
+def adaln_indexed_backward(
+    dy: torch.Tensor | None,
+    dg: torch.Tensor | None,
+    x: torch.Tensor,
+    modulation: torch.Tensor,
+    index: torch.Tensor,
+    eps: float,
+    threads: int = 256,
+) -> list[torch.Tensor | None]: ...
 def rmsnorm_forward(
     x: torch.Tensor,
     weight: torch.Tensor,
