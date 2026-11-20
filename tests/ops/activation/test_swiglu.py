@@ -672,13 +672,16 @@ def test_triton_swiglu_launchers_use_input_device_and_stream(monkeypatch, dtype,
     launches = []
 
     def record_launch(kernel):
-        original_run = kernel.run
+        # The launchers go through TunableKernel, which launches the wrapped Triton
+        # JITFunction; record at that JITFunction so every real launch is counted.
+        jit = getattr(kernel, "kernel", kernel)
+        original_run = jit.run
 
         def run(*args, **kwargs):
             launches.append((torch.cuda.current_device(), torch.cuda.current_stream()))
             return original_run(*args, **kwargs)
 
-        monkeypatch.setattr(kernel, "run", run)
+        monkeypatch.setattr(jit, "run", run)
 
     for kernel in (
         swiglu._swiglu_fwd_kernel,
