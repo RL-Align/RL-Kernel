@@ -16,7 +16,7 @@ ROWS = [
     for precision in ("fp32", "bf16")
     for role in ("actor", "critic")
 ]
-TP4_ONLY = {"megatron-bf16-actor", "deepspeed-bf16-actor"}
+TP4_ONLY = {"megatron-bf16-actor", "deepspeed-bf16-actor", "deepspeed-bf16-critic"}
 
 
 def _sizes(row: str) -> list[int]:
@@ -36,7 +36,7 @@ def _sizes(row: str) -> list[int]:
 
 
 @pytest.mark.parametrize("row", ROWS)
-def test_bf16_actors_are_the_only_tp4_only_rows(row):
+def test_bf16_actors_and_deepspeed_bf16_critic_are_tp4_only(row):
     assert _sizes(row) == ([4] if row in TP4_ONLY else [2, 4])
 
 
@@ -96,7 +96,7 @@ def test_probe_runs_each_row_at_its_sizes(tmp_path, sizes, expected):
     assert set(_launches(calls, probe=True)) == expected
 
 
-def test_candidate_skips_bf16_actor_tp2_and_its_tp_comparison(tmp_path):
+def test_candidate_skips_tp2_of_tp4_only_rows_and_their_tp_comparison(tmp_path):
     source, calls, env = _stage(tmp_path)
     args = [
         str(source),

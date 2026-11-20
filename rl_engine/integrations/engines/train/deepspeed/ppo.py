@@ -153,7 +153,10 @@ def deepspeed_ppo_worker(
         raise ValueError("disable DeepSpeed gradient_clipping; PPO performs TP-aware clipping")
     if engine.mpu is None or engine.mpu.get_model_parallel_group() is not group:
         raise ValueError("DeepSpeed MPU and PPO must use the same TP group")
-    gradient_state = _bf16_gradient_state(engine, group) if engine.bfloat16_enabled() else None
+    gradient_state = None
+    if engine.bfloat16_enabled():
+        gradient_state = _bf16_gradient_state(engine, group)
+        _allow_zero_norm_step(engine.optimizer)
     return PPOTrainingWorker(
         role=role,
         model=engine,
@@ -166,6 +169,51 @@ def deepspeed_ppo_worker(
         backward=engine.backward,
         step=engine.step,
     )
+
+
+def _allow_zero_norm_step(optimizer, norm_fn=None) -> None:
+    """Let this ``BF16_Optimizer`` apply an update whose gradients are all zero.
+
+    PPO's clipped value loss can zero every gradient of a minibatch: after an update moves all
+    values past ``value_clip``, the clipped branch wins everywhere (the HF reference critic has
+    a grad norm of exactly 0 at its second update). AdamW still moves the parameters then, by
+    its first moment and weight decay, but DeepSpeed 0.19.7's ``BF16_Optimizer.step`` asserts
+    a positive global norm. With a zero norm, no gradient clipping and no MoE layers, this runs
+    the rest of that step: the FP32 partitions take the FP32 gradient partitions, the inner
+    optimizer steps, its state is linked, the BF16 parameters are copied back and the
+    gradients cleared. Any other case goes to DeepSpeed's own step. ``norm_fn`` defaults to
+    DeepSpeed's ``get_global_norm_of_tensors``, the norm that step computes.
+    """
+    if norm_fn is None:
+        from deepspeed.runtime.utils import get_global_norm_of_tensors
+
+        norm_fn = get_global_norm_of_tensors
+    original = optimizer.step
+
+    @torch.no_grad()
+    def step(closure=None):
+        if closure is not None or optimizer.clip_grad > 0.0 or optimizer.has_moe_layers:
+            return original(closure)
+        grads, _ = optimizer.get_grads_for_norm()
+        norm = norm_fn(
+            input_tensors=grads,
+            mpu=optimizer.mpu,
+            norm_type=optimizer.norm_type,
+            use_graph=optimizer.graph_harvesting,
+        )
+        if float(norm) != 0.0:
+            return original(closure)
+        optimizer._global_grad_norm = norm
+        for master, grad in zip(
+            optimizer.fp32_groups_flat_partition, optimizer.fp32_groups_gradient_flat_partition
+        ):
+            master.grad = grad
+        optimizer.optimizer.step()
+        optimizer._lazy_init_hp_params_optimizer_state()
+        optimizer.update_lp_params()
+        optimizer.clear_hp_grads()
+
+    optimizer.step = step
 
 
 def _bf16_gradient_state(engine, group: dist.ProcessGroup) -> PPOGradientState:

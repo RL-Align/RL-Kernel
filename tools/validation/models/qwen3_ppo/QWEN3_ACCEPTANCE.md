@@ -30,13 +30,14 @@ Formal matrix, still awaiting hardware qualification:
 
 | Engine | Training precision | Training TP | Rollout |
 |---|---|---|---|
-| Megatron and DeepSpeed | FP32/BF16 | 2/4 (BF16 actor: 4) | Same frozen vLLM TP2 rollout |
+| Megatron and DeepSpeed | FP32/BF16 | 2/4 (BF16 actors, DeepSpeed BF16 critic: 4) | Same frozen vLLM TP2 rollout |
 | Megatron and DeepSpeed | FP32 tiny GPT | Actor 2, Critic 1 | Existing vLLM TP1 regression |
 
 The matrix is sized for four 80-94 GB GPUs. Qwen3-8B with FP32 AdamW state needs about
 131 GB at TP1, so TP1 is not part of it. The Megatron BF16 actor ran out of memory at TP2 on
 a 93 GiB H100 (90.0 GiB allocated; 92.9 GiB per rank on B200), and the DeepSpeed BF16 actor
-holds the same state, so both BF16 actors run at TP4 only and have no TP2-vs-TP4 comparison.
+holds the same state; the DeepSpeed BF16 critic peaked at 98.9 GiB per rank at TP2 on B200.
+These three rows run at TP4 only and have no TP2-vs-TP4 comparison.
 `fixed_matrix.sh` holds the TP sizes of each row for the candidate and the memory probe.
 DeepSpeed BF16 runs at ZeRO-1 with DP=1 (see the TP PPO README). The HF reference runs on one
 GPU; `hf_ppo_reference` keeps the AdamW moments and the BF16 FP32 masters in host memory
