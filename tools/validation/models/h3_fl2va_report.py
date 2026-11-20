@@ -120,8 +120,8 @@ def reference() -> dict[str, Any]:
                             anchors,
                         )
                         names = ("position_ids", "token_tags", "video_indices", "audio_indices")
-                        same = all(
-                            torch.equal(getattr(ours, n), t) and getattr(ours, n).dtype == t.dtype
+                        same = all(  # dtype, shape and bytes, so -0.0 is not 0.0
+                            tensor_digest(getattr(ours, n)) == tensor_digest(t)
                             for n, t in zip(names + ("text_indices",), theirs[:5], strict=True)
                         ) and (
                             ours.num_condition_video_rows,
@@ -167,12 +167,13 @@ def reference() -> dict[str, Any]:
                     )
                     used = ours.sequence_length
                     cases += 1
-                    equal += (
-                        torch.equal(packed["img_position_ids"][:used], ours.position_ids)
-                        and torch.equal(packed["token_tags"][:used], ours.token_tags)
-                        and torch.equal(packed["img_pos"], ours.video_indices)
-                        and torch.equal(packed["audio_pos"], ours.audio_indices)
+                    pairs = (  # digests: torch.equal would take int32 indices for int64
+                        (packed["img_position_ids"][:used], ours.position_ids),
+                        (packed["token_tags"][:used], ours.token_tags),
+                        (packed["img_pos"], ours.video_indices),
+                        (packed["audio_pos"], ours.audio_indices),
                     )
+                    equal += all(tensor_digest(a) == tensor_digest(b) for a, b in pairs)
         out["sglang_prefix"] = {
             "cases": cases,
             "bitwise_equal": equal,
