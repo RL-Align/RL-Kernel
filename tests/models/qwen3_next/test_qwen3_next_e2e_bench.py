@@ -137,6 +137,11 @@ def test_report_summarizes_ratios_and_failures():
                 ]
             },
             "native_bi": {"certified": [{"error": "worker exited with 1; see logs/x.log"}]},
+            "native_eager": {
+                "certified": [
+                    {"unsupported": "VLLM batch_invariant mode is not supported for GDN_ATTN."}
+                ]
+            },
         },
         "train": {
             arm: {
@@ -166,6 +171,14 @@ def test_report_summarizes_ratios_and_failures():
     rollout = report["phases"]["rollout"]
     assert rollout["strict_over_native"] == {"native_graph": {"certified": {"p64-b1-r16": 2.0}}}
     assert rollout["failures"][0]["arm"] == "native_bi"
+    assert rollout["unsupported"] == [
+        {
+            "arm": "native_eager",
+            "workload": "certified",
+            "reasons": ["VLLM batch_invariant mode is not supported for GDN_ATTN."],
+        }
+    ]
+    assert "native_eager" not in rollout["strict_over_native"]
     native = rollout["results"]["native_graph"]["certified"]["p64-b1-r16"]
     assert native["checks"]["same_tokens_across_repeats"] is False
     assert native["checks"]["row0_equals_batch1"] is None
@@ -185,3 +198,12 @@ def test_cli_requires_run_and_output():
     assert args.phases == ["rollout", "train"] and args.workloads == ["certified", "long"]
     with pytest.raises(SystemExit):
         bench.parse_args(["--run", "r", "--out", "o", "--phases", "decode"])
+
+
+def test_engine_refusal_is_unsupported_not_a_crash():
+    log = (
+        "x\nERROR [multiproc_executor.py:944] RuntimeError: "
+        "VLLM batch_invariant mode is not supported for GDN_ATTN.\nmore"
+    )
+    assert bench.unsupported_reason(log).endswith("not supported for GDN_ATTN.")
+    assert bench.unsupported_reason("CUDA out of memory") is None

@@ -492,6 +492,18 @@ def wait_gpus_idle(timeout=120):
     return False
 
 
+# Refusals by the engine itself: the arm does not exist for this model, it did not crash.
+UNSUPPORTED_MESSAGES = ("VLLM batch_invariant mode is not supported for",)
+
+
+def unsupported_reason(log_text):
+    for marker in UNSUPPORTED_MESSAGES:
+        index = log_text.find(marker)
+        if index >= 0:
+            return log_text[index:].splitlines()[0].strip()
+    return None
+
+
 def run_worker(manifest, base_env, script, out, phase, arm, workload, round_index, args):
     name = f"{phase}-{arm}-{workload}-round{round_index}"
     result = out / "workers" / f"{name}.json"
@@ -523,6 +535,9 @@ def run_worker(manifest, base_env, script, out, phase, arm, workload, round_inde
         ).returncode
     idle = wait_gpus_idle()
     if code or not result.is_file():
+        refusal = unsupported_reason(log.read_text(errors="replace"))
+        if refusal is not None:
+            return {"unsupported": refusal, "gpus_idle_after": idle}
         return {"error": f"worker exited with {code}; see logs/{log.name}", "gpus_idle_after": idle}
     record = json.loads(result.read_text())
     record["gpus_idle_after"] = idle
@@ -589,7 +604,12 @@ def build_report(manifest, identity, raw, found_versions, args):
         for arm, workloads in arms.items():
             for workload, records in workloads.items():
                 failed = [record["error"] for record in records if "error" in record]
-                good = [record for record in records if "error" not in record]
+                refused = sorted({r["unsupported"] for r in records if "unsupported" in r})
+                if refused:
+                    extras.setdefault("unsupported", []).append(
+                        {"arm": arm, "workload": workload, "reasons": refused}
+                    )
+                good = [r for r in records if "error" not in r and "unsupported" not in r]
                 target = results.setdefault(arm, {}).setdefault(workload, {})
                 if failed:
                     extras.setdefault("failures", []).append(
