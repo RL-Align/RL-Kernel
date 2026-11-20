@@ -7,6 +7,8 @@ import torch
 import triton
 import triton.language as tl
 
+from rl_engine.backends.shared.triton.autotuning import TunableKernel, pin_autotune
+
 _BLOCK_V: int = 1024
 
 
@@ -136,6 +138,7 @@ def _batch_invariant_logp_bwd_kernel(
     tl.store(grad_logits_ptr + row_base + cols, grad, mask=mask)
 
 
+@pin_autotune
 class _BatchInvariantLogpFunction(torch.autograd.Function):
     """Autograd wrapper for the Triton batch-invariant logp kernel."""
 
@@ -293,3 +296,11 @@ class TritonBatchInvariantLogpOp:
                 raise ValueError(
                     f"target_ids contains values outside [0, {vocab_size}): {bad.tolist()}"
                 )
+
+
+_batch_invariant_logp_kernel = TunableKernel(
+    _batch_invariant_logp_kernel, outputs=(2, 3), core=True
+)
+_batch_invariant_logp_bwd_kernel = TunableKernel(
+    _batch_invariant_logp_bwd_kernel, outputs=(4,), core=True
+)
