@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "checkpoint_revision": "9c7f2fbe84465e40164a94cc16cd30b6999b0cc7",
+  "tensor_count": 75944,
+  "weight_schema_sha256": "babe9f7e7cf398ad6a8607ee03bb6549139b26fcdd919bb65e9d22b059536361",
+  "weights_dtype": "bfloat16",
+  "architecture_layers": 48,
+  "encoding": "sha256 of sorted compact JSON mapping every HF tensor name to dtype and shape",
+  "scope": "Official safetensors header schema only; no numerical or full-model L2 acceptance"
+}

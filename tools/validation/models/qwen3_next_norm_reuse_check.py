@@ -57,7 +57,7 @@ SHAPES = {
 }
 LIBS = ("torch", "triton", "transformers", "vllm", "flashinfer-python", "liger-kernel", "fla-core")
 LIBS += ("transformer_engine", "megatron-core")
-MANIFEST = "rl_engine/validation/models/qwen3_next_norm_manifest.json"
+MANIFEST = "rl_engine/validation/models/qwen3_next/qwen3_next_norm_manifest.json"
 
 
 def _version(name: str) -> str | None:
