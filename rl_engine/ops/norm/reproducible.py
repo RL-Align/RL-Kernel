@@ -250,8 +250,13 @@ def clip_grad_norm_exact_(parameters, max_norm: float, *, counted=None, group=No
         / (torch.tensor(total, dtype=torch.float32) + 1e-6),
         max=1.0,
     )
+    # One coefficient per (device, dtype) and one foreach multiply per group, as PyTorch's
+    # clip does: a coefficient copied to the device for every gradient synchronises each time.
+    groups: dict[tuple[torch.device, torch.dtype], list[torch.Tensor]] = {}
     for p in params:
-        p.grad.mul_(coef.to(device=p.grad.device, dtype=p.grad.dtype))
+        groups.setdefault((p.grad.device, p.grad.dtype), []).append(p.grad)
+    for (device, dtype), grads in groups.items():
+        torch._foreach_mul_(grads, coef.to(device=device, dtype=dtype))
     return total
 
 
