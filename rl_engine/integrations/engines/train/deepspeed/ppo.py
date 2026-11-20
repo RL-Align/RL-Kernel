@@ -82,6 +82,48 @@ class DeepSpeedTPGroups:
         return dist.get_process_group_ranks(self.dp)
 
 
+def tp_shared_parameters_first(
+    model: torch.nn.Module, group: dist.ProcessGroup
+) -> list[torch.nn.Parameter]:
+    """Return ``model``'s trainable parameters, those that every TP rank holds first.
+
+    Build a BF16 DeepSpeed optimizer from this list. ``BF16_Optimizer`` packs the parameters
+    into one flat buffer in optimizer order. A parameter that only some ranks hold (the scalar
+    adapter's leader-only bias, which ``named_parameters`` lists first) shifts the offsets of
+    every later parameter on those ranks, and kernels that pick a code path by pointer
+    alignment then reduce replicated gradients in a different order on each rank. Collective
+    over ``group``.
+    """
+    named = [(name, p) for name, p in model.named_parameters() if p.requires_grad]
+    names: list[object] = [None] * dist.get_world_size(group)
+    dist.all_gather_object(names, [name for name, _ in named], group=group)
+    return _shared_first(named, names)
+
+
+def _shared_first(named, names_by_rank) -> list[torch.nn.Parameter]:
+    """Parameters whose name every rank lists, then the rest, each in ``named`` order."""
+    shared = set.intersection(*(set(names) for names in names_by_rank))
+    return [p for name, p in named if name in shared] + [
+        p for name, p in named if name not in shared
+    ]
+
+
+def _layouts_agree(layouts_by_rank) -> bool:
+    """Whether every rank has the same groups and the same layout on their common prefix.
+
+    A layout is one list of ``(element offset, numel)`` per BF16 flat group.
+    """
+    first = layouts_by_rank[0]
+    for other in layouts_by_rank[1:]:
+        if len(other) != len(first):
+            return False
+        for a, b in zip(first, other):
+            common = min(len(a), len(b))
+            if list(a[:common]) != list(b[:common]):
+                return False
+    return True
+
+
 def deepspeed_ppo_worker(
     engine: DeepSpeedEngine,
     *,
@@ -111,7 +153,7 @@ def deepspeed_ppo_worker(
         raise ValueError("disable DeepSpeed gradient_clipping; PPO performs TP-aware clipping")
     if engine.mpu is None or engine.mpu.get_model_parallel_group() is not group:
         raise ValueError("DeepSpeed MPU and PPO must use the same TP group")
-    gradient_state = _bf16_gradient_state(engine) if engine.bfloat16_enabled() else None
+    gradient_state = _bf16_gradient_state(engine, group) if engine.bfloat16_enabled() else None
     return PPOTrainingWorker(
         role=role,
         model=engine,
@@ -126,12 +168,14 @@ def deepspeed_ppo_worker(
     )
 
 
-def _bf16_gradient_state(engine) -> PPOGradientState:
+def _bf16_gradient_state(engine, group: dist.ProcessGroup) -> PPOGradientState:
     """Expose DeepSpeed ``BF16_Optimizer`` FP32 gradient views as a ``PPOGradientState``.
 
     Raises ``ValueError`` unless the optimizer is a ``BF16_Optimizer`` with FP32 gradient
     accumulation buffers, its BF16 groups own exactly
-    the trainable parameters, and its inner optimizer owns the FP32 flat master partitions.
+    the trainable parameters, its inner optimizer owns the FP32 flat master partitions, and
+    every TP rank places the parameters they share at the same flat-buffer offsets (see
+    ``tp_shared_parameters_first``). The layout check is collective over ``group``.
     """
     from deepspeed.runtime.bf16_optimizer import BF16_Optimizer
 
@@ -147,6 +191,17 @@ def _bf16_gradient_state(engine) -> PPOGradientState:
         for actual, expected in zip(masters, optimizer.fp32_groups_flat_partition)
     ):
         raise ValueError("DeepSpeed optimizer does not own the expected FP32 masters")
+    layout = [
+        [((p.data_ptr() - flat.data_ptr()) // p.element_size(), p.numel()) for p in params]
+        for flat, params in zip(optimizer.bf16_groups_flat, optimizer.bf16_groups)
+    ]
+    layouts: list[object] = [None] * dist.get_world_size(group)
+    dist.all_gather_object(layouts, layout, group=group)
+    if not _layouts_agree(layouts):
+        raise ValueError(
+            "DeepSpeed BF16 flat buffers place shared parameters at different offsets on the "
+            "TP ranks; build the optimizer from tp_shared_parameters_first()"
+        )
 
     def gradients():
         """Return FP32 gradient views in ``parameters`` order, ``None`` where one is absent.

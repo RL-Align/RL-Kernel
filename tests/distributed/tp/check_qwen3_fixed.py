@@ -14,7 +14,10 @@ import torch.distributed as dist
 
 from rl_engine.integrations.common.ppo import PPOBatch, PPORollout, PPOTrainingWorker
 from rl_engine.integrations.common.tp_scalar import TPScalarExecutor
-from rl_engine.integrations.engines.train.deepspeed.ppo import deepspeed_ppo_worker
+from rl_engine.integrations.engines.train.deepspeed.ppo import (
+    deepspeed_ppo_worker,
+    tp_shared_parameters_first,
+)
 from rl_engine.integrations.engines.train.megatron.ppo import megatron_parameter_layouts
 from rl_engine.integrations.engines.train.megatron.ppo_precision import FP32MasterWeights
 from rl_engine.integrations.engines.train.megatron.qwen3_checkpoint import (
@@ -172,7 +175,10 @@ def main():
                 dp_group=dp,
                 bf16=dtype == torch.bfloat16,
                 optimizer=torch.optim.AdamW(
-                    model.parameters(), **OPTIMIZER, foreach=False, fused=False
+                    tp_shared_parameters_first(model, group),
+                    **OPTIMIZER,
+                    foreach=False,
+                    fused=False,
                 ),
             )
             if a.framework == "deepspeed"

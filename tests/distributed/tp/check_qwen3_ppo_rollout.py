@@ -28,7 +28,10 @@ from rl_engine.integrations.common.ppo_coordinator import (
 )
 from rl_engine.integrations.common.tp_scalar import TPScalarExecutor
 from rl_engine.integrations.common.weights import TensorPacketBridge
-from rl_engine.integrations.engines.train.deepspeed.ppo import deepspeed_ppo_worker
+from rl_engine.integrations.engines.train.deepspeed.ppo import (
+    deepspeed_ppo_worker,
+    tp_shared_parameters_first,
+)
 from rl_engine.integrations.engines.train.megatron.ppo import megatron_parameter_layouts
 from tests.distributed.tp.check_tp_ppo_frameworks import initialize_engine, snapshot
 
@@ -141,7 +144,10 @@ def run(args):
                 dp_group=singleton,
                 bf16=True,
                 optimizer=torch.optim.AdamW(
-                    trainable.parameters(), **OPTIMIZER, foreach=False, fused=False
+                    tp_shared_parameters_first(trainable, local),
+                    **OPTIMIZER,
+                    foreach=False,
+                    fused=False,
                 ),
             )
             if args.framework == "deepspeed"

@@ -28,6 +28,7 @@ from rl_engine.integrations.common.tp_scalar import TPScalarExecutor, clip_tp_gr
 from rl_engine.integrations.engines.train.deepspeed.ppo import (
     DeepSpeedTPGroups,
     deepspeed_ppo_worker,
+    tp_shared_parameters_first,
 )
 from rl_engine.integrations.engines.train.megatron.ppo import (
     MegatronPolicyAdapter,
@@ -182,17 +183,19 @@ def initialize_engine(model, *, tp_group=None, dp_group=None, bf16=False, optimi
     FP32 uses ZeRO stage 0. BF16 uses ZeRO stage 1, the only stage at which DeepSpeed builds
     its ``BF16_Optimizer`` with FP32 gradient buffers; with DP=1 it partitions nothing.
 
-    Without ``optimizer``, use AdamW (lr 1e-5) for BF16 and SGD (lr 0.01) otherwise.
-    DeepSpeed gradient clipping is disabled.
+    Without ``optimizer``, use AdamW (lr 1e-5) for BF16 over ``tp_shared_parameters_first``
+    and SGD (lr 0.01) otherwise. DeepSpeed gradient clipping is disabled.
     """
     import deepspeed
     from megatron.core import parallel_state
 
+    if tp_group is None:
+        tp_group = parallel_state.get_tensor_model_parallel_group()
     optimizer = (
         optimizer
         if optimizer is not None
         else (
-            torch.optim.AdamW(model.parameters(), lr=1e-5)
+            torch.optim.AdamW(tp_shared_parameters_first(model, tp_group), lr=1e-5)
             if bf16
             else torch.optim.SGD(model.parameters(), lr=0.01)
         )
@@ -201,11 +204,7 @@ def initialize_engine(model, *, tp_group=None, dp_group=None, bf16=False, optimi
         model=model,
         optimizer=optimizer,
         mpu=DeepSpeedTPGroups(
-            (
-                tp_group
-                if tp_group is not None
-                else parallel_state.get_tensor_model_parallel_group()
-            ),
+            tp_group,
             (dp_group if dp_group is not None else parallel_state.get_data_parallel_group()),
         ),
         dist_init_required=False,
