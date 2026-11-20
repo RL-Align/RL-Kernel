@@ -747,10 +747,10 @@ class Qwen3DenseBIModel:
                 )
                 swiglu_op = self.profile_ops.get("swiglu")
                 if self.execution_dtype == torch.bfloat16:
-                    swiglu = swiglu_op.forward_fp32(gate, up)
+                    swiglu = swiglu_op.forward_fp32(gate=gate, up=up)
                     swiglu_public = swiglu.to(dtype=self.execution_dtype)
                 else:
-                    swiglu = swiglu_op.forward(gate, up)
+                    swiglu = swiglu_op.forward(gate=gate, up=up)
                     swiglu_public = swiglu
                 self.profile_ops.observe("swiglu", swiglu_public)
                 self._record(f"{prefix}.swiglu", swiglu_public)
@@ -900,6 +900,12 @@ class Qwen3DenseBIModel:
         kv_cache: StatefulKVCache | None,
         segment_lengths: Sequence[int] | None = None,
     ) -> torch.Tensor:
+        """Run one attention/MLP block and record its public node outputs.
+
+        Apply the selected profile's operators and update the KV cache when
+        provided. The BF16 path retains the FP32 SwiGLU result for the down
+        projection while recording the public SwiGLU node in BF16.
+        """
         prefix = f"layers.{layer}"
         normed = self._rms(
             hidden.to(dtype=self.execution_dtype),
@@ -979,10 +985,10 @@ class Qwen3DenseBIModel:
         )
         swiglu_op = self.profile_ops.get("swiglu")
         if self.execution_dtype == torch.bfloat16:
-            swiglu = swiglu_op.forward_fp32(gate, up)
+            swiglu = swiglu_op.forward_fp32(gate=gate, up=up)
             swiglu_public = swiglu.to(dtype=self.execution_dtype)
         else:
-            swiglu = swiglu_op.forward(gate, up)
+            swiglu = swiglu_op.forward(gate=gate, up=up)
             swiglu_public = swiglu
         self.profile_ops.observe("swiglu", swiglu_public)
         self._record(f"{prefix}.swiglu", swiglu_public)

@@ -16,6 +16,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from rl_engine.contracts.operators.activation import SwiGLUPackedOrder  # noqa: E402
 from rl_engine.validation.operators import run_operator_suite  # noqa: E402
 from rl_engine.validation.operators.operator_specs import (  # noqa: E402
     make_candidate,
@@ -92,6 +93,7 @@ def _summarize(report: Any) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse validation options, allowing packed channel order only for SwiGLU."""
     parser = argparse.ArgumentParser(
         description="Validate an operator candidate against a PyTorch gold path."
     )
@@ -108,6 +110,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seq", type=int, default=16)
     parser.add_argument("--vocab", type=int, default=257)
     parser.add_argument("--input-mode", choices=("random", "constant"), default="random")
+    parser.add_argument(
+        "--packed-order",
+        choices=tuple(order.value for order in SwiGLUPackedOrder),
+        default=None,
+        help="Use one packed SwiGLU input with this channel order (pytorch/triton only). "
+        "Omit to validate separate gate/up inputs.",
+    )
     parser.add_argument("--constant-value", type=float, default=0.25)
     parser.add_argument("--token-value", type=int, default=0)
     parser.add_argument("--normalized-dim", type=int, default=4096)
@@ -137,7 +146,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--json", action="store_true", help="Print the full structured report as JSON."
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.packed_order is not None and args.op != "swiglu":
+        parser.error("--packed-order is only valid with --op swiglu")
+    return args
 
 
 def main() -> None:
