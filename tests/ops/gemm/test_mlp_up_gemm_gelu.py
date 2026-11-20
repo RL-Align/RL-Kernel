@@ -1306,10 +1306,7 @@ class TestCudaPathsAndContracts:
 
         from rl_engine.backends.cuda.gemm import mlp_up_gemm_gelu as mod
 
-        if (
-            not _hopper_serves(torch.device("cuda"))
-            or torch.cuda.get_device_capability(0)[0] != 9
-        ):
+        if not _hopper_serves(torch.device("cuda")) or torch.cuda.get_device_capability(0)[0] != 9:
             pytest.skip("the Hopper path is not built for a cc 9.0 device")
         monkeypatch.setattr(mod, "_ROUTE_REPORTED", False)
         monkeypatch.delenv(mod._BACKEND_ENV, raising=False)

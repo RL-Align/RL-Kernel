@@ -306,9 +306,7 @@ def test_mlp_up_gemm_gelu_hopper_pin_prefers_the_cuda_kernel(monkeypatch):
         OpBackend.TRITON_MLP_UP_GEMM_GELU,
     ]
     # The fp32 reference computes the tree, so it cannot serve a hopper pin.
-    assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [
-        OpBackend.TRITON_MLP_UP_GEMM_GELU
-    ]
+    assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [OpBackend.TRITON_MLP_UP_GEMM_GELU]
 
 
 def test_mlp_up_gemm_gelu_unknown_pin_is_rejected(monkeypatch):
