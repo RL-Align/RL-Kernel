@@ -331,6 +331,7 @@ def get_extensions():
             cuda_sources.extend(
                 [
                     "csrc/cuda/model_specific/qwenimage/det_linear.cu",
+                    "csrc/cuda/model_specific/qwenimage/latent_pack_unpack.cu",
                 ]
             )
             # The issue #386 CUDA bit reference must never inherit fast-math.
