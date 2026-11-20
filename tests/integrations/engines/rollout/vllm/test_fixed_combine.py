@@ -141,3 +141,25 @@ def test_unsupported_expert_count_fails_at_binding():
     ffn = SimpleNamespace(experts=SimpleNamespace(routed_experts=experts))
     with pytest.raises(ValueError, match="exactly 256 local experts"):
         bind_fixed_combine(ffn)
+
+
+def test_scoped_rewrite_rejects_preseeded_native_accumulator():
+    from contextvars import ContextVar
+    from rl_engine.integrations.engines.rollout.vllm.fixed_combine import (
+        _scoped_reduction,
+    )
+
+    def preseeded(values, tokens):
+        acc = torch.ones((2, 3))
+        acc.index_add_(0, tokens, values)
+        return acc
+
+    def intervening_write(values, tokens):
+        acc = torch.zeros((2, 3))
+        acc.add_(1)
+        acc.index_add_(0, tokens, values)
+        return acc
+
+    for function in (preseeded, intervening_write):
+        with pytest.raises(ValueError, match="freshly zeroed native accumulator"):
+            _scoped_reduction(function, ContextVar("unsupported_native_accumulator"))

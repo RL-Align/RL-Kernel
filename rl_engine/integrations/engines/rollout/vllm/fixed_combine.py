@@ -114,6 +114,39 @@ def _scoped_reduction(function, current_mode):
     if function.__closure__:
         raise ValueError("unsupported native expert closure ABI")
     tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    # This is a scoped replacement for a freshly zeroed native accumulator,
+    # not a general index_add_. Reject future upstream pre-seeding at bind time.
+    for parent in ast.walk(tree):
+        for _, statements in ast.iter_fields(parent):
+            if not isinstance(statements, list):
+                continue
+            for i, statement in enumerate(statements):
+                if not isinstance(statement, ast.Expr):
+                    continue
+                call = statement.value
+                if not (
+                    isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Attribute)
+                    and call.func.attr == "index_add_"
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id == "acc"
+                ):
+                    continue
+                previous = statements[i - 1] if i else None
+                if not (
+                    isinstance(previous, ast.Assign)
+                    and len(previous.targets) == 1
+                    and isinstance(previous.targets[0], ast.Name)
+                    and previous.targets[0].id == "acc"
+                    and isinstance(previous.value, ast.Call)
+                    and isinstance(previous.value.func, ast.Attribute)
+                    and isinstance(previous.value.func.value, ast.Name)
+                    and previous.value.func.value.id == "torch"
+                    and previous.value.func.attr == "zeros"
+                ):
+                    raise ValueError(
+                        "fixed combine requires a freshly zeroed native accumulator"
+                    )
 
     class Boundary(ast.NodeTransformer):
         calls = 0

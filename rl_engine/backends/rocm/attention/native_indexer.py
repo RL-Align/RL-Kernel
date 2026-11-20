@@ -35,6 +35,9 @@ def _keys(kv, score, ape, weight, cache, epsilon):
     positions = torch.arange(t, device=kv.device, dtype=torch.int64)
     owners = torch.zeros(t, device=kv.device, dtype=torch.int32)
     table = torch.arange(pages, device=kv.device, dtype=torch.int32)[None]
+    # Native NORMAL layout is segregated within each page: block*128 code
+    # bytes, then block*4 scale bytes. token_stride below is the code stride,
+    # not 132; the writer uses packed.stride(0) for the complete page stride.
     packed = torch.zeros((kpages, block, 132), device=kv.device, dtype=torch.uint8)
     ktable = torch.arange(kpages, device=kv.device, dtype=torch.int32)[None]
     metadata = CompressorMetadata(
