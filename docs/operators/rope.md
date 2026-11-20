@@ -4,6 +4,9 @@ RoPE applies rotary position embeddings to per-head query or key tensors. The
 project provides the pure PyTorch ground truth plus CUDA, Triton, and Ascend C
 candidate backends using the same GPT-NeoX/Hugging Face rotate-half convention.
 
+For Qwen3.6-35B-A3B text full-attention with external FP32 tables and a 64-channel
+rotated prefix, see the separate [partial RoPE operator](qwen3-6-partial-rope.md).
+
 ## Entry Point
 
 ```python
