@@ -1,0 +1,17 @@
+{
+  "rank": 2,
+  "status": "PASS",
+  "tp": 2,
+  "tp_scope": "attention heads/output groups sharded; FFN replicated",
+  "pp": 2,
+  "dp": 1,
+  "stage": 1,
+  "mode_parity": "shared-kernel parity",
+  "dp_batch": "identical real-token microbatch on each replica",
+  "checkpoint": "real original layers 0,1,2,3",
+  "independent_model_oracle": "NOT RUN",
+  "forward": "PASS",
+  "backward": "PASS",
+  "compared_elements": 170356504,
+  "mismatched_elements": 0
+}

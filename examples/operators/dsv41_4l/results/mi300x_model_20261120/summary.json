@@ -1,0 +1,256 @@
+{
+  "status": "BLOCKED",
+  "complete": false,
+  "scope": "real checkpoint original layers 0,1,2,3; frozen packed parameters, embedding and head",
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "checkpoint_revision": "08c8657f02291e11b6f6b63e0e16014f8e748518",
+  "report_source_commit": "cf7d69cf9ff110c08f6ee2fc309fd6c8564b9416",
+  "configurations": [
+    {
+      "configuration": "tp1-pp1-dp1",
+      "gpu_count": 1,
+      "physical_gpus": "6",
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "fa96c02846a805a3be22f1bd2a14a97f7817e80d",
+      "evidence": "tp1-pp1-dp1/",
+      "shared_kernel_parity": true,
+      "status": "PASS",
+      "forward": "PASS",
+      "backward": "PASS",
+      "determinism": "PASS",
+      "mode_parity": "PASS (shared-kernel)",
+      "mismatched_elements": 0,
+      "compared_elements": 161869548,
+      "optimizer_steps": "NOT RUN"
+    },
+    {
+      "configuration": "tp2-pp1-dp1",
+      "gpu_count": 2,
+      "physical_gpus": "5,7",
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "3d2fa81719d060770cd6beb942a5a172cb35cf3a",
+      "evidence": "tp2-pp1-dp1/",
+      "shared_kernel_parity": true,
+      "status": "PASS",
+      "forward": "PASS",
+      "backward": "PASS",
+      "determinism": "PASS",
+      "mode_parity": "PASS (shared-kernel)",
+      "mismatched_elements": 0,
+      "compared_elements": 185326808,
+      "optimizer_steps": "NOT RUN"
+    },
+    {
+      "configuration": "tp1-pp2-dp1",
+      "gpu_count": 2,
+      "physical_gpus": "1,2",
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "e8b79ce087f48f6b64b54ea8e22907a5dc8a72bd",
+      "evidence": "tp1-pp2-dp1/",
+      "shared_kernel_parity": true,
+      "status": "PASS",
+      "forward": "PASS",
+      "backward": "PASS",
+      "determinism": "PASS",
+      "mode_parity": "PASS (shared-kernel)",
+      "mismatched_elements": 0,
+      "compared_elements": 475091376,
+      "optimizer_steps": "NOT RUN"
+    },
+    {
+      "configuration": "tp2-pp2-dp1",
+      "gpu_count": 4,
+      "physical_gpus": "3,4,5,7",
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "e8b79ce087f48f6b64b54ea8e22907a5dc8a72bd",
+      "evidence": "tp2-pp2-dp1/",
+      "shared_kernel_parity": true,
+      "status": "PASS",
+      "forward": "PASS",
+      "backward": "PASS",
+      "determinism": "PASS",
+      "mode_parity": "PASS (shared-kernel)",
+      "mismatched_elements": 0,
+      "compared_elements": 620323304,
+      "optimizer_steps": "NOT RUN"
+    },
+    {
+      "configuration": "tp1-pp2-dp2",
+      "gpu_count": 4,
+      "physical_gpus": "1,2,3,4",
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "a2f922629e6c108a371c3168ae62d59bcb6b2769",
+      "evidence": "tp1-pp2-dp2/",
+      "shared_kernel_parity": true,
+      "status": "PASS",
+      "forward": "PASS",
+      "backward": "PASS",
+      "determinism": "PASS",
+      "mode_parity": "PASS (shared-kernel)",
+      "mismatched_elements": 0,
+      "compared_elements": 4043086008,
+      "optimizer_steps": "PASS"
+    },
+    {
+      "configuration": "tp4-pp2-dp1",
+      "gpu_count": 8,
+      "physical_gpus": "0,1,2,3,4,5,6,7",
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "fa96c02846a805a3be22f1bd2a14a97f7817e80d",
+      "evidence": "tp4-pp2-dp1/",
+      "shared_kernel_parity": true,
+      "status": "BLOCKED",
+      "forward": "NOT RUN",
+      "backward": "NOT RUN",
+      "determinism": "NOT RUN",
+      "mode_parity": "NOT RUN",
+      "mismatched_elements": null,
+      "compared_elements": 0,
+      "reason": "requested physical GPU occupied; see gpu-preflight.log"
+    },
+    {
+      "configuration": "tp2-pp2-dp2",
+      "gpu_count": 8,
+      "physical_gpus": "0,1,2,3,4,5,6,7",
+      "original_layer_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "source_commit": "fa96c02846a805a3be22f1bd2a14a97f7817e80d",
+      "evidence": "tp2-pp2-dp2/",
+      "shared_kernel_parity": true,
+      "status": "BLOCKED",
+      "forward": "NOT RUN",
+      "backward": "NOT RUN",
+      "determinism": "NOT RUN",
+      "mode_parity": "NOT RUN",
+      "mismatched_elements": null,
+      "compared_elements": 0,
+      "reason": "requested physical GPU occupied; see gpu-preflight.log"
+    }
+  ],
+  "supplemental_model_tests": [
+    {
+      "configuration": "prefill-decode",
+      "status": "PASS",
+      "scope": "real checkpoint original layers 0,1,2,3 odd prefill and decode",
+      "mode_parity": "shared-kernel parity",
+      "chunked_vs_monolithic_bit_parity": "NOT RUN",
+      "cases": 3,
+      "forward": "PASS",
+      "backward": "PASS",
+      "compared_elements": 493547412,
+      "mismatched_elements": 0,
+      "evidence": "prefill-decode/"
+    },
+    {
+      "configuration": "optimizer-stress",
+      "status": "PASS",
+      "scope": "real original four layers; frozen quantized weights/embedding/head",
+      "steps": 2,
+      "seeds": [
+        17,
+        1234
+      ],
+      "batch_sizes": [
+        1,
+        2
+      ],
+      "sequence_lengths": [
+        7,
+        8
+      ],
+      "mode_parity": "shared-kernel parity",
+      "optimizer": "SGD lr=1e-5 foreach=False",
+      "gradient_accumulation": "two distinct prompt microbatches; sum of NLL means divided by 2",
+      "updated_parameter_tensors_step0": 38,
+      "forward": "PASS",
+      "backward": "PASS",
+      "compared_elements": 1422081556,
+      "mismatched_elements": 0,
+      "evidence": "optimizer-stress/"
+    }
+  ],
+  "regressions": {
+    "v41": {
+      "status": "PASS",
+      "passed": 85,
+      "skipped": 0,
+      "log": "logs/v41-model-committed-regression.log"
+    },
+    "v4_contracts": {
+      "status": "PASS",
+      "passed": 1004,
+      "skipped": 11,
+      "log": "logs/v4-final-contract-regression.log"
+    },
+    "v4_gpu": {
+      "status": "PASS",
+      "passed": 103,
+      "skipped": 4,
+      "log": "logs/v4-model-committed-gpu-regression.log"
+    },
+    "layout": {
+      "status": "PASS",
+      "passed": 16,
+      "skipped": 0,
+      "log": "logs/layout-model-final.log"
+    }
+  },
+  "model_compared_elements": 7401326012,
+  "model_mismatched_elements": 0,
+  "count_note": "Repeated comparisons across ranks, tensors, gradients, updated parameters and runs; not unique tokens/elements.",
+  "later_source_component_compared_elements": 256874432,
+  "later_source_component_mismatched_elements": 0,
+  "independent_train_inference_backend": "NOT RUN",
+  "independent_official_model_oracle": "BLOCKED: unchanged official TileLang E8M0 quantization fails gfx942 compilation (fp8_e8_t undefined)",
+  "full_40_layers": "NOT RUN",
+  "packed_weight_learning": "BLOCKED: this implemented profile freezes packed weights/scales; no trainable master/quantization path implemented",
+  "ep_cp_execution": "BLOCKED: not implemented for V4.1 model",
+  "first_model_bit_mismatch": null,
+  "push": {
+    "status": "BLOCKED",
+    "user_preference": "temporarily keep local commits",
+    "authentication": "gh unauthenticated; SSH publickey denied",
+    "automatic_review": "rejected attempted push because the user has not renewed authorization after deferral; command not executed"
+  },
+  "remaining": [
+    "8-GPU TP4 PP2 and TP2 PP2 DP2 after all physical GPUs become idle",
+    "independent backend/model oracle validation under the same numerical contract",
+    "full-parameter training beyond the explicitly frozen-quantized-weight profile",
+    "full 40-layer execution, arbitrary padding/positions, EP/CP and long-context candidate pruning"
+  ],
+  "supplemental_provenance": "Prefill/decode ran the working tree before commits; script later received a closure-binding lint edit. Core model/operators match committed implementation. Basic model matrix has per-run committed provenance."
+}

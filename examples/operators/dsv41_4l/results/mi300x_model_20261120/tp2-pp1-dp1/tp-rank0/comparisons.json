@@ -1,0 +1,3352 @@
+[
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "embedding",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.input",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.q",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      512
+    ],
+    "storage_elements": 4096,
+    "compared_elements": 4096,
+    "mismatched_elements": 0,
+    "compared_bytes": 8192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.raw_kv",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      8
+    ],
+    "storage_elements": 64,
+    "compared_elements": 64,
+    "mismatched_elements": 0,
+    "compared_bytes": 256,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.indices",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.sparse",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.residual",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.moe.expert_ids",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.moe.routing_weights",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.next_pre",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.engram",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.input",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.q",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      512
+    ],
+    "storage_elements": 4096,
+    "compared_elements": 4096,
+    "mismatched_elements": 0,
+    "compared_bytes": 8192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.raw_kv",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      8
+    ],
+    "storage_elements": 64,
+    "compared_elements": 64,
+    "mismatched_elements": 0,
+    "compared_bytes": 256,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.indices",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.sparse",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.residual",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.moe.expert_ids",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.moe.routing_weights",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.next_pre",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.input",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.q",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      512
+    ],
+    "storage_elements": 4096,
+    "compared_elements": 4096,
+    "mismatched_elements": 0,
+    "compared_bytes": 8192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.raw_kv",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      4,
+      512
+    ],
+    "storage_elements": 2048,
+    "compared_elements": 2048,
+    "mismatched_elements": 0,
+    "compared_bytes": 4096,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.compressor_latent",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 64,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.index_scores",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      12
+    ],
+    "storage_elements": 96,
+    "compared_elements": 96,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.indices",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.sparse",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.residual",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.moe.expert_ids",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.moe.routing_weights",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.next_pre",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.input",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.q",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      512
+    ],
+    "storage_elements": 4096,
+    "compared_elements": 4096,
+    "mismatched_elements": 0,
+    "compared_bytes": 8192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.raw_kv",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      12
+    ],
+    "storage_elements": 96,
+    "compared_elements": 96,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.indices",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.sparse",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.residual",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.moe.expert_ids",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.moe.routing_weights",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.next_pre",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": 8,
+    "mismatched_tokens": 0,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      129280
+    ],
+    "storage_elements": 1034240,
+    "compared_elements": 1034240,
+    "mismatched_elements": 0,
+    "compared_bytes": 4136960,
+    "total_tokens": 8,
+    "mismatched_tokens": 0,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "logits",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      7
+    ],
+    "storage_elements": 7,
+    "compared_elements": 7,
+    "mismatched_elements": 0,
+    "compared_bytes": 28,
+    "total_tokens": 7,
+    "mismatched_tokens": 0,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "raw_token_logprobs",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      1
+    ],
+    "storage_elements": 1,
+    "compared_elements": 1,
+    "mismatched_elements": 0,
+    "compared_bytes": 8,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.kv.owner",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      4,
+      512
+    ],
+    "storage_elements": 2048,
+    "compared_elements": 2048,
+    "mismatched_elements": 0,
+    "compared_bytes": 4096,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.kv.tensor",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      1
+    ],
+    "storage_elements": 1,
+    "compared_elements": 1,
+    "mismatched_elements": 0,
+    "compared_bytes": 8,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.index_k.owner",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      4,
+      128
+    ],
+    "storage_elements": 512,
+    "compared_elements": 512,
+    "mismatched_elements": 0,
+    "compared_bytes": 1024,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.index_k.tensor",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      1
+    ],
+    "storage_elements": 1,
+    "compared_elements": 1,
+    "mismatched_elements": 0,
+    "compared_bytes": 8,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.indices.owner",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.indices.tensor",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      128,
+      512
+    ],
+    "storage_elements": 65536,
+    "compared_elements": 65536,
+    "mismatched_elements": 0,
+    "compared_bytes": 131072,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.layers.0.window",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      128,
+      512
+    ],
+    "storage_elements": 65536,
+    "compared_elements": 65536,
+    "mismatched_elements": 0,
+    "compared_bytes": 131072,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.layers.1.window",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      128,
+      512
+    ],
+    "storage_elements": 65536,
+    "compared_elements": 65536,
+    "mismatched_elements": 0,
+    "compared_bytes": 131072,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.layers.2.window",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      128,
+      512
+    ],
+    "storage_elements": 65536,
+    "compared_elements": 65536,
+    "mismatched_elements": 0,
+    "compared_bytes": 131072,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.layers.3.window",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_forward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      5120
+    ],
+    "storage_elements": 5120,
+    "compared_elements": 5120,
+    "mismatched_elements": 0,
+    "compared_bytes": 10240,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "norm",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      5120
+    ],
+    "storage_elements": 5120,
+    "compared_elements": 5120,
+    "mismatched_elements": 0,
+    "compared_bytes": 10240,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.attn_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24,
+      20480
+    ],
+    "storage_elements": 491520,
+    "compared_elements": 491520,
+    "mismatched_elements": 0,
+    "compared_bytes": 1966080,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.hc_attn_fn",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24
+    ],
+    "storage_elements": 24,
+    "compared_elements": 24,
+    "mismatched_elements": 0,
+    "compared_bytes": 96,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.hc_attn_base",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      3
+    ],
+    "storage_elements": 3,
+    "compared_elements": 3,
+    "mismatched_elements": 0,
+    "compared_bytes": 12,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.hc_attn_scale",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      5120
+    ],
+    "storage_elements": 5120,
+    "compared_elements": 5120,
+    "mismatched_elements": 0,
+    "compared_bytes": 10240,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.ffn_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24,
+      20480
+    ],
+    "storage_elements": 491520,
+    "compared_elements": 491520,
+    "mismatched_elements": 0,
+    "compared_bytes": 1966080,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.hc_ffn_fn",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24
+    ],
+    "storage_elements": 24,
+    "compared_elements": 24,
+    "mismatched_elements": 0,
+    "compared_bytes": 96,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.hc_ffn_base",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      3
+    ],
+    "storage_elements": 3,
+    "compared_elements": 3,
+    "mismatched_elements": 0,
+    "compared_bytes": 12,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.hc_ffn_scale",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1280
+    ],
+    "storage_elements": 1280,
+    "compared_elements": 1280,
+    "mismatched_elements": 0,
+    "compared_bytes": 2560,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.attn.q_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      512
+    ],
+    "storage_elements": 512,
+    "compared_elements": 512,
+    "mismatched_elements": 0,
+    "compared_bytes": 1024,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.attn.kv_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      32
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.attn.sink",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      4096,
+      4096
+    ],
+    "storage_elements": 16777216,
+    "compared_elements": 16777216,
+    "mismatched_elements": 0,
+    "compared_bytes": 33554432,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.attn.wo_a",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      384,
+      5120
+    ],
+    "storage_elements": 1966080,
+    "compared_elements": 1966080,
+    "mismatched_elements": 0,
+    "compared_bytes": 7864320,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.0.ffn.gate",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      5120
+    ],
+    "storage_elements": 5120,
+    "compared_elements": 5120,
+    "mismatched_elements": 0,
+    "compared_bytes": 10240,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.attn_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24,
+      20480
+    ],
+    "storage_elements": 491520,
+    "compared_elements": 491520,
+    "mismatched_elements": 0,
+    "compared_bytes": 1966080,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.hc_attn_fn",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24
+    ],
+    "storage_elements": 24,
+    "compared_elements": 24,
+    "mismatched_elements": 0,
+    "compared_bytes": 96,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.hc_attn_base",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      3
+    ],
+    "storage_elements": 3,
+    "compared_elements": 3,
+    "mismatched_elements": 0,
+    "compared_bytes": 12,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.hc_attn_scale",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      5120
+    ],
+    "storage_elements": 5120,
+    "compared_elements": 5120,
+    "mismatched_elements": 0,
+    "compared_bytes": 10240,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.ffn_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24,
+      20480
+    ],
+    "storage_elements": 491520,
+    "compared_elements": 491520,
+    "mismatched_elements": 0,
+    "compared_bytes": 1966080,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.hc_ffn_fn",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24
+    ],
+    "storage_elements": 24,
+    "compared_elements": 24,
+    "mismatched_elements": 0,
+    "compared_bytes": 96,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.hc_ffn_base",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      3
+    ],
+    "storage_elements": 3,
+    "compared_elements": 3,
+    "mismatched_elements": 0,
+    "compared_bytes": 12,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.hc_ffn_scale",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1280
+    ],
+    "storage_elements": 1280,
+    "compared_elements": 1280,
+    "mismatched_elements": 0,
+    "compared_bytes": 2560,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.attn.q_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      512
+    ],
+    "storage_elements": 512,
+    "compared_elements": 512,
+    "mismatched_elements": 0,
+    "compared_bytes": 1024,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.attn.kv_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      32
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.attn.sink",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      4096,
+      4096
+    ],
+    "storage_elements": 16777216,
+    "compared_elements": 16777216,
+    "mismatched_elements": 0,
+    "compared_bytes": 33554432,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.attn.wo_a",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      384,
+      5120
+    ],
+    "storage_elements": 1966080,
+    "compared_elements": 1966080,
+    "mismatched_elements": 0,
+    "compared_bytes": 7864320,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.ffn.gate",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      4,
+      5120
+    ],
+    "storage_elements": 20480,
+    "compared_elements": 20480,
+    "mismatched_elements": 0,
+    "compared_bytes": 40960,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.engram.q_weight",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      4,
+      5120
+    ],
+    "storage_elements": 20480,
+    "compared_elements": 20480,
+    "mismatched_elements": 0,
+    "compared_bytes": 40960,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.1.engram.k_weight",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      5120
+    ],
+    "storage_elements": 5120,
+    "compared_elements": 5120,
+    "mismatched_elements": 0,
+    "compared_bytes": 10240,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.attn_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24,
+      20480
+    ],
+    "storage_elements": 491520,
+    "compared_elements": 491520,
+    "mismatched_elements": 0,
+    "compared_bytes": 1966080,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.hc_attn_fn",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24
+    ],
+    "storage_elements": 24,
+    "compared_elements": 24,
+    "mismatched_elements": 0,
+    "compared_bytes": 96,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.hc_attn_base",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      3
+    ],
+    "storage_elements": 3,
+    "compared_elements": 3,
+    "mismatched_elements": 0,
+    "compared_bytes": 12,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.hc_attn_scale",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      5120
+    ],
+    "storage_elements": 5120,
+    "compared_elements": 5120,
+    "mismatched_elements": 0,
+    "compared_bytes": 10240,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.ffn_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24,
+      20480
+    ],
+    "storage_elements": 491520,
+    "compared_elements": 491520,
+    "mismatched_elements": 0,
+    "compared_bytes": 1966080,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.hc_ffn_fn",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24
+    ],
+    "storage_elements": 24,
+    "compared_elements": 24,
+    "mismatched_elements": 0,
+    "compared_bytes": 96,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.hc_ffn_base",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      3
+    ],
+    "storage_elements": 3,
+    "compared_elements": 3,
+    "mismatched_elements": 0,
+    "compared_bytes": 12,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.hc_ffn_scale",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1280
+    ],
+    "storage_elements": 1280,
+    "compared_elements": 1280,
+    "mismatched_elements": 0,
+    "compared_bytes": 2560,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.attn.q_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      512
+    ],
+    "storage_elements": 512,
+    "compared_elements": 512,
+    "mismatched_elements": 0,
+    "compared_bytes": 1024,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.attn.kv_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      32
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.attn.sink",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      4096,
+      4096
+    ],
+    "storage_elements": 16777216,
+    "compared_elements": 16777216,
+    "mismatched_elements": 0,
+    "compared_bytes": 33554432,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.attn.wo_a",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      512,
+      5120
+    ],
+    "storage_elements": 2621440,
+    "compared_elements": 2621440,
+    "mismatched_elements": 0,
+    "compared_bytes": 10485760,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.attn.compressor.wkv",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      512,
+      5120
+    ],
+    "storage_elements": 2621440,
+    "compared_elements": 2621440,
+    "mismatched_elements": 0,
+    "compared_bytes": 10485760,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.attn.compressor.wgate",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      512
+    ],
+    "storage_elements": 512,
+    "compared_elements": 512,
+    "mismatched_elements": 0,
+    "compared_bytes": 1024,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.attn.compressor.norm_weight",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      384,
+      5120
+    ],
+    "storage_elements": 1966080,
+    "compared_elements": 1966080,
+    "mismatched_elements": 0,
+    "compared_bytes": 7864320,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.2.ffn.gate",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      5120
+    ],
+    "storage_elements": 5120,
+    "compared_elements": 5120,
+    "mismatched_elements": 0,
+    "compared_bytes": 10240,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.attn_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24,
+      20480
+    ],
+    "storage_elements": 491520,
+    "compared_elements": 491520,
+    "mismatched_elements": 0,
+    "compared_bytes": 1966080,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.hc_attn_fn",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24
+    ],
+    "storage_elements": 24,
+    "compared_elements": 24,
+    "mismatched_elements": 0,
+    "compared_bytes": 96,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.hc_attn_base",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      3
+    ],
+    "storage_elements": 3,
+    "compared_elements": 3,
+    "mismatched_elements": 0,
+    "compared_bytes": 12,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.hc_attn_scale",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      5120
+    ],
+    "storage_elements": 5120,
+    "compared_elements": 5120,
+    "mismatched_elements": 0,
+    "compared_bytes": 10240,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.ffn_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24,
+      20480
+    ],
+    "storage_elements": 491520,
+    "compared_elements": 491520,
+    "mismatched_elements": 0,
+    "compared_bytes": 1966080,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.hc_ffn_fn",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      24
+    ],
+    "storage_elements": 24,
+    "compared_elements": 24,
+    "mismatched_elements": 0,
+    "compared_bytes": 96,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.hc_ffn_base",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      3
+    ],
+    "storage_elements": 3,
+    "compared_elements": 3,
+    "mismatched_elements": 0,
+    "compared_bytes": 12,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.hc_ffn_scale",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1280
+    ],
+    "storage_elements": 1280,
+    "compared_elements": 1280,
+    "mismatched_elements": 0,
+    "compared_bytes": 2560,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.attn.q_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      512
+    ],
+    "storage_elements": 512,
+    "compared_elements": 512,
+    "mismatched_elements": 0,
+    "compared_bytes": 1024,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.attn.kv_gain",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      32
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.attn.sink",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      4096,
+      4096
+    ],
+    "storage_elements": 16777216,
+    "compared_elements": 16777216,
+    "mismatched_elements": 0,
+    "compared_bytes": 33554432,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.attn.wo_a",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      384,
+      5120
+    ],
+    "storage_elements": 1966080,
+    "compared_elements": 1966080,
+    "mismatched_elements": 0,
+    "compared_bytes": 7864320,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "blocks.3.ffn.gate",
+    "rank": 0,
+    "status": "PASS",
+    "category": "deterministic_backward"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "embedding",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.input",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.q",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      512
+    ],
+    "storage_elements": 4096,
+    "compared_elements": 4096,
+    "mismatched_elements": 0,
+    "compared_bytes": 8192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.raw_kv",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      8
+    ],
+    "storage_elements": 64,
+    "compared_elements": 64,
+    "mismatched_elements": 0,
+    "compared_bytes": 256,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.indices",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.sparse",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.attention.residual",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.moe.expert_ids",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.moe.routing_weights",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.0.next_pre",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.engram",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.input",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.q",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      512
+    ],
+    "storage_elements": 4096,
+    "compared_elements": 4096,
+    "mismatched_elements": 0,
+    "compared_bytes": 8192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.raw_kv",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      8
+    ],
+    "storage_elements": 64,
+    "compared_elements": 64,
+    "mismatched_elements": 0,
+    "compared_bytes": 256,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.indices",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.sparse",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.attention.residual",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.moe.expert_ids",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.moe.routing_weights",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.1.next_pre",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.input",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.q",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      512
+    ],
+    "storage_elements": 4096,
+    "compared_elements": 4096,
+    "mismatched_elements": 0,
+    "compared_bytes": 8192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.raw_kv",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      4,
+      512
+    ],
+    "storage_elements": 2048,
+    "compared_elements": 2048,
+    "mismatched_elements": 0,
+    "compared_bytes": 4096,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.compressor_latent",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 64,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.index_scores",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      12
+    ],
+    "storage_elements": 96,
+    "compared_elements": 96,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.indices",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.sparse",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.attention.residual",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.moe.expert_ids",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.moe.routing_weights",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.2.next_pre",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.input",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.q",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      512
+    ],
+    "storage_elements": 4096,
+    "compared_elements": 4096,
+    "mismatched_elements": 0,
+    "compared_bytes": 8192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.raw_kv",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      12
+    ],
+    "storage_elements": 96,
+    "compared_elements": 96,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.indices",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      32,
+      512
+    ],
+    "storage_elements": 131072,
+    "compared_elements": 131072,
+    "mismatched_elements": 0,
+    "compared_bytes": 262144,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.sparse",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.attention.residual",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 384,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.moe.expert_ids",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      8,
+      6
+    ],
+    "storage_elements": 48,
+    "compared_elements": 48,
+    "mismatched_elements": 0,
+    "compared_bytes": 192,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.moe.routing_weights",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      4,
+      5120
+    ],
+    "storage_elements": 163840,
+    "compared_elements": 163840,
+    "mismatched_elements": 0,
+    "compared_bytes": 327680,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "layers.3.next_pre",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      8,
+      5120
+    ],
+    "storage_elements": 40960,
+    "compared_elements": 40960,
+    "mismatched_elements": 0,
+    "compared_bytes": 81920,
+    "total_tokens": 8,
+    "mismatched_tokens": 0,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "hidden",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      8,
+      129280
+    ],
+    "storage_elements": 1034240,
+    "compared_elements": 1034240,
+    "mismatched_elements": 0,
+    "compared_bytes": 4136960,
+    "total_tokens": 8,
+    "mismatched_tokens": 0,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "logits",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.float32",
+    "shape": [
+      1,
+      7
+    ],
+    "storage_elements": 7,
+    "compared_elements": 7,
+    "mismatched_elements": 0,
+    "compared_bytes": 28,
+    "total_tokens": 7,
+    "mismatched_tokens": 0,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "raw_token_logprobs",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      1
+    ],
+    "storage_elements": 1,
+    "compared_elements": 1,
+    "mismatched_elements": 0,
+    "compared_bytes": 8,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.kv.owner",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      4,
+      512
+    ],
+    "storage_elements": 2048,
+    "compared_elements": 2048,
+    "mismatched_elements": 0,
+    "compared_bytes": 4096,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.kv.tensor",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      1
+    ],
+    "storage_elements": 1,
+    "compared_elements": 1,
+    "mismatched_elements": 0,
+    "compared_bytes": 8,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.index_k.owner",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      4,
+      128
+    ],
+    "storage_elements": 512,
+    "compared_elements": 512,
+    "mismatched_elements": 0,
+    "compared_bytes": 1024,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.index_k.tensor",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int64",
+    "shape": [
+      1
+    ],
+    "storage_elements": 1,
+    "compared_elements": 1,
+    "mismatched_elements": 0,
+    "compared_bytes": 8,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.indices.owner",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.int32",
+    "shape": [
+      1,
+      8,
+      4
+    ],
+    "storage_elements": 32,
+    "compared_elements": 32,
+    "mismatched_elements": 0,
+    "compared_bytes": 128,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.indices.tensor",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      128,
+      512
+    ],
+    "storage_elements": 65536,
+    "compared_elements": 65536,
+    "mismatched_elements": 0,
+    "compared_bytes": 131072,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.layers.0.window",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      128,
+      512
+    ],
+    "storage_elements": 65536,
+    "compared_elements": 65536,
+    "mismatched_elements": 0,
+    "compared_bytes": 131072,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.layers.1.window",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      128,
+      512
+    ],
+    "storage_elements": 65536,
+    "compared_elements": 65536,
+    "mismatched_elements": 0,
+    "compared_bytes": 131072,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.layers.2.window",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  },
+  {
+    "dtype": "torch.bfloat16",
+    "shape": [
+      1,
+      128,
+      512
+    ],
+    "storage_elements": 65536,
+    "compared_elements": 65536,
+    "mismatched_elements": 0,
+    "compared_bytes": 131072,
+    "total_tokens": null,
+    "mismatched_tokens": null,
+    "first_mismatch": null,
+    "layer": null,
+    "operator": "state.layers.3.window",
+    "rank": 0,
+    "status": "PASS",
+    "category": "train_inference_shared_kernel"
+  }
+]

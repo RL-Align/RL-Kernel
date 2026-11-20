@@ -1,0 +1,77 @@
+........................................................................ [  7%]
+........................................................................ [ 14%]
+........................................................FF.............. [ 21%]
+.................................ssss.s.........ss...................... [ 28%]
+........................................................................ [ 35%]
+........................................................................ [ 42%]
+........................................................................ [ 49%]
+........................................................................ [ 56%]
+........................................................................ [ 63%]
+........................................................................ [ 70%]
+........................................................................ [ 78%]
+........................................................................ [ 85%]
+........................................................................ [ 92%]
+....s.....sss........................................................... [ 99%]
+.......                                                                  [100%]
+=================================== FAILURES ===================================
+_______________________ test_native_mode_and_graph_bytes _______________________
+
+    @pytest.mark.skipif(
+        not torch.cuda.is_available() or torch.version.hip is None, reason="native MI300X acceptance"
+    )
+    def test_native_mode_and_graph_bytes():
+        from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend
+    
+>       backend = AiterJointAttentionBackend()
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/models/deepseek_v4/test_attention_runtime.py:117: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+rl_engine/backends/rocm/attention/joint_attention.py:68: in __init__
+    require(bool(source), "pinned aiter sparse kernel source is required")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+condition = False, message = 'pinned aiter sparse kernel source is required'
+
+    def require(condition, message):
+        if not condition:
+>           raise JointAttentionError(message)
+E           rl_engine.contracts.operators.joint_attention.JointAttentionError: pinned aiter sparse kernel source is required
+
+rl_engine/contracts/operators/joint_attention.py:20: JointAttentionError
+__________________ test_training_uses_shared_native_autograd ___________________
+
+    @pytest.mark.skipif(
+        not torch.cuda.is_available() or torch.version.hip is None, reason="native MI300X acceptance"
+    )
+    def test_training_uses_shared_native_autograd():
+        from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend
+        from rl_engine.models.deepseek_v4.joint_autograd import JointAttentionAutograd
+    
+>       backend = AiterJointAttentionBackend()
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/models/deepseek_v4/test_attention_runtime.py:153: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+rl_engine/backends/rocm/attention/joint_attention.py:68: in __init__
+    require(bool(source), "pinned aiter sparse kernel source is required")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+condition = False, message = 'pinned aiter sparse kernel source is required'
+
+    def require(condition, message):
+        if not condition:
+>           raise JointAttentionError(message)
+E           rl_engine.contracts.operators.joint_attention.JointAttentionError: pinned aiter sparse kernel source is required
+
+rl_engine/contracts/operators/joint_attention.py:20: JointAttentionError
+=============================== warnings summary ===============================
+tests/models/deepseek_v4/test_expert_backward.py::test_rocm_one_rank_strict_p4_forward_to_backward
+  /usr/local/lib/python3.12/dist-packages/torch/distributed/c10d_logger.py:83: FutureWarning: `torch.distributed.all_gather_into_tensor` is deprecated. Please use `torch.distributed.all_gather_single` instead.
+    return func(*args, **kwargs)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/models/deepseek_v4/test_attention_runtime.py::test_native_mode_and_graph_bytes
+FAILED tests/models/deepseek_v4/test_attention_runtime.py::test_training_uses_shared_native_autograd
+2 failed, 1002 passed, 11 skipped, 1 warning in 59.84s

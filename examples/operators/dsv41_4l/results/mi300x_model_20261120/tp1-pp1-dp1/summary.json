@@ -1,0 +1,66 @@
+{
+  "status": "PASS",
+  "scope": "real checkpoint original layers 0,1,2,3 text model",
+  "mode_parity": "shared-kernel parity, not independent backends",
+  "training_profile": "dsv41-text-frozen-quant-embedding-head-input-ste-shared-kernels-v1",
+  "topology": {
+    "tp": 1,
+    "pp": 1,
+    "dp": 1
+  },
+  "tp_scope": "attention heads/output groups sharded; FFN replicated",
+  "full_40_layers": "NOT RUN",
+  "independent_model_oracle": "NOT RUN",
+  "frozen_parameters": [
+    "packed FP8/FP4 weights and scales",
+    "token embedding",
+    "FP32 head"
+  ],
+  "backward_contract": "identity activation-quantization STE; discrete index/dispatch selection",
+  "torch": "2.13.0+rocm10.0.0",
+  "hip": "7.15.26333",
+  "device": "AMD Instinct MI300X VF",
+  "input_ids": [
+    [
+      0,
+      53091,
+      4374,
+      1465,
+      721,
+      22,
+      16,
+      19
+    ]
+  ],
+  "checkpoint_revision": "08c8657f02291e11b6f6b63e0e16014f8e748518",
+  "load_seconds": 48.12389447609894,
+  "repeat_0": {
+    "seconds": 23.083266039844602,
+    "loss": 15.523721694946289,
+    "gradient_parameters": 58,
+    "gradient_elements": 151352280,
+    "parameters_without_gradient": [
+      "blocks.2.attn.index_gain",
+      "blocks.2.attn.index_weights.weight",
+      "blocks.2.attn.index_k.weight"
+    ]
+  },
+  "repeat_1": {
+    "seconds": 0.4612398841418326,
+    "loss": 15.523721694946289,
+    "gradient_parameters": 58,
+    "gradient_elements": 151352280,
+    "parameters_without_gradient": [
+      "blocks.2.attn.index_gain",
+      "blocks.2.attn.index_weights.weight",
+      "blocks.2.attn.index_k.weight"
+    ]
+  },
+  "forward": "PASS",
+  "backward": "PASS",
+  "deterministic_replay": "PASS",
+  "shared_kernel_train_inference_parity": "PASS",
+  "compared_elements": 161869548,
+  "mismatched_elements": 0,
+  "peak_gpu_bytes": 35386241536
+}

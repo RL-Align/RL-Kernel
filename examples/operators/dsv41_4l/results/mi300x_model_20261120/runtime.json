@@ -1,0 +1,18 @@
+{
+  "torch": "2.13.0+rocm10.0.0",
+  "hip": "7.15.26333",
+  "triton": "3.8.0",
+  "tilelang": "0.1.10",
+  "safetensors": "0.8.0",
+  "transformers": "5.22.0",
+  "aiter": "0.1.29",
+  "rccl": [
+    2,
+    30,
+    4
+  ],
+  "device": "AMD Instinct MI300X VF",
+  "gcn_arch": "gfx942:sramecc+:xnack-",
+  "total_memory": 205822885888,
+  "model_profile": "frozen packed weights/scales, embedding and head; identity activation STE"
+}

@@ -1,0 +1,158 @@
+W1120 08:44:24.054018       1 queue_controller.cpp:170] [queue-intercept] device-memory ring-buffer requested but profiling requires system-memory InterceptQueue; falling back to system-memory ring for agent 237984688 (priority and CU-mask from the descriptor are not preserved)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/artifacts/official/DeepSeek-V4.1-Flash-1017/inference__kernel.py", line 113, in act_quant
+    kernel = act_quant_kernel(
+             ^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/jit/__init__.py", line 461, in __call__
+    kernel = self.compile(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/jit/__init__.py", line 391, in compile
+    kernel_result = compile(
+                    ^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/jit/__init__.py", line 111, in compile
+    return cached(
+           ^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/cache/__init__.py", line 74, in cached
+    return _dispatch_map[execution_backend].cached(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/cache/kernel_cache.py", line 365, in cached
+    kernel = JITKernel(
+             ^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/jit/kernel.py", line 132, in __init__
+    adapter = self._compile_and_create_adapter(func, out_idx)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/jit/kernel.py", line 247, in _compile_and_create_adapter
+    artifact = tilelang.lower(
+               ^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/engine/lower.py", line 337, in lower
+    codegen_mod = device_codegen(device_mod, target) if enable_device_compile else device_codegen_without_compile(device_mod, target)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/engine/lower.py", line 241, in device_codegen
+    device_mod = tvm.ffi.get_global_func("target.build.tilelang_hip")(device_mod, target)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "python/tvm_ffi/cython/function.pxi", line 968, in tvm_ffi.core.Function.__call__
+  File "<unknown>", line 0, in tvm::codegen::BuildTileLangHIP(tvm::IRModule, tvm::Target)
+  File "<unknown>", line 0, in TVMFFIPyCallback(void*, TVMFFIAny const*, int, TVMFFIAny*)
+  File "<unknown>", line 0, in TVMFFICyErrorSetRaisedFromPyError(_object*)
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/engine/lower.py", line 166, in tilelang_callback_hip_compile
+    hsaco = hipcc.compile_hip(
+
+  File "/usr/local/lib/python3.12/dist-packages/tilelang/contrib/hipcc.py", line 113, in compile_hip
+    raise RuntimeError(msg)
+
+RuntimeError: #include <hip/hip_runtime.h>
+#include <tl_templates/hip/hip_fp8.h>
+#include <tl_templates/hip/gemm.h>
+#include <tl_templates/hip/copy.h>
+#include <tl_templates/hip/reduce.h>
+#include <tl_templates/hip/ldsm.h>
+#include <tl_templates/hip/threadblock_swizzle.h>
+#include <tl_templates/hip/debug.h>
+
+extern "C" __global__ void __launch_bounds__(128) act_quant_kernel__kernel(fp8_e8_t* __restrict__ S, bfloat16_t* __restrict__ X, bfloat16_t* __restrict__ Y, int M) {
+  extern __shared__ __align__(1024) uchar buf_dyn_shmem[];
+  void* x_shared = ((void*)((char*)buf_dyn_shmem + 0));
+  void* y_shared = ((void*)((char*)buf_dyn_shmem + 0));
+  bfloat16_t x_local[8];
+  float amax_local[1];
+  float s_local[1];
+  bfloat16_t y_local[8];
+  bfloat16_t broadcast_var = bfloat16_t(0.000000e+00f);
+  uint4 condval;
+  if ((((((int)blockIdx.x) * 32) + (((int)threadIdx.x) >> 2)) < M)) {
+    condval = *(uint4*)(X + ((((((int64_t)((int)blockIdx.x)) * (int64_t)16384) + ((((int64_t)((int)threadIdx.x)) >> (int64_t)2) * (int64_t)512)) + (((int64_t)((int)blockIdx.y)) * (int64_t)32)) + ((((int64_t)((int)threadIdx.x)) & (int64_t)3) * (int64_t)8)));
+  } else {
+    condval = make_uint4(__pack_bfloat162(broadcast_var, broadcast_var), __pack_bfloat162(broadcast_var, broadcast_var), __pack_bfloat162(broadcast_var, broadcast_var), __pack_bfloat162(broadcast_var, broadcast_var));
+  }
+  *(uint4*)(((bfloat16_t*)x_shared) + (((int)threadIdx.x) * 8)) = condval;
+  *(uint4*)(x_local + 0) = *(uint4*)(((bfloat16_t*)x_shared) + (((int)threadIdx.x) * 8));
+  amax_local[0] = 0.000000e+00f;
+  #pragma unroll
+  for (int rv = 0; rv < 8; ++rv) {
+    amax_local[0] = max(amax_local[0], max(((float)x_local[rv]), (0.000000e+00f - ((float)x_local[rv]))));
+  }
+  amax_local[0] = tl::AllReduce<tl::MaxOp, 4, 1, 0>::run(amax_local[0]);
+  amax_local[0] = max(amax_local[0], 1.000000e-04f);
+  float v_ = amax_local[0] * 2.232143e-03f;
+  float v__1 = amax_local[0] * 2.232143e-03f;
+  int condval_1;
+  if ((((*(uint *)(&(v__1))) & (uint)8388607) != (uint)0)) {
+    condval_1 = 1;
+  } else {
+    condval_1 = 0;
+  }
+  int v__2 = (((int)(((((*(uint *)(&(v_))) >> (uint)23) & (uint)255) - (uint)127) + ((uint)condval_1))) + 127) << 23;
+  s_local[0] = (*(float *)(&(v__2)));
+  #pragma unroll
+  for (int i = 0; i < 8; ++i) {
+    y_local[i] = ((bfloat16_t)(((float)((fp8_e4_t)min(max((((float)x_local[i]) / s_local[0]), -4.480000e+02f), 4.480000e+02f))) * s_local[0]));
+  }
+  if ((((int)threadIdx.x) % 4) == 0) {
+    if (((((int)blockIdx.x) * 32) + (((int)threadIdx.x) >> 2)) < M) {
+      S[(((((int64_t)((int)blockIdx.x)) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) >> (int64_t)2) * (int64_t)16)) + ((int64_t)((int)blockIdx.y)))] = ((fp8_e8_t)s_local[0]);
+    }
+  }
+  *(uint4*)(((bfloat16_t*)y_shared) + (((int)threadIdx.x) * 8)) = *(uint4*)(y_local + 0);
+  __syncthreads();
+  if (((((int)blockIdx.x) * 32) + (((int)threadIdx.x) >> 2)) < M) {
+    *(uint4*)(Y + ((((((int64_t)((int)blockIdx.x)) * (int64_t)16384) + ((((int64_t)((int)threadIdx.x)) >> (int64_t)2) * (int64_t)512)) + (((int64_t)((int)blockIdx.y)) * (int64_t)32)) + ((((int64_t)((int)threadIdx.x)) & (int64_t)3) * (int64_t)8))) = *(uint4*)(((bfloat16_t*)y_shared) + (((int)threadIdx.x) * 8));
+  }
+}
+
+
+Compilation error:
+In file included from /artifacts/cache/tmp/tmp5e5wnjmg/my_kernel.cc:3:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/../src/tl_templates/hip/gemm.h:3:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/../src/tl_templates/hip/common.h:4:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core.hpp:6:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/algorithm/cluster_descriptor.hpp:7:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/algorithm/coordinate_transform.hpp:7:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/container/multi_index.hpp:7:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/container/array.hpp:13:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/utility/functional.hpp:9:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/container/sequence.hpp:9:
+/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/numeric/math.hpp:46:21: warning: use of CUDA/HIP target attributes on deduction guides is deprecated; they will be rejected in a future version of Clang [-Wdeprecated-attributes]
+   46 | __host__ __device__ scales(Scale) -> scales<Scale>;
+      |                     ^
+/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/numeric/math.hpp:70:21: warning: use of CUDA/HIP target attributes on deduction guides is deprecated; they will be rejected in a future version of Clang [-Wdeprecated-attributes]
+   70 | __host__ __device__ plus() -> plus<void, void>;
+      |                     ^
+/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/numeric/math.hpp:94:21: warning: use of CUDA/HIP target attributes on deduction guides is deprecated; they will be rejected in a future version of Clang [-Wdeprecated-attributes]
+   94 | __host__ __device__ minus() -> minus<void, void>;
+      |                     ^
+/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/numeric/math.hpp:118:21: warning: use of CUDA/HIP target attributes on deduction guides is deprecated; they will be rejected in a future version of Clang [-Wdeprecated-attributes]
+  118 | __host__ __device__ multiplies() -> multiplies<void, void>;
+      |                     ^
+/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/numeric/math.hpp:349:21: warning: use of CUDA/HIP target attributes on deduction guides is deprecated; they will be rejected in a future version of Clang [-Wdeprecated-attributes]
+  349 | __host__ __device__ equal() -> equal<void, void>;
+      |                     ^
+/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/numeric/math.hpp:391:21: warning: use of CUDA/HIP target attributes on deduction guides is deprecated; they will be rejected in a future version of Clang [-Wdeprecated-attributes]
+  391 | __host__ __device__ less() -> less<void, void>;
+      |                     ^
+/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/numeric/math.hpp:415:21: warning: use of CUDA/HIP target attributes on deduction guides is deprecated; they will be rejected in a future version of Clang [-Wdeprecated-attributes]
+  415 | __host__ __device__ less_equal() -> less_equal<void, void>;
+      |                     ^
+In file included from /artifacts/cache/tmp/tmp5e5wnjmg/my_kernel.cc:3:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/../src/tl_templates/hip/gemm.h:3:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/../src/tl_templates/hip/common.h:4:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core.hpp:53:
+/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/tensor/sweep_tile.hpp:306:28: warning: use of CUDA/HIP target attributes on deduction guides is deprecated; they will be rejected in a future version of Clang [-Wdeprecated-attributes]
+  306 | CK_TILE_HOST_DEVICE_EXTERN tile_sweeper(const T&, const F&, U = {}) -> tile_sweeper<T, F, U>;
+      |                            ^
+In file included from /artifacts/cache/tmp/tmp5e5wnjmg/my_kernel.cc:3:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/../src/tl_templates/hip/gemm.h:3:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/../src/tl_templates/hip/common.h:4:
+In file included from /usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core.hpp:87:
+/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include/ck_tile/core/utility/unary_element_function.hpp:52:21: warning: use of CUDA/HIP target attributes on deduction guides is deprecated; they will be rejected in a future version of Clang [-Wdeprecated-attributes]
+   52 | __host__ __device__ composes(Ts&&...) -> composes<remove_cvref_t<Ts>...>;
+      |                     ^
+/artifacts/cache/tmp/tmp5e5wnjmg/my_kernel.cc:10:76: error: unknown type name 'fp8_e8_t'
+   10 | extern "C" __global__ void __launch_bounds__(128) act_quant_kernel__kernel(fp8_e8_t* __restrict__ S, bfloat16_t* __restrict__ X, bfloat16_t* __restrict__ Y, int M) {
+      |                                                                            ^
+/artifacts/cache/tmp/tmp5e5wnjmg/my_kernel.cc:50:159: error: use of undeclared identifier 'fp8_e8_t'
+   50 |       S[(((((int64_t)((int)blockIdx.x)) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) >> (int64_t)2) * (int64_t)16)) + ((int64_t)((int)blockIdx.y)))] = ((fp8_e8_t)s_local[0]);
+      |                                                                                                                                                               ^~~~~~~~
+9 warnings and 2 errors generated when compiling for gfx942.
+failed to execute:/usr/local/lib/python3.12/dist-packages/_rocm_sdk_devel/lib/llvm/bin/clang++  --offload-arch=gfx942  -O3 -c -gline-tables-only --cuda-device-only -std=c++17 -I/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/../src -I/usr/local/lib/python3.12/dist-packages/tilelang/3rdparty/composable_kernel/include -Rpass-analysis=kernel-resource-usage -o "/artifacts/cache/tmp/tmp5e5wnjmg/my_kernel.hsaco" -x hip /artifacts/cache/tmp/tmp5e5wnjmg/my_kernel.cc
+

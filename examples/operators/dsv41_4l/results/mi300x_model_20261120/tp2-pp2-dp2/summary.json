@@ -1,0 +1,7 @@
+{
+  "status": "BLOCKED",
+  "phase": "GPU preflight",
+  "gpu": 0,
+  "reason": "requested physical GPU occupied; see gpu-preflight.log",
+  "model_execution": "NOT RUN"
+}

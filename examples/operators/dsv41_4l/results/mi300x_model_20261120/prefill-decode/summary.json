@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "scope": "real checkpoint original layers 0,1,2,3 odd prefill and decode",
+  "mode_parity": "shared-kernel parity",
+  "chunked_vs_monolithic_bit_parity": "NOT RUN",
+  "cases": 3,
+  "forward": "PASS",
+  "backward": "PASS",
+  "compared_elements": 493547412,
+  "mismatched_elements": 0
+}

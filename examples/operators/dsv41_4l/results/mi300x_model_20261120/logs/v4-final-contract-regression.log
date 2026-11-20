@@ -1,0 +1,41 @@
+........................................................................ [  7%]
+........................................................................ [ 14%]
+........................................................................ [ 21%]
+.................................ssss.s.........ss...................... [ 28%]
+........................................................................ [ 35%]
+........................................................................ [ 42%]
+........................................................................ [ 49%]
+........................................................................ [ 56%]
+........................................................................ [ 63%]
+........................................................................ [ 70%]
+........................................................................ [ 78%]
+........................................................................ [ 85%]
+........................................................................ [ 92%]
+....s.....sss........................................................... [ 99%]
+.......                                                                  [100%]
+=============================== warnings summary ===============================
+tests/models/deepseek_v4/test_attention_runtime.py::test_native_mode_and_graph_bytes
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+tests/models/deepseek_v4/test_attention_runtime.py::test_native_mode_and_graph_bytes
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+tests/models/deepseek_v4/test_attention_runtime.py: 14 warnings
+  /usr/local/lib/python3.12/dist-packages/torch/jit/_script.py:365: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+tests/models/deepseek_v4/test_expert_backward.py::test_rocm_one_rank_strict_p4_forward_to_backward
+  /usr/local/lib/python3.12/dist-packages/torch/distributed/c10d_logger.py:83: FutureWarning: `torch.distributed.all_gather_into_tensor` is deprecated. Please use `torch.distributed.all_gather_single` instead.
+    return func(*args, **kwargs)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [3] tests/models/deepseek_v4/test_cp_ownership.py:189: two ROCm GPUs required
+SKIPPED [1] tests/models/deepseek_v4/test_cp_pp_boundary.py:90: four ROCm GPUs required
+SKIPPED [1] tests/models/deepseek_v4/test_expert_backward.py:43: could not import 'rl_engine.p3.recordings': No module named 'rl_engine.p3'
+SKIPPED [1] tests/models/deepseek_v4/test_expert_backward.py:351: two ROCm GPUs required
+SKIPPED [1] tests/models/deepseek_v4/test_expert_backward.py:419: four ROCm GPUs required
+SKIPPED [1] tests/models/deepseek_v4/test_parallel_collectives.py:333: four ROCm GPUs required
+SKIPPED [3] tests/models/deepseek_v4/test_pp_boundary.py:140: two ROCm GPUs required
+1004 passed, 11 skipped, 17 warnings in 63.68s (0:01:03)
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

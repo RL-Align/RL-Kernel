@@ -1,0 +1,10 @@
+{
+  "source_commit": "e8b79ce087f48f6b64b54ea8e22907a5dc8a72bd",
+  "image": "rlk/dsv4-4l-rocm:pr717-ropefix-aade119d-mi300x",
+  "physical_gpus": "1,2",
+  "tp": 1,
+  "pp": 2,
+  "dp": 1,
+  "scope": "real original-layer text model; frozen quantized weights/embedding/head",
+  "parity": "shared-kernel parity; TP shards attention, FFN replicated"
+}

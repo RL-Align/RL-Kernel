@@ -1,0 +1,29 @@
+.......FF                                                                [100%]
+=================================== FAILURES ===================================
+___________________ test_top_six_combine_order_and_backward ____________________
+Fixture "require_device" called directly. Fixtures are not meant to be called directly,
+but are created automatically when test functions request them as parameters.
+See https://docs.pytest.org/en/stable/explanation/fixtures.html for more information about fixtures, and
+https://docs.pytest.org/en/stable/deprecations.html#calling-fixtures-directly
+_____________ test_candidate_blocks_partial_newest_and_unreachable _____________
+Fixture "require_device" called directly. Fixtures are not meant to be called directly,
+but are created automatically when test functions request them as parameters.
+See https://docs.pytest.org/en/stable/explanation/fixtures.html for more information about fixtures, and
+https://docs.pytest.org/en/stable/deprecations.html#calling-fixtures-directly
+=============================== warnings summary ===============================
+tests/models/deepseek_v41/test_source_layers_rocm.py::test_real_kv_sources_and_later_index_sources_forward_backward
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+tests/models/deepseek_v41/test_source_layers_rocm.py::test_real_kv_sources_and_later_index_sources_forward_backward
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+tests/models/deepseek_v41/test_source_layers_rocm.py: 14 warnings
+  /usr/local/lib/python3.12/dist-packages/torch/jit/_script.py:365: DeprecationWarning: `torch.jit.script_method` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/models/deepseek_v41/test_attention_transforms_rocm.py::test_top_six_combine_order_and_backward
+FAILED tests/models/deepseek_v41/test_attention_transforms_rocm.py::test_candidate_blocks_partial_newest_and_unreachable
+2 failed, 7 passed, 16 warnings in 21.57s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

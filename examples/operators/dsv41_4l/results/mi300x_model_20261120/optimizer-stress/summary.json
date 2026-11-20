@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "scope": "real original four layers; frozen quantized weights/embedding/head",
+  "steps": 2,
+  "seeds": [
+    17,
+    1234
+  ],
+  "batch_sizes": [
+    1,
+    2
+  ],
+  "sequence_lengths": [
+    7,
+    8
+  ],
+  "mode_parity": "shared-kernel parity",
+  "optimizer": "SGD lr=1e-5 foreach=False",
+  "gradient_accumulation": "two distinct prompt microbatches; sum of NLL means divided by 2",
+  "updated_parameter_tensors_step0": 38,
+  "forward": "PASS",
+  "backward": "PASS",
+  "compared_elements": 1422081556,
+  "mismatched_elements": 0
+}

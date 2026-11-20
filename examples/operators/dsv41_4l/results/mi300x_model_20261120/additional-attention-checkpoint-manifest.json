@@ -1,0 +1,390 @@
+{
+  "revision": "08c8657f02291e11b6f6b63e0e16014f8e748518",
+  "shards": [
+    {
+      "file": "model-00011-of-00048.safetensors",
+      "tensor_count": 21,
+      "bytes": 142938984,
+      "ranges": [
+        {
+          "shard": "model-00011-of-00048.safetensors",
+          "source_start": 259104,
+          "source_end": 259359,
+          "sha256": "0c6cc8082e3c15b6964bb9e50782fce53526d9800e3e8a0af99d8107ec76d4d1",
+          "tensor_count": 1
+        },
+        {
+          "shard": "model-00011-of-00048.safetensors",
+          "source_start": 4194808,
+          "source_end": 15144183,
+          "sha256": "e38f8edb2ed37fab1d2592394187ec61f5f4cae344b898d5483bf0671f69e128",
+          "tensor_count": 8
+        },
+        {
+          "shard": "model-00011-of-00048.safetensors",
+          "source_start": 19096824,
+          "source_end": 19225591,
+          "sha256": "788e1cb11cb3678bd5efb3e25bc88de4901611aef84fec0f793a8e9642363de1",
+          "tensor_count": 6
+        },
+        {
+          "shard": "model-00011-of-00048.safetensors",
+          "source_start": 443933432,
+          "source_end": 575791863,
+          "sha256": "7963ede599fbdce47f648d9d25e72db679e843d6c118153be42ddd0552f19115",
+          "tensor_count": 6
+        }
+      ],
+      "keys": [
+        "layers.8.attn.attn_sink",
+        "layers.8.attn.compressor.norm.weight",
+        "layers.8.attn.compressor.wgate.weight",
+        "layers.8.attn.compressor.wkv.weight",
+        "layers.8.attn.indexer.k_norm.weight",
+        "layers.8.attn.indexer.weights_proj.weight",
+        "layers.8.attn.indexer.wk.weight",
+        "layers.8.attn.indexer.wq_b.scale",
+        "layers.8.attn.indexer.wq_b.weight",
+        "layers.8.attn.kv_norm.weight",
+        "layers.8.attn.q_norm.weight",
+        "layers.8.attn.wkv.scale",
+        "layers.8.attn.wkv.weight",
+        "layers.8.attn.wo_a.scale",
+        "layers.8.attn.wo_a.weight",
+        "layers.8.attn.wo_b.scale",
+        "layers.8.attn.wo_b.weight",
+        "layers.8.attn.wq_a.scale",
+        "layers.8.attn.wq_a.weight",
+        "layers.8.attn.wq_b.scale",
+        "layers.8.attn.wq_b.weight"
+      ]
+    },
+    {
+      "file": "model-00017-of-00048.safetensors",
+      "tensor_count": 21,
+      "bytes": 142939000,
+      "ranges": [
+        {
+          "shard": "model-00017-of-00048.safetensors",
+          "source_start": 261448,
+          "source_end": 261703,
+          "sha256": "4cc0405aa54d7f9bc8d03888cd2daf6bf8afdf908faa5acd5351bf54d5b4b2a6",
+          "tensor_count": 1
+        },
+        {
+          "shard": "model-00017-of-00048.safetensors",
+          "source_start": 4197152,
+          "source_end": 15146527,
+          "sha256": "8095853d9778a67110122a1a18b092023cec038297bc0cf16b5f5bbe389a9f1f",
+          "tensor_count": 8
+        },
+        {
+          "shard": "model-00017-of-00048.safetensors",
+          "source_start": 19099168,
+          "source_end": 19227935,
+          "sha256": "83e6927640b2df4a6d249d7bad28ab6c794ca5cf7562a319559bee6aa5a86e48",
+          "tensor_count": 6
+        },
+        {
+          "shard": "model-00017-of-00048.safetensors",
+          "source_start": 443935776,
+          "source_end": 575794207,
+          "sha256": "0d8446bf079cb11dd872eca7960d413806c7bbffbba494bb81d63b8565bc0e4c",
+          "tensor_count": 6
+        }
+      ],
+      "keys": [
+        "layers.14.attn.attn_sink",
+        "layers.14.attn.compressor.norm.weight",
+        "layers.14.attn.compressor.wgate.weight",
+        "layers.14.attn.compressor.wkv.weight",
+        "layers.14.attn.indexer.k_norm.weight",
+        "layers.14.attn.indexer.weights_proj.weight",
+        "layers.14.attn.indexer.wk.weight",
+        "layers.14.attn.indexer.wq_b.scale",
+        "layers.14.attn.indexer.wq_b.weight",
+        "layers.14.attn.kv_norm.weight",
+        "layers.14.attn.q_norm.weight",
+        "layers.14.attn.wkv.scale",
+        "layers.14.attn.wkv.weight",
+        "layers.14.attn.wo_a.scale",
+        "layers.14.attn.wo_a.weight",
+        "layers.14.attn.wo_b.scale",
+        "layers.14.attn.wo_b.weight",
+        "layers.14.attn.wq_a.scale",
+        "layers.14.attn.wq_a.weight",
+        "layers.14.attn.wq_b.scale",
+        "layers.14.attn.wq_b.weight"
+      ]
+    },
+    {
+      "file": "model-00023-of-00048.safetensors",
+      "tensor_count": 20,
+      "bytes": 137695984,
+      "ranges": [
+        {
+          "shard": "model-00023-of-00048.safetensors",
+          "source_start": 261288,
+          "source_end": 261543,
+          "sha256": "6c11d59c728d38b06a78e8edc30b9ea924d576bfa3c6f10010b185212fa179ab",
+          "tensor_count": 1
+        },
+        {
+          "shard": "model-00023-of-00048.safetensors",
+          "source_start": 4196992,
+          "source_end": 9903487,
+          "sha256": "e347308c1bb994a7ede11f7577a90a611ffe4715f7c9cac8aea07c1b85bdd652",
+          "tensor_count": 7
+        },
+        {
+          "shard": "model-00023-of-00048.safetensors",
+          "source_start": 13856128,
+          "source_end": 13984895,
+          "sha256": "53ce19559cc027d9e7ec9604364e0d126ca140f475b1481492143266303fb1ac",
+          "tensor_count": 6
+        },
+        {
+          "shard": "model-00023-of-00048.safetensors",
+          "source_start": 438692736,
+          "source_end": 570551167,
+          "sha256": "9a765d9103e6c69cfa2b4719a1543e79849a37942cd463f069d85c3337e32132",
+          "tensor_count": 6
+        }
+      ],
+      "keys": [
+        "layers.20.attn.attn_sink",
+        "layers.20.attn.compressor.norm.weight",
+        "layers.20.attn.compressor.wkv.weight",
+        "layers.20.attn.indexer.k_norm.weight",
+        "layers.20.attn.indexer.weights_proj.weight",
+        "layers.20.attn.indexer.wk.weight",
+        "layers.20.attn.indexer.wq_b.scale",
+        "layers.20.attn.indexer.wq_b.weight",
+        "layers.20.attn.kv_norm.weight",
+        "layers.20.attn.q_norm.weight",
+        "layers.20.attn.wkv.scale",
+        "layers.20.attn.wkv.weight",
+        "layers.20.attn.wo_a.scale",
+        "layers.20.attn.wo_a.weight",
+        "layers.20.attn.wo_b.scale",
+        "layers.20.attn.wo_b.weight",
+        "layers.20.attn.wq_a.scale",
+        "layers.20.attn.wq_a.weight",
+        "layers.20.attn.wq_b.scale",
+        "layers.20.attn.wq_b.weight"
+      ]
+    },
+    {
+      "file": "model-00027-of-00048.safetensors",
+      "tensor_count": 16,
+      "bytes": 132320320,
+      "ranges": [
+        {
+          "shard": "model-00027-of-00048.safetensors",
+          "source_start": 260816,
+          "source_end": 261071,
+          "sha256": "9d2f4c7886790c5c290b6607026908cfa5a7e0d43399f879efc656751745f6cd",
+          "tensor_count": 1
+        },
+        {
+          "shard": "model-00027-of-00048.safetensors",
+          "source_start": 4196520,
+          "source_end": 4527783,
+          "sha256": "318c72ea09a04dbdd1e6fc1e6909793d8396302d099c58336dfd234a54f7eedf",
+          "tensor_count": 3
+        },
+        {
+          "shard": "model-00027-of-00048.safetensors",
+          "source_start": 8480424,
+          "source_end": 8609191,
+          "sha256": "bfea21d3d9a4e511f779de9403ea25025db07e441f6cd5950210754fb9bf070b",
+          "tensor_count": 6
+        },
+        {
+          "shard": "model-00027-of-00048.safetensors",
+          "source_start": 433317032,
+          "source_end": 565175463,
+          "sha256": "52dac9fa73da5872eac1b8f158a951dcf816a5321fbf24326a7558a4d4317215",
+          "tensor_count": 6
+        }
+      ],
+      "keys": [
+        "layers.24.attn.attn_sink",
+        "layers.24.attn.indexer.weights_proj.weight",
+        "layers.24.attn.indexer.wq_b.scale",
+        "layers.24.attn.indexer.wq_b.weight",
+        "layers.24.attn.kv_norm.weight",
+        "layers.24.attn.q_norm.weight",
+        "layers.24.attn.wkv.scale",
+        "layers.24.attn.wkv.weight",
+        "layers.24.attn.wo_a.scale",
+        "layers.24.attn.wo_a.weight",
+        "layers.24.attn.wo_b.scale",
+        "layers.24.attn.wo_b.weight",
+        "layers.24.attn.wq_a.scale",
+        "layers.24.attn.wq_a.weight",
+        "layers.24.attn.wq_b.scale",
+        "layers.24.attn.wq_b.weight"
+      ]
+    },
+    {
+      "file": "model-00031-of-00048.safetensors",
+      "tensor_count": 16,
+      "bytes": 132320320,
+      "ranges": [
+        {
+          "shard": "model-00031-of-00048.safetensors",
+          "source_start": 260816,
+          "source_end": 261071,
+          "sha256": "f072189fda166ec99eccecf257ac0c3f711c99e370c08edfec4907cac59e6ff1",
+          "tensor_count": 1
+        },
+        {
+          "shard": "model-00031-of-00048.safetensors",
+          "source_start": 4196520,
+          "source_end": 4527783,
+          "sha256": "f89d7a0b7a1463e413993ba9e7ee77d13f33cf6bd0d571526072314bfe36510c",
+          "tensor_count": 3
+        },
+        {
+          "shard": "model-00031-of-00048.safetensors",
+          "source_start": 8480424,
+          "source_end": 8609191,
+          "sha256": "e69458e5cd98e804ec46df53da8ac8e498d57d95c8520b3ff7bd16c7a65ec112",
+          "tensor_count": 6
+        },
+        {
+          "shard": "model-00031-of-00048.safetensors",
+          "source_start": 433317032,
+          "source_end": 565175463,
+          "sha256": "8274b632f976fc75c710928590943a12b2299bf6794505ddaba1ab0f779f50c8",
+          "tensor_count": 6
+        }
+      ],
+      "keys": [
+        "layers.28.attn.attn_sink",
+        "layers.28.attn.indexer.weights_proj.weight",
+        "layers.28.attn.indexer.wq_b.scale",
+        "layers.28.attn.indexer.wq_b.weight",
+        "layers.28.attn.kv_norm.weight",
+        "layers.28.attn.q_norm.weight",
+        "layers.28.attn.wkv.scale",
+        "layers.28.attn.wkv.weight",
+        "layers.28.attn.wo_a.scale",
+        "layers.28.attn.wo_a.weight",
+        "layers.28.attn.wo_b.scale",
+        "layers.28.attn.wo_b.weight",
+        "layers.28.attn.wq_a.scale",
+        "layers.28.attn.wq_a.weight",
+        "layers.28.attn.wq_b.scale",
+        "layers.28.attn.wq_b.weight"
+      ]
+    },
+    {
+      "file": "model-00035-of-00048.safetensors",
+      "tensor_count": 16,
+      "bytes": 132320320,
+      "ranges": [
+        {
+          "shard": "model-00035-of-00048.safetensors",
+          "source_start": 260816,
+          "source_end": 261071,
+          "sha256": "752031a590a826d5d7c6a09097d21d5a68a594a2cd617f97775235348c2a4da1",
+          "tensor_count": 1
+        },
+        {
+          "shard": "model-00035-of-00048.safetensors",
+          "source_start": 4196520,
+          "source_end": 4527783,
+          "sha256": "3468490dc53bd067084bcb0fd8c009c2a71b0c51fc352b9d12bd5bf0c1959fcf",
+          "tensor_count": 3
+        },
+        {
+          "shard": "model-00035-of-00048.safetensors",
+          "source_start": 8480424,
+          "source_end": 8609191,
+          "sha256": "0bae75ac5a810b527c4b8ddd1bc8e3afebc74d4110fa804f7c4430affaa83a58",
+          "tensor_count": 6
+        },
+        {
+          "shard": "model-00035-of-00048.safetensors",
+          "source_start": 433317032,
+          "source_end": 565175463,
+          "sha256": "475368a359f8ef96704734748d1007802207e787d9c5de7271e4548e62313595",
+          "tensor_count": 6
+        }
+      ],
+      "keys": [
+        "layers.32.attn.attn_sink",
+        "layers.32.attn.indexer.weights_proj.weight",
+        "layers.32.attn.indexer.wq_b.scale",
+        "layers.32.attn.indexer.wq_b.weight",
+        "layers.32.attn.kv_norm.weight",
+        "layers.32.attn.q_norm.weight",
+        "layers.32.attn.wkv.scale",
+        "layers.32.attn.wkv.weight",
+        "layers.32.attn.wo_a.scale",
+        "layers.32.attn.wo_a.weight",
+        "layers.32.attn.wo_b.scale",
+        "layers.32.attn.wo_b.weight",
+        "layers.32.attn.wq_a.scale",
+        "layers.32.attn.wq_a.weight",
+        "layers.32.attn.wq_b.scale",
+        "layers.32.attn.wq_b.weight"
+      ]
+    },
+    {
+      "file": "model-00039-of-00048.safetensors",
+      "tensor_count": 16,
+      "bytes": 132320320,
+      "ranges": [
+        {
+          "shard": "model-00039-of-00048.safetensors",
+          "source_start": 260816,
+          "source_end": 261071,
+          "sha256": "2059f47618e5762d235002db5aa2ce8536bc2762e3865d669f7e028b26170f46",
+          "tensor_count": 1
+        },
+        {
+          "shard": "model-00039-of-00048.safetensors",
+          "source_start": 4196520,
+          "source_end": 4527783,
+          "sha256": "c70e21009873caeb2b373209acc031794d0eedf9d940034df7a21ddd1c24b90d",
+          "tensor_count": 3
+        },
+        {
+          "shard": "model-00039-of-00048.safetensors",
+          "source_start": 8480424,
+          "source_end": 8609191,
+          "sha256": "2077eeaeb963674aaee4a899b8aed8d15b7757cf6bb9048d0028001360a94737",
+          "tensor_count": 6
+        },
+        {
+          "shard": "model-00039-of-00048.safetensors",
+          "source_start": 433317032,
+          "source_end": 565175463,
+          "sha256": "6fc0da43a1899ca451a2f627f312fd6814d6239c2b05621faca7c7e568dcd930",
+          "tensor_count": 6
+        }
+      ],
+      "keys": [
+        "layers.36.attn.attn_sink",
+        "layers.36.attn.indexer.weights_proj.weight",
+        "layers.36.attn.indexer.wq_b.scale",
+        "layers.36.attn.indexer.wq_b.weight",
+        "layers.36.attn.kv_norm.weight",
+        "layers.36.attn.q_norm.weight",
+        "layers.36.attn.wkv.scale",
+        "layers.36.attn.wkv.weight",
+        "layers.36.attn.wo_a.scale",
+        "layers.36.attn.wo_a.weight",
+        "layers.36.attn.wo_b.scale",
+        "layers.36.attn.wo_b.weight",
+        "layers.36.attn.wq_a.scale",
+        "layers.36.attn.wq_a.weight",
+        "layers.36.attn.wq_b.scale",
+        "layers.36.attn.wq_b.weight"
+      ]
+    }
+  ]
+}

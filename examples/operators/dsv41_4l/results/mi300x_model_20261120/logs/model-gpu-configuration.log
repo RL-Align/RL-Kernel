@@ -1,0 +1,104 @@
+
+
+============================ ROCm System Management Interface ============================
+===================================== KFD Processes ======================================
+KFD process information:
+PID    	PROCESS NAME	GPU(s)	VRAM USED 	SDMA USED	CU OCCUPANCY	
+2374909	python      	1     	6043676672	50403    	0           	
+3131740	python      	1     	201367552 	836      	0           	
+2375109	python      	1     	6045773824	52349    	0           	
+2375108	python      	1     	6045773824	52230    	0           	
+==========================================================================================
+================================== Memory Usage (Bytes) ==================================
+GPU[0]		: VRAM Total Memory (B): 205822885888
+GPU[0]		: VRAM Total Used Memory (B): 502665216
+GPU[1]		: VRAM Total Memory (B): 205822885888
+GPU[1]		: VRAM Total Used Memory (B): 299835392
+GPU[2]		: VRAM Total Memory (B): 205822885888
+GPU[2]		: VRAM Total Used Memory (B): 299835392
+GPU[3]		: VRAM Total Memory (B): 205822885888
+GPU[3]		: VRAM Total Used Memory (B): 299835392
+GPU[4]		: VRAM Total Memory (B): 205822885888
+GPU[4]		: VRAM Total Used Memory (B): 299823104
+GPU[5]		: VRAM Total Memory (B): 205822885888
+GPU[5]		: VRAM Total Used Memory (B): 6355058688
+GPU[6]		: VRAM Total Memory (B): 205822885888
+GPU[6]		: VRAM Total Used Memory (B): 6348406784
+GPU[7]		: VRAM Total Memory (B): 205822885888
+GPU[7]		: VRAM Total Used Memory (B): 6355058688
+==========================================================================================
+====================================== Product Info ======================================
+GPU[0]		: Card Series: 		AMD Instinct MI300X VF
+GPU[0]		: Card Model: 		0x74b5
+GPU[0]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[0]		: Card SKU: 		M3000108
+GPU[0]		: Subsystem ID: 	0x74a1
+GPU[0]		: Device Rev: 		0x00
+GPU[0]		: Node ID: 		2
+GPU[0]		: GUID: 		21947
+GPU[0]		: GFX Version: 		gfx942
+GPU[1]		: Card Series: 		AMD Instinct MI300X VF
+GPU[1]		: Card Model: 		0x74b5
+GPU[1]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[1]		: Card SKU: 		M3000108
+GPU[1]		: Subsystem ID: 	0x74a1
+GPU[1]		: Device Rev: 		0x00
+GPU[1]		: Node ID: 		3
+GPU[1]		: GUID: 		37820
+GPU[1]		: GFX Version: 		gfx942
+GPU[2]		: Card Series: 		AMD Instinct MI300X VF
+GPU[2]		: Card Model: 		0x74b5
+GPU[2]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[2]		: Card SKU: 		M3000108
+GPU[2]		: Subsystem ID: 	0x74a1
+GPU[2]		: Device Rev: 		0x00
+GPU[2]		: Node ID: 		4
+GPU[2]		: GUID: 		39350
+GPU[2]		: GFX Version: 		gfx942
+GPU[3]		: Card Series: 		AMD Instinct MI300X VF
+GPU[3]		: Card Model: 		0x74b5
+GPU[3]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[3]		: Card SKU: 		M3000108
+GPU[3]		: Subsystem ID: 	0x74a1
+GPU[3]		: Device Rev: 		0x00
+GPU[3]		: Node ID: 		5
+GPU[3]		: GUID: 		24497
+GPU[3]		: GFX Version: 		gfx942
+GPU[4]		: Card Series: 		AMD Instinct MI300X VF
+GPU[4]		: Card Model: 		0x74b5
+GPU[4]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[4]		: Card SKU: 		M3000108
+GPU[4]		: Subsystem ID: 	0x74a1
+GPU[4]		: Device Rev: 		0x00
+GPU[4]		: Node ID: 		6
+GPU[4]		: GUID: 		36258
+GPU[4]		: GFX Version: 		gfx942
+GPU[5]		: Card Series: 		AMD Instinct MI300X VF
+GPU[5]		: Card Model: 		0x74b5
+GPU[5]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[5]		: Card SKU: 		M3000108
+GPU[5]		: Subsystem ID: 	0x74a1
+GPU[5]		: Device Rev: 		0x00
+GPU[5]		: Node ID: 		7
+GPU[5]		: GUID: 		19365
+GPU[5]		: GFX Version: 		gfx942
+GPU[6]		: Card Series: 		AMD Instinct MI300X VF
+GPU[6]		: Card Model: 		0x74b5
+GPU[6]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[6]		: Card SKU: 		M3000108
+GPU[6]		: Subsystem ID: 	0x74a1
+GPU[6]		: Device Rev: 		0x00
+GPU[6]		: Node ID: 		8
+GPU[6]		: GUID: 		16815
+GPU[6]		: GFX Version: 		gfx942
+GPU[7]		: Card Series: 		AMD Instinct MI300X VF
+GPU[7]		: Card Model: 		0x74b5
+GPU[7]		: Card Vendor: 		Advanced Micro Devices, Inc. [AMD/ATI]
+GPU[7]		: Card SKU: 		M3000108
+GPU[7]		: Subsystem ID: 	0x74a1
+GPU[7]		: Device Rev: 		0x00
+GPU[7]		: Node ID: 		9
+GPU[7]		: GUID: 		34728
+GPU[7]		: GFX Version: 		gfx942
+==========================================================================================
+================================== End of ROCm SMI Log ===================================

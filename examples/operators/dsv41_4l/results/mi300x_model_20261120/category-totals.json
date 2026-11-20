@@ -1,0 +1,18 @@
+{
+  "deterministic_replay": {
+    "compared_elements": 4024773394,
+    "mismatched_elements": 0
+  },
+  "train_inference_shared_kernel": {
+    "compared_elements": 183827246,
+    "mismatched_elements": 0
+  },
+  "cross_partition_or_replica_consistency": {
+    "compared_elements": 1980071100,
+    "mismatched_elements": 0
+  },
+  "updated_dp_weight_sync": {
+    "compared_elements": 1212654272,
+    "mismatched_elements": 0
+  }
+}
