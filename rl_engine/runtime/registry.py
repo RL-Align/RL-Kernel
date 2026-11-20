@@ -878,15 +878,16 @@ class KernelRegistry:
                     backends.insert(0, OpBackend[f"CUDA_LATENT_{direction}"])
                 ops[f"latent_{direction.lower()}"] = backends
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
-        # Snapshot this row's static order before any pin narrows it. The pin
-        # rebuilds candidate lists from here, so repeated pins stay idempotent
-        # and `auto` can restore the original priority.
+        # Hardware eligibility runs first; snapshot the row's resulting static
+        # order before any pin narrows it. The pin rebuilds candidate lists from
+        # here, so repeated pins stay idempotent, `auto` restores the order, and
+        # no pin can resurrect a backend the hardware pass dropped.
+        self._adjust_priority_for_hardware()
         self._mlp_up_gemm_gelu_baseline: Dict[str, tuple[OpBackend, ...]] = {
             platform: tuple(ops["mlp_up_gemm_gelu"])
             for platform, ops in self._priority_map.items()
             if "mlp_up_gemm_gelu" in ops
         }
-        self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
 
         # WS2 dispatch owns its candidate list, seeded from the legacy

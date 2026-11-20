@@ -340,6 +340,23 @@ def test_mlp_up_gemm_gelu_pins_are_repeatable(monkeypatch):
     ]
 
 
+def test_mlp_up_gemm_gelu_pin_respects_hardware_eligibility(monkeypatch):
+    """A pin rebuilds from the post-hardware row, so it cannot revive a dropped backend."""
+
+    original = KernelRegistry._adjust_priority_for_hardware
+
+    def drop_triton(self):
+        original(self)
+        self._priority_map["cuda"]["mlp_up_gemm_gelu"].remove(OpBackend.TRITON_MLP_UP_GEMM_GELU)
+
+    monkeypatch.setattr(KernelRegistry, "_adjust_priority_for_hardware", drop_triton)
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "hopper")
+
+    registry = KernelRegistry()
+
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [OpBackend.CUDA_MLP_UP_GEMM_GELU]
+
+
 def test_mlp_up_gemm_gelu_unknown_pin_is_rejected(monkeypatch):
     monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "tensor-core")
 
