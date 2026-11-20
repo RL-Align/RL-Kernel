@@ -246,7 +246,8 @@ void deterministic_collective_rocm_ipc_all_gather_input(
     torch::Tensor output);
 #endif
 
-#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM) && \
+    defined(KERNEL_ALIGN_WITH_MLP_UP_GEMM_GELU)
 // Qwen-Image WS1 MLP up projection + tanh GELU. These entry points are the
 // portable fp32 tree path (contract mlp-up-gemm-gelu-tree, whose pre-activation
 // is byte-equal to the row's fp32 CPU reference) plus the gate/db folds both
@@ -794,11 +795,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 #endif
 
     // registry Qwen-Image MLP up projection + tanh GELU (two frozen contracts)
-#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
+#if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM) && \
+    defined(KERNEL_ALIGN_WITH_MLP_UP_GEMM_GELU)
     // Identical guard to the declarations above (and to the source list in
     // build_tools/extensions.py): a ROCm build defines KERNEL_ALIGN_WITH_ROCM
     // even when the host compiler does not define USE_ROCM, so guarding on the
-    // latter alone would reference undeclared entry points there.
+    // latter alone would reference undeclared entry points there. The MLP define
+    // is absent when fast-math/relaxed NVCC flags exclude these sources, so the
+    // registrations disappear with the definitions.
     m.def("mlp_up_gemm_gelu_cuda_forward", &mlp_up_gemm_gelu_cuda_forward,
           "MLP up bias GEMM + tanh GELU forward -> (out, pre) "
           "(portable fp32 tree, mlp-up-gemm-gelu-tree)");

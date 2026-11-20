@@ -299,9 +299,9 @@ def get_extensions():
         if relaxed_math_env:
             warnings.warn(
                 f"External NVCC flags relax FP32 math or cannot be checked "
-                f"({relaxed_reason}); the joint-attention softmax CUDA "
-                "bit reference is left out of this build and dispatch falls back to "
-                "another backend.",
+                f"({relaxed_reason}); the joint-attention softmax and MLP up "
+                "GEMM+GELU CUDA bit references are left out of this build and "
+                "dispatch falls back to another backend.",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -316,6 +316,7 @@ def get_extensions():
         ]
         adaln_cuda_enabled = not is_rocm and not envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
         joint_attn_softmax_enabled = False
+        mlp_up_gemm_gelu_enabled = False
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared
             # deterministic_logp_kernel.cu keeps the SM90-tuned CUDA path.
@@ -351,7 +352,14 @@ def get_extensions():
             # the Triton backend for this operator; mlp_up_gemm_gelu.cu is
             # deliberately absent from the ROCm source list, and
             # csrc/bindings/ops.cpp guards its bindings to match.
-            cuda_sources.append("csrc/cuda/gemm/mlp_up_gemm_gelu.cu")
+            # Its contract pins tanhf (the operator's single transcendental, held
+            # to ~2 ulp) and a non-flushing fp32 tree, so fast-math's __tanhf and
+            # -ftz=true break byte equality. Leave the symbols out under relaxed
+            # math; the Triton backend serves the mma contract and the fp32
+            # reference the tree, and the same define hides the bindings.
+            mlp_up_gemm_gelu_enabled = not use_fast_math and not relaxed_math_env
+            if mlp_up_gemm_gelu_enabled:
+                cuda_sources.append("csrc/cuda/gemm/mlp_up_gemm_gelu.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         if use_fast_math:
@@ -441,6 +449,8 @@ def get_extensions():
             cxx_flags.append("-DRLK_ADALN_CUDA_ENABLED")
         if joint_attn_softmax_enabled:
             cxx_flags.append("-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX")
+        if mlp_up_gemm_gelu_enabled:
+            cxx_flags.append("-DKERNEL_ALIGN_WITH_MLP_UP_GEMM_GELU")
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
@@ -458,6 +468,10 @@ def get_extensions():
                 # (contract mlp-up-gemm-gelu-mma).
                 "csrc/cuda/gemm/mlp_up_gemm_gelu_sm90.cu",
             ]
+            # Fast-math's ftz forms change the pinned wgmma epilogue too; skip
+            # the source when the strict-math tree source above is excluded.
+            if not mlp_up_gemm_gelu_enabled:
+                sm90_srcs = [s for s in sm90_srcs if s != "csrc/cuda/gemm/mlp_up_gemm_gelu_sm90.cu"]
             enable_sm90 = envs.env_flag(envs.KERNEL_ALIGN_FORCE_SM90)
             present_sm90 = [s for s in sm90_srcs if os.path.exists(s)]
             if enable_sm90 and present_sm90:
