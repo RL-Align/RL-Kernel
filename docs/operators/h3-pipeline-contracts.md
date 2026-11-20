@@ -26,8 +26,9 @@ their outputs as inputs.
 
 `rl_engine/models/minimax_h3/packed_layout.py`.
 
-- **Geometry.** `resolve_canvas_size` (768 short edge, `768 * 1344` area cap, multiples of
-  32, aspect 1:4 to 4:1), `align_num_frames` (`17n + 5`), `video_latent_num_frames`
+- **Geometry.** `resolve_canvas_size` (768 short edge, `768 * 1344` area cap applied before
+  each side rounds to a multiple of 32, so the canvas can end slightly above the cap, e.g.
+  576 x 1856 at 23:7; aspect 1:4 to 4:1), `align_num_frames` (`17n + 5`), `video_latent_num_frames`
   (`5n + 2`), `audio_latent_num_frames` (40 per second, round half to even), and
   `resolve_num_frames`, which checks the *aligned* duration is 5-15 s.
 - **Rotary grid.**
@@ -181,8 +182,12 @@ the identity table and the layout build time.
   - H16 refusals;
   - the Diffusers static builders over sweeps;
   - the tiny public Diffusers pipeline (`hf-internal-testing/tiny-minimax-h3-modular-pipe`),
-    run end to end with every preprocessing step's output captured and compared byte for
-    byte;
+    run end to end on CPU, its step outputs captured and compared with ours byte for byte:
+    the resized keyframes or normalised references and the canvas, the conditioner's
+    modality tags (not its token ids), the five layout tensors and the condition-row counts,
+    the row-timestep plan, and the initial rows (FL2VA: keyframe and target video rows when
+    there are keyframes; Ref2VA: video and audio rows). The encoder latents are the
+    pipeline's own, used as inputs, not compared;
   - SGLang's packed-sequence builders (unpadded prefix).
 
 ## Out Of Scope
