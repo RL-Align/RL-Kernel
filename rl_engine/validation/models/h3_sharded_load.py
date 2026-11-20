@@ -11,7 +11,8 @@ parameters on the ``meta`` device, loads every other parameter in full from the 
 reads each sharded projection's shard straight from the checkpoint file (a safetensors slice, so
 the rest of the weight is never read). The shards are the same bytes the harness cuts
 (``parallel.shard_rows`` / ``shard_cols``), so a grid run gives the same results; the full
-projection weights stay on ``meta`` and are never touched by the parallel blocks.
+projection weights stay on ``meta`` and are never touched by the parallel blocks; calling one of
+those projections outside the grid raises.
 
 The checkpoint already stores the dtypes ``from_pretrained(torch_dtype=torch.bfloat16)`` gives
 (FP32 for the modules Diffusers keeps in FP32, BF16 otherwise), and tensors are loaded as stored.
@@ -20,7 +21,6 @@ The checkpoint already stores the dtypes ``from_pretrained(torch_dtype=torch.bfl
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -47,24 +47,18 @@ UNLOADED = frozenset(src for src, _ in SHARD_SOURCES.values())
 assert set(SHARD_SOURCES) == set(pm.SHARDED_WEIGHTS), "keep in step with SHARDED_WEIGHTS"
 
 
-@contextmanager
-def _parameters_on_meta():
-    """Construct modules with parameters on ``meta`` and buffers where they are made."""
+def _refuse_outside_grid(module, args):
+    """Forward pre-hook of a projection whose full weight was left on ``meta``.
 
-    register = torch.nn.Module.register_parameter
+    ``F.linear`` with a ``meta`` weight does not raise: it returns a ``meta`` tensor, so a sharded
+    model called outside ``parallel_model_execution`` would run on with no values. The parallel
+    blocks read the stored shards and never call these modules.
+    """
 
-    def to_meta(module, name, param):
-        register(module, name, param)
-        if param is not None:
-            kind = type(module._parameters[name])
-            moved = module._parameters[name].to("meta")
-            module._parameters[name] = kind(moved, requires_grad=param.requires_grad)
-
-    torch.nn.Module.register_parameter = to_meta
-    try:
-        yield
-    finally:
-        torch.nn.Module.register_parameter = register
+    raise RuntimeError(
+        "this projection holds only its tensor-parallel shards (h3_sharded_load); run the model "
+        "inside h3_parallel_model.parallel_model_execution on the grid it was loaded for"
+    )
 
 
 def cut_shard(view, shape: tuple[int, ...], how: str, tp: int, tp_rank: int) -> torch.Tensor:
@@ -112,6 +106,7 @@ def load_sharded_model(
     tensors of blocks the model does not have are not read.
     """
 
+    from accelerate import init_empty_weights
     from diffusers import MiniMaxH3Transformer3DModel
     from safetensors import safe_open
 
@@ -119,7 +114,7 @@ def load_sharded_model(
     root = Path(transformer_dir)
     config = MiniMaxH3Transformer3DModel.load_config(str(root))
     config = {**config, **(config_overrides or {})}
-    with _parameters_on_meta():
+    with init_empty_weights(include_buffers=False):  # parameters on meta, buffers made for real
         model = MiniMaxH3Transformer3DModel.from_config(config)
     weight_map: dict[str, str] = json.loads((root / INDEX).read_text())["weight_map"]
     params = dict(model.named_parameters())
@@ -157,4 +152,8 @@ def load_sharded_model(
                 f"block {index} lacks shards {sorted(set(SHARD_SOURCES) - set(tensors))}"
             )
         setattr(block, pm.SHARDS_ATTR, {"tp": tp, "tp_rank": tp_rank, "tensors": tensors})
+        for src in UNLOADED:
+            block.get_submodule(src.rpartition(".")[0]).register_forward_pre_hook(
+                _refuse_outside_grid
+            )
     return model

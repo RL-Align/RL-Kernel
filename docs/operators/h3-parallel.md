@@ -100,7 +100,8 @@ with its parameters on `meta`, loads every other parameter in full, and reads ea
 seven sharded projections per block (Q / K / V, the attention output, the hidden and gate halves of
 `ff.net.0.proj`, `ff.net.2`) through a safetensors slice, so the rest of the weight is never read.
 The shards are stored on the block (`SHARDS_ATTR`) with the `(tp, tp_rank)` they were cut for, and
-the block refuses another grid. They are the bytes `parallel.shard_rows` / `shard_cols` cut from the
+the block refuses another grid. Called outside `parallel_model_execution`, the projections whose
+weights are on `meta` raise (a forward pre-hook), since `F.linear` would return a `meta` tensor. They are the bytes `parallel.shard_rows` / `shard_cols` cut from the
 full weight, so the run is compared against the same canonical run. Everything else (embedders,
 refiner, norms, `adaln_proj`, boundary projections) is still held in full on every rank.
 `--provider-boundaries` (`parallel_model_execution(..., strict_boundaries=False)`) leaves the

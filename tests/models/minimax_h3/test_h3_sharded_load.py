@@ -60,6 +60,7 @@ def test_cut_shard_refuses_what_the_harness_refuses():
 @pytest.fixture(scope="module")
 def tiny_checkpoint(tmp_path_factory):
     diffusers = pytest.importorskip("diffusers")
+    pytest.importorskip("accelerate")  # the loader and from_pretrained both use it
     model_cls = diffusers.MiniMaxH3Transformer3DModel
     torch.manual_seed(0)
     model = model_cls(**TINY).to(torch.bfloat16)
@@ -114,3 +115,15 @@ def test_loader_matches_from_pretrained(tiny_checkpoint, tp):
                     i,
                     name,
                 )
+
+
+def test_a_sharded_model_does_not_run_outside_the_grid(tiny_checkpoint):
+    """Its projection weights are on ``meta``, where ``F.linear`` returns a tensor of no values."""
+
+    root, _ = tiny_checkpoint
+    model = sl.load_sharded_model(root, 2, 0, "cpu")
+    block = model.transformer_blocks[0]
+    x = torch.zeros(1, 4, TINY["hidden_size"], dtype=torch.bfloat16)
+    for module in (block.attn.to_q, block.attn.to_out[0], block.ff.net[0].proj, block.ff.net[2]):
+        with pytest.raises(RuntimeError, match="parallel_model_execution"):
+            module(x)  # refused before any shape check
