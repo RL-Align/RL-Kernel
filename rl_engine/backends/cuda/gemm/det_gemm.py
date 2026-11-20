@@ -7,6 +7,7 @@ order, FP32 accumulation, no split-K. On Hopper, an explicitly configured
 cuBLASLt no-split-K backend is also available. Both are strict implementations;
 backend selection never falls back silently. Tensor-parallel GEMM is WS2.
 """
+
 import os
 from collections.abc import Callable
 from threading import Lock
@@ -379,6 +380,11 @@ class DetGemmOp:
         return _DetLinearFn.apply(a, weight)
 
     def forward_fp32(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        """Return the BF16 reduction-tree result widened to FP32 at the store.
+
+        Leaf and internal-node BF16 rounding is unchanged. Use
+        ``forward_accum_fp32`` for the separate full-FP32 accumulation profile.
+        """
         assert a.dtype == torch.bfloat16 and b.dtype == torch.bfloat16, "BF16 only"
         assert a.is_cuda and b.is_cuda, "Inputs must be on CUDA device"
         if not self.has_hardware_op:

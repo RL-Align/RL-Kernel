@@ -600,8 +600,9 @@ torch::Tensor det_gemm_fwd_fp32(torch::Tensor a, torch::Tensor b) {
   a = a.contiguous(); b = b.contiguous();
   TORCH_CHECK(a.dim() == 2 && b.dim() == 2, "det_gemm_fwd_fp32: expect 2D [M,K]@[K,N]");
   TORCH_CHECK(b.size(0) == a.size(1), "det_gemm_fwd_fp32: K mismatch");
-  // Keep the FP32 running sum; only the final store is BF16.
-  return gemm_dispatch(a, b);
+  // Preserve every BF16 leaf/node rounding point; widen the tree root at
+  // the final store. Full FP32 accumulation is a separate numerical profile.
+  return gemm_dispatch(a, b, RhsLayout::kKN, OutputLayout::kMN, true);
 }
 
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b) {

@@ -17,7 +17,10 @@ rows around it.
 ## Guarantees
 
 - Forward `C = A @ B`, backward `dA = dC·Bᵀ`, `dB = Aᵀ·dC`.
-- BF16 inputs, FP32 accumulation, no TF32, no split-K, fixed K-loop order.
+- BF16 inputs with a fixed reduction order, no TF32 and no split-K.
+  The CUDA tree profile uses FP32 leaf accumulation with BF16 rounding at
+  leaves and internal nodes; FP32 output and full-FP32 accumulation are
+  separate profiles, described below.
 - Bitwise-identical output for a fixed row across batch=1/N, chunked-prefill
   on/off, and padding layouts.
 
@@ -25,7 +28,7 @@ rows around it.
 
 | Backend | Deterministic | Notes |
 |---|---|---|
-| CUDA (`DetGemmOp`) | yes | Hand-written kernel. First milestone is a naive FP32 implementation (correctness first); a tensor-core (`mma.sync`) pass matching `prefix_shared_attention.cu` follows. NVIDIA SM80+. |
+| CUDA (`DetGemmOp`) | yes | Fixed BF16 reduction tree with scalar and optional SM90 tensor-core (`mma.sync`) paths. FP32 output widens the tree root; full-FP32 accumulation uses a separate rowwise path. See precision profiles below. |
 | Triton (`TritonDetGemmOp`) | yes | Autotune disabled, BLOCK pinned, no split-K. Portable / ROCm fallback and cross-backend reference. |
 | Ascend (`DetGemmAscendOp`) | yes | Ascend C (CANN) forward + backward. Mirrors the CUDA kernel's mid-split K tree: 32-element FP32 leaves rounded to BF16, merged with BF16 adds in fixed ascending leaf order; every output row-tile is reduced end-to-end by one AI-core block with a `MAX_BLOCKS`-capped strided launch, so no split-K merge exists. |
 | PyTorch (`NativeGemmOp`) | **no** | Plain `torch.matmul`. Reference & benchmark target ONLY — cuBLAS is not batch-invariant. Excluded from registry dispatch. |
@@ -33,6 +36,35 @@ rows around it.
 Registry dispatch for `det_gemm` includes only the deterministic backends
 (CUDA → Triton on CUDA/ROCm, Ascend on NPU). The PyTorch op must be called
 explicitly.
+
+### Projection output precision profiles
+
+The CUDA tree kernel accumulates each leaf in FP32, rounds the leaf to BF16,
+and rounds every midpoint-tree merge to BF16. With
+`KERNEL_ALIGN_DET_GEMM_SM90=1`, aligned K/N use fixed 128×64×32 tiles and
+TMA + `mma.sync`; M is padded to 128 so batch size does not select a different
+arithmetic graph. N/K tails use the existing scalar midpoint tree. The SM90
+tree splits **32-element tiles**, whereas the scalar tree splits **K elements**;
+non-power-of-two K can therefore produce different trees. Cross-path equality
+is a separate claim from each path's batch/chunk invariance.
+
+- CUDA `forward_fp32(a, b)` widens the BF16 tree root at its final store. It
+  returns FP32 and preserves all leaf/node rounding. This is exactly the value
+  of `gemm(a, b).float()`; it does not recover precision lost at BF16 nodes.
+- CUDA `forward_accum_fp32(a, b)` uses the separate existing fixed 256-thread
+  rowwise FP32 reduction. Its binding requires `KERNEL_ALIGN_FORCE_SM90=1`.
+- Triton `forward_fp32` / `forward_accum_fp32` use FP32 inputs/accumulation
+  throughout a fixed-tile dot profile. MUSA native uses an ascending-K FP32
+  accumulation, with output cast at the end. These profiles must be qualified
+  independently; an identically named API does not imply cross-backend equality.
+
+RFC #642 Task 12 forward validation is in
+`tests/ops/gemm/test_projection_gemm.py`. Accuracy uses an independent FP64
+matmul and existing contract tolerances; invariance compares original output
+bits, including the sign of zero, without downcasting. The bounded benchmark is
+`python -m benchmarks.operators.gemm.benchmark_projection_gemm --json <output>`.
+See `reports/experiments/task12-projection-gemm.md` for measured coverage and
+pending platforms. Projection gradients remain Task 13.
 
 ### Ascend NPU backend
 
