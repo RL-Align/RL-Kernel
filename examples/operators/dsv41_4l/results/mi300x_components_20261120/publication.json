@@ -1,0 +1,29 @@
+{
+  "status": "BLOCKED",
+  "pushed": false,
+  "pushed_commits": [],
+  "target_repository": "RL-Align/RL-Kernel",
+  "target_branch": "dsv4.1-rocm",
+  "remote_branch_head": "e9d52e95226b62d826f0a224bafad2cab3ed7538",
+  "local_head_before_publication_report": "23c1104d83dc0355622269c32c86f45961024708",
+  "local_first_parent_commits": [
+    "23c1104d83dc0355622269c32c86f45961024708 test(dsv41): retain compact raw logs and verify one-click reproduction",
+    "099ec53db1af953e57567451f9d69bb841c41e41 docs(dsv41): record MI300X component evidence and unfinished model acceptance",
+    "53c85b1d17de1d51765531b0d16516747e8f54ec fix(dsv41): load checkpoint tensors on the current local rank device",
+    "9a6e1aab59967008d197c095dfc92414c06dc4e7 fix(dsv41): use loopback rendezvous in offline acceptance containers",
+    "30f728041ab7dd01322a562b830ae7f75b5545eb test(dsv41): load pinned operator slices and record ROCm acceptance",
+    "fa19ed503126368755faffa2a5fc36acf5ff213b feat(rocm): add V4.1 quantization norm compressor and Engram components",
+    "621f08fc557bbdce9c3086957c027b72c4c2b0a0 feat(dsv41): parse official text config and preserve source layer dependencies",
+    "4b41ae76d2b4cd3f87ba71c7b56868d888ee15bd Merge origin/dsv4-rocm into dsv4.1-rocm"
+  ],
+  "https_attempt": {
+    "command": "git push origin dsv4.1-rocm",
+    "status": "FAIL",
+    "error": "could not read Username for 'https://github.com': No such device or address"
+  },
+  "ssh_attempt": {
+    "status": "FAIL",
+    "error": "git@github.com: Permission denied (publickey)."
+  },
+  "next_action": "Configure Git transport authentication on the host, then normal git push origin dsv4.1-rocm. Do not force push or recreate measured commits."
+}

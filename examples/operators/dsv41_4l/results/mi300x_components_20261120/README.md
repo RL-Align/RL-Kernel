@@ -123,3 +123,17 @@ Engram gate 的 stress 为两条独立执行的 3-step SGD 轨迹，每步累积
 分别执行模型级 A/B/C，然后补齐 layer14/source8/14/20、不同压缩率、FP4 attention/indexer、
 全部合法多卡 topology、多步训练和更新后权重同步。8 GPU 需等待外部 GPU0 任务释放。
 以上未完成项均保留在 `dsv4.1-rocm`，不能标记 Definition of Done 全部通过。
+
+## 发布状态
+
+代码和结果已在本机 `dsv4.1-rocm` 提交，**尚未 push**。HTTPS push 缺少 Git 凭据，
+SSH 为 `Permission denied (publickey)`；见 [publication.json](publication.json)。
+远端 `dsv4.1-rocm` 仍为 `e9d52e95`，未创建 PR，未更新 main/dsv4-rocm。
+GitHub app 的账号连接不能替代本机 Git transport 认证；未重建提交或改写测量 pin 来绕过。
+配置本机 Git/SSH 认证后，从此工作树执行 `git push origin dsv4.1-rocm`。
+
+新增源码分别位于 `rl_engine/models/deepseek_v41/`、`rl_engine/backends/rocm/engram/`，
+以及 ROCm attention/norm/gemm/moe 下的 `v41_*` 文件；测试位于
+`tests/models/deepseek_v41/`，复现及结果位于 `examples/operators/dsv41_4l/`。
+`.gitattributes` 仅对本目录 raw logs 禁止换行转换和 whitespace lint，保留日志原始字节；
+代码 whitespace/lint 检查正常执行。

@@ -5,3 +5,6 @@
 
 # Archived evidence is relocated verbatim, including its original line endings.
 reports/archive/** -text -whitespace
+
+# Keep measured V4.1 raw logs byte-for-byte; code whitespace checks remain enabled.
+examples/operators/dsv41_4l/results/**/*.log -text -whitespace
