@@ -7,13 +7,13 @@ from pathlib import Path
 
 from benchmarks.models.qwenimage.streams import STREAMS
 
-# Checks per (stream, dtype) case.
+# Checks per (stream, dtype) case; final modulation adds long-sequence cases.
 CHECKS_PER_CASE = {
-    "accuracy": {"image": 2, "text": 2},
-    "accuracy_large": {"image": 2, "text": 2},
-    "bi": {"image": 402, "text": 402},
-    "workload": {"image": 15, "text": 15},
-    "parameters": {"image": 21, "text": 21},
+    "accuracy": {"image": 2, "text": 2, "final": 5},
+    "accuracy_large": {"image": 2, "text": 2, "final": 2},
+    "bi": {"image": 402, "text": 402, "final": 408},
+    "workload": {"image": 15, "text": 15, "final": 15},
+    "parameters": {"image": 21, "text": 21, "final": 21},
 }
 
 p = argparse.ArgumentParser()
