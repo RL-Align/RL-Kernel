@@ -29,6 +29,13 @@ output does not depend on R (``scripts/check_dsv4_moe_ep.py``). The collectives 
 NCCL ``all_to_all_single`` (pure byte movement); the split sizes are read on the host
 (one sync per forward).
 
+The static exchange (``Dsv4MoE.ep_static_tokens``, forward only; the rollout's decode
+steps) has no host sync and fixed shapes, so it captures in a CUDA graph: every rank sends
+every rank a fixed ``tokens x top-k`` rows (the most any rank can send one rank), counts on
+the device, and the receiver orders the valid rows by (local expert, source rank, row) on
+the device, which is the order above; the trailing rows are padding the expert kernels skip
+(they read only up to ``offsets[-1]``). Same bytes as the dynamic exchange, row for row.
+
 Backward (``_MoEBlockFn``; expert, shared-expert and gate weights frozen): the output
 gradient goes to every row of its token, the routed experts run the P5 SM90 backward
 (``z`` recomputed) on the ranks that own them, along the forward's splits; ``dx`` is
@@ -84,8 +91,10 @@ class _Exchange:
     """What the return all-to-all needs from the dispatch one."""
 
     local_perm: Tensor  # int64 [Q]: row q of the expert-ordered batch is arrival row local_perm[q]
-    send_splits: list[int]
-    recv_splits: list[int]
+    send_splits: list[int] | None  # None: the static exchange
+    recv_splits: list[int] | None
+    slot: Tensor | None = None  # static: send-buffer row of each plan row, int64 [rows]
+    capacity: int = 0  # static: rows per (source, destination) pair
 
 
 def _all_to_all(src: Tensor, out_rows: int, out_splits, in_splits, group) -> Tensor:
@@ -98,6 +107,64 @@ def _all_to_all(src: Tensor, out_rows: int, out_splits, in_splits, group) -> Ten
         group=group,
     )
     return out
+
+
+def _static_all_to_all(t: Tensor, slot: Tensor, rows: int, group) -> Tensor:
+    """Place ``t``'s rows at ``slot`` of a zeroed ``[rows, ...]`` buffer; equal-split exchange."""
+    buf = t.new_zeros((rows, *t.shape[1:]))
+    buf.index_copy_(0, slot, t)
+    out = torch.empty_like(buf)
+    dist.all_to_all_single(out, buf, group=group)
+    return out
+
+
+def ep_dispatch_static(
+    rows: _Rows, plan: RoutePlan, group, capacity: int
+) -> tuple[_Rows, _Exchange]:
+    """:func:`ep_dispatch` without a host sync: ``capacity`` rows per (source, destination)
+    pair, every rank the same. Returns ``world x capacity`` rows in expert order, the valid
+    ones first (``offsets[-1]`` of them), then padding."""
+    world = dist.get_world_size(group)
+    experts = plan.num_experts
+    if experts % world:
+        raise ValueError(f"{experts} experts do not split over {world} ranks")
+    local = experts // world
+    q = rows.codes.shape[0]
+    if q > capacity:
+        raise ValueError(f"{q} rows exceed the static exchange's {capacity} per rank")
+    dev = rows.codes.device
+    offs = rows.offsets.long()
+    i = torch.arange(q, device=dev)
+    expert = torch.searchsorted(offs[1:], i, right=True)
+    dest = torch.div(expert, local, rounding_mode="floor")
+    first = offs[torch.arange(world, device=dev) * local]  # first row for each destination
+    slot = dest * capacity + (i - first[dest])
+    total = world * capacity
+    send_counts = (rows.offsets[1:] - rows.offsets[:-1]).contiguous()  # int32 [E]
+    recv_counts = torch.empty_like(send_counts)  # [R * E_local]: source-major
+    dist.all_to_all_single(recv_counts, send_counts, group=group)
+    codes = _static_all_to_all(rows.codes, slot, total, group)
+    scales = _static_all_to_all(rows.scales, slot, total, group)
+    p_s = _static_all_to_all(rows.p_s, slot, total, group)
+
+    # Arrival row (s, j): source s's j-th row, of local expert e (its rows are expert-sorted).
+    rc = recv_counts.view(world, local).long()
+    upto = rc.cumsum(1)
+    j = torch.arange(capacity, device=dev).expand(world, capacity).contiguous()
+    e = torch.searchsorted(upto, j, right=True)
+    valid = (e < local).flatten()
+    e = e.clamp(max=local - 1)
+    offsets = torch.zeros(local + 1, dtype=torch.int64, device=dev)
+    offsets[1:] = rc.sum(0).cumsum(0)
+    # Expert e's rows, source-major: offsets[e] + rows of e from lower sources + rank in s.
+    base = offsets[:-1].unsqueeze(0) + (rc.cumsum(0) - rc)
+    at = base.gather(1, e) + (j - (upto - rc).gather(1, e))
+    pad = offsets[-1] + (~valid).long().cumsum(0) - 1
+    target = torch.where(valid, at.flatten(), pad)
+    local_perm = torch.empty(total, dtype=torch.int64, device=dev)
+    local_perm.index_copy_(0, target, torch.arange(total, device=dev))
+    out = _Rows(codes[local_perm], scales[local_perm], p_s[local_perm], offsets.to(torch.int32))
+    return out, _Exchange(local_perm, None, None, slot, capacity)
 
 
 def ep_dispatch(rows: _Rows, plan: RoutePlan, group) -> tuple[_Rows, _Exchange]:
@@ -134,6 +201,9 @@ def ep_dispatch(rows: _Rows, plan: RoutePlan, group) -> tuple[_Rows, _Exchange]:
 def ep_send(t: Tensor, ex: _Exchange, group) -> Tensor:
     """Send an extra per-row tensor (plan order) along the dispatch splits; the receiver
     gets it in its expert order, like the dispatched rows."""
+    if ex.slot is not None:
+        total = ex.local_perm.shape[0]
+        return _static_all_to_all(t, ex.slot, total, group)[ex.local_perm]
     arrival = _all_to_all(t, sum(ex.recv_splits), ex.recv_splits, ex.send_splits, group)
     return arrival[ex.local_perm]
 
@@ -142,6 +212,10 @@ def ep_return(y_local: Tensor, ex: _Exchange, group) -> Tensor:
     """Send expert outputs back; the sender receives them in its own plan order."""
     arrival = torch.empty_like(y_local)
     arrival[ex.local_perm] = y_local
+    if ex.slot is not None:
+        back = torch.empty_like(arrival)
+        dist.all_to_all_single(back, arrival, group=group)
+        return back[ex.slot]
     return _all_to_all(arrival, sum(ex.send_splits), ex.send_splits, ex.recv_splits, group)
 
 
@@ -162,6 +236,9 @@ class Dsv4MoE:
     check_finite: bool | str = True
     nonfinite: Tensor | None = None  # int32 [1], with check_finite == "defer"
     lora: Any = None  # MoeLora (lora.py): routed fc1 / fc2 and shared-expert adapters
+    # Forward-only static EP exchange (module docstring): the most tokens any rank of the
+    # EP group has in this forward, the same on every rank; None = the dynamic exchange.
+    ep_static_tokens: int | None = None
     _routed: Any = field(default=None, init=False, repr=False)
     _shared: Any = field(default=None, init=False, repr=False)
     _shared_w: Any = field(default=None, init=False, repr=False)
@@ -255,11 +332,16 @@ class Dsv4MoE:
             plan.expert_offsets,
         )
         if self._routed_lora():
-            return self._routed_lora_forward(x, rows, plan, hidden)
+            return self._routed_lora_forward(x, rows, plan, hidden, weights.shape[1])
         if self.ep_group is None:
             return self._expert_forward(rows, hidden), (rows, None)
-        local, ex = ep_dispatch(rows, plan, self.ep_group)
+        local, ex = self._dispatch(rows, plan, weights.shape[1])
         return ep_return(self._expert_forward(local, hidden), ex, self.ep_group), (local, ex)
+
+    def _dispatch(self, rows: _Rows, plan: RoutePlan, top_k: int) -> tuple[_Rows, _Exchange]:
+        if self.ep_static_tokens is None:
+            return ep_dispatch(rows, plan, self.ep_group)
+        return ep_dispatch_static(rows, plan, self.ep_group, self.ep_static_tokens * top_k)
 
     def routed_backward(
         self, dy_rows: Tensor, state: tuple[_Rows, _Exchange | None]
@@ -272,6 +354,8 @@ class Dsv4MoE:
             raise RuntimeError("routed-expert LoRA state: use routed_lora_backward")
         if ex is None:
             return self._expert_backward(rows, dy_rows, hidden)
+        if ex.slot is not None:
+            raise NotImplementedError("the static EP exchange is forward only")
         arrival = _all_to_all(
             dy_rows, sum(ex.recv_splits), ex.recv_splits, ex.send_splits, self.ep_group
         )
@@ -311,7 +395,9 @@ class Dsv4MoE:
             y = lora_delta(h, lo.fc2).add_(y).to(torch.bfloat16)
         return y, h
 
-    def _routed_lora_forward(self, x: Tensor, rows: _Rows, plan: RoutePlan, hidden: int):
+    def _routed_lora_forward(
+        self, x: Tensor, rows: _Rows, plan: RoutePlan, hidden: int, top_k: int
+    ):
         """Routed experts with the shared routed adapters, EP = 1 or EP > 1."""
         from rl_engine.models.deepseek_v4.lora import lora_delta, lora_hidden, lora_up
 
@@ -327,7 +413,7 @@ class Dsv4MoE:
         u1 = None
         if lo.fc1 is not None:
             u1 = lora_hidden(x, lo.fc1).index_select(0, plan.token)
-        local, ex = ep_dispatch(rows, plan, self.ep_group)
+        local, ex = self._dispatch(rows, plan, top_k)
         z_add = token = None
         if u1 is not None:
             state["u1_local"] = ep_send(u1, ex, self.ep_group)
@@ -356,6 +442,8 @@ class Dsv4MoE:
         hidden = dy_rows.shape[1]
         group = self.ep_group
         dev = dy_rows.device
+        if ex is not None and ex.slot is not None:
+            raise NotImplementedError("the static EP exchange is forward only")
         if ex is not None:
             dy_local = ep_send(dy_rows, ex, group)
             u1_local = ls.get("u1_local")

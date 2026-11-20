@@ -18,6 +18,10 @@ The LoRA dX path is not required to be batch-invariant (design doc, section 1). 
 routed adapters' gradients (summed over the EP group inside the backward) must match the
 EP = 1 gradients to the same tolerance.
 
+``--static`` runs the forward-only static exchange (``Dsv4MoE.ep_static_tokens``, the
+rollout's): outputs must match EP = 1 byte for byte. ``--graph`` also captures each EP
+forward in a CUDA graph on zero inputs, then replays it on the case's inputs.
+
 Usage (SM90, a ``KERNEL_ALIGN_MOE_SM90=1`` build, DeepGEMM):
     torchrun --nproc-per-node 8 scripts/check_dsv4_moe_ep.py [--hidden 1024 --ffn 256]
 """
@@ -79,7 +83,11 @@ def main() -> int:
     parser.add_argument("--shared-ffn", type=int, default=256)
     parser.add_argument("--forward-only", action="store_true")
     parser.add_argument("--lora", action="store_true")
+    parser.add_argument("--static", action="store_true", help="static exchange (forward)")
+    parser.add_argument("--graph", action="store_true", help="static, in a CUDA graph")
     args = parser.parse_args()
+    args.static |= args.graph
+    args.forward_only |= args.static
 
     dist.init_process_group("nccl")
     rank, world = dist.get_rank(), dist.get_world_size()
@@ -127,6 +135,7 @@ def main() -> int:
         return Dsv4MoE(router, w1, w2, s1, s2, lora=make_lora())
 
     ok = True
+    graphs = []  # released before the process group: a live graph holds NCCL work
     backward = not args.forward_only
     for hash_layer in (False, True):
         ep_moe = block(hash_layer, True)
@@ -162,7 +171,41 @@ def main() -> int:
                 return out
 
             outs, grads, lgrads = [], [], []
+            if args.static:
+                # Slack over the largest rank: padding rows on every rank.
+                ep_moe.ep_static_tokens = max(sizes) + 3
+            run = None
+            if args.graph:
+                ep_moe.check_finite = "defer"  # the rollout's: no host read in the forward
+                xs = torch.zeros_like(x[a:b])
+                rs = torch.zeros_like(res[a:b])
+                ids_s = torch.zeros_like(ids[a:b])
+                side = torch.cuda.Stream()
+                side.wait_stream(torch.cuda.current_stream())
+                with torch.no_grad(), torch.cuda.stream(side):
+                    ep_moe.forward(xs, rs, ids_s)  # warm up off the capture
+                torch.cuda.current_stream().wait_stream(side)
+                graph = torch.cuda.CUDAGraph()
+                with torch.no_grad(), torch.cuda.graph(graph):
+                    ys = ep_moe.forward(xs, rs, ids_s)
+                graphs.append(graph)
+
+                def run():
+                    xs.copy_(x[a:b])
+                    rs.copy_(res[a:b])
+                    ids_s.copy_(ids[a:b])
+                    graph.replay()
+                    return ys.clone()
+
             for _ in range(2):
+                if args.static:
+                    with torch.no_grad():
+                        if run is not None:
+                            y = run()
+                        else:
+                            y = ep_moe.forward(x[a:b], res[a:b].contiguous(), ids[a:b].contiguous())
+                    outs.append(gather(y))
+                    continue
                 xr = x[a:b].clone().requires_grad_(True)
                 y = ep_moe.forward(xr, res[a:b].contiguous(), ids[a:b].contiguous())
                 if backward:
@@ -202,14 +245,19 @@ def main() -> int:
                 )
                 if backward and args.lora:
                     bwd += f", LoRA grads rel {lerr:.1e}"
+                mode = " graph" if args.graph else " static" if args.static else ""
                 print(
-                    f"EP={world} {kind:6} {name:11} sizes={sizes} "
+                    f"EP={world}{mode} {kind:6} {name:11} sizes={sizes} "
                     f"{'PASS' if good else 'FAIL'} (max |diff| {diff:.3g}, "
                     f"run-to-run {'same' if rerun else 'DIFFERS'}{bwd})",
                     flush=True,
                 )
     flag = torch.tensor([1 if ok else 0], device=dev)
     dist.broadcast(flag, 0)
+    torch.cuda.synchronize()
+    for graph in graphs:
+        graph.reset()
+    graphs.clear()
     dist.destroy_process_group()
     if rank == 0:
         print("ALL EP CHECKS PASS" if flag.item() else "EP CHECKS FAILED", flush=True)
