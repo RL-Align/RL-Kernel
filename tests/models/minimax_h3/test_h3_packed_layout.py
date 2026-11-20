@@ -314,9 +314,21 @@ def test_structure_of_a_layout_without_target_video_rows_is_refused():
     # answer with an error, not an IndexError.
     no_target = dataclasses.replace(_toy_layout("ref2va", cond=2), num_condition_video_rows=6)
     no_target.validate()
-    for check in (pl.structural_workflow, pl.check_pipeline_identity, pl.layout_artifact):
-        with pytest.raises(ValueError, match="no target video rows"):
-            check(no_target)
+    # Without conditioning rows either (text and audio rows only), which would read as t2va.
+    text_and_audio = pl.build_layout(
+        workflow="t2va",
+        text_token_tags=torch.tensor([1, 0, 1]),
+        position_ids=torch.zeros(5, 3, dtype=torch.float64),
+        video_indices=torch.empty(0, dtype=torch.long),
+        audio_indices=torch.arange(3, 5),
+        num_condition_video_rows=0,
+        num_condition_audio_rows=0,
+        geometry={"toy": True},
+    )
+    for layout in (no_target, text_and_audio):
+        for check in (pl.structural_workflow, pl.check_pipeline_identity, pl.layout_artifact):
+            with pytest.raises(ValueError, match="no target video rows"):
+                check(layout)
 
 
 # --- artifact (H-C7) ----------------------------------------------------------------------
