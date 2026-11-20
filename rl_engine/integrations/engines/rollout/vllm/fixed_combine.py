@@ -35,11 +35,13 @@ class _FixedReduce(TorchDispatchMode):
         kwargs = kwargs or {}
         if func is not torch.ops.aten.index_add_.default:
             return func(*args, **kwargs)
-        target, dim, tokens, values = args
+        return self.reduce(*args, **kwargs)
+
+    def reduce(self, target, dim, tokens, values, *, alpha=1):
         if (
             self.calls
             or dim != 0
-            or kwargs.get("alpha", 1) != 1
+            or alpha != 1
             or values.dtype != torch.float32
             or target.dtype != torch.float32
             or tuple(target.shape) != (self.ids.shape[0], values.shape[1])
@@ -128,8 +130,36 @@ def bind_fixed_combine(ffn):
         if bound.arguments["expert_map"] is not None or self._lora_context is not None:
             raise ValueError("fixed native Top6 combine requires EP1 without LoRA")
         mode = _FixedReduce(ids)
-        with mode:
-            result = original(*args, **kwargs)
+
+        class Accumulator:
+            def __init__(self, tensor):
+                self.tensor = tensor
+
+            def index_add_(self, dim, index, source, *, alpha=1):
+                mode.reduce(self.tensor, dim, index, source, alpha=alpha)
+                return self
+
+            def to(self, *args, **kwargs):
+                return self.tensor.to(*args, **kwargs)
+
+        class TorchBoundary:
+            def __getattr__(self, name):
+                return getattr(torch, name)
+
+            def zeros(self, *args, **kwargs):
+                return Accumulator(torch.zeros(*args, **kwargs))
+
+        # Keep dispatch modes out of upstream matmul/compiled activation. Only
+        # this function's local zero accumulator changes its index_add_ method.
+        scoped = types.FunctionType(
+            function.__code__,
+            dict(function.__globals__, torch=TorchBoundary()),
+            function.__name__,
+            function.__defaults__,
+            function.__closure__,
+        )
+        scoped.__kwdefaults__ = function.__kwdefaults__
+        result = scoped(self, *args, **kwargs)
         if mode.calls != 1:
             raise RuntimeError(
                 "native expert apply did not execute exactly one fixed combine"
