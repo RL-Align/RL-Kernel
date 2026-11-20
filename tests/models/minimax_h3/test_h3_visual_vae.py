@@ -275,6 +275,30 @@ def test_pinned_runtime_restores_flags() -> None:
     assert (cudnn.deterministic, cudnn.benchmark, cudnn.allow_tf32) == before
 
 
+def _fake_gpus(monkeypatch) -> None:
+    """CUDA present, current device 0, names and capabilities that tell the indices apart."""
+
+    # cuDNN checks the real devices on its first version() call; make that call first.
+    if torch.backends.cudnn.is_available():
+        torch.backends.cudnn.version()
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda index: f"gpu{index}")
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda index: (9, index))
+
+
+def test_runtime_readback_names_the_given_device(monkeypatch) -> None:
+    _fake_gpus(monkeypatch)
+    assert vv.runtime_readback()["device_name"] == "gpu0"
+    assert vv.runtime_readback("cuda")["device_name"] == "gpu0"
+    one = vv.runtime_readback(torch.device("cuda", 1))
+    assert (one["device_name"], one["compute_capability"]) == ("gpu1", [9, 1])
+    cpu = vv.runtime_readback("cpu")
+    assert "device_name" not in cpu and "compute_capability" not in cpu
+    with vv.pinned_runtime(device="cuda:1") as readback:
+        assert readback["device_name"] == "gpu1"
+
+
 def test_pinned_runtime_serializes_threads() -> None:
     """A second thread's scope must not start inside the first one's: interleaved scopes
     save each other's pinned flags and leave the process pinned after both return."""
@@ -546,6 +570,18 @@ def test_batch_rows_are_independent(device: str) -> None:
     assert alone.row_digests[0] == decoded.row_digests[1]
     assert alone.digest == tensor_digest(alone.tensor)
     assert decoded.digest == tensor_digest(decoded.tensor)
+
+
+def test_record_names_the_vae_device(monkeypatch) -> None:
+    """A CPU run must not record the GPU that happens to be current."""
+
+    contract = vv.VisualVAEContract(_tiny_vae("cpu"), require_release=False)
+    _fake_gpus(monkeypatch)
+    encoded = contract.encode(_pixels(1, 22))
+    decoded = contract.decode(encoded.tensor)
+    for out in (encoded, decoded):
+        assert "device_name" not in out.record["runtime"]
+        assert "compute_capability" not in out.record["runtime"]
 
 
 @needs_cuda
