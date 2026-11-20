@@ -561,6 +561,55 @@ keeps its adapters): 0 at step 1 (zero-B adapters equal the base model), 4096 of
 from step 2. The vLLM plugin is installed in the dev env as an entry-point-only package
 (`~/dsv4-work/rlk-plugin`); `pip install` of RL-Kernel provides the same entry point.
 
+### 10.2 Megatron as the actor (investigated 2026-11-20, not planned)
+
+Read from the verl #7483 environment (verl `8c047f4d`, Megatron-Core 0.19.0+fd1121b8f,
+Megatron-Bridge 0.6.0+c7774d44, TE 2.20.2); nothing was run. Question: could verl's
+Megatron engine be the actor with our operators swapped in?
+
+It can without forking verl or Megatron, but only at **decoder-layer granularity**. Many
+of MCore's numerics live in module code, not kernels, and every native MCore operator
+left in place gives bytes the rollout does not have:
+
+| Piece | MCore 0.19 | Ours |
+|---|---|---|
+| mHC RMS | `1/(sqrt(mean x^2) + eps)` (`hyper_connection.py:94`) | `rsqrt(mean + eps)` |
+| mHC mixing | weights cast to BF16 before mixing (`:356-361`); fused split-K autotuned per shape | FP32, fixed 16-way split |
+| Attention | separate grad / no-grad paths, different index order (`csa.py:1871`); compressor sums in BF16; `torch.topk` | one path, vLLM order |
+| Router | BF16 gate via TE GEMM, `s / (sum + 1e-20) * 1.5`, `torch.topk` ties unspecified | DeepGEMM gate, `w * (c / S)`, ties to smaller id |
+| Routed experts | BF16, TE GroupedLinear (one cuBLAS GEMM per expert, algorithm per M) | MXFP8 x MXFP4, SM90 kernel |
+| LoRA (Bridge PEFT) | `d = BF16(h B^T)`, BF16 scale, BF16 add; adapters BF16 | FP32 `d` and add |
+| Weights | Bridge dequantizes everything to BF16 at import | FP8 128x128 blocks, MXFP4 |
+| Log-probs | verl's Triton fused linear-CE, `logits * (1 / T)` | `selected_logprob` |
+
+The MoE combine (TE `_unpermute_kernel`, FP32 sum in expert-index order) is batch-invariant;
+no batch-invariant GEMM mode exists in MCore. TP must be 1 for DSv4 attention (asserted).
+
+What the swap would take:
+
+- A `DeepSeekV4Bridge` subclass loaded through `model.external_lib` (the bridge registry is
+  last-writer-wins) with a custom `transformer_layer_spec` wrapping `Dsv4Layer` under
+  MCore's parameter names; it keeps the FP8 / MXFP4 tensors and scales instead of
+  dequantizing. Our layers already have autograd Functions (`_MoEBlockFn`,
+  `Dsv4AttentionFunction`, `_RecomputedLayer`).
+- `selected_logprob` through `GPTModel`'s `output_processor` (or the unfused path, patched).
+- A PEFT LoRA class with the `dsv4-lora-v1` arithmetic, and a sync that sends adapters to
+  our rollout plugin: with `model.lora.rank > 0` verl turns on vLLM's own LoRA.
+- `moe_router_bias_update_rate = 0` (MCore otherwise moves the expert bias every step),
+  router replay off, and the `[s, b, h]` / THD packing (fused kernels pad to at least 128
+  rows) converted to our packed layout.
+
+What remains of Megatron is the shell: `GPTModel`, embedding, DDP, optimizer and offload,
+distributed checkpoints, recompute scheduling. Decision (owner, 2026-11-20): not now; the
+`rlkernel` engine already runs this forward. Revisit for PP / optimizer offload on larger
+models, or for a same-framework comparison (MCore with our layers vs native MCore).
+
+The baseline's LoRA is not our configuration, which matters when comparing reward curves:
+it also targets the compressor, indexer and router; `experts_shared_outer_loras` gives fc1
+`B` and fc2 `A` per expert; adapters are BF16 (`lora.dtype=float32` does not reach the
+parallel linears); `lora_plus_ratio` is dropped. Its expert bias drifts, but R3 replays
+the rollout's routes, so the drift does not select experts.
+
 ## 11. Legacy code not used by DSv4
 
 Kept in the tree, not on the DSv4 path, and without DSv4 tests:

@@ -41,7 +41,9 @@ The technical ones are in the design doc (4.2). In short:
 - **verl integration (2026-11-15, "option A"):** the actor is a verl engine backend
   `rlkernel` on `Dsv4Model`, not Megatron, so verl, vLLM and Megatron stay unmodified
   (Megatron would need nearly every operator swapped plus verl's own logprob code).
-  Everything lives in `rl_engine/integrations/dsv4/` as plugins.
+  Everything lives in `rl_engine/integrations/dsv4/` as plugins. Re-checked 2026-11-20
+  (design doc 10.2): a Megatron actor works only by swapping whole decoder layers, the
+  weight import, LoRA and log-probs; not now.
 - **Deliverable:** RL-Kernel + verl (Hopper, BI, LoRA) against verl #7483 (Hopper, not
   BI, LoRA), with an ablation that turns BI off in our stack to separate engine and kernel
   effects on speed.
