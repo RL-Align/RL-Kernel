@@ -130,6 +130,8 @@ the module imports it only on the keyframe path, so `t2va` runs without it.
 ## Ref2VA
 
 `rl_engine/models/minimax_h3/ref2va.py`, workflow `ref2va` on `transformer_ref/`.
+Reference media need Pillow, which is not a base dependency of RL-Kernel (`pip install
+Pillow`); the module imports it only to normalise images and resize videos.
 
 - **`validate_references`.**
   - Limits: at most 9 images, 3 videos, 3 audios and 12 references in total.

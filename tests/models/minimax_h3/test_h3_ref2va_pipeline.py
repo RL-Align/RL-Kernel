@@ -436,6 +436,35 @@ def test_repeated_preprocessing_in_a_fresh_process_is_byte_identical():
     assert json.loads(out.stdout.strip().splitlines()[-1]) == ref2va_preprocess()
 
 
+def test_layout_and_rows_run_without_pillow():
+    # Pillow is not a base dependency: the module, the layout and the initial rows must not
+    # need it; normalising an image reference does.
+    no_pillow = (
+        "import sys; sys.path.insert(0, sys.argv[1]); sys.modules['PIL'] = None;"
+        "import torch; from rl_engine.models.minimax_h3 import ref2va;"
+    )
+    rows = (
+        "blocks = ref2va.reference_blocks([('image', False)], [(1, 24, 1, 4, 6)], []);"
+        "layout = ref2va.build_ref2va_layout(torch.ones(5, dtype=torch.long), blocks,"
+        " height=64, width=96, num_frames=124);"
+        "ref2va.ref2va_initial_rows(layout, [torch.zeros(1, 24, 1, 4, 6)], [],"
+        " generator=torch.Generator().manual_seed(0));"
+        "print(layout.workflow)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", no_pillow + rows, str(REPO)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert out.stdout.strip().splitlines()[-1] == "ref2va"
+    image = "ref2va.normalize_image_reference(torch.zeros(3, 64, 64))"
+    failed = subprocess.run(
+        [sys.executable, "-c", no_pillow + image, str(REPO)], capture_output=True, text=True
+    )
+    assert failed.returncode != 0 and "PIL" in failed.stderr.splitlines()[-1]
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 def test_initial_rows_on_cuda_equal_cpu_bytes():
     pytest.importorskip("torchaudio")
@@ -819,3 +848,48 @@ def test_layout_matches_sglang_ref2va_blocks_prefix():
         assert torch.equal(packed["token_tags"][:used], layout.token_tags)
         assert torch.equal(packed["img_pos"], layout.video_indices)
         assert torch.equal(packed["audio_pos"], layout.audio_indices)
+
+
+def test_report_counts_a_dtype_change_as_a_difference(monkeypatch):
+    """The evidence tool's SGLang count must see dtypes: a stand-in that returns our own
+    layout with int32 indices is equal by value and not bitwise."""
+
+    import importlib.util
+    import types
+
+    sys.path.insert(0, str(REPO / "tools/validation/models"))
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "h3_ref2va_report", REPO / "tools/validation/models/h3_ref2va_report.py"
+        )
+        assert spec is not None and spec.loader is not None
+        report = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(report)
+    finally:
+        sys.path.remove(str(REPO / "tools/validation/models"))
+    built: list = []
+    build = ref2va.build_ref2va_layout
+    monkeypatch.setattr(
+        ref2va, "build_ref2va_layout", lambda *a, **k: built.append(build(*a, **k)) or built[-1]
+    )
+
+    def stand_in(index_dtype):
+        def packed_sequence(**kw):
+            ours = built[-1]  # the layout the report built just before calling SGLang
+            return {
+                "img_position_ids": ours.position_ids,
+                "token_tags": ours.token_tags,
+                "img_pos": ours.video_indices.to(index_dtype),
+                "audio_pos": ours.audio_indices.to(index_dtype),
+            }
+
+        return types.SimpleNamespace(minimax_h3_packed_sequence_ref2va_blocks=packed_sequence)
+
+    sglang = "sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3"
+    monkeypatch.setitem(sys.modules, "diffusers.modular_pipelines.minimax_h3", None)
+    for index_dtype, equal in ((torch.long, 100), (torch.int32, 0)):
+        fake = types.ModuleType(sglang)
+        fake.packed_sequence = stand_in(index_dtype)  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, sglang, fake)
+        out = report.reference()["sglang_prefix"]
+        assert (out["cases"], out["bitwise_equal"]) == (100, equal), index_dtype

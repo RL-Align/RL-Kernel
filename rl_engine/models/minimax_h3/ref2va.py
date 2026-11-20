@@ -38,14 +38,16 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 import numpy as np
 import torch
-from PIL import Image
 
 from rl_engine.models.minimax_h3 import checkpoint_mapper
 from rl_engine.models.minimax_h3 import packed_layout as pl
+
+if TYPE_CHECKING:  # Pillow is not a base dependency; only the media normalisation imports it
+    from PIL import Image
 
 WORKFLOW = "ref2va"
 KINDS = ("image", "video", "audio")
@@ -131,6 +133,8 @@ def resolve_ref2va_plan(
 def _to_pil(image: Any) -> Image.Image:
     """Diffusers' route onto PIL: uint8 -> [0, 1] float -> ``(x * 255).round().astype(uint8)``."""
 
+    from PIL import Image
+
     if isinstance(image, torch.Tensor):
         if image.dtype == torch.uint8:
             image = image.float() / 255.0
@@ -153,6 +157,8 @@ def normalize_image_reference(
     multiple: int = pl.CANVAS_MULTIPLE,
 ) -> Image.Image:
     """Own short edge (2048), rounded to the canvas multiple, no area cap, PIL LANCZOS."""
+
+    from PIL import Image
 
     image = _to_pil(image)
     width, height = image.size
@@ -210,6 +216,8 @@ def normalize_video_reference(
     )
     if frames.shape[1:3] == (height, width):
         return frames
+    from PIL import Image
+
     return np.stack(
         [
             np.asarray(Image.fromarray(f).resize((width, height), Image.Resampling.LANCZOS))
