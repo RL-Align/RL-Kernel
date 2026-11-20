@@ -109,7 +109,9 @@ def test_cp_attention_operator_spec_registers_backward_grad_inputs():
 
 
 def test_multi_axis_rope_operator_spec_and_seeded_inputs():
-    args = _args(op="multi_axis_rope", batch=2, seq=7, n_heads=3, input_mode="random")
+    args = _args(
+        op="multi_axis_rope", candidate="pytorch", batch=2, seq=7, n_heads=3, input_mode="random"
+    )
     case = make_operator_case(args, torch.float32, torch.device("cpu"))
     inputs = make_operator_inputs("multi_axis_rope", args, torch.float32, torch.device("cpu"))
     repeated = make_operator_inputs("multi_axis_rope", args, torch.float32, torch.device("cpu"))
@@ -124,6 +126,13 @@ def test_multi_axis_rope_operator_spec_and_seeded_inputs():
         make_operator_inputs(
             "multi_axis_rope", _args(head_dim=64), torch.float32, torch.device("cpu")
         )
+
+    report = run_operator_suite(
+        args.op, candidates=[make_candidate(args)], cases=[case], check_grad=True
+    )
+    assert report.passed
+    trace = report.candidates[0].cases[0].backend_trace
+    assert trace["actual_backend"] == "rlkernel.reference.qwenimage_multi_axis_rope.v1"
 
 
 @pytest.mark.parametrize(
