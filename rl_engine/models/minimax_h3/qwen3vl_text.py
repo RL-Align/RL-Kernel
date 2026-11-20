@@ -522,6 +522,18 @@ class Qwen3VLLayer50Encoder:
                 got = list(got)
             if got != value:
                 raise ValueError(f"vision_config.{key}={got!r}, pinned {value!r}")
+        # Qwen3VLModel scatters the vision features onto the tokens equal to these config ids,
+        # while the presentation checks use the pinned token table: the two must agree.
+        tokens = vision_token_ids()
+        for key, name in (
+            ("image_token_id", IMAGE_PAD),
+            ("video_token_id", VIDEO_PAD),
+            ("vision_start_token_id", VISION_START),
+            ("vision_end_token_id", VISION_END),
+        ):
+            got = getattr(self.model.config, key, None)
+            if got != tokens[name]:
+                raise ValueError(f"{key}={got!r}, pinned {tokens[name]} ({name})")
 
     @property
     def device(self) -> torch.device:

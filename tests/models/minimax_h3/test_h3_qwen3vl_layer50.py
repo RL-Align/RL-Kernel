@@ -232,6 +232,27 @@ def test_tiny_config_fails_the_release_check(tiny: Any) -> None:
         q.Qwen3VLLayer50Encoder(tiny)
 
 
+@pytest.mark.parametrize(
+    "key", ["image_token_id", "video_token_id", "vision_start_token_id", "vision_end_token_id"]
+)
+def test_release_check_pins_the_vision_placeholder_ids(key: str, tiny_fresh: list[Any]) -> None:
+    encoder = _encoder(tiny_fresh.pop())
+    pinned = q.release_fingerprint()
+    # A config with the pinned text/vision values (no weights): passes the check as is.
+    encoder.model.config = transformers.Qwen3VLConfig(
+        text_config={**pinned["text_config"], "rope_parameters": dict(pinned["rope"])},
+        vision_config={**pinned["vision_config"], "rope_parameters": dict(VISION_ROPE)},
+        image_token_id=IDS[q.IMAGE_PAD],
+        video_token_id=IDS[q.VIDEO_PAD],
+        vision_start_token_id=IDS[q.VISION_START],
+        vision_end_token_id=IDS[q.VISION_END],
+    )
+    encoder._check_release_config()
+    setattr(encoder.model.config, key, IDS[q.VISION_START] - 1)
+    with pytest.raises(ValueError, match=key):
+        encoder._check_release_config()
+
+
 def test_offload_hook_is_rejected(tiny: Any) -> None:
     tiny._hf_hook = object()
     try:
