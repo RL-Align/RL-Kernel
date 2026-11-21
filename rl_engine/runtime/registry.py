@@ -120,9 +120,17 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.backends.cuda.model_specific.qwenimage."
         "adaln_mod_projection.QwenImageAdaLNModProjectionCudaOp"
     )
+    CUDA_QWENIMAGE_FINAL_ADALN_OUT = (
+        "rl_engine.backends.cuda.model_specific.qwenimage."
+        "final_adaln_out.QwenImageFinalAdaLNOutCudaOp"
+    )
     PYTORCH_QWENIMAGE_ADALN_MOD_PROJECTION = (
         "rl_engine.reference.model_specific.qwenimage."
         "adaln_mod_projection.QwenImageAdaLNModProjectionReference"
+    )
+    PYTORCH_QWENIMAGE_FINAL_ADALN_OUT = (
+        "rl_engine.reference.model_specific.qwenimage."
+        "final_adaln_out.QwenImageFinalAdaLNOutReference"
     )
     PYTORCH_LATENT_PACK = (
         "rl_engine.reference.model_specific.qwenimage.latent_pack_unpack.NativeLatentPackOp"
@@ -865,11 +873,18 @@ class KernelRegistry:
         # CUDA strict operators deliberately have no reference fallback.
         for platform in ("rocm", "npu", "musa"):
             self._priority_map[platform]["qwenimage_adaln_mod_projection"] = []
+            self._priority_map[platform]["qwenimage_final_adaln_out"] = []
         self._priority_map["cuda"]["qwenimage_adaln_mod_projection"] = [
             OpBackend.CUDA_QWENIMAGE_ADALN_MOD_PROJECTION
         ]
+        self._priority_map["cuda"]["qwenimage_final_adaln_out"] = [
+            OpBackend.CUDA_QWENIMAGE_FINAL_ADALN_OUT
+        ]
         self._priority_map["cpu"]["qwenimage_adaln_mod_projection"] = [
             OpBackend.PYTORCH_QWENIMAGE_ADALN_MOD_PROJECTION
+        ]
+        self._priority_map["cpu"]["qwenimage_final_adaln_out"] = [
+            OpBackend.PYTORCH_QWENIMAGE_FINAL_ADALN_OUT
         ]
         # Qwen-Image latent pack/unpack are exact permutations; every platform
         # keeps the bit-identical PyTorch reference as the final fallback.
