@@ -335,6 +335,7 @@ def get_extensions():
             cuda_sources.extend(
                 [
                     "csrc/cuda/model_specific/qwenimage/det_linear.cu",
+                    "csrc/cuda/model_specific/qwenimage/token_sum.cu",
                     "csrc/cuda/model_specific/qwenimage/latent_pack_unpack.cu",
                 ]
             )
