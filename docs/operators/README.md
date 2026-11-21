@@ -18,11 +18,13 @@ Every operator page should include:
 
 ## Current Pages
 
+- [MHC H Aggregate](mhc-pre-h-aggregate.md) (legacy, not used by DSv4)
 - [SiLU / SwiGLU Activation](activation.md)
 - [Standard Attention](attention.md)
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
 - [Batch-Invariant LogP](batch-invariant-logp.md)
+- [RMSNorm with a Residual Fork](rmsnorm-residual.md) (legacy, not used by DSv4)
 - [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
 - [RoPE](rope.md)
@@ -32,5 +34,15 @@ Every operator page should include:
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- DSv4 (SM90 batch-invariant kernel set; start at the [DSv4 design](../architecture/dsv4-design.md)):
+  - [DSv4 MoE](dsv4-moe.md)
+  - [DSv4 FP8 Group Quant](fp8-group-quant.md)
+  - [DSv4 Indexer Stable Top-K](stable-topk.md)
+  - [DSv4 Indexer Query RoPE + FP8](indexer-q.md)
+  - [DSv4 KV Compressor](compressor.md)
+  - [DSv4 MoE Router](dsv4-router.md)
+  - [DSv4 mHC](dsv4-mhc.md)
+  - [DSv4 Decoder Layer and Model](dsv4-model.md)
+  - [DSv4 Selected-Token Log-Probability](dsv4-logprob.md)
 - [Final Logit Softcap](final-logit-softcap.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

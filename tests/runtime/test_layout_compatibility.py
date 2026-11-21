@@ -110,7 +110,7 @@ def test_unimplemented_models_do_not_register_backends():
         (
             "rl_engine.contracts",
             "profiles/precision/ws1.json",
-            "044167ec21e372017a2758dc09f805b368283c06b83f64061877628cbd101532",
+            "588411eb00c02b9465c8f38c9c47adc8c2906dd9a7e46e53656f996076b734e1",
         ),
     ],
 )

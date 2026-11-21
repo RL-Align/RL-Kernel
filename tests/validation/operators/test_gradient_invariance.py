@@ -588,6 +588,10 @@ class TestAdapters:
             assert adapter.shape_dependent_bwd_accum == "forbidden"
 
     def test_stable_grad_names(self):
+        assert tuple(tensor.name for tensor in get_adapter("mhc_pre_h_aggregate").tensors) == (
+            "dresidual",
+            "dpre",
+        )
         assert tuple(t.name for t in get_adapter("rms_norm").tensors) == ("dx", "dweight")
         assert tuple(t.name for t in get_adapter("det_gemm").tensors) == ("dX", "dW")
         assert tuple(t.name for t in get_adapter("attention").tensors) == ("dQ", "dK", "dV")

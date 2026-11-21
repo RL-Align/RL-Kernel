@@ -1,0 +1,5 @@
+# The rlkernel engine has no critic; verl's dp critic config fills the group (unused by GRPO).
+defaults:
+  - dp_critic
+
+  - _self_

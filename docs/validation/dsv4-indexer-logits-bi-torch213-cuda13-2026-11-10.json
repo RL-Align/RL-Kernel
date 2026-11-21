@@ -1,0 +1,571 @@
+{
+ "device": "NVIDIA H200",
+ "deep_gemm": "2.6.1",
+ "num_sms": 132,
+ "cases": [
+  {
+   "kind": "prefill",
+   "seed": 0,
+   "passed": true,
+   "checks": {
+    "run_to_run": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_3": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_8": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_64": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_129": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_256": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row0_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row1_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row127_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row128_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row129_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row699_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "window": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "packed_offset": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "matches_reference": {
+     "bitwise_equal": true,
+     "rel_err": 0.00015248938871081918
+    },
+    "max_seqlen_k_layout": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    }
+   }
+  },
+  {
+   "kind": "paged",
+   "seed": 0,
+   "passed": true,
+   "checks": {
+    "run_to_run": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req0": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req2": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req5": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req63": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req0": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req2": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req5": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req63": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "block_permutation": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req0": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req2": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req3": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req17": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req63": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    }
+   }
+  },
+  {
+   "kind": "prefill",
+   "seed": 1,
+   "passed": true,
+   "checks": {
+    "run_to_run": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_3": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_8": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_64": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_129": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_256": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row0_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row1_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row127_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row128_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row129_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row699_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "window": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "packed_offset": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "matches_reference": {
+     "bitwise_equal": true,
+     "rel_err": 0.0001665479358052835
+    },
+    "max_seqlen_k_layout": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    }
+   }
+  },
+  {
+   "kind": "paged",
+   "seed": 1,
+   "passed": true,
+   "checks": {
+    "run_to_run": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req0": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req2": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req5": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req63": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req0": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req2": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req5": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req63": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "block_permutation": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req0": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req2": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req3": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req17": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req63": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    }
+   }
+  },
+  {
+   "kind": "prefill",
+   "seed": 2,
+   "passed": true,
+   "checks": {
+    "run_to_run": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_3": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_8": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_64": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_129": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "prefix_256": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row0_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row1_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row127_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row128_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row129_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "row699_alone": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "window": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "packed_offset": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "matches_reference": {
+     "bitwise_equal": true,
+     "rel_err": 0.00016515355673618615
+    },
+    "max_seqlen_k_layout": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    }
+   }
+  },
+  {
+   "kind": "paged",
+   "seed": 2,
+   "passed": true,
+   "checks": {
+    "run_to_run": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req0": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req2": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req5": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch1_req63": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req0": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req2": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req5": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "batch8_req63": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "block_permutation": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req0": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req1": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req2": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req3": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req17": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    },
+    "paged_vs_prefill_req63": {
+     "bitwise_equal": true,
+     "rows_differing": 0,
+     "max_abs": 0.0
+    }
+   }
+  }
+ ]
+}
