@@ -77,8 +77,6 @@ async def _engine(args) -> dict[str, Any]:
         data_parallel_size=1,
         text_encoder_tp_size=args.tp,
         vae_patch_parallel_size=1,
-        usp=1,
-        ring=1,
         enforce_eager=True,
         step_execution=True,
         worker_extension_cls=EXTENSION,
