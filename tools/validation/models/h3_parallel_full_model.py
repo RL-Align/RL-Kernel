@@ -311,7 +311,7 @@ def main() -> None:
         "rank": rank,
         "host": socket.gethostname(),
         "checks": checks,
-        "weight_shards_compared": len(expected),
+        "weight_shards_compared": len(expected) - len(lora_keys),
         "weight_shards_mismatched": base_mismatched[:10],
         "lora_shards_compared": len(lora_keys),
         "lora_shards_mismatched": lora_mismatched[:10],
