@@ -2,7 +2,7 @@
 // Copyright (c) 2026 RL-Kernel Contributors
 // csrc/cuda/gemm/det_gemm_kernel.cu
 //
-// WS1 Batch-invariant deterministic GEMM (hand-written, no CUTLASS).
+// WS1 batch-invariant deterministic GEMM.
 //
 //   SM90 path : TMA load + mma.sync (m16n8k16), FP32 accum, single-CTA-per-tile,
 //               fixed K order, NO split-K -> batch-invariant.
@@ -22,6 +22,11 @@
 #include <c10/cuda/CUDAException.h>
 #include <cuda_bf16.h>
 #include <cstdint>
+
+#if defined(__CUDACC__) && !defined(__HIPCC__) && __has_include(<cute/tensor.hpp>)
+#include <cute/tensor.hpp>
+#define RL_KERNEL_FIXED_TILE_CUTE 1
+#endif
 
 #if defined(RL_KERNEL_ENABLE_SM90)
 #include "det_gemm_tma.cuh"
@@ -378,15 +383,15 @@ void launch_fixed_projection(const nv_bf16* x, const nv_bf16* weight, nv_bf16* o
 // model's large K dimensions have a multiple of 16 leaves, so the first
 // four midpoint splits give 16 equal subtrees. K=256 fits in one subtree.
 constexpr int FIXED_GROUPS = 16;
-constexpr int TILE_ROWS = 32, TILE_COLS = 64, TILE_WARPS = 4;
-constexpr int WGRAD_TILE_COLS = 128;
+constexpr int TILE_ROWS = 32, TILE_COLS = 64, TILE_THREADS = 128;
+constexpr int WGRAD_TILE_ROWS = 64;
 
 struct LeafMerge {
-  int depth;
-  int joins;
+  uint8_t depth;
+  uint8_t joins;
 };
 
-__device__ __forceinline__ LeafMerge leaf_merge(int leaf, int leaves) {
+constexpr LeafMerge leaf_merge(int leaf, int leaves) {
   LeafMerge merge{};
   while (leaves > 1) {
     const int half = leaves / 2;
@@ -407,93 +412,181 @@ constexpr int fixed_tree_depth(int leaves) {
   return leaves <= 1 ? 0 : 1 + fixed_tree_depth((leaves + 1) / 2);
 }
 
+// Each warp reads the same precomputed midpoint-tree step for the current leaf.
+template <int LEAVES>
+struct FixedLeafSchedule {
+  LeafMerge steps[LEAVES]{};
+  constexpr FixedLeafSchedule() {
+    for (int leaf = 0; leaf < LEAVES; ++leaf) steps[leaf] = leaf_merge(leaf, LEAVES);
+  }
+};
+
+template <int LEAVES>
+__device__ __constant__ FixedLeafSchedule<LEAVES> fixed_leaf_schedule;
+
+struct alignas(16) FloatQuad {
+  float values[4];
+};
+struct alignas(8) Bf16Quad {
+  nv_bf16 values[4];
+};
+
+__device__ __forceinline__ Bf16Vector load_fixed_vector(const nv_bf16* p, bool aligned) {
+  Bf16Vector result;
+  if (aligned) {
+#if defined(RL_KERNEL_FIXED_TILE_CUTE)
+    auto src = cute::make_tensor(cute::make_gmem_ptr(p), cute::make_layout(cute::_8{}));
+    auto dst = cute::make_tensor(cute::make_rmem_ptr(result.values), cute::make_layout(cute::_8{}));
+    cute::copy(cute::recast<cute::uint128_t>(src), cute::recast<cute::uint128_t>(dst));
+#else
+    result = *reinterpret_cast<const Bf16Vector*>(p);
+#endif
+  } else {
+#pragma unroll
+    for (int i = 0; i < 8; ++i) result.values[i] = p[i];
+  }
+  return result;
+}
+
+// Each four-feature register fragment is contiguous in shared memory. When
+// transposing a [feature,K] input, distribute the four K packets over banks.
+template <int WIDTH, bool INNER_K>
+__device__ __forceinline__ int fixed_quad_index(int feature, int k) {
+  if constexpr (INNER_K) feature ^= (k / 8) * 8;
+  return k * (WIDTH / 4) + feature / 4;
+}
+
+template <int WIDTH, int THREADS, bool INNER_K>
+struct FixedOperandTile {
+  static constexpr int vectors = WIDTH * K_TREE_LEAF / 8;
+  Bf16Vector packets[cdiv(vectors, THREADS)];
+
+  __device__ static int feature(int i) { return INNER_K ? i / 4 : i % (WIDTH / 8) * 8; }
+  __device__ static int k_offset(int i) { return INNER_K ? i % 4 * 8 : i / (WIDTH / 8); }
+
+  __device__ void load(const nv_bf16* input, int stride, int origin, int k0, int extent) {
+    const bool aligned = (reinterpret_cast<std::uintptr_t>(input) % alignof(Bf16Vector)) == 0;
+    // Both physical layouts have an eight-element-aligned row stride.
+#pragma unroll
+    for (int slot = 0; slot < cdiv(vectors, THREADS); ++slot) {
+      const int i = threadIdx.x + slot * THREADS;
+      if (i >= vectors) continue;
+      const int src = min(origin + feature(i), extent - (INNER_K ? 1 : 8));
+      const int k = k0 + k_offset(i);
+      const int64_t offset = INNER_K ? static_cast<int64_t>(src) * stride + k
+                                     : static_cast<int64_t>(k) * stride + src;
+      packets[slot] = load_fixed_vector(input + offset, aligned);
+    }
+  }
+
+  __device__ void store(FloatQuad* tile) const {
+#pragma unroll
+    for (int slot = 0; slot < cdiv(vectors, THREADS); ++slot) {
+      const int i = threadIdx.x + slot * THREADS;
+      if (i >= vectors) continue;
+      const int x = feature(i), k = k_offset(i);
+      if constexpr (INNER_K) {
+#pragma unroll
+        for (int j = 0; j < 8; ++j)
+          tile[fixed_quad_index<WIDTH, true>(x, k + j)].values[x % 4] =
+              __bfloat162float(packets[slot].values[j]);
+      } else {
+#pragma unroll
+        for (int j = 0; j < 8; j += 4) {
+          FloatQuad v;
+#pragma unroll
+          for (int c = 0; c < 4; ++c) v.values[c] = __bfloat162float(packets[slot].values[j + c]);
+          tile[fixed_quad_index<WIDTH, false>(x + j, k)] = v;
+        }
+      }
+    }
+  }
+};
+
 template <int K, int GROUPS, bool TRANSPOSE_RHS, bool WGRAD_96 = false>
 __global__ void det_gemm_fixed_tiles(const nv_bf16* __restrict__ a,
                                      const nv_bf16* __restrict__ b,
                                      nv_bf16* __restrict__ partial, int M, int N) {
   static_assert(K % (GROUPS * K_TREE_LEAF) == 0);
-  constexpr int leaves = K / (GROUPS * K_TREE_LEAF);
-  static_assert(leaves <= 32 * TILE_WARPS);
   static_assert(!WGRAD_96 || (K == 96 && GROUPS == 1 && !TRANSPOSE_RHS));
-  constexpr int cols = WGRAD_96 ? WGRAD_TILE_COLS : TILE_COLS;
-  constexpr int rows_per_thread = TILE_ROWS / TILE_WARPS, cols_per_thread = cols / 32;
-  __shared__ float lhs[TILE_ROWS][K_TREE_LEAF + WGRAD_96], rhs[K_TREE_LEAF][cols + 1];
-  __shared__ nv_bf16 pending[fixed_tree_depth(leaves)][TILE_ROWS][cols];
-  __shared__ LeafMerge schedule[leaves];
-  const int lane = threadIdx.x, warp = threadIdx.y, tid = warp * 32 + lane;
-  const int row0 = blockIdx.y * TILE_ROWS, col0 = blockIdx.x * cols;
-  const int group = blockIdx.z;
-  if (!WGRAD_96 && tid < leaves) schedule[tid] = leaf_merge(tid, leaves);
+  constexpr int leaves = K / (GROUPS * K_TREE_LEAF);
+  constexpr int rows = WGRAD_96 ? WGRAD_TILE_ROWS : TILE_ROWS, cols = TILE_COLS;
+  constexpr int per_row = WGRAD_96 ? 8 : 4, per_col = 4;
+  constexpr int threads = (rows / per_row) * (cols / per_col);
+  static_assert(threads == TILE_THREADS);
+  // The native-weight forward can load the next leaf while the current
+  // leaf's independent accumulators consume the other shared-memory buffer.
+  constexpr bool prefetch = TRANSPOSE_RHS && K > 256;
+  constexpr int stages = prefetch ? 2 : 1;
+  __shared__ FloatQuad shared_a[stages][rows * K_TREE_LEAF / 4];
+  __shared__ FloatQuad shared_b[stages][cols * K_TREE_LEAF / 4];
+  __shared__ Bf16Quad pending[fixed_tree_depth(leaves)][per_row][threads];
+  const int row0 = blockIdx.y * rows, col0 = blockIdx.x * cols;
+  const int row_quad = threadIdx.x / (cols / per_col) * 4;
+  const int col = threadIdx.x % (cols / per_col) * per_col;
+  FixedOperandTile<rows, threads, !WGRAD_96> a_tile;
+  FixedOperandTile<cols, threads, TRANSPOSE_RHS> b_tile;
+  const int group_k = blockIdx.z * leaves * K_TREE_LEAF;
+  if constexpr (prefetch) {
+    a_tile.load(a, K, row0, group_k, M);
+    b_tile.load(b, K, col0, group_k, N);
+  }
 
+#pragma unroll 1
   for (int leaf = 0; leaf < leaves; ++leaf) {
-    const int k0 = (group * leaves + leaf) * K_TREE_LEAF;
-    for (int i = tid; i < TILE_ROWS * K_TREE_LEAF; i += 32 * TILE_WARPS) {
-      // dW = dY.T @ X. Read dY directly from its physical [token,out] layout.
-      const int r = WGRAD_96 ? i % TILE_ROWS : i / K_TREE_LEAF;
-      const int k = WGRAD_96 ? i / TILE_ROWS : i % K_TREE_LEAF;
-      const int64_t offset = WGRAD_96 ? static_cast<int64_t>(k0 + k) * M + row0 + r
-                                      : static_cast<int64_t>(min(row0 + r, M - 1)) * K + k0 + k;
-      lhs[r][k] = __bfloat162float(a[offset]);
-    }
-    // Read either physical RHS layout contiguously. The extra shared-memory
-    // column avoids bank conflicts when transposing [N,K] on chip.
-    for (int i = tid; i < K_TREE_LEAF * cols; i += 32 * TILE_WARPS) {
-      const int c = TRANSPOSE_RHS ? i / K_TREE_LEAF : i % cols;
-      const int k = TRANSPOSE_RHS ? i % K_TREE_LEAF : i / cols;
-      const int64_t offset = TRANSPOSE_RHS ? static_cast<int64_t>(col0 + c) * K + k0 + k
-                                           : static_cast<int64_t>(k0 + k) * N + col0 + c;
-      rhs[k][c] = __bfloat162float(b[offset]);
-    }
+    const int k0 = group_k + leaf * K_TREE_LEAF;
+    auto* lhs = shared_a[leaf % stages];
+    auto* rhs = shared_b[leaf % stages];
+    if constexpr (!prefetch) a_tile.load(a, WGRAD_96 ? M : K, row0, k0, M);
+    a_tile.store(lhs);
+    if constexpr (!prefetch) b_tile.load(b, TRANSPOSE_RHS ? K : N, col0, k0, N);
+    b_tile.store(rhs);
     __syncthreads();
+    if constexpr (prefetch) {
+      if (leaf + 1 < leaves) {
+        a_tile.load(a, K, row0, k0 + K_TREE_LEAF, M);
+        b_tile.load(b, K, col0, k0 + K_TREE_LEAF, N);
+      }
+    }
 
-    float acc[rows_per_thread][cols_per_thread] = {};
+    float acc[per_row][per_col] = {};
 #pragma unroll
     for (int k = 0; k < K_TREE_LEAF; ++k) {
-      float w[cols_per_thread];
+      const auto w = rhs[fixed_quad_index<cols, TRANSPOSE_RHS>(col, k)];
 #pragma unroll
-      for (int c = 0; c < cols_per_thread; ++c) w[c] = rhs[k][lane + 32 * c];
+      for (int r = 0; r < per_row; r += 4) {
+        const auto x = lhs[fixed_quad_index<rows, !WGRAD_96>(row_quad + r * (rows / per_row), k)];
 #pragma unroll
-      for (int r = 0; r < rows_per_thread; ++r) {
-        const float x = lhs[warp + TILE_WARPS * r][k];
+        for (int i = 0; i < 4; ++i) {
 #pragma unroll
-        for (int c = 0; c < cols_per_thread; ++c)
-          acc[r][c] = WGRAD_96 ? __fmaf_rn(w[c], x, acc[r][c]) : __fmaf_rn(x, w[c], acc[r][c]);
+          for (int j = 0; j < per_col; ++j)
+            acc[r + i][j] = WGRAD_96 ? __fmaf_rn(w.values[j], x.values[i], acc[r + i][j])
+                                     : __fmaf_rn(x.values[i], w.values[j], acc[r + i][j]);
+        }
       }
     }
-    __syncthreads();
+    if constexpr (!prefetch) __syncthreads();
 
-    // A right turn completes a pending left/right pair. Consecutive right
-    // turns merge from the leaf towards the root. Each thread owns its slots.
-    nv_bf16 values[rows_per_thread][cols_per_thread];
+    // Consecutive right turns close pending left/right pairs, deepest first.
+    // A thread owns its stack slots and writes four adjacent output features.
+    const LeafMerge merge = fixed_leaf_schedule<leaves>.steps[leaf];
 #pragma unroll
-    for (int r = 0; r < rows_per_thread; ++r) {
+    for (int r = 0; r < per_row; ++r) {
+      Bf16Quad value;
 #pragma unroll
-      for (int c = 0; c < cols_per_thread; ++c) values[r][c] = __float2bfloat16_rn(acc[r][c]);
-    }
-    const LeafMerge merge = WGRAD_96 ? LeafMerge{} : schedule[leaf];
-    for (int j = 0; j < merge.joins; ++j) {
+      for (int j = 0; j < per_col; ++j) value.values[j] = __float2bfloat16_rn(acc[r][j]);
+      for (int i = 0; i < merge.joins; ++i) {
+        const auto left = pending[merge.depth - 1 - i][r][threadIdx.x];
 #pragma unroll
-      for (int r = 0; r < rows_per_thread; ++r) {
-#pragma unroll
-        for (int c = 0; c < cols_per_thread; ++c)
-          values[r][c] = bf16_add(pending[merge.depth - 1 - j][warp + TILE_WARPS * r][lane + 32 * c],
-                                  values[r][c]);
+        for (int j = 0; j < per_col; ++j) value.values[j] = bf16_add(left.values[j], value.values[j]);
       }
-    }
-#pragma unroll
-    for (int r = 0; r < rows_per_thread; ++r) {
-      const int row = warp + TILE_WARPS * r;
-#pragma unroll
-      for (int c = 0; c < cols_per_thread; ++c) {
-        const int col = lane + 32 * c;
-        if (leaf + 1 < leaves) {
-          const int slot = WGRAD_96 ? leaf : merge.depth - merge.joins - 1;
-          pending[slot][row][col] = values[r][c];
-        } else if (row0 + row < M) {
-          nv_bf16 value = values[r][c];
-          if constexpr (WGRAD_96)
-            value = bf16_add(pending[0][row][col], bf16_add(pending[1][row][col], value));
-          partial[(static_cast<int64_t>(group) * M + row0 + row) * N + col0 + col] = value;
+      if (leaf + 1 < leaves) {
+        pending[merge.depth - merge.joins - 1][r][threadIdx.x] = value;
+      } else {
+        const int row = row0 + row_quad + r / 4 * 4 * (rows / per_row) + r % 4;
+        if (row < M) {
+          auto* dst = partial + (static_cast<int64_t>(blockIdx.z) * M + row) * N + col0 + col;
+          *reinterpret_cast<Bf16Quad*>(dst) = value;
         }
       }
     }
@@ -520,12 +613,12 @@ void launch_fixed_tiles(const torch::Tensor& a, const torch::Tensor& b, torch::T
                         int M, int N, bool transpose_rhs, cudaStream_t stream) {
   constexpr int groups = K == 256 ? 1 : FIXED_GROUPS;
   auto partial = groups == 1 ? c : torch::empty({groups, M, N}, c.options());
-  const dim3 grid(N / TILE_COLS, cdiv(M, TILE_ROWS), groups), block(32, TILE_WARPS);
+  const dim3 grid(N / TILE_COLS, cdiv(M, TILE_ROWS), groups);
   if (transpose_rhs)
-    det_gemm_fixed_tiles<K, groups, true><<<grid, block, 0, stream>>>(
+    det_gemm_fixed_tiles<K, groups, true><<<grid, TILE_THREADS, 0, stream>>>(
         bf16(a), bf16(b), bf16o(partial), M, N);
   else
-    det_gemm_fixed_tiles<K, groups, false><<<grid, block, 0, stream>>>(
+    det_gemm_fixed_tiles<K, groups, false><<<grid, TILE_THREADS, 0, stream>>>(
         bf16(a), bf16(b), bf16o(partial), M, N);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   if constexpr (groups > 1) {
@@ -970,13 +1063,13 @@ torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc, bool fix
   if (fixed_leaf_tree) check_fixed_leaf_math();
 
   if (fixed_leaf_tree && tokens == 3 * K_TREE_LEAF && in_features > 0 && out_features > 0 &&
-      in_features % WGRAD_TILE_COLS == 0 && out_features % TILE_ROWS == 0 &&
+      in_features % TILE_COLS == 0 && out_features % TILE_ROWS == 0 &&
       out_features / TILE_ROWS <= 65535) {
     a = a.contiguous();
     dc = dc.contiguous();
     auto output = torch::empty({out_features, in_features}, a.options());
     det_gemm_fixed_tiles<96, 1, false, true>
-        <<<dim3(in_features / WGRAD_TILE_COLS, out_features / TILE_ROWS), dim3(32, TILE_WARPS), 0,
+        <<<dim3(in_features / TILE_COLS, cdiv(out_features, WGRAD_TILE_ROWS)), TILE_THREADS, 0,
            at::cuda::getCurrentCUDAStream()>>>(bf16(dc), bf16(a), bf16o(output), out_features, in_features);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
     return output;

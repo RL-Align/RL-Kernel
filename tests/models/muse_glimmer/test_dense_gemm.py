@@ -7,7 +7,7 @@ import math
 import pytest
 import torch
 
-from rl_engine.backends.shared.triton.gemm.det_gemm import _build_tree_plan
+from rl_engine.backends.shared.triton.gemm.det_gemm import _build_tree_plan, _triton_tree_gemm
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.models.muse_glimmer.dense_gemm import dense_gemm
 from rl_engine.models.muse_glimmer.operator_trace import MuseGlimmerSpec
@@ -187,3 +187,23 @@ def test_projection_partial_tile_and_offset_views(m):
     for backend in ("cuda", "triton"):
         _assert_bits(dense_gemm(x.clone(), w.clone(), backend=backend), expected, backend)
         _assert_bits(dense_gemm(x, w, backend=backend), expected, backend)
+
+
+@requires_cuda
+def test_fixed_weight_gradient_partial_tile_with_offset_inputs():
+    # The extension also accepts projections whose last 64-row dW tile is half full.
+    from rl_engine.backends.extension import _C
+
+    options = dict(device="cuda", dtype=torch.bfloat16)
+    gen = torch.Generator(device="cuda").manual_seed(501)
+    tokens, inputs, outputs = 96, 128, 96
+    x = torch.randn(tokens * inputs + 1, generator=gen, **options)[1:].view(tokens, inputs)
+    dy = torch.randn(tokens * outputs + 1, generator=gen, **options)[1:].view(tokens, outputs)
+    expected = DetGemmTreeReferenceOp()(x.T.cpu(), dy.cpu()).T.contiguous()
+    for a, grad in ((x, dy), (x.clone(), dy.clone())):
+        actual = _C.det_gemm_db_transposed(a, grad, fixed_leaf_tree=True)
+        _assert_bits(actual.cpu(), expected, "CUDA partial dW with 96 tokens")
+        triton = _triton_tree_gemm(
+            a.T, grad, transpose_output=True, preserve_a_strides=True, fixed_leaf_tree=True
+        )
+        _assert_bits(triton.cpu(), expected, "Triton partial dW with 96 tokens")

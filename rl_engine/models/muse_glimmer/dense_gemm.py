@@ -7,11 +7,20 @@ from typing import Literal
 import torch
 
 from rl_engine.backends.extension import _C
-from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_tree_gemm
+from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_fixed_decode, _triton_tree_gemm
 from rl_engine.models.muse_glimmer.operator_trace import MuseGlimmerSpec
 from rl_engine.ops.autograd.backward_runtime import record_backward
 
 _WEIGHT_SHAPES = frozenset(MuseGlimmerSpec.from_manifest().gemm_shapes().values())
+
+
+def _project(x, weight, backend):
+    with torch.cuda.device(x.device):
+        if backend == "cuda":
+            return _C.det_gemm_fwd_rhs_transposed(x, weight, fixed_leaf_tree=True)
+        if torch.version.hip is None and x.size(0) == 1 and x.stride(1) == weight.stride(1) == 1:
+            return _triton_fixed_decode(x, weight)
+        return _triton_tree_gemm(x, weight.T, fixed_leaf_tree=True)
 
 
 class _DenseGemm(torch.autograd.Function):
@@ -19,10 +28,7 @@ class _DenseGemm(torch.autograd.Function):
     def forward(ctx, x, weight, backend):
         ctx.save_for_backward(x, weight)
         ctx.backend = backend
-        with torch.cuda.device(x.device):
-            if backend == "cuda":
-                return _C.det_gemm_fwd_rhs_transposed(x, weight, fixed_leaf_tree=True)
-            return _triton_tree_gemm(x, weight.T, fixed_leaf_tree=True)
+        return _project(x, weight, backend)
 
     @staticmethod
     def backward(ctx, dy):
@@ -70,4 +76,6 @@ def dense_gemm(
         raise RuntimeError("Muse-Glimmer dense GEMM requires inputs on the same GPU")
     if backend == "cuda" and (_C is None or torch.version.hip is not None):
         raise RuntimeError("Muse-Glimmer CUDA dense GEMM requires the native CUDA extension")
+    if torch.is_inference_mode_enabled():
+        return _project(x, weight, backend)
     return _DenseGemm.apply(x, weight, backend)

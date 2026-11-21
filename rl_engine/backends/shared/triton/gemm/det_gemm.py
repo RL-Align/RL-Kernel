@@ -365,22 +365,26 @@ if _TRITON_AVAILABLE:
         return (left.to(tl.float32) + right.to(tl.float32)).to(tl.bfloat16)
 
     @triton.jit
-    def _fixed_ordered_fmas(x, w, acc, WIDTH: tl.constexpr, OUTER: tl.constexpr):
+    def _fixed_ordered_fmas(
+        x, w, acc, WIDTH: tl.constexpr, OUTER: tl.constexpr, COLUMN_FIRST: tl.constexpr = False
+    ):
         # Load a whole K slice, then consume its registers in ascending order.
         # Splitting into contiguous halves gives the compiler a static index
         # for every operand without changing the FP32 dependency chain.
         if WIDTH == 1:
             a = tl.reshape(x, (x.shape[0],))
             b = tl.reshape(w, (w.shape[0],))
-            if OUTER:
+            if COLUMN_FIRST:
+                return tl.fma(a[None, :], b[:, None], acc)
+            elif OUTER:
                 return tl.fma(a[:, None], b[None, :], acc)
             else:
                 return tl.fma(a, b, acc)
         else:
             xl, xr = tl.split(x.reshape(x.shape[0], 2, WIDTH // 2).permute(0, 2, 1))
             wl, wr = tl.split(w.reshape(w.shape[0], 2, WIDTH // 2).permute(0, 2, 1))
-            acc = _fixed_ordered_fmas(xl, wl, acc, WIDTH // 2, OUTER)
-            return _fixed_ordered_fmas(xr, wr, acc, WIDTH // 2, OUTER)
+            acc = _fixed_ordered_fmas(xl, wl, acc, WIDTH // 2, OUTER, COLUMN_FIRST)
+            return _fixed_ordered_fmas(xr, wr, acc, WIDTH // 2, OUTER, COLUMN_FIRST)
 
     @triton.jit
     def _fixed_subtree(group, LEAVES: tl.constexpr, LEVELS: tl.constexpr):
@@ -437,13 +441,19 @@ if _TRITON_AVAILABLE:
         BK: tl.constexpr,
         BN: tl.constexpr,
         PACK: tl.constexpr = 1,
+        COLUMN_FIRST: tl.constexpr = False,
     ):
-        acc = tl.full((rows.shape[0], cols.shape[0]), 0, tl.float32)
+        if COLUMN_FIRST:
+            acc = tl.full((cols.shape[0], rows.shape[0]), 0, tl.float32)
+        else:
+            acc = tl.full((rows.shape[0], cols.shape[0]), 0, tl.float32)
         for offset in tl.static_range(0, 32, PACK):
             k = (start + offset + tl.arange(0, PACK)).to(tl.int64)
             x = tl.load(a + rows[:, None] * AM + k[None, :] * AK, rows[:, None] < M, 0)
             w = tl.load(b + cols[:, None] * BN + k[None, :] * BK, cols[:, None] < N, 0)
-            acc = _fixed_ordered_fmas(x.to(tl.float32), w.to(tl.float32), acc, PACK, True)
+            acc = _fixed_ordered_fmas(
+                x.to(tl.float32), w.to(tl.float32), acc, PACK, True, COLUMN_FIRST
+            )
         return acc.to(tl.bfloat16)
 
     @triton.jit
@@ -461,19 +471,24 @@ if _TRITON_AVAILABLE:
         BK: tl.constexpr,
         BN: tl.constexpr,
         PACK: tl.constexpr,
+        COLUMN_FIRST: tl.constexpr = False,
     ):
         # Each half of this two- to four-leaf subtree contains one or two leaves.
         half = count // 2
-        left = _fixed_full_leaf(a, b, rows, cols, start * 32, M, N, AM, AK, BK, BN, PACK)
+        left = _fixed_full_leaf(
+            a, b, rows, cols, start * 32, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+        )
         if half == 2:
             sibling = _fixed_full_leaf(
-                a, b, rows, cols, (start + 1) * 32, M, N, AM, AK, BK, BN, PACK
+                a, b, rows, cols, (start + 1) * 32, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
             )
             left = _fixed_add(left, sibling)
-        right = _fixed_full_leaf(a, b, rows, cols, (start + half) * 32, M, N, AM, AK, BK, BN, PACK)
+        right = _fixed_full_leaf(
+            a, b, rows, cols, (start + half) * 32, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+        )
         if count - half == 2:
             sibling = _fixed_full_leaf(
-                a, b, rows, cols, (start + half + 1) * 32, M, N, AM, AK, BK, BN, PACK
+                a, b, rows, cols, (start + half + 1) * 32, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
             )
             right = _fixed_add(right, sibling)
         return _fixed_add(left, right)
@@ -495,26 +510,48 @@ if _TRITON_AVAILABLE:
         LEAVES: tl.constexpr = 0,
         GROUP_LEVELS: tl.constexpr = 0,
         PACK: tl.constexpr = 1,
+        COLUMN_FIRST: tl.constexpr = False,
+        STATIC_M: tl.constexpr = 0,
     ):
-        rows = (tl.program_id(1) * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
-        cols = (tl.program_id(0) * BLOCK_N + tl.arange(0, BLOCK_N)).to(tl.int64)
+        if STATIC_M:
+            M = STATIC_M
+        if WGRAD_96:
+            # Visit consecutive tiles along the contiguous feature axis of dW.
+            n_tiles: tl.constexpr = triton.cdiv(N, BLOCK_N)
+            pid = tl.program_id(0)
+            row_tile, col_tile = (pid // n_tiles).to(tl.int64), (pid % n_tiles).to(tl.int64)
+        else:
+            row_tile, col_tile = tl.program_id(1), tl.program_id(0)
+        rows = (row_tile * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+        cols = (col_tile * BLOCK_N + tl.arange(0, BLOCK_N)).to(tl.int64)
         group = tl.program_id(2).to(tl.int64)
         if WGRAD_96:
-            value = _fixed_tile_node(a, b, rows, cols, 0, 3, M, N, AM, AK, BK, BN, PACK)
+            value = _fixed_tile_node(
+                a, b, rows, cols, 0, 3, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+            )
         elif LEAVES == 8 and GROUP_LEVELS == 0:
-            left = _fixed_tile_node(a, b, rows, cols, 0, 4, M, N, AM, AK, BK, BN, PACK)
-            right = _fixed_tile_node(a, b, rows, cols, 4, 4, M, N, AM, AK, BK, BN, PACK)
+            left = _fixed_tile_node(
+                a, b, rows, cols, 0, 4, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+            )
+            right = _fixed_tile_node(
+                a, b, rows, cols, 4, 4, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+            )
             value = _fixed_add(left, right)
         elif LEAVES:
             start, count = _fixed_subtree(group, LEAVES, GROUP_LEVELS)
-            value = _fixed_tile_node(a, b, rows, cols, start, count, M, N, AM, AK, BK, BN, PACK)
+            value = _fixed_tile_node(
+                a, b, rows, cols, start, count, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+            )
         else:
-            value = _fixed_full_leaf(a, b, rows, cols, group * 32, M, N, AM, AK, BK, BN, PACK)
-        if WGRAD_96:
-            offsets = rows[:, None] + cols[None, :] * M
+            value = _fixed_full_leaf(
+                a, b, rows, cols, group * 32, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+            )
+        if COLUMN_FIRST:
+            row, col = rows[None, :], cols[:, None]
         else:
-            offsets = (group * M + rows[:, None]) * N + cols[None, :]
-        tl.store(dst + offsets, value, mask=(rows[:, None] < M) & (cols[None, :] < N))
+            row, col = rows[:, None], cols[None, :]
+        offsets = (group * M + row) * N + col
+        tl.store(dst + offsets, value, mask=(row < M) & (col < N))
 
     @triton.jit
     def _fixed_projection_root_kernel(
@@ -977,23 +1014,33 @@ def _triton_gemm(
     raise TypeError(f"unsupported deterministic Triton GEMM output dtype: {output_dtype}")
 
 
+def _triton_fixed_decode(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    """One token and native [N,K] weights with a contiguous reduction dimension."""
+    if not _TRITON_AVAILABLE:
+        raise RuntimeError("Triton is unavailable")
+    n, k = weight.shape
+    leaves = k // _BLOCK_K
+    result = x.new_empty((1, n))
+    _fixed_decode_kernel[(n,)](
+        x,
+        weight,
+        result,
+        weight.stride(0),
+        leaves,
+        leaves.bit_length() - 1,
+        num_warps=8 if leaves > 256 else 4,
+    )
+    return result
+
+
 def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     m, k = a.shape
     n = b.size(1)
+    if m == 1 and a.stride(1) == 1 and b.stride(0) == 1 and n <= 2**31 - 1:
+        return _triton_fixed_decode(a, b.T)
+
     leaves = k // _BLOCK_K
     result = a.new_empty((m, n))
-    if m == 1 and a.stride(1) == 1 and b.stride(0) == 1 and n <= 2**31 - 1:
-        _fixed_decode_kernel[(n,)](
-            a,
-            b,
-            result,
-            b.stride(1),
-            leaves,
-            leaves.bit_length() - 1,
-            num_warps=8 if leaves > 256 else 4,
-        )
-        return result
-
     grouped = m >= 16 and triton.cdiv(m, 32) <= 65535
     if grouped and leaves == 8 and triton.cdiv(m, 16) <= 65535:
         # The K/V input gradient fits its entire eight-leaf tree in one tile.
@@ -1016,11 +1063,14 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     if grouped:
         block_m, block_n = 32, 128
         groups = triton.next_power_of_2(leaves) // 4
-        pack = 16 if b.stride(0) == 1 else 8
+        # The wide, non-power-of-two projections reuse a column-major register tile.
+        # The 128-leaf O projection has a fully unrolled four-leaf subtree.
+        column_first = m == 96 and b.stride(0) == 1 and k in (6656, 19968) and n >= 4096
+        pack = 16 if b.stride(0) == 1 and not column_first else 8
     else:
         block_m = min(128, triton.next_power_of_2(m))
         block_n = 32 if block_m == 128 else 64
-        groups, pack = leaves, 1
+        groups, pack, column_first = leaves, 1, False
     # Only subtree roots cross the kernel boundary. Reuse their buffer
     # across column chunks, taking the last chunk's width as its row stride.
     column_limit = _MAX_TREE_WORKSPACE_ELEMENTS // (m * groups)
@@ -1043,6 +1093,8 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             LEAVES=leaves if grouped else 0,
             GROUP_LEVELS=groups.bit_length() - 1,
             PACK=pack,
+            COLUMN_FIRST=column_first,
+            STATIC_M=96 if column_first else 0,
             num_warps=2 if block_m == 1 else 4,
         )
         _fixed_projection_root_kernel[(triton.cdiv(m * chunk_n, 32),)](
@@ -1089,20 +1141,29 @@ def _triton_tree_gemm(
     m_size, k_size = a.shape
     n_size = b.size(1)
     if fixed_leaf_tree and torch.version.hip is None and out is None and m_size > 0 and n_size > 0:
-        if transpose_output and k_size == 3 * _BLOCK_K and triton.cdiv(m_size, 64) <= 65535:
+        if (
+            transpose_output
+            and k_size == 3 * _BLOCK_K
+            and (weight_tiles := triton.cdiv(m_size, 64) * triton.cdiv(n_size, 64)) <= 2**31 - 1
+        ):
+            # (A @ B).T = B.T @ A.T. Tile dY.T @ X in native [out,in]
+            # order so adjacent lanes write adjacent BF16 weight gradients.
             result = a.new_empty((n_size, m_size))
-            _fixed_projection_leaves_kernel[(triton.cdiv(n_size, 64), triton.cdiv(m_size, 64), 1)](
-                a,
+            _fixed_projection_leaves_kernel[(weight_tiles,)](
                 b,
+                a,
                 result,
-                m_size,
                 n_size,
-                *a.stride(),
-                *b.stride(),
+                m_size,
+                b.stride(1),
+                b.stride(0),
+                a.stride(1),
+                a.stride(0),
                 BLOCK_M=64,
                 BLOCK_N=64,
                 WGRAD_96=True,
                 PACK=8,
+                STATIC_M=n_size if n_size in (256, 4096, 6656, 19968) else 0,
                 num_warps=4,
             )
             return result
