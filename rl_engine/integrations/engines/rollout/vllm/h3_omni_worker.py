@@ -151,7 +151,13 @@ class H3OmniWorkerExtension:
 
     @_all_ranks
     def rlk_h3_attach_seeded_lora(
-        self, *, rank: int = 64, alpha: float = 128.0, seed: int = 0, b_zero: bool = False
+        self,
+        *,
+        rank: int = 64,
+        alpha: float = 128.0,
+        seed: int = 0,
+        b_zero: bool = False,
+        refiner: bool = False,
     ) -> dict[str, str]:
         from rl_engine.validation.models import h3_lora
 
@@ -165,6 +171,7 @@ class H3OmniWorkerExtension:
             alpha=alpha,
             seed=seed,
             b_zero=b_zero,
+            refiner=refiner,
         )
         return h3_lora.lora_digests(handle.binding.model)
 
@@ -172,7 +179,8 @@ class H3OmniWorkerExtension:
         """Install the LoRA shards the actor's TP rank ``r`` saved for rollout rank ``r``.
 
         ``source`` is a path with ``{rank}``; that file holds ``{"shards": [...], "digests":
-        {...}}`` (``h3_lora.shard_block_lora`` per block and the sender's ``lora_digests``). All
+        {...}}`` (``h3_lora.shard_block_lora`` per block and the sender's ``lora_digests``), and
+        ``"refiner"`` (a whole LoRA per token-refiner block) when the actor trains one. All
         ranks or none: if any rank's shards are refused (shape or digest), every rank keeps its
         previous LoRA and the call raises.
         """
@@ -184,6 +192,8 @@ class H3OmniWorkerExtension:
         grid = handle.binding.grid
         blocks = list(handle.binding.model.transformer_blocks)
         previous = [block.__dict__.get(pm.LORA_ATTR) for block in blocks]
+        refiners = h3_lora.refiner_blocks(handle.binding.model)
+        previous_refiner = [block.__dict__.get(h3_lora.REFINER_ATTR) for block in refiners]
 
         first = next(iter(handle.binding.model.parameters()), None)
         device = first.device if first is not None else torch.device("cuda")
@@ -198,6 +208,7 @@ class H3OmniWorkerExtension:
                 scale=scale,
                 expected=sent["digests"],
                 device=device,
+                refiner=sent.get("refiner"),
             )
 
         results, failed = _gather(_run(load))
@@ -207,6 +218,11 @@ class H3OmniWorkerExtension:
                     block.__dict__.pop(pm.LORA_ATTR, None)
                 else:
                     setattr(block, pm.LORA_ATTR, old)
+            for block, old in zip(refiners, previous_refiner):
+                if old is None:
+                    block.__dict__.pop(h3_lora.REFINER_ATTR, None)
+                else:
+                    setattr(block, h3_lora.REFINER_ATTR, old)
             raise RuntimeError(f"rlk_h3_load_lora refused on TP ranks {failed}; no rank changed")
         return results
 
