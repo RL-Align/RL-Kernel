@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import os
 import runpy
+import shutil
+import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -63,6 +66,7 @@ def test_rocm_build_excludes_cuda_ipc_collective_and_driver(monkeypatch) -> None
 
     assert "csrc/cuda/collectives/deterministic_collective.cu" not in extension["sources"]
     assert "csrc/cuda/attention/joint_attn_softmax.cu" not in extension["sources"]
+    assert "csrc/cuda/gemm/attn_out_bias_gemm.cu" not in extension["sources"]
     assert "csrc/rocm/collectives/deterministic_collective.hip" in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" not in extension["extra_compile_args"]["cxx"]
@@ -74,6 +78,7 @@ def test_cuda_build_keeps_existing_ipc_collective(monkeypatch) -> None:
 
     assert "csrc/cuda/collectives/deterministic_collective.cu" in extension["sources"]
     assert "csrc/cuda/attention/joint_attn_softmax.cu" in extension["sources"]
+    assert "csrc/cuda/gemm/attn_out_bias_gemm.cu" in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" not in extension["extra_compile_args"]["cxx"]
@@ -85,6 +90,29 @@ def test_fast_math_build_excludes_bit_reference_softmax(monkeypatch) -> None:
 
     assert "csrc/cuda/attention/joint_attn_softmax.cu" not in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" not in extension["extra_compile_args"]["cxx"]
+
+
+@pytest.mark.parametrize("platform", ["CUDA", "ROCM"])
+def test_attn_out_bindings_follow_build_platform(platform):
+    compiler = shutil.which("c++")
+    if compiler is None:
+        pytest.skip("C++ preprocessor unavailable")
+    source = (Path(__file__).resolve().parents[2] / "csrc/bindings/ops.cpp").read_text()
+    # Exercise the actual platform guards without needing CUDA/ROCm headers.
+    source = "\n".join(line for line in source.splitlines() if not line.startswith("#include"))
+    result = subprocess.run(
+        [compiler, "-E", "-P", "-x", "c++", f"-DKERNEL_ALIGN_WITH_{platform}", "-"],
+        input=source,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    for symbol in (
+        "attn_out_bias_gemm_cuda_forward",
+        "attn_out_tree_gemm_cuda",
+        "attn_out_dw_left_fold_cuda",
+    ):
+        assert (symbol in result.stdout) == (platform == "CUDA")
 
 
 @pytest.mark.parametrize("variable", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS"])

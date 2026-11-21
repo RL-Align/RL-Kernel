@@ -30,6 +30,7 @@
 #include <c10/cuda/CUDAException.h>
 #include <cuda_bf16.h>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 namespace {
@@ -56,7 +57,6 @@ __device__ float tree_reduce(
     const float* __restrict__ a_row,
     const float* __restrict__ b_row,
     int reduction,
-    int leaves,
     int lo,
     int hi) {
     if (hi == lo) {
@@ -64,12 +64,12 @@ __device__ float tree_reduce(
     }
     if (hi - lo == 1) {
         const int k0 = lo * kLeafWidth;
-        const int k1 = min(k0 + kLeafWidth, reduction);
+        const int k1 = k0 + min(kLeafWidth, reduction - k0);
         return leaf_chain(a_row, b_row, k0, k1);
     }
     const int mid = lo + (hi - lo) / 2;
-    return tree_reduce(a_row, b_row, reduction, leaves, lo, mid) +
-           tree_reduce(a_row, b_row, reduction, leaves, mid, hi);
+    return tree_reduce(a_row, b_row, reduction, lo, mid) +
+           tree_reduce(a_row, b_row, reduction, mid, hi);
 }
 
 template <typename out_t>
@@ -82,14 +82,14 @@ __global__ void attn_out_bias_gemm_fwd_kernel(
     int out_dim,
     int in_dim,
     int leaves) {
-    const long idx = static_cast<long>(blockIdx.x) * blockDim.x + threadIdx.x;
-    if (idx >= static_cast<long>(rows) * out_dim) {
+    const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (idx >= static_cast<int64_t>(rows) * out_dim) {
         return;
     }
     const int s = static_cast<int>(idx / out_dim);
     const int n = static_cast<int>(idx % out_dim);
     float value = tree_reduce(
-        x + static_cast<long>(s) * in_dim, w + static_cast<long>(n) * in_dim, in_dim, leaves, 0,
+        x + static_cast<int64_t>(s) * in_dim, w + static_cast<int64_t>(n) * in_dim, in_dim, 0,
         leaves);
     if (bias != nullptr) {
         value = value + bias[n];  // bias once, fp32, after the complete tree
@@ -108,16 +108,16 @@ __global__ void attn_out_dw_left_fold_kernel(
     int rows,
     int out_dim,
     int in_dim) {
-    const long idx = static_cast<long>(blockIdx.x) * blockDim.x + threadIdx.x;
-    if (idx >= static_cast<long>(out_dim) * in_dim) {
+    const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (idx >= static_cast<int64_t>(out_dim) * in_dim) {
         return;
     }
     const int n = static_cast<int>(idx / in_dim);
     const int k = static_cast<int>(idx % in_dim);
     float acc = 0.0f;
     for (int s = 0; s < rows; ++s) {  // ascending-row left fold
-        acc = __fmaf_rn(grad[static_cast<long>(s) * out_dim + n],
-                        x[static_cast<long>(s) * in_dim + k], acc);
+        acc = __fmaf_rn(grad[static_cast<int64_t>(s) * out_dim + n],
+                        x[static_cast<int64_t>(s) * in_dim + k], acc);
     }
     dw[idx] = acc;
 }
@@ -126,6 +126,20 @@ void check_common(const torch::Tensor& t, const char* name) {
     TORCH_CHECK(t.is_cuda(), name, " must be a CUDA tensor");
     TORCH_CHECK(t.scalar_type() == at::kFloat, name, " must be float32 (upcast on host)");
     TORCH_CHECK(t.is_contiguous(), name, " must be contiguous");
+}
+
+int checked_dimension(int64_t value, const char* name) {
+    TORCH_CHECK(value >= 0 && value <= std::numeric_limits<int>::max(),
+                name, " exceeds the CUDA kernel's int32 dimension range: ", value);
+    return static_cast<int>(value);
+}
+
+int checked_blocks(int64_t total, int threads) {
+    const int64_t blocks = total / threads + (total % threads != 0);
+    const int max_blocks = at::cuda::getCurrentDeviceProperties()->maxGridSize[0];
+    TORCH_CHECK(blocks <= max_blocks,
+                "attn-out output exceeds CUDA grid.x limit: ", blocks, " > ", max_blocks);
+    return static_cast<int>(blocks);
 }
 
 int leaves_of(int64_t reduction) {
@@ -149,14 +163,14 @@ torch::Tensor attn_out_bias_gemm_cuda_forward(
         TORCH_CHECK((*bias).numel() == weight.size(0), "bias must have N elements");
         TORCH_CHECK((*bias).device() == x.device(), "bias must live on x's device");
     }
-    const int rows = static_cast<int>(x.size(0));
-    const int out_dim = static_cast<int>(weight.size(0));
-    const int in_dim = static_cast<int>(x.size(1));
+    const int rows = checked_dimension(x.size(0), "rows");
+    const int out_dim = checked_dimension(weight.size(0), "out_dim");
+    const int in_dim = checked_dimension(x.size(1), "in_dim");
     const int leaves = leaves_of(in_dim);
 
-    const long total = static_cast<long>(rows) * out_dim;
+    const int64_t total = static_cast<int64_t>(rows) * out_dim;
     const int threads = 256;
-    const int blocks = static_cast<int>((total + threads - 1) / threads);
+    const int blocks = checked_blocks(total, threads);
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     const float* bias_ptr = bias.has_value() ? bias->data_ptr<float>() : nullptr;
@@ -187,18 +201,18 @@ torch::Tensor attn_out_tree_gemm_cuda(torch::Tensor a, torch::Tensor b) {
     TORCH_CHECK(b.device() == a.device(), "b must live on a's device");
     TORCH_CHECK(a.dim() == 2 && b.dim() == 2, "a and b must be 2-D");
     TORCH_CHECK(a.size(1) == b.size(1), "reduction dims must match");
-    const int rows = static_cast<int>(a.size(0));
-    const int cols = static_cast<int>(b.size(0));
-    const int reduction = static_cast<int>(a.size(1));
+    const int rows = checked_dimension(a.size(0), "rows");
+    const int cols = checked_dimension(b.size(0), "cols");
+    const int reduction = checked_dimension(a.size(1), "reduction");
     const int leaves = leaves_of(reduction);
 
+    const int64_t total = static_cast<int64_t>(rows) * cols;
+    const int threads = 256;
+    const int blocks = checked_blocks(total, threads);
     auto out = torch::empty({a.size(0), b.size(0)}, a.options());
-    const long total = static_cast<long>(rows) * cols;
     if (total == 0) {
         return out;
     }
-    const int threads = 256;
-    const int blocks = static_cast<int>((total + threads - 1) / threads);
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
     attn_out_bias_gemm_fwd_kernel<float><<<blocks, threads, 0, stream>>>(
         a.data_ptr<float>(), b.data_ptr<float>(), nullptr, out.data_ptr<float>(), rows, cols,
@@ -214,17 +228,17 @@ torch::Tensor attn_out_dw_left_fold_cuda(torch::Tensor grad, torch::Tensor x) {
     TORCH_CHECK(x.device() == grad.device(), "x must live on grad's device");
     TORCH_CHECK(grad.dim() == 2 && x.dim() == 2, "grad and x must be 2-D");
     TORCH_CHECK(grad.size(0) == x.size(0), "row counts must match");
-    const int rows = static_cast<int>(grad.size(0));
-    const int out_dim = static_cast<int>(grad.size(1));
-    const int in_dim = static_cast<int>(x.size(1));
+    const int rows = checked_dimension(grad.size(0), "rows");
+    const int out_dim = checked_dimension(grad.size(1), "out_dim");
+    const int in_dim = checked_dimension(x.size(1), "in_dim");
 
+    const int64_t total = static_cast<int64_t>(out_dim) * in_dim;
+    const int threads = 256;
+    const int blocks = checked_blocks(total, threads);
     auto dw = torch::empty({grad.size(1), x.size(1)}, grad.options());
-    const long total = static_cast<long>(out_dim) * in_dim;
     if (total == 0) {
         return dw;
     }
-    const int threads = 256;
-    const int blocks = static_cast<int>((total + threads - 1) / threads);
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
     attn_out_dw_left_fold_kernel<<<blocks, threads, 0, stream>>>(
         grad.data_ptr<float>(), x.data_ptr<float>(), dw.data_ptr<float>(), rows, out_dim, in_dim);

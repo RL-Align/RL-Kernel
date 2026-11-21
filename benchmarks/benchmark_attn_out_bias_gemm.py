@@ -12,10 +12,10 @@ see docs/operators/attn-out-bias-gemm.md.
 
 import argparse
 import time
+import warnings
 
 import torch
 
-from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.reference.gemm.attn_out_bias_gemm import NativeAttnOutBiasGemmOp
 
 
@@ -24,7 +24,12 @@ def _maybe_triton_op():
         from rl_engine.backends.shared.triton.gemm.attn_out_bias_gemm import TritonAttnOutBiasGemmOp
 
         return TritonAttnOutBiasGemmOp()
-    except Exception:
+    except Exception as exc:
+        warnings.warn(
+            f"Skipping Triton backend: {type(exc).__name__}: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return None
 
 
@@ -33,7 +38,12 @@ def _maybe_cuda_op():
         from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
 
         return CudaAttnOutBiasGemmOp()
-    except Exception:
+    except Exception as exc:
+        warnings.warn(
+            f"Skipping CUDA backend: {type(exc).__name__}: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return None
 
 
@@ -68,9 +78,8 @@ def main() -> None:
 
     reference = NativeAttnOutBiasGemmOp()
     triton_op = _maybe_triton_op()
-    cuda_op = (
-        _maybe_cuda_op() if (_EXT_AVAILABLE and hasattr(_C, "attn_out_tree_gemm_cuda")) else None
-    )
+    # The constructor validates all forward/backward symbols together.
+    cuda_op = _maybe_cuda_op()
 
     def closures(op, x, w, b):
         if args.backward:

@@ -25,7 +25,10 @@ from typing import Optional
 import torch
 
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
-from rl_engine.reference.gemm.attn_out_bias_gemm import NativeAttnOutBiasGemmOp
+from rl_engine.reference.gemm.attn_out_bias_gemm import (
+    ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
+    NativeAttnOutBiasGemmOp,
+)
 from rl_engine.utils.logger import logger
 
 _REQUIRED_SYMBOLS = (
@@ -81,7 +84,7 @@ class _AttnOutBiasGemmCudaFunction(torch.autograd.Function):
             grad_b = row_local_bias_fp32(grad_output).to(bias.dtype)
         record_backward(
             "attn_out_bias_gemm",
-            kernel_id="attn-out-bias-gemm-tree-v1",
+            kernel_id=ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
             impl="cuda_per_thread_tree_fma",
             family="cuda",
         )

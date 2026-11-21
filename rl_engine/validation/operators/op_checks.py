@@ -603,11 +603,10 @@ def _bitwise_verdict(
     if candidate_output.shape != gold_output.shape:
         passed = False
         note = "bitwise: shape mismatch"
+    elif candidate_output.dtype not in _BITWISE_VIEWS:
+        passed = False
+        note = f"bitwise: unsupported dtype {candidate_output.dtype}"
     else:
-        if candidate_output.dtype not in _BITWISE_VIEWS:
-            raise ValueError(
-                f"bitwise_strict supports bf16/fp32 outputs, got {candidate_output.dtype}"
-            )
         expected = (
             gold_output
             if gold_output.dtype == candidate_output.dtype

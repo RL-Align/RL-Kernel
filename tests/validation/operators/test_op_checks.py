@@ -641,3 +641,21 @@ def test_bitwise_strict_gradient_rejects_one_ulp():
     assert not report.passed
     assert not gradient.passed
     assert "bitwise: bit-pattern mismatch" in gradient.message
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.float64])
+def test_bitwise_unsupported_dtype_reports_failure_and_continues(dtype):
+    report = run_operator_suite(
+        "identity",
+        candidates=[
+            CandidateSpec(name="unsupported", backend="test", fn=lambda x: x.to(dtype)),
+            CandidateSpec(name="valid", backend="test", fn=lambda x: x),
+        ],
+        cases=[_strict_identity_case()],
+    )
+    bad, good = report.candidates
+    failed = bad.cases[0].outputs[0]
+    assert not report.passed
+    assert not failed.passed
+    assert f"unsupported dtype {dtype}" in failed.message
+    assert good.cases[0].passed

@@ -35,6 +35,7 @@ from typing import Optional
 import torch
 
 from rl_engine.reference.gemm.attn_out_bias_gemm import (
+    ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
     NativeAttnOutBiasGemmOp,
     finalize_tree_output,
     num_leaves,
@@ -267,7 +268,7 @@ class _AttnOutBiasGemmTritonFunction(torch.autograd.Function):
             grad_b = row_local_bias_fp32(grad_output).to(bias.dtype)
         record_backward(
             "attn_out_bias_gemm",
-            kernel_id="attn-out-bias-gemm-tree-v1",
+            kernel_id=ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
             impl="triton_leaf_chunks_shared_tree_combine",
             family="triton",
         )
