@@ -100,7 +100,8 @@ Design doc 10.1 has the pieces. Things that cost time:
   off in the server alone). The rest of the gap to vLLM's TP 8: the EP exchange (vLLM
   needs none), the unmerged LoRA's small kernels, the expert GEMM at decode sizes; those
   are the next performance items. E3 predates the fix. The launcher and the synthetic
-  reward moved from `scripts/verl_e2e/` into `scripts/verl_e2e_lora/` (2026-11-21).
+  reward moved from `scripts/verl_e2e/` into `scripts/verl_e2e_lora/`, and the old
+  verl #7688 guide in `scripts/verl_e2e/` was removed (2026-11-21).
 - EP and memory (2026-11-17, real checkpoint's first 4 layers, H100):
   - `rlkernel` engine at EP = 2 / 4 and the rollout plugin at DP = EP = 2 / 4: bitwise to
     EP = 1; EP = 8 too (8 x H200, engine 2026-11-18, rollout 2026-11-19).
@@ -117,8 +118,7 @@ Design doc 10.1 has the pieces. Things that cost time:
     `gen` about 2.4x faster on the full model). Under graphs the MoE uses the static EP
     exchange and the adapters must be reserved at load (`RL_KERNEL_DSV4_LORA=rank,alpha`,
     which the launcher sets): a sync copies into them, a different layout is refused;
-  - the layerwise gate on the real checkpoint beyond the first 4 layers;
-  - the older `scripts/verl_e2e/README.md` guide (verl #7688 baseline, full-parameter).
+  - the layerwise gate on the real checkpoint beyond the first 4 layers.
 
 ## This cluster (pinghsieh-rsv1)
 

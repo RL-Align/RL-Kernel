@@ -771,8 +771,9 @@ Open, needs the multi-GPU machine:
       `--lora-sync`, 0 of 2680 log-probs differ), verl GRPO on the full model (mismatch 0). Speed,
       full model, 8 x H200: `timing_s/gen` 61 -> 17-21 s on the 8 x 4 / 256-token workload, 404 ->
       165 s on 32 x 8 / 2048 (about 204 -> 80 ms per decode step); the step 430 -> 194 s.
-- [ ] Baseline first: verl + vLLM batch-invariant (verl #7688) end to end on 8 Hopper GPUs,
-      bitwise and speed (`scripts/verl_e2e/README.md`, a guide for another machine; not run yet).
+- Dropped (owner, 2026-11-21): the verl #7688 guide (verl + vLLM batch-invariant,
+  full-parameter, `scripts/verl_e2e/`, never run). The comparison is against verl #7483
+  (`scripts/verl_e2e_lora/`); the guide stays in git history (`33b65bb4`).
 - [ ] Layerwise gate on the real checkpoint
       (`scripts/check_dsv4_layerwise_gate.py --ckpt DIR --layers N`, advancing N). First 4
       layers: 0 differing tokens, with the vLLM gate and the verl engine check (section 10).
