@@ -70,7 +70,7 @@ async def _engine(args) -> dict[str, Any]:
     from vllm_omni.entrypoints.async_omni import AsyncOmni
 
     engine = AsyncOmni(
-        model=str(args.checkpoint),
+        model=str(args.engine_model or args.checkpoint),
         trust_remote_code=True,
         num_gpus=args.tp,
         tensor_parallel_size=args.tp,
@@ -344,6 +344,12 @@ def main() -> None:
     ap.add_argument("stage", choices=("engine", "canonical", "actor"))
     ap.add_argument("--checkpoint", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument(
+        "--engine-model",
+        type=Path,
+        help="what vLLM-Omni loads (the release's FL2VA partition, as in verl-omni's recipe); "
+        "the bound model always reads --checkpoint/transformer",
+    )
     ap.add_argument("--tp", type=int, default=4)
     ap.add_argument("--steps", type=int, default=2)
     ap.add_argument("--height", type=int, default=384)
