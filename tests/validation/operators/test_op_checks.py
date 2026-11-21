@@ -659,3 +659,30 @@ def test_bitwise_unsupported_dtype_reports_failure_and_continues(dtype):
     assert not failed.passed
     assert f"unsupported dtype {dtype}" in failed.message
     assert good.cases[0].passed
+
+
+@pytest.mark.parametrize(
+    ("input_dtype", "wrong_dtype"),
+    [(torch.bfloat16, torch.float32), (torch.float32, torch.bfloat16)],
+)
+def test_attn_out_bitwise_verdict_enforces_output_dtype(input_dtype, wrong_dtype):
+    args = _spec_args("attn_out_bias_gemm")
+    case = make_operator_case(args, input_dtype, torch.device("cpu"))
+
+    def wrong(**inputs):
+        return case.gold_fn(**inputs).to(wrong_dtype)
+
+    report = run_operator_suite(
+        args.op,
+        candidates=[
+            CandidateSpec(name="wrong-dtype", backend="test", fn=wrong),
+            make_candidate(args),
+        ],
+        cases=[case],
+    )
+    bad, good = report.candidates
+    failed = bad.cases[0].outputs[0]
+    assert not report.passed
+    assert not failed.passed
+    assert f"dtype mismatch: candidate={wrong_dtype} expected={input_dtype}" in failed.message
+    assert good.cases[0].passed

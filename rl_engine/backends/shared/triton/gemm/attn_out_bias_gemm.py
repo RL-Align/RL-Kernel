@@ -77,15 +77,15 @@ if _TRITON_AVAILABLE:
         ``a`` is [P, R] and ``b`` is [Q, R] row-major fp32; partials are
         written as contiguous [leaf_hi - leaf_lo, P, Q] planes.
         """
-        pid_m = tl.program_id(0)
-        pid_n = tl.program_id(1)
+        pid_m = tl.program_id(0).to(tl.int64)
+        pid_n = tl.program_id(1).to(tl.int64)
         m_offs = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         n_offs = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
         m_mask = m_offs < P
         n_mask = n_offs < Q
 
         for leaf in range(leaf_lo, leaf_hi):
-            k0 = leaf * 32
+            k0 = leaf.to(tl.int64) * 32
             k1 = tl.minimum(k0 + 32, R)
             acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
             for k in range(k0, k1):
@@ -96,7 +96,7 @@ if _TRITON_AVAILABLE:
                 # reference uses addcmul, an oracle-verified FMA), which is
                 # what the bit-equality harness checks in both dtypes.
                 acc = libdevice.fma_rn(a_vec[:, None], b_vec[None, :], acc)
-            plane = (leaf - leaf_lo) * (P * Q)
+            plane = tl.cast(leaf - leaf_lo, tl.int64) * P * Q
             dst = partials_ptr + plane + m_offs[:, None] * Q + n_offs[None, :]
             tl.store(dst, acc, mask=m_mask[:, None] & n_mask[None, :])
 
@@ -116,16 +116,16 @@ if _TRITON_AVAILABLE:
         One program owns a [BLOCK_N, BLOCK_K] tile of dW and walks the rows
         in ascending order, one correctly-rounded FMA per row (left fold).
         """
-        pid_n = tl.program_id(0)
-        pid_k = tl.program_id(1)
+        pid_n = tl.program_id(0).to(tl.int64)
+        pid_k = tl.program_id(1).to(tl.int64)
         n_offs = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
         k_offs = pid_k * BLOCK_K + tl.arange(0, BLOCK_K)
         n_mask = n_offs < N
         k_mask = k_offs < K
         acc = tl.zeros((BLOCK_N, BLOCK_K), dtype=tl.float32)
         for s in range(0, S):
-            g_vec = tl.load(g_ptr + s * N + n_offs, mask=n_mask, other=0.0)
-            x_vec = tl.load(x_ptr + s * K + k_offs, mask=k_mask, other=0.0)
+            g_vec = tl.load(g_ptr + s.to(tl.int64) * N + n_offs, mask=n_mask, other=0.0)
+            x_vec = tl.load(x_ptr + s.to(tl.int64) * K + k_offs, mask=k_mask, other=0.0)
             acc = libdevice.fma_rn(g_vec[:, None], x_vec[None, :], acc)
         dst = dw_ptr + n_offs[:, None] * K + k_offs[None, :]
         tl.store(dst, acc, mask=n_mask[:, None] & k_mask[None, :])

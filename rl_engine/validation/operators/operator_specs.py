@@ -267,6 +267,7 @@ OP_SPECS = {
             "cuda": "rl_engine.backends.cuda.gemm.attn_out_bias_gemm." "CudaAttnOutBiasGemmOp",
         },
         grad_input_names=("x", "weight", "bias"),
+        output_matches_input_dtype=True,
         bitwise_strict=True,
     ),
     "det_gemm": OperatorSpec(

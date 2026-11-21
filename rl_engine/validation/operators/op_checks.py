@@ -412,7 +412,9 @@ def _compare_case_outputs(
     ]
     if case.bitwise_strict:
         output_checks = [
-            _bitwise_verdict(check, candidate_output, gold_output)
+            _bitwise_verdict(
+                check, candidate_output, gold_output, expected_dtype=case.candidate_output_dtype
+            )
             for check, candidate_output, gold_output in zip(
                 output_checks, candidate_outputs, gold_outputs, strict=True
             )
@@ -590,7 +592,11 @@ _BITWISE_VIEWS = {torch.bfloat16: torch.int16, torch.float32: torch.int32}
 
 
 def _bitwise_verdict(
-    check: OutputCheck, candidate_output: torch.Tensor, gold_output: torch.Tensor
+    check: OutputCheck,
+    candidate_output: torch.Tensor,
+    gold_output: torch.Tensor,
+    *,
+    expected_dtype: torch.dtype | None = None,
 ) -> OutputCheck:
     """Override a tolerance verdict with the exact bit-pattern bar.
 
@@ -600,6 +606,9 @@ def _bitwise_verdict(
     zeros compare by pattern, not by value. Error statistics computed by the
     tolerance comparison are preserved as diagnostics.
     """
+    if expected_dtype is not None and candidate_output.dtype != expected_dtype:
+        # _compare_output already recorded the dtype contract failure.
+        return check
     if candidate_output.shape != gold_output.shape:
         passed = False
         note = "bitwise: shape mismatch"
