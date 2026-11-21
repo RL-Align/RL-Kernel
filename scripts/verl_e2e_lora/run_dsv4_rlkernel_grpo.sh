@@ -4,7 +4,8 @@
 # both on RL-Kernel's batch-invariant kernels. verl and vLLM run unmodified; RL-Kernel plugs in
 # through verl's model.external_lib / hydra search path and vLLM's worker_extension_cls.
 #
-#   MODEL_PATH=... DATA=... N_GPUS=2 bash scripts/verl_e2e/run_dsv4_rlkernel_grpo.sh [overrides]
+#   MODEL_PATH=... DATA=... N_GPUS=2 \
+#     bash scripts/verl_e2e_lora/run_dsv4_rlkernel_grpo.sh [overrides]
 #
 # The defaults are the 2-GPU toy run (design doc 10.1); every workload knob below can be
 # exported to change it (scripts/verl_e2e_lora/run.sh sets them for the 8-GPU comparison).

@@ -51,7 +51,7 @@ python3 "${HERE}/patch_verl_bitwise_metric.py" "${SRC_DIR}/verl"
 
 log "tools"
 mkdir -p "${E2E_ROOT}/tools"
-cp "${HERE}"/*.sh "${HERE}"/*.py "${E2E_ROOT}/tools/"
+cp "${HERE}"/*.sh "${HERE}"/*.py "${HERE}/../verl_e2e_lora/custom_reward.py" "${E2E_ROOT}/tools/"
 
 log "data"
 [[ -s "${TRAIN_FILE}" ]] || curl -fL -o "${TRAIN_FILE}" "${TRAIN_URL}"

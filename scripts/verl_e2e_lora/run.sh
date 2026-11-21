@@ -37,9 +37,9 @@ TOKENS_PER_GPU=${TOKENS_PER_GPU:-4096}               # micro-batch token budget 
 OVERLONG=${OVERLONG:-512}
 # Both runs: DAPO-Math prompts through #7483's DSv4 tokenization under the DAPO reward manager
 # with the same overlong penalty. REWARD picks the score:
-# - synthetic (default): the fraction of digits in the response (scripts/verl_e2e/
-#   custom_reward.py). A few-layer model scores 0 on math; this one moves the adapters every
-#   step, which is what the bitwise check needs.
+# - synthetic (default): the fraction of digits in the response (custom_reward.py). A
+#   few-layer model scores 0 on math; this one moves the adapters every step, which is what
+#   the bitwise check needs.
 # - math: verl's own scorer for the data's data_source (math_dapo: the "Answer:" line
 #   against the ground truth), for the full model.
 REWARD=${REWARD:-synthetic}
@@ -52,7 +52,7 @@ COMMON=(
 )
 case $REWARD in
   synthetic) REWARD_FN=(
-      reward.custom_reward_function.path=$RLK_ROOT/scripts/verl_e2e/custom_reward.py
+      reward.custom_reward_function.path=$HERE/custom_reward.py
       reward.custom_reward_function.name=compute_score) ;;
   math) REWARD_FN=(reward.custom_reward_function.path=null) ;;
   *) echo "REWARD must be synthetic or math"; exit 64 ;;
@@ -106,7 +106,7 @@ rlkernel() { # extra env / overrides for the RL-Kernel run
   MAX_TOKEN_LEN_PER_GPU=$TOKENS_PER_GPU MAX_NUM_BATCHED_TOKENS=${MAX_NUM_BATCHED_TOKENS:-4096} \
   MAX_NUM_SEQS=${MAX_NUM_SEQS:-64} GPU_UTIL=${GPU_UTIL:-0.35} ACTOR_LR=${ACTOR_LR:-1e-4} \
   LOGGER='["console","file"]' EXPERIMENT_NAME=$VARIANT \
-    bash "$RLK_ROOT/scripts/verl_e2e/run_dsv4_rlkernel_grpo.sh" \
+    bash "$HERE/run_dsv4_rlkernel_grpo.sh" \
       "${COMMON[@]}" "${DAPO_REWARD[@]}" "$@" 2>&1 | tee "$RUN/train.log"
 }
 
