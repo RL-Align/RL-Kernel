@@ -229,11 +229,8 @@ def _canonical(args) -> dict[str, Any]:
             b_zero=lora["b_zero"],
         )
     grid = h3_tp.Grid(1, 1, 0, 0, None, None, "h3_full", "ring")
-    strict = (
-        bool(engine["install"][0]["strict_boundaries"])
-        if isinstance(engine["install"], list)
-        else args.strict_boundaries
-    )
+    installed = _flat(engine.get("install") or [])
+    strict = bool(installed[0]["strict_boundaries"]) if installed else args.strict_boundaries
     rows = []
     for path in sorted((args.out / "calls").glob("call*.pt"), key=lambda p: int(p.stem[4:])):
         rec = torch.load(path, weights_only=False)
