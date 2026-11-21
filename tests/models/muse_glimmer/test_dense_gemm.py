@@ -155,3 +155,29 @@ def test_kv_tree_rounding_witness():
     expected[:, :3] = gold
     for backend in ("cuda", "triton"):
         _assert_bits(dense_gemm(x.cuda(), w.cuda(), backend=backend), expected, backend)
+
+    # The 96-token dW kernel has exactly three leaves. These contributions
+    # give 1 with L0 + (L1 + L2) and 0 with (L0 + L1) + L2.
+    batch = torch.zeros(96, 6656, device="cuda", dtype=torch.bfloat16)
+    batch[0, 0], batch[32, 0], batch[64, 0] = 256, 1, -256
+    dy = torch.zeros(96, 256, device="cuda", dtype=torch.bfloat16)
+    dy[:, 0] = 1
+    weight = w.cuda().requires_grad_()
+    for backend in ("cuda", "triton"):
+        (dw,) = torch.autograd.grad(dense_gemm(batch, weight, backend=backend), weight, dy)
+        assert dw[0, 0].item() == 1, backend
+
+
+@requires_cuda
+def test_projection_partial_tile_and_offset_views():
+    # Both aligned and misaligned contiguous views can carry the same input.
+    # Five rows leave a partially populated output tile.
+    generator = torch.Generator(device="cuda").manual_seed(501)
+    k, n = 6656, 256
+    options = dict(device="cuda", dtype=torch.bfloat16, generator=generator)
+    x = torch.randn(5 * k + 1, **options)[1:].view(5, k)
+    w = torch.randn(n * k + 1, **options)[1:].view(n, k)
+    expected = dense_gemm(x, w, backend="cuda")
+    for backend in ("cuda", "triton"):
+        _assert_bits(dense_gemm(x.clone(), w.clone(), backend=backend), expected, backend)
+        _assert_bits(dense_gemm(x, w, backend=backend), expected, backend)

@@ -360,6 +360,104 @@ def _device_tree_plan(
 
 if _TRITON_AVAILABLE:
 
+    @triton.jit
+    def _fixed_full_leaf(
+        a,
+        b,
+        rows,
+        cols,
+        start,
+        M,
+        N: tl.constexpr,
+        AM: tl.constexpr,
+        AK: tl.constexpr,
+        BK: tl.constexpr,
+        BN: tl.constexpr,
+    ):
+        acc = tl.full((rows.shape[0], cols.shape[0]), 0, tl.float32)
+        for k in tl.static_range(32):
+            x = tl.load(a + rows * AM + (start + k) * AK, mask=rows < M, other=0)
+            w = tl.load(b + (start + k) * BK + cols * BN, mask=cols < N, other=0)
+            acc = tl.fma(x.to(tl.float32)[:, None], w.to(tl.float32)[None, :], acc)
+        return acc.to(tl.bfloat16)
+
+    @triton.jit
+    def _fixed_projection_leaves_kernel(
+        a,
+        b,
+        dst,
+        M,
+        N: tl.constexpr,
+        AM: tl.constexpr,
+        AK: tl.constexpr,
+        BK: tl.constexpr,
+        BN: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        BLOCK_N: tl.constexpr,
+        WGRAD_96: tl.constexpr,
+    ):
+        rows = (tl.program_id(1) * BLOCK_M + tl.arange(0, BLOCK_M)).to(tl.int64)
+        cols = (tl.program_id(0) * BLOCK_N + tl.arange(0, BLOCK_N)).to(tl.int64)
+        leaf = tl.program_id(2).to(tl.int64)
+        value = _fixed_full_leaf(a, b, rows, cols, leaf * 32, M, N, AM, AK, BK, BN)
+        if WGRAD_96:
+            # One tile computes the complete three-leaf weight gradient and
+            # writes it directly in native [out,in] layout.
+            middle = _fixed_full_leaf(a, b, rows, cols, 32, M, N, AM, AK, BK, BN)
+            right = _fixed_full_leaf(a, b, rows, cols, 64, M, N, AM, AK, BK, BN)
+            upper = (middle.to(tl.float32) + right.to(tl.float32)).to(tl.bfloat16)
+            value = (value.to(tl.float32) + upper.to(tl.float32)).to(tl.bfloat16)
+            offsets = rows[:, None] + cols[None, :] * M
+        else:
+            offsets = (leaf * M + rows[:, None]) * N + cols[None, :]
+        tl.store(dst + offsets, value, mask=(rows[:, None] < M) & (cols[None, :] < N))
+
+    @triton.jit
+    def _fixed_projection_root_kernel(
+        leaves_ptr,
+        output_ptr,
+        M,
+        N: tl.constexpr,
+        OUTPUT_STRIDE: tl.constexpr,
+        LEAVES: tl.constexpr,
+        LEVELS: tl.constexpr,
+        BLOCK: tl.constexpr,
+    ):
+        offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+        width: tl.constexpr = 1 << LEVELS
+        group = tl.arange(0, width)
+        elements = M * N
+        if LEAVES == width:
+            nodes = tl.load(
+                leaves_ptr + group[None, :] * elements + offsets[:, None],
+                mask=offsets[:, None] < elements,
+                other=0,
+            )
+        else:
+            # At this depth every midpoint-tree branch has one or two leaves.
+            # Descend with the same floor midpoint as the registered reference.
+            start = tl.full((width,), 0, tl.int32)
+            count = tl.full((width,), LEAVES, tl.int32)
+            for level in tl.static_range(LEVELS):
+                right = (group & (width >> (level + 1))) != 0
+                half = count // 2
+                start += tl.where(right, half, 0)
+                count = tl.where(right, count - half, half)
+            ptr = leaves_ptr + start[None, :] * elements + offsets[:, None]
+            lower = tl.load(ptr, mask=offsets[:, None] < elements, other=0)
+            paired = count[None, :] == 2
+            upper = tl.load(ptr + elements, mask=(offsets[:, None] < elements) & paired, other=0)
+            total = lower.to(tl.float32) + upper.to(tl.float32)
+            nodes = tl.where(paired, total.to(tl.bfloat16), lower)
+
+        # These levels are complete. Merge adjacent children and round every
+        # parent, including the root, before writing the final output.
+        for level in tl.static_range(LEVELS):
+            left, right = tl.split(tl.reshape(nodes, (BLOCK, width >> (level + 1), 2)))
+            nodes = (left.to(tl.float32) + right.to(tl.float32)).to(tl.bfloat16)
+        output_offsets = (offsets // N).to(tl.int64) * OUTPUT_STRIDE + offsets % N
+        tl.store(output_ptr + output_offsets, tl.reshape(nodes, (BLOCK,)), mask=offsets < elements)
+
     @triton.jit(do_not_specialize=["M"])
     def _det_gemm_tree_leaf_kernel(
         a_ptr,
@@ -783,6 +881,48 @@ def _triton_gemm(
     raise TypeError(f"unsupported deterministic Triton GEMM output dtype: {output_dtype}")
 
 
+def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    m, k = a.shape
+    n = b.size(1)
+    leaves = k // _BLOCK_K
+    block_m = min(128, triton.next_power_of_2(m))
+    block_n = 32 if block_m == 128 else 64
+    num_warps = 2 if block_m == 1 else 4
+    # Each column chunk consumes disjoint weight elements and writes into the
+    # final output. Reuse one bounded leaf buffer across all chunks.
+    column_limit = _MAX_TREE_WORKSPACE_ELEMENTS // (m * leaves)
+    columns = min(n, column_limit if column_limit < block_n else column_limit // block_n * block_n)
+    workspace = a.new_empty((leaves, m, columns))
+    result = a.new_empty((m, n))
+    for first in range(0, n, columns):
+        chunk_n = min(columns, n - first)
+        grid = (triton.cdiv(chunk_n, block_n), triton.cdiv(m, block_m), leaves)
+        _fixed_projection_leaves_kernel[grid](
+            a,
+            b[:, first:],
+            workspace,
+            m,
+            chunk_n,
+            *a.stride(),
+            *b.stride(),
+            BLOCK_M=block_m,
+            BLOCK_N=block_n,
+            WGRAD_96=False,
+            num_warps=num_warps,
+        )
+        _fixed_projection_root_kernel[(triton.cdiv(m * chunk_n, 32),)](
+            workspace,
+            result[:, first:],
+            m,
+            chunk_n,
+            n,
+            leaves,
+            leaves.bit_length() - 1,
+            BLOCK=32,
+        )
+    return result
+
+
 def _triton_tree_gemm(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -813,6 +953,30 @@ def _triton_tree_gemm(
         b = b.contiguous()
     m_size, k_size = a.shape
     n_size = b.size(1)
+    if fixed_leaf_tree and torch.version.hip is None and out is None and m_size > 0 and n_size > 0:
+        if transpose_output and k_size == 3 * _BLOCK_K and triton.cdiv(m_size, 64) <= 65535:
+            result = a.new_empty((n_size, m_size))
+            _fixed_projection_leaves_kernel[(triton.cdiv(n_size, 64), triton.cdiv(m_size, 64), 1)](
+                a,
+                b,
+                result,
+                m_size,
+                n_size,
+                *a.stride(),
+                *b.stride(),
+                BLOCK_M=64,
+                BLOCK_N=64,
+                WGRAD_96=True,
+                num_warps=4,
+            )
+            return result
+        if (
+            not transpose_output
+            and k_size in (256, 4096, 6656, 19968)
+            and triton.cdiv(m_size, 128) <= 65535
+            and m_size * (k_size // _BLOCK_K) <= _MAX_TREE_WORKSPACE_ELEMENTS
+        ):
+            return _triton_fixed_projection(a, b)
     plan = _device_tree_plan(k_size, a.device, fixed_leaf_tree=fixed_leaf_tree)
     workspace_elements = plan.host.node_count * m_size * n_size
     if workspace_elements > _MAX_TREE_WORKSPACE_ELEMENTS and out is None:
@@ -839,8 +1003,7 @@ def _triton_tree_gemm(
     else:
         if tuple(out.shape) != result_shape:
             raise ValueError(
-                f"Triton tree GEMM output must have shape {result_shape}, "
-                f"got {tuple(out.shape)}"
+                f"Triton tree GEMM output must have shape {result_shape}, got {tuple(out.shape)}"
             )
         if out.dtype != torch.bfloat16:
             raise TypeError(f"Triton tree GEMM output must be BF16, got {out.dtype}")

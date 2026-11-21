@@ -17,6 +17,7 @@
 
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAException.h>
 #include <cuda_bf16.h>
 #include <cstdint>
 
@@ -252,6 +253,140 @@ void launch_naive(const nv_bf16* A, const nv_bf16* B, output_t* C,
   dim3 grid(cdiv(N, NAIVE_TILE), cdiv(M, NAIVE_TILE));
   det_gemm_naive<output_t, TRANSPOSE_OUTPUT, FIXED_LEAVES><<<grid, block, 0, stream>>>(
       A, B, C, M, N, K, transpose_rhs);
+}
+
+// The 96-token training weight gradient has exactly three full leaves.
+// Each warp reads contiguous input features and writes dW in its native
+// [out,in] layout. Reuse the same inputs across a 4x4 per-thread tile.
+__global__ void det_gemm_fixed_wgrad_96(const nv_bf16* __restrict__ x,
+                                        const nv_bf16* __restrict__ dy,
+                                        nv_bf16* __restrict__ dw, int in, int out) {
+  const int col = blockIdx.x * 128 + threadIdx.x;
+  const int row = blockIdx.y * 32 + threadIdx.y;
+  nv_bf16 left[4][4], middle[4][4];
+#pragma unroll
+  for (int leaf = 0; leaf < 3; ++leaf) {
+    float acc[4][4] = {};
+#pragma unroll
+    for (int k = 0; k < K_TREE_LEAF; ++k) {
+      const int token = leaf * K_TREE_LEAF + k;
+      float inputs[4];
+#pragma unroll
+      for (int c = 0; c < 4; ++c)
+        inputs[c] = __bfloat162float(x[static_cast<int64_t>(token) * in + col + 32 * c]);
+#pragma unroll
+      for (int r = 0; r < 4; ++r) {
+        const float grad = __bfloat162float(dy[static_cast<int64_t>(token) * out + row + 8 * r]);
+#pragma unroll
+        for (int c = 0; c < 4; ++c) acc[r][c] = __fmaf_rn(inputs[c], grad, acc[r][c]);
+      }
+    }
+#pragma unroll
+    for (int r = 0; r < 4; ++r) {
+#pragma unroll
+      for (int c = 0; c < 4; ++c) {
+        const nv_bf16 node = __float2bfloat16_rn(acc[r][c]);
+        if (leaf == 0) left[r][c] = node;
+        else if (leaf == 1) middle[r][c] = node;
+        else dw[static_cast<int64_t>(row + 8 * r) * in + col + 32 * c] =
+            bf16_add(left[r][c], bf16_add(middle[r][c], node));
+      }
+    }
+  }
+}
+
+// At a fixed depth of the midpoint tree, each subtree contains one or two
+// leaves. A thread computes that subtree in order. The remaining levels are
+// a balanced tree across threads; all intermediate values stay on chip.
+__host__ __device__ constexpr int fixed_tree_width(int leaves) {
+  int width = 1;
+  while (width <= leaves / 2) width *= 2;
+  return width;
+}
+
+struct alignas(16) Bf16Vector {
+  nv_bf16 values[8];
+};
+
+template <int WIDTH>
+__device__ __forceinline__ float fixed_warp_tree(float value) {
+#pragma unroll
+  for (int step = 1; step < WIDTH; step *= 2) {
+    const float right = __shfl_down_sync(0xffffffff, value, step);
+    value = __bfloat162float(__float2bfloat16_rn(value + right));
+  }
+  return value;
+}
+
+template <int K, int ROWS>
+__global__ void det_gemm_fixed_projection(const nv_bf16* __restrict__ x,
+                                          const nv_bf16* __restrict__ weight,
+                                          nv_bf16* __restrict__ output, int M, int N) {
+  constexpr int leaves = K / K_TREE_LEAF;
+  constexpr int width = fixed_tree_width(leaves);
+  constexpr int warps = width / 32;
+  const int tid = threadIdx.x;
+  const int col = blockIdx.x;
+  const int row = blockIdx.y * ROWS;
+  int start = 0, count = leaves;
+#pragma unroll
+  for (int bit = width / 2; bit; bit /= 2) {
+    const int left = count / 2;
+    if (tid & bit) start += left;
+    count = (tid & bit) ? count - left : left;
+  }
+
+  float values[ROWS] = {};
+  for (int i = 0; i < count; ++i) {
+    float acc[ROWS] = {};
+#pragma unroll
+    for (int offset = 0; offset < K_TREE_LEAF; offset += 8) {
+      const int k = (start + i) * K_TREE_LEAF + offset;
+      const auto w = *reinterpret_cast<const Bf16Vector*>(weight + static_cast<int64_t>(col) * K + k);
+#pragma unroll
+      for (int r = 0; r < ROWS; ++r) {
+        const int src = min(row + r, M - 1);
+        const auto a = *reinterpret_cast<const Bf16Vector*>(x + static_cast<int64_t>(src) * K + k);
+#pragma unroll
+        for (int j = 0; j < 8; ++j)
+          acc[r] = __fmaf_rn(__bfloat162float(a.values[j]), __bfloat162float(w.values[j]), acc[r]);
+      }
+    }
+#pragma unroll
+    for (int r = 0; r < ROWS; ++r) {
+      const float leaf = __bfloat162float(__float2bfloat16_rn(acc[r]));
+      values[r] = i == 0 ? leaf : __bfloat162float(__float2bfloat16_rn(values[r] + leaf));
+    }
+  }
+
+  __shared__ float warp_roots[ROWS][warps];
+#pragma unroll
+  for (int r = 0; r < ROWS; ++r) {
+    const float root = fixed_warp_tree<32>(values[r]);
+    if (tid % 32 == 0) warp_roots[r][tid / 32] = root;
+  }
+  __syncthreads();
+  if (tid < 32) {
+#pragma unroll
+    for (int r = 0; r < ROWS; ++r) {
+      const float root = fixed_warp_tree<warps>(warp_roots[r][tid % warps]);
+      if (tid == 0 && row + r < M)
+        output[static_cast<int64_t>(row + r) * N + col] = __float2bfloat16_rn(root);
+    }
+  }
+}
+
+template <int K>
+void launch_fixed_projection(const nv_bf16* x, const nv_bf16* weight, nv_bf16* output,
+                             int M, int N, cudaStream_t stream) {
+  constexpr int threads = fixed_tree_width(K / K_TREE_LEAF);
+  constexpr int rows = threads > 128 ? 4 : 8;
+  if (M == 1)
+    det_gemm_fixed_projection<K, 1><<<N, threads, 0, stream>>>(x, weight, output, M, N);
+  else
+    det_gemm_fixed_projection<K, rows><<<dim3(N, cdiv(M, rows)), threads, 0, stream>>>(
+        x, weight, output, M, N);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 #if defined(RL_KERNEL_ENABLE_SM90)
@@ -498,6 +633,12 @@ void check_in(const torch::Tensor& t, const char* n) {
   TORCH_CHECK(t.scalar_type() == torch::kBFloat16, n, " must be bf16");
 }
 
+void check_fixed_leaf_math() {
+#if defined(RL_KERNEL_USE_FAST_MATH)
+  TORCH_CHECK(false, "fixed-leaf GEMM requires a build with KERNEL_ALIGN_USE_FAST_MATH=0");
+#endif
+}
+
 torch::Tensor gemm_dispatch(const torch::Tensor& a, const torch::Tensor& rhs,
                             RhsLayout rhs_layout = RhsLayout::kKN,
                             OutputLayout output_layout = OutputLayout::kMN,
@@ -512,10 +653,23 @@ torch::Tensor gemm_dispatch(const torch::Tensor& a, const torch::Tensor& rhs,
   // Explicit scalar arithmetic also on Hopper: MMA sums within a leaf in
   // hardware order, which can change the rounded BF16 leaf.
   if (fixed_leaf_tree) {
-#if defined(RL_KERNEL_USE_FAST_MATH)
-    TORCH_CHECK(false, "fixed-leaf GEMM requires a build with KERNEL_ALIGN_USE_FAST_MATH=0");
-#endif
+    check_fixed_leaf_math();
     const bool transpose_rhs = rhs_layout == RhsLayout::kNK;
+    if (transpose_rhs && !transpose_output && M > 0 && N > 0 && M <= 4 * 65535 &&
+        (reinterpret_cast<std::uintptr_t>(a.data_ptr()) % 16 == 0) &&
+        (reinterpret_cast<std::uintptr_t>(rhs.data_ptr()) % 16 == 0)) {
+      switch (K) {
+        case 4096:
+          launch_fixed_projection<4096>(bf16(a), bf16(rhs), bf16o(c), M, N, stream);
+          return c;
+        case 6656:
+          launch_fixed_projection<6656>(bf16(a), bf16(rhs), bf16o(c), M, N, stream);
+          return c;
+        case 19968:
+          launch_fixed_projection<19968>(bf16(a), bf16(rhs), bf16o(c), M, N, stream);
+          return c;
+      }
+    }
     if (transpose_output)
       launch_naive<nv_bf16, true, true>(
           bf16(a), bf16(rhs), bf16o(c), M, N, K, stream, transpose_rhs);
@@ -654,6 +808,19 @@ torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc, bool fix
   const int in_features = a.size(1);
   const int out_features = dc.size(1);
   TORCH_CHECK(dc.size(0) == tokens, "det_gemm_db_transposed: M mismatch");
+  if (fixed_leaf_tree) check_fixed_leaf_math();
+
+  if (fixed_leaf_tree && tokens == 3 * K_TREE_LEAF && in_features > 0 && out_features > 0 &&
+      in_features % 128 == 0 && out_features % 32 == 0 && out_features / 32 <= 65535) {
+    a = a.contiguous();
+    dc = dc.contiguous();
+    auto output = torch::empty({out_features, in_features}, a.options());
+    det_gemm_fixed_wgrad_96<<<dim3(in_features / 128, out_features / 32), dim3(32, 8), 0,
+                              at::cuda::getCurrentCUDAStream()>>>(
+        bf16(a), bf16(dc), bf16o(output), in_features, out_features);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return output;
+  }
 
   // The normal SM90 path expects A^T to be physically contiguous. For short
   // token batches, materializing that transpose and launching the 16x16
