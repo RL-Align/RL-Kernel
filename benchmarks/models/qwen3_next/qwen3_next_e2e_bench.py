@@ -28,8 +28,9 @@ rank the query heads of a whole KV group, keeps its share for attention, but doe
 narrow the attention output gate, so the forward fails on the gate's shape. Its expert
 weights also only load with expert tensor parallel 1 (Megatron's grouped expert layers
 carry no tensor-parallel flag, so VIME's loader copies the whole expert tensor). So stock
-VIME runs its own recipe's layout on the same four GPUs: TP2, expert tensor parallel 1,
-experts over all four ranks, data parallel 2. Each step processes the same samples; the
+VIME runs its own recipe's layout on the same four GPUs: TP2 with sequence parallel (without
+it Megatron's MoE layer refuses to train at TP > 1), expert tensor parallel 1, experts over all
+four ranks, data parallel 2. Each step processes the same samples; the
 two data-parallel replicas split them (a single sample leaves one replica a filler copy)
 and the step time is the slowest rank's.
 
@@ -63,6 +64,7 @@ from benchmarks.models.qwen3_next.e2e_bench_cases import (  # noqa: E402
     arm_order,
     data_parallel_share,
     merge_rounds,
+    packed_lengths,
     prompts,
     ratios,
     response_positions,
@@ -247,6 +249,7 @@ def replay_shapes(manifest, arm, workload, repeats):
     import torch
     from megatron.core import mpu
     from megatron.core.packed_seq_params import PackedSeqParams
+    from megatron.core.utils import get_model_config
     from vime.backends.megatron_utils import loss as vime_loss
 
     from rl_engine.integrations.orchestrators.vime.providers.qwen3_next_vime_runtime import (
@@ -271,6 +274,9 @@ def replay_shapes(manifest, arm, workload, repeats):
     while hasattr(raw, "module"):
         raw = raw.module
     group = mpu.get_tensor_model_parallel_group()
+    if get_model_config(model[0]).sequence_parallel != layout["sp"]:
+        raise RuntimeError(f"Expected sequence parallel {layout['sp']}")
+    multiple = layout["tp"] if layout["sp"] else 1
     captured = []
 
     def keep_logits(_module, _inputs, output):
@@ -280,8 +286,10 @@ def replay_shapes(manifest, arm, workload, repeats):
     records = {}
     for shape in spec["replay"]:
         rows, _filler = data_parallel_share(sequences(shape), dp_rank, dp_size)
-        lengths = [len(row) for row in rows]
-        tokens = torch.tensor([t for row in rows for t in row], device="cuda").reshape(1, -1)
+        lengths = packed_lengths([len(row) for row in rows], multiple)
+        flat = [t for row in rows for t in row]
+        flat += [0] * (sum(lengths) - len(flat))
+        tokens = torch.tensor(flat, device="cuda").reshape(1, -1)
         cu = torch.tensor(
             [0, *torch.tensor(lengths).cumsum(0).tolist()], device="cuda", dtype=torch.int32
         )
@@ -694,7 +702,8 @@ def build_report(manifest, identity, raw, found_versions, args):
             "stock_vime_layout_reason": (
                 "stock VIME cannot run Qwen3-Next at TP4 (2 KV heads; Megatron's attention "
                 "output gate is not narrowed below one KV group per rank), so it runs its "
-                "recipe's TP2 with expert tensor parallel 1 on the same four GPUs"
+                "recipe's TP2 with sequence parallel and expert tensor parallel 1 on the same "
+                "four GPUs"
             ),
         },
         "phases": phases,
