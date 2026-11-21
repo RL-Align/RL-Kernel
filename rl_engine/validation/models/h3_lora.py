@@ -96,4 +96,91 @@ def attach_lora(
     return held
 
 
+def lora_digests(model) -> dict[str, str]:
+    """``{"<block>.<target>.<part>": SHA-256 of dtype, shape and bytes}`` of every LoRA shard the
+    model holds (``attach_lora`` / ``install_lora_shards``)."""
+
+    from rl_engine.integrations.engines.rollout.vllm.h3_omni_model import tensor_digest
+    from rl_engine.validation.models import h3_parallel_model as pm
+
+    out = {}
+    for index, block in enumerate(model.transformer_blocks):
+        lora = getattr(block, pm.LORA_ATTR, None)
+        if lora is None:
+            continue
+        for target, parts in lora["tensors"].items():
+            for part, t in parts.items():
+                out[f"{index}.{target}.{part}"] = tensor_digest(t)
+    return out
+
+
+def install_lora_shards(
+    model,
+    shards: list[dict[str, dict[str, torch.Tensor]]],
+    tp: int,
+    tp_rank: int,
+    *,
+    scale: float,
+    expected: dict[str, str] | None = None,
+    device: torch.device | str = "cuda",
+) -> dict[str, str]:
+    """Put LoRA shards received from the actor's TP rank ``tp_rank`` on every block.
+
+    ``shards[i]`` is block ``i``'s ``{target: {part: tensor}}`` in ``shard_block_lora``'s layout.
+    Actor and rollout both run TP ``tp``, so the actor's rank ``r`` sends the rollout's rank ``r``
+    its own shards, without a gather. Every tensor is checked against ``shard_lora``'s shapes for
+    ``(tp, tp_rank)``; ``expected`` (the sender's ``lora_digests``) must equal the installed
+    digests exactly, else the previous LoRA is put back and the call raises. Returns the
+    installed digests.
+    """
+
+    from rl_engine.validation.models import h3_parallel_model as pm
+
+    blocks = list(model.transformer_blocks)
+    if len(shards) != len(blocks):
+        raise ValueError(f"{len(shards)} LoRA blocks for {len(blocks)} transformer blocks")
+    for index, parts_by_target in enumerate(shards):
+        if set(parts_by_target) != set(SHAPES):
+            raise ValueError(
+                f"block {index}: targets {sorted(parts_by_target)} != {sorted(SHAPES)}"
+            )
+        for target, parts in parts_by_target.items():
+            r = parts["A"].shape[0]
+            k, n = SHAPES[target]
+            want = pl.shard_lora(
+                target,
+                torch.empty(r, k, device="meta"),
+                torch.empty(n, r, device="meta"),
+                tp,
+                tp_rank,
+            )
+            if set(parts) != set(want) or any(parts[p].shape != want[p].shape for p in want):
+                raise ValueError(f"block {index} {target}: the shards are not ({tp}, {tp_rank})'s")
+    previous = [block.__dict__.get(pm.LORA_ATTR) for block in blocks]
+    for block, parts_by_target in zip(blocks, shards):
+        setattr(
+            block,
+            pm.LORA_ATTR,
+            {
+                "tp": tp,
+                "tp_rank": tp_rank,
+                "scale": scale,
+                "tensors": {
+                    t: {p: v.to(device) for p, v in parts.items()}
+                    for t, parts in parts_by_target.items()
+                },
+            },
+        )
+    got = lora_digests(model)
+    if expected is not None and got != expected:
+        bad = sorted(k for k in set(got) | set(expected) if got.get(k) != expected.get(k))
+        for block, old in zip(blocks, previous):
+            if old is None:
+                block.__dict__.pop(pm.LORA_ATTR, None)
+            else:
+                setattr(block, pm.LORA_ATTR, old)
+        raise RuntimeError(f"LoRA sync digest mismatch on {len(bad)} shards, e.g. {bad[:3]}")
+    return got
+
+
 LEAVES_PER_BLOCK = sum(len(leaf_names(t)) for t in SHAPES)  # 13
