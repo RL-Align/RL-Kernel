@@ -55,6 +55,14 @@ STRICT_TESTS = "tests/runtime/test_adaln_strict_policy.py::"
 def test_cuda_execution_tests_skip_with_cpu_wheel_identity():
     result = run_pytest(
         CPU_WHEEL,
+        "tests/ops/norm/test_adaln_modulation.py::"
+        "test_triton_adaln_modulation_forward_backward_and_batch_position",
+        "tests/ops/norm/test_adaln_modulation.py::"
+        "test_triton_irregular_hidden_and_bf16_tie_rounding",
+        "tests/ops/norm/test_adaln_modulation.py::"
+        "test_adaln_gpu_padding_and_batch_size_do_not_change_valid_bytes",
+        "tests/ops/norm/test_adaln_modulation.py::test_cuda_adaln_bit_equality_harness",
+        "tests/ops/norm/test_adaln_modulation.py::test_adaln_real_image_shapes_forward_backward",
         f"{MODULATION_TESTS}test_triton_adaln_modulation_forward_backward_and_batch_position",
         f"{MODULATION_TESTS}test_triton_irregular_hidden_and_bf16_tie_rounding",
         f"{MODULATION_TESTS}test_adaln_gpu_padding_and_batch_size_do_not_change_valid_bytes",
@@ -92,6 +100,12 @@ def test_missing_extension_still_fails_when_required():
 def test_indexed_qualification_tests_with_cpu_wheel_identity(hip):
     result = run_pytest(
         CPU_WHEEL + f"\ntorch.version.hip = {hip!r}\n",
+        "tests/runtime/test_adaln_strict_policy.py::"
+        "test_explicit_indexed_activation_resolves_without_enabling_cpu_select01",
+        "tests/runtime/test_adaln_strict_policy.py::"
+        "test_activated_strict_rechecks_actual_domain_before_execution",
+        "tests/runtime/test_adaln_strict_policy.py::"
+        "test_activation_scope_does_not_qualify_another_backend_or_runtime",
         f"{STRICT_TESTS}test_explicit_indexed_activation_resolves_without_enabling_cpu_select01",
         f"{STRICT_TESTS}test_activated_strict_rechecks_actual_domain_before_execution",
         f"{STRICT_TESTS}test_activation_scope_does_not_qualify_another_backend_or_runtime",

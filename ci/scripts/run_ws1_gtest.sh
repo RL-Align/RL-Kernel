@@ -20,6 +20,8 @@ echo "[ws1-gtest] interpreter=$PY out=$OUT"
 "$PY" -m pytest -q \
   tests/validation/operators/test_ws1_gtest_gpu.py \
   tests/ops/attention/test_triton_batch_invariant_attention.py \
+  tests/ops/gemm/test_mlp_down_gemm.py \
+  tests/ops/gemm/test_mlp_down_gemm_triton.py \
   tests/validation/operators/test_four_judgment_matrix.py \
   tests/validation/operators/test_ws1_candidate_evidence.py \
   tests/validation/operators/test_op_checks.py \
