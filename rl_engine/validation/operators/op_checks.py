@@ -32,7 +32,7 @@ class OperatorCase:
     gold_input_dtype: torch.dtype | None = None
     candidate_output_dtype: torch.dtype | None = None
     # Bitwise-strict operators (WS1 frozen-contract tree ops): the pass
-    # criterion is exact logical-element bit-pattern equality. Forward legs
+    # criterion is finite results with exact logical-element bit patterns. Forward legs
     # compare against the gold cast ONCE to the candidate's output dtype;
     # the gradient leg differentiates ``gold_backward_fn`` -- the gold OP
     # itself, whose autograd.Function.backward IS the frozen chain -- with
@@ -602,9 +602,8 @@ def _bitwise_verdict(
 
     Expected bits are the gold's logical elements after ONE cast to the
     candidate's output dtype (the frozen contract's single RNE output cast);
-    equality is asserted on the dtype bitcast, so NaN payloads and signed
-    zeros compare by pattern, not by value. Error statistics computed by the
-    tolerance comparison are preserved as diagnostics.
+    both final tensors must be finite. The integer views distinguish signed
+    zeros and preserve subnormal bits. Error statistics remain diagnostic.
     """
     if expected_dtype is not None and candidate_output.dtype != expected_dtype:
         # _compare_output already recorded the dtype contract failure.
@@ -621,14 +620,23 @@ def _bitwise_verdict(
             if gold_output.dtype == candidate_output.dtype
             else gold_output.to(candidate_output.dtype)
         )
-        int_dtype = _BITWISE_VIEWS[candidate_output.dtype]
-        expected_bits = expected.contiguous().view(int_dtype)
-        candidate_bits = candidate_output.contiguous().view(int_dtype)
-        if candidate_bits.device != expected_bits.device:
-            candidate_bits = candidate_bits.cpu()
-            expected_bits = expected_bits.cpu()
-        passed = torch.equal(expected_bits, candidate_bits)
-        note = "bitwise" if passed else "bitwise: bit-pattern mismatch"
+        nonfinite = [
+            side
+            for side, tensor in (("candidate", candidate_output), ("reference", expected))
+            if not torch.isfinite(tensor).all().item()
+        ]
+        if nonfinite:
+            passed = False
+            note = "bitwise: non-finite " + " and ".join(nonfinite)
+        else:
+            int_dtype = _BITWISE_VIEWS[candidate_output.dtype]
+            expected_bits = expected.contiguous().view(int_dtype)
+            candidate_bits = candidate_output.contiguous().view(int_dtype)
+            if candidate_bits.device != expected_bits.device:
+                candidate_bits = candidate_bits.cpu()
+                expected_bits = expected_bits.cpu()
+            passed = torch.equal(expected_bits, candidate_bits)
+            note = "bitwise" if passed else "bitwise: bit-pattern mismatch"
     message = f"{check.message} [{note}]" if check.message else note
     return replace(check, passed=passed, message=message)
 

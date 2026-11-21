@@ -82,10 +82,12 @@ input device. In the dedicated tests it also serves as an FP32 CPU reference.
   composition, leading shape, padding and repeated runs. The reference
   gradient test compares `dx` for a row slice with the same upstream rows
   from the full batch.
-- **Bitwise acceptance.** Forward and gradient checks compare logical
-  elements. The dedicated harness checks shape and dtype, materialises
-  contiguous tensors and calls `torch.equal` on integer views (`int16` for
-  bf16 and `int32` for fp32).
+- **Strict acceptance.** For the forward output and each requested gradient
+  (`dx`, `dW`, `db`), compare the candidate and reference at the final
+  output dtype. A NaN or either sign of infinity on either side fails that
+  comparison, even if the two encodings are identical. Finite results must
+  match in shape, dtype and every logical element's bits, including the sign
+  of zero and subnormal values. This rule applies during validation.
 - The generic gtest matrix enforces the same bar for this operator
   (`bitwise_strict` in `rl_engine/validation/operators/operator_specs.py`): the
   forward pass criterion is the gold cast ONCE to the output dtype, compared
@@ -129,9 +131,8 @@ python scripts/check_operator.py --op attn_out_bias_gemm --candidate triton --de
 python scripts/check_operator.py --op attn_out_bias_gemm --candidate cuda --device cuda --dtype bf16 --check-grad
 ```
 
-The test file also carries the bit-equality harness (four-step comparison:
-shape, dtype, contiguous materialisation, dtype-bitcast of the logical
-elements) required by the issue acceptance list.
+The dedicated harness checks finiteness and compares contiguous integer
+views (`int16` for bf16, `int32` for fp32).
 
 ## Implementation Files
 

@@ -38,6 +38,8 @@ def backend(request):
 def assert_bits(actual, expected):
     assert actual.shape == expected.shape
     assert actual.dtype == expected.dtype
+    assert torch.isfinite(actual).all()
+    assert torch.isfinite(expected).all()
     bit_dtype = torch.int32 if actual.dtype == torch.float32 else torch.int16
     assert torch.equal(
         actual.detach().cpu().contiguous().view(bit_dtype),

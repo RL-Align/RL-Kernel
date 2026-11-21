@@ -24,8 +24,8 @@ class OperatorSpec:
     grad_input_names: tuple[str, ...] = ()
     gold_input_dtype: torch.dtype | None = None
     output_matches_input_dtype: bool = False
-    # WS1 frozen-contract ops: gtest acceptance is bitwise (exact logical-
-    # element bit patterns, forward and backward; see OperatorCase). The
+    # Strict acceptance requires finite outputs and gradients with identical
+    # logical-element bit patterns (see OperatorCase). The
     # gradient gold is the op's OWN frozen backward, not autograd through
     # the fp32 forward view.
     bitwise_strict: bool = False

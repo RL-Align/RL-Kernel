@@ -8,13 +8,14 @@ The harness implements the frozen comparison procedure from the contract
 
     1. assert shapes match (explicit, for a locatable failure message)
     2. assert dtypes match
-    3. materialise contiguous copies (a copy never changes logical element bits;
+    3. require all elements of both results to be finite
+    4. materialise contiguous copies (a copy never changes logical element bits;
        column slices / transposes need it for the dtype reinterpretation)
-    4. compare the *bit patterns of the logical elements* via a dtype bitcast
+    5. compare the *bit patterns of the logical elements* via a dtype bitcast
        (int16 for bf16, int32 for fp32) -- not the underlying allocation bytes
 
-The integer comparison distinguishes signed zeros and NaN payloads, and
-accepts matching NaN bit patterns.
+The raw integer comparator distinguishes signed zeros and NaN payloads.
+The acceptance assertion rejects any non-finite result before comparing bits.
 
 The small reference cases compare device results with CPU results. The
 3072-wide sweep compares CUDA with Triton at every tier and CUDA with the
@@ -45,7 +46,7 @@ def _bitview(dtype: torch.dtype) -> torch.dtype:
 
 
 def bitwise_equal(a: torch.Tensor, b: torch.Tensor) -> bool:
-    """Contract comparison: logical-element bit patterns, not allocation bytes."""
+    """Compare raw logical-element bits, including signed zeros and NaN payloads."""
     if a.shape != b.shape:
         return False
     if a.dtype != b.dtype:
@@ -61,6 +62,8 @@ def assert_bitwise_equal(a: torch.Tensor, b: torch.Tensor, context: str = "") ->
     prefix = f"[{context}] " if context else ""
     assert a.shape == b.shape, f"{prefix}shape mismatch: {tuple(a.shape)} vs {tuple(b.shape)}"
     assert a.dtype == b.dtype, f"{prefix}dtype mismatch: {a.dtype} vs {b.dtype}"
+    assert torch.isfinite(a).all(), f"{prefix}non-finite first tensor"
+    assert torch.isfinite(b).all(), f"{prefix}non-finite second tensor"
     assert bitwise_equal(a, b), f"{prefix}bit-pattern mismatch (bitcast compare)"
 
 
@@ -909,12 +912,13 @@ class TestIndependentSpecBitwise:
     ("dtype", "bits", "payload"),
     [(torch.float32, torch.int32, 0x7FC00001), (torch.bfloat16, torch.int16, 0x7FC1)],
 )
-def test_bitwise_assertion_compares_nan_payloads(dtype, bits, payload):
+def test_strict_acceptance_rejects_even_bitwise_identical_nans(dtype, bits, payload):
     nan = torch.tensor([payload], dtype=bits).view(dtype)
-    assert_bitwise_equal(nan, nan.clone())
+    assert bitwise_equal(nan, nan.clone())
     other = torch.tensor([payload + 1], dtype=bits).view(dtype)
-    with pytest.raises(AssertionError, match="bit-pattern mismatch"):
-        assert_bitwise_equal(nan, other)
+    assert not bitwise_equal(nan, other)
+    with pytest.raises(AssertionError, match="non-finite"):
+        assert_bitwise_equal(nan, nan.clone())
 
 
 @pytest.mark.skipif(
