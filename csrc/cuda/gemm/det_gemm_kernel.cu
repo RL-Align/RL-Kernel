@@ -93,8 +93,9 @@ struct KTreePending {
 // lm_head backward) would otherwise overflow the default device stack. The
 // current [lo, hi) range stays in registers; the stack only holds pending
 // right siblings, so the leaf loop and the descent stay off local memory.
+template <bool FIXED_LEAVES>
 __device__ nv_bf16 k_tree_naive(const nv_bf16* __restrict__ a_row,
-                                const nv_bf16* __restrict__ b_col, int N, int K) {
+                                const nv_bf16* __restrict__ b_col, int stride_bk, int K) {
   const nv_bf16 zero = __float2bfloat16(0.0f);
   KTreePending stack[K_TREE_MAX_DEPTH];
   int sp = 0;
@@ -104,7 +105,11 @@ __device__ nv_bf16 k_tree_naive(const nv_bf16* __restrict__ a_row,
 
   while (true) {
     if (hi - lo > K_TREE_LEAF) {
-      const int mid = lo + (hi - lo) / 2;
+      const int length = hi - lo;
+      // Muse-Glimmer splits the list of 32-wide leaves, including its final
+      // partial leaf. Keep the historical element midpoint for other callers.
+      const int leaves = 1 + (length - 1) / K_TREE_LEAF;
+      const int mid = lo + (FIXED_LEAVES ? (leaves / 2) * K_TREE_LEAF : length / 2);
       stack[sp] = KTreePending{mid, hi, 0, zero};
       ++sp;
       hi = mid;
@@ -113,8 +118,8 @@ __device__ nv_bf16 k_tree_naive(const nv_bf16* __restrict__ a_row,
 
     float acc = 0.0f;
     const nv_bf16* a = a_row + lo;
-    const nv_bf16* b = b_col + static_cast<int64_t>(lo) * N;
-    for (int k = lo; k < hi; ++k, ++a, b += N)
+    const nv_bf16* b = b_col + static_cast<int64_t>(lo) * stride_bk;
+    for (int k = lo; k < hi; ++k, ++a, b += stride_bk)
       acc += __bfloat162float(*a) * __bfloat162float(*b);
     value = __float2bfloat16(acc);
 
@@ -138,20 +143,20 @@ __device__ nv_bf16 k_tree_naive(const nv_bf16* __restrict__ a_row,
 // construction: one thread = one output element, mid-split K tree.
 constexpr int NAIVE_TILE = 16;
 
-template <typename output_t, bool TRANSPOSE_OUTPUT>
+template <typename output_t, bool TRANSPOSE_OUTPUT, bool FIXED_LEAVES>
 __global__ void det_gemm_naive(const nv_bf16* __restrict__ A,
                                const nv_bf16* __restrict__ B,
                                output_t* __restrict__ C,
-                               int M, int N, int K) {
+                               int M, int N, int K, bool transpose_rhs) {
   const int row = blockIdx.y * NAIVE_TILE + threadIdx.y;
   const int col = blockIdx.x * NAIVE_TILE + threadIdx.x;
   if (row >= M || col >= N) return;
   // 64-bit row/column bases: an operand with M*K (or K*N) above INT_MAX would
   // otherwise wrap the linear index and read out of bounds.
   const nv_bf16* a_row = A + static_cast<int64_t>(row) * K;
-  const nv_bf16* b_col = B + col;
+  const nv_bf16* b_col = B + (transpose_rhs ? static_cast<int64_t>(col) * K : col);
   C[output_offset<TRANSPOSE_OUTPUT>(row, col, M, N)] = cast_output<output_t>(
-      __bfloat162float(k_tree_naive(a_row, b_col, N, K)));
+      __bfloat162float(k_tree_naive<FIXED_LEAVES>(a_row, b_col, transpose_rhs ? 1 : N, K)));
 }
 
 // Weight gradients in the FFN are an outer-product GEMM when the token batch
@@ -240,13 +245,13 @@ void launch_db_small_k(const nv_bf16* X,
       X, dY, dW, tokens, in_features, out_features);
 }
 
-template <typename output_t, bool TRANSPOSE_OUTPUT>
+template <typename output_t, bool TRANSPOSE_OUTPUT, bool FIXED_LEAVES = false>
 void launch_naive(const nv_bf16* A, const nv_bf16* B, output_t* C,
-                  int M, int N, int K, cudaStream_t stream) {
+                  int M, int N, int K, cudaStream_t stream, bool transpose_rhs = false) {
   dim3 block(NAIVE_TILE, NAIVE_TILE);
   dim3 grid(cdiv(N, NAIVE_TILE), cdiv(M, NAIVE_TILE));
-  det_gemm_naive<output_t, TRANSPOSE_OUTPUT><<<grid, block, 0, stream>>>(
-      A, B, C, M, N, K);
+  det_gemm_naive<output_t, TRANSPOSE_OUTPUT, FIXED_LEAVES><<<grid, block, 0, stream>>>(
+      A, B, C, M, N, K, transpose_rhs);
 }
 
 #if defined(RL_KERNEL_ENABLE_SM90)
@@ -496,13 +501,29 @@ void check_in(const torch::Tensor& t, const char* n) {
 torch::Tensor gemm_dispatch(const torch::Tensor& a, const torch::Tensor& rhs,
                             RhsLayout rhs_layout = RhsLayout::kKN,
                             OutputLayout output_layout = OutputLayout::kMN,
-                            bool output_fp32 = false) {
+                            bool fixed_leaf_tree = false, bool output_fp32 = false) {
   const int M = a.size(0), K = a.size(1);
   const int N = rhs_layout == RhsLayout::kKN ? rhs.size(1) : rhs.size(0);
   const bool transpose_output = output_layout == OutputLayout::kNM;
   auto options = a.options().dtype(output_fp32 ? torch::kFloat32 : torch::kBFloat16);
   auto c = transpose_output ? torch::empty({N, M}, options) : torch::empty({M, N}, options);
   auto stream = at::cuda::getCurrentCUDAStream();
+
+  // Explicit scalar arithmetic also on Hopper: MMA sums within a leaf in
+  // hardware order, which can change the rounded BF16 leaf.
+  if (fixed_leaf_tree) {
+#if defined(RL_KERNEL_USE_FAST_MATH)
+    TORCH_CHECK(false, "fixed-leaf GEMM requires a build with KERNEL_ALIGN_USE_FAST_MATH=0");
+#endif
+    const bool transpose_rhs = rhs_layout == RhsLayout::kNK;
+    if (transpose_output)
+      launch_naive<nv_bf16, true, true>(
+          bf16(a), bf16(rhs), bf16o(c), M, N, K, stream, transpose_rhs);
+    else
+      launch_naive<nv_bf16, false, true>(
+          bf16(a), bf16(rhs), bf16o(c), M, N, K, stream, transpose_rhs);
+    return c;
+  }
 
 #if defined(RL_KERNEL_ENABLE_SM90)
   // Tensor-core path requires N,K tile-aligned. M is padded up to a multiple of
@@ -578,21 +599,21 @@ bool det_gemm_sm90_compiled() {
 #endif
 }
 
-torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b) {
+torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b, bool fixed_leaf_tree) {
   check_in(a, "A"); check_in(b, "B");
   a = a.contiguous(); b = b.contiguous();
   TORCH_CHECK(a.dim() == 2 && b.dim() == 2, "det_gemm_fwd: expect 2D [M,K]@[K,N]");
   TORCH_CHECK(b.size(0) == a.size(1), "det_gemm_fwd: K mismatch");
-  return gemm_dispatch(a, b);
+  return gemm_dispatch(a, b, RhsLayout::kKN, OutputLayout::kMN, fixed_leaf_tree);
 }
 
-torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt) {
+torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt, bool fixed_leaf_tree) {
   check_in(a, "A"); check_in(bt, "Bt");
   a = a.contiguous(); bt = bt.contiguous();
   TORCH_CHECK(a.dim() == 2 && bt.dim() == 2,
               "det_gemm_fwd_rhs_transposed: expect A[M,K] and Bt[N,K]");
   TORCH_CHECK(bt.size(1) == a.size(1), "det_gemm_fwd_rhs_transposed: K mismatch");
-  return gemm_dispatch(a, bt, RhsLayout::kNK);
+  return gemm_dispatch(a, bt, RhsLayout::kNK, OutputLayout::kMN, fixed_leaf_tree);
 }
 
 torch::Tensor det_gemm_fwd_fp32(torch::Tensor a, torch::Tensor b) {
@@ -625,7 +646,7 @@ torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc) {
   return gemm_dispatch(at, dc);
 }
 
-torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc) {
+torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc, bool fixed_leaf_tree) {
   check_in(a, "A"); check_in(dc, "dC");
   TORCH_CHECK(a.dim() == 2 && dc.dim() == 2,
               "det_gemm_db_transposed: expect A[M,K] and dC[M,N]");
@@ -652,5 +673,5 @@ torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc) {
   auto at = a.t().contiguous();
   // Preserve the exact A^T @ dC MMA/tree evaluation and change only the final
   // address mapping so the canonical [N,K] weight-gradient is born contiguous.
-  return gemm_dispatch(at, dc, RhsLayout::kKN, OutputLayout::kNM);
+  return gemm_dispatch(at, dc, RhsLayout::kKN, OutputLayout::kNM, fixed_leaf_tree);
 }

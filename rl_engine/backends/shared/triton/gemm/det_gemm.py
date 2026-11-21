@@ -40,7 +40,7 @@ _BLOCK_M, _BLOCK_N, _BLOCK_K = 64, 64, 32
 # one shot would otherwise create a multi-terabyte virtual tensor on ROCm.
 # Chunking over M preserves the exact K-tree and BF16 rounding contract.
 _MAX_TREE_WORKSPACE_ELEMENTS = 128 * 1024 * 1024
-_TREE_PLANS: dict[tuple[int, int], "_DeviceTreePlan"] = {}
+_TREE_PLANS: dict[tuple[int, int, bool], "_DeviceTreePlan"] = {}
 _TREE_PLAN_LOCK = threading.Lock()
 _ROCM_TUNE_DECODE_LEAF = True
 _ROCM_FUSE_LEAF_REDUCTION = True
@@ -215,7 +215,7 @@ class _DeviceTreePlan:
     ]
 
 
-def _build_tree_plan(k_size: int) -> _TreePlan:
+def _build_tree_plan(k_size: int, *, fixed_leaf_tree: bool = False) -> _TreePlan:
     if k_size <= 0:
         raise ValueError(f"deterministic GEMM K must be positive, got {k_size}")
 
@@ -235,7 +235,11 @@ def _build_tree_plan(k_size: int) -> _TreePlan:
             leaf_nodes.append(node)
             return node, 0
 
-        midpoint = begin + (end - begin) // 2
+        if fixed_leaf_tree:
+            leaves = (end - begin + _BLOCK_K - 1) // _BLOCK_K
+            midpoint = begin + (leaves // 2) * _BLOCK_K
+        else:
+            midpoint = begin + (end - begin) // 2
         lower, lower_height = visit(begin, midpoint)
         upper, upper_height = visit(midpoint, end)
         node = next_node
@@ -258,15 +262,17 @@ def _build_tree_plan(k_size: int) -> _TreePlan:
     )
 
 
-def _device_tree_plan(k_size: int, device: torch.device) -> _DeviceTreePlan:
+def _device_tree_plan(
+    k_size: int, device: torch.device, *, fixed_leaf_tree: bool = False
+) -> _DeviceTreePlan:
     device_index = device.index if device.index is not None else torch.cuda.current_device()
-    key = (device_index, k_size)
+    key = (device_index, k_size, fixed_leaf_tree)
     with _TREE_PLAN_LOCK:
         cached = _TREE_PLANS.get(key)
         if cached is not None:
             return cached
 
-        host = _build_tree_plan(k_size)
+        host = _build_tree_plan(k_size, fixed_leaf_tree=fixed_leaf_tree)
 
         def indices(values: tuple[int, ...]) -> torch.Tensor:
             return torch.tensor(values, dtype=torch.int32, device=device)
@@ -278,7 +284,9 @@ def _device_tree_plan(k_size: int, device: torch.device) -> _DeviceTreePlan:
         fused_pairs = []
         leaf_reduction = None
         fused_pairs_after_leaf = []
-        if _device_arch(device_index) == "gfx942":
+        # Fused pairs assume a complete binary tree. Fixed 32-wide leaves
+        # may have different heights, so run their explicit reduction levels.
+        if not fixed_leaf_tree and _device_arch(device_index) == "gfx942":
 
             def build_fused_pairs(start_level: int):
                 result = []
@@ -371,6 +379,7 @@ if _TRITON_AVAILABLE:
         BLOCK_N: tl.constexpr,
         BLOCK_K: tl.constexpr,
         N_FASTEST: tl.constexpr,
+        FIXED_LEAVES: tl.constexpr = False,
     ):
         if N_FASTEST:
             pid_n = tl.program_id(0)
@@ -405,7 +414,12 @@ if _TRITON_AVAILABLE:
                 mask=(offs_n < N) & active,
                 other=0.0,
             ).to(tl.float32)
-            acc += a[:, None] * b[None, :]
+            if FIXED_LEAVES:
+                # Padded offsets in a short leaf must preserve the accumulator,
+                # including the sign of a zero produced by the last real FMA.
+                acc = tl.where(active, tl.fma(a[:, None], b[None, :], acc), acc)
+            else:
+                acc += a[:, None] * b[None, :]
         output_offsets = (
             leaf_node * (M * N) + offs_m[:, None].to(tl.int64) * N + offs_n[None, :].to(tl.int64)
         )
@@ -772,6 +786,7 @@ def _triton_tree_gemm(
     out: torch.Tensor | None = None,
     preserve_a_strides: bool = False,
     inference_schedule: bool = False,
+    fixed_leaf_tree: bool = False,
 ) -> torch.Tensor:
     if not _TRITON_AVAILABLE:
         raise RuntimeError("Triton is unavailable")
@@ -789,10 +804,11 @@ def _triton_tree_gemm(
     # Other callers retain the established contiguous-input behavior.
     if not preserve_a_strides:
         a = a.contiguous()
-    b = b.contiguous()
+    if not fixed_leaf_tree:
+        b = b.contiguous()
     m_size, k_size = a.shape
     n_size = b.size(1)
-    plan = _device_tree_plan(k_size, a.device)
+    plan = _device_tree_plan(k_size, a.device, fixed_leaf_tree=fixed_leaf_tree)
     workspace_elements = plan.host.node_count * m_size * n_size
     if workspace_elements > _MAX_TREE_WORKSPACE_ELEMENTS and out is None:
         rows_per_chunk = max(
@@ -808,6 +824,7 @@ def _triton_tree_gemm(
                 transpose_output=transpose_output,
                 preserve_a_strides=preserve_a_strides,
                 inference_schedule=inference_schedule,
+                fixed_leaf_tree=fixed_leaf_tree,
             )
             chunks.append(chunk)
         return torch.cat(chunks, dim=1 if transpose_output else 0)
@@ -860,7 +877,7 @@ def _triton_tree_gemm(
         if leaf_config.n_fastest
         else (len(plan.host.leaf_nodes), tiles_m, tiles_n)
     )
-    direct_root_output = not transpose_output and is_gfx942
+    direct_root_output = not fixed_leaf_tree and not transpose_output and is_gfx942
     fuse_leaf_reduction = (
         _ROCM_FUSE_LEAF_REDUCTION
         and direct_root_output
@@ -914,6 +931,7 @@ def _triton_tree_gemm(
             BLOCK_N=leaf_config.block_n,
             BLOCK_K=_BLOCK_K,
             N_FASTEST=leaf_config.n_fastest,
+            FIXED_LEAVES=fixed_leaf_tree,
             num_warps=leaf_config.num_warps,
         )
     reduction_block = 256
