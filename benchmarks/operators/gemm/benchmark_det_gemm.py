@@ -1,13 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Overhead of batch-invariant det_gemm vs cuBLAS + Triton (WS1 #146).
+"""Time batch-invariant GEMM and native PyTorch on the same inputs.
 
-det_gemm (CUDA: SM90 TMA + mma.sync tensor cores; naive scalar fallback below
-SM90) and the Triton path are batch-invariant and SLOWER than cuBLAS by design
-(no split-K/stream-K, fixed accumulation order, FP32 accum, no TF32). Reports
-overhead vs the fair baseline (cuBLAS, TF32 disabled), not a speedup. This is a
-correctness-and-invariance-first milestone; occupancy/throughput tuning of the
-tensor-core path is deferred per #146.
+The standard WS1 suite exercises the legacy CUDA and Triton paths. The
+Muse-Glimmer suite times decode, prefill and training with the model's fixed
+BF16 tree. Its optional trace captures a separate invocation after timing.
 """
 
 import argparse
@@ -97,7 +94,7 @@ def _muse_time(op, x, weight, dy, warmup, iters, trace):
         def step(a, w):
             return torch.autograd.grad(op(a, w), (a, w), dy)
 
-    kernels = []
+    launches = []
     with torch.inference_mode(dy is None):
         elapsed = _time(step, x, weight, warmup, iters)
         if trace:
@@ -106,12 +103,14 @@ def _muse_time(op, x, weight, dy, warmup, iters, trace):
             with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
                 step(x, weight)
                 torch.cuda.synchronize()
-            kernels = sorted(
-                {e.name for e in prof.events() if e.device_type == torch.autograd.DeviceType.CUDA}
-            )
-            if not kernels:
+            launches = [
+                dict(name=e.name, start_us=e.time_range.start, duration_us=e.device_time_total)
+                for e in prof.events()
+                if e.device_type == torch.autograd.DeviceType.CUDA
+            ]
+            if not launches:
                 raise RuntimeError("no CUDA kernel events were captured for the requested trace")
-    return elapsed, kernels
+    return elapsed, launches
 
 
 def benchmark_muse_glimmer(warmup, iters, trace_out):
@@ -156,7 +155,7 @@ def benchmark_muse_glimmer(warmup, iters, trace_out):
                 weight.requires_grad_(train)
                 times = {}
                 for backend, op in ops.items():
-                    times[backend], kernels = _muse_time(
+                    times[backend], launches = _muse_time(
                         op, x, weight, dy, warmup, iters, trace_out
                     )
                     if trace_out:
@@ -168,7 +167,8 @@ def benchmark_muse_glimmer(warmup, iters, trace_out):
                                 k=k,
                                 n=n,
                                 backend=backend,
-                                kernels=kernels,
+                                kernels=sorted({launch["name"] for launch in launches}),
+                                launches=launches,
                             )
                         )
                 native, cuda, tri = times["native"], times["cuda"], times["triton"]
@@ -190,7 +190,7 @@ def main():
     ap.add_argument("--model", choices=("standard", "muse-glimmer"), default="standard")
     ap.add_argument("--warmup", type=int, help="warmup iterations per Muse-Glimmer case")
     ap.add_argument("--iters", type=int, help="timed iterations per Muse-Glimmer case")
-    ap.add_argument("--trace-out", help="write the observed Muse-Glimmer GPU kernel names to JSON")
+    ap.add_argument("--trace-out", help="write GPU kernel names and per-launch CUPTI times to JSON")
     args = ap.parse_args()
     if args.model == "muse-glimmer":
         warmup = 2 if args.warmup is None else args.warmup

@@ -144,17 +144,22 @@ def test_kv_tree_rounding_witness():
     w[0, 0], w[0, 25], w[0, 26] = 256, 1, -256
     w[1, 0], w[1, 31], w[1, 32] = 256, 1, -256
     w[2, 0], w[2, 32], w[2, 64] = 256, 1, -256
+    # Within one leaf FP32 rounds away the unit before cancellation. Summing
+    # independent eight-element slices and then merging them could retain it.
+    w[3, 0], w[3, 8], w[3, 16] = 2**24, 1, -(2**24)
     # The 26-wide first leaf rounds away the unit in column 0. The 32-wide
     # first leaf rounds it away in column 1. A single FP64 sum retains both.
     # The first three leaves form L0 + (L1 + L2). Pairing L0 with L1 first
     # would instead return zero in column 2.
     gold = DetGemmTreeReferenceOp()(x, w[:3].T)
     assert gold.tolist() == [[1, 0, 1]]
-    assert (x.double() @ w[:3].double().T).tolist() == [[1, 1, 1]]
+    assert (x.double() @ w[:4].double().T).tolist() == [[1, 1, 1, 1]]
     expected = torch.zeros((1, 256), dtype=torch.bfloat16, device="cuda")
     expected[:, :3] = gold
     for backend in ("cuda", "triton"):
-        _assert_bits(dense_gemm(x.cuda(), w.cuda(), backend=backend), expected, backend)
+        for rows in (1, 35):
+            actual = dense_gemm(x.expand(rows, -1).contiguous().cuda(), w.cuda(), backend=backend)
+            _assert_bits(actual, expected.expand(rows, -1), backend)
 
     # The 96-token dW kernel has exactly three leaves. These contributions
     # give 1 with L0 + (L1 + L2) and 0 with (L0 + L1) + L2.
@@ -169,13 +174,14 @@ def test_kv_tree_rounding_witness():
 
 
 @requires_cuda
-def test_projection_partial_tile_and_offset_views():
+@pytest.mark.parametrize("m", [1, 5, 35])
+def test_projection_partial_tile_and_offset_views(m):
     # Both aligned and misaligned contiguous views can carry the same input.
-    # Five rows leave a partially populated output tile.
+    # Exercise decode, a thin batch, and the partial 32-row tile in prefill.
     generator = torch.Generator(device="cuda").manual_seed(501)
     k, n = 6656, 256
     options = dict(device="cuda", dtype=torch.bfloat16, generator=generator)
-    x = torch.randn(5 * k + 1, **options)[1:].view(5, k)
+    x = torch.randn(m * k + 1, **options)[1:].view(m, k)
     w = torch.randn(n * k + 1, **options)[1:].view(n, k)
     expected = dense_gemm(x, w, backend="cuda")
     for backend in ("cuda", "triton"):
