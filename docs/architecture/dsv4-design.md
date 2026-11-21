@@ -610,6 +610,65 @@ it also targets the compressor, indexer and router; `experts_shared_outer_loras`
 parallel linears); `lora_plus_ratio` is dropped. Its expert bias drifts, but R3 replays
 the rollout's routes, so the drift does not select experts.
 
+### 10.3 Rollout decode profile (2026-11-21) and what to do about it
+
+The rollout server alone under nsys (node-level graph tracing), E3's settings (BI, DP 8 /
+EP 8, graphs, rank-16 adapters reserved), A3's (BI off) and BL2's (vLLM 0.32, TP 8 / EP 8,
+no LoRA adapter, so slightly optimistic for the baseline); full model, 8 x H200. Each
+request decodes exactly 256 tokens; ms per decode step:
+
+| Concurrent requests (per DP rank) | BL2 rollout | ours, BI (E3) | ours, BI off (A3) |
+|---|---|---|---|
+| 1 (1) | 9.6 | 33.7 | 28.6 |
+| 8 (1) | 11.8 | 43.9 | 32.5 |
+| 64 (8) | 14.2 | 68.9 | 46.2 |
+| 512 (64) | 53.0 | 190.1 | 106.9 |
+
+- The graphs work: a decode step is one replay of one full graph (attention included),
+  0.13 ms between replays, so no host or launch overhead.
+- Inside it, at batch 1: 9177 kernels (about 210 per layer, mostly 1-3 us) in 32.3 ms, 27.1
+  busy; vLLM 1888 kernels (44 per layer) in 9.2 ms. Our layer (715 us): the MoE's EP
+  exchange about 240 us (router, the static dispatch's count / codes / scales / p_s
+  all-to-alls, the adapters' `ep_send`, the return, and the index / searchsorted glue
+  around them), the 8 unmerged adapters about 215 us (about 10 small kernels each), the
+  rest (projections, compressor, indexer, attention, experts, shared expert, mHC) about
+  260 us.
+- At 8 requests per rank: NCCL `SendRecv` 17 -> 89 us per call on every rank alike (so
+  bandwidth, not skew: about 35 GB/s), 23 ms of the 64 ms step; our expert GEMM 107-114 us
+  against vLLM's MXFP4 MoE (`humming`) 60 us for the same rows per rank.
+- Why vLLM needs no exchange: with TP attention every rank holds every token after `wo_b`'s
+  all-reduce. Each rank routes all tokens (replicated gate), runs only its own experts
+  (`expert_map`: local id or -1), and one all-reduce sums the partial outputs, the same
+  all-reduce TP needs anyway (vLLM all-to-alls only with DP > 1:
+  `FusedMoEParallelConfig.use_all2all_kernels`). Two one-shot all-reduces per layer, about
+  9 us each. The cost: the unsharded attention parts and the router run on all tokens on
+  every rank, and every rank caches every sequence's KV.
+- That layout is not open to us as is: TP splits `wo_b`'s sum over ranks and the all-reduce
+  sums the experts in rank order, both unlike the actor's order, so the rollout would no
+  longer match the actor bitwise (and vLLM picks one- or two-shot all-reduce by size).
+
+Directions, in order of expected gain (none started):
+
+1. **The EP exchange.** One exchange per direction instead of five: pack codes, scales,
+   `p_s`, the adapters' rows and the counts into one buffer; fuse the index glue on both
+   sides into one kernel each. Replace NCCL `all_to_all_single` with an NVLink
+   peer-to-peer all-to-all (DeepEP / pplx style, buffers mapped once, graph-capturable).
+   Same rows in the same order, so bytes unchanged. Expected at batch 1 about 8-10 ms of
+   32, more at larger batch.
+2. **TP-style layout that keeps the actor's order.** All-gather the tokens after attention
+   (every rank routes all tokens), each rank runs its experts, then all-gather the expert
+   rows (not an all-reduce) and combine per token in the actor's slot order locally. More
+   bytes than vLLM's all-reduce, no dispatch at all; attention stays DP. Worth costing
+   against 1.
+3. **Fused unmerged LoRA.** One kernel per adapter site (`x A^T` to BF16, `h B^T` in FP32,
+   the scaled add and the cast), or both sites of an expert pair at once, keeping
+   `dsv4-lora-v1`'s arithmetic. About 9 ms at batch 1.
+4. **The expert GEMM at decode sizes** (P5 against vLLM's MXFP4 kernel, about 1.8x at 48
+   rows per rank) and the remaining elementwise glue (fewer, larger kernels).
+
+The scripts (`profile_rollout.sh`, `prof_client.py`) are on the cluster's /work for now
+(`outputs/node_482453/prof/`); a 512-concurrent trace of all three is the next measurement.
+
 ## 11. Legacy code not used by DSv4
 
 Kept in the tree, not on the DSv4 path, and without DSv4 tests:
@@ -645,8 +704,8 @@ Open, needs the multi-GPU machine:
       layers (2026-11-20 / 21): the guide is `scripts/verl_e2e_lora/README.md`, the runs
       `experiments.sh` (README section 8 has the numbers). rlkernel bitwise at every step
       (E2 100 steps at 32 x 8, E3 100 steps at 32 x 16 with responses up to 4096); the
-      baseline runs (BL2, 50 steps). Open: our decode step is about 2.5x the baseline's at
-      small batch (BI about 30 of the 50 ms); a profile of the rollout is next.
+      baseline runs (BL2, 50 steps). Open: our decode step is about 2.5x the baseline's
+      (BI about 30 of the 50 ms); the profile and the directions are in section 10.3.
 - [x] The rollout's BI-off switch for the ablation (section 10; rollout side only, the
       actor's kernels have no non-invariant variant). In the 8-GPU guide as `run.sh ablation`.
       Full model (A3, 30 steps of E3's workload): decode step 56 against E3's 84 ms, 156k to
@@ -680,16 +739,15 @@ Open, needs the multi-GPU machine:
       `scripts/check_dsv4_vllm_gate.py`) on the real checkpoint's first 4 layers: DP 2 and
       DP 4 bitwise equal to `Dsv4Model`, with and without LoRA (2026-11-17); DP 8 the same
       (8 x H200, 2026-11-19).
-- [x] Rollout plugin with CUDA graphs (2026-11-20): the fork's breakable graphs (attention
-      eager inside them). The MoE uses a static EP exchange for forwards up to vLLM's largest
-      capture size (fixed tokens x top-k rows per rank pair, counts on the device, same row
-      order, no host sync); the adapters are reserved at load (`RL_KERNEL_DSV4_LORA`) and
-      each sync copies into them; launcher `GRAPH=1`. Bytes unchanged:
-      `check_dsv4_moe_ep.py --graph` (EP 8, with LoRA), the vLLM gate `--graph` at DP 1 and
-      DP 8 (with LoRA and `--lora-sync`, 0 of 2680 log-probs differ), verl GRPO on the full
-      model (mismatch 0). Speed, full model, 8 x H200: `timing_s/gen` 61 -> 17-21 s on the
-      8 x 4 / 256-token workload, 404 -> 165 s on 32 x 8 / 2048 (about 204 -> 80 ms per decode
-      step); the step 430 -> 194 s.
+- [x] Rollout plugin with CUDA graphs (2026-11-20): the fork's breakable graphs; a decode step
+      replays one full graph (nsys, 2026-11-21). The MoE uses a static EP exchange for forwards up
+      to vLLM's largest capture size (fixed tokens x top-k rows per rank pair, counts on the device,
+      same row order, no host sync); the adapters are reserved at load (`RL_KERNEL_DSV4_LORA`) and
+      each sync copies into them; launcher `GRAPH=1`. Bytes unchanged: `check_dsv4_moe_ep.py
+      --graph` (EP 8, with LoRA), the vLLM gate `--graph` at DP 1 and DP 8 (with LoRA and
+      `--lora-sync`, 0 of 2680 log-probs differ), verl GRPO on the full model (mismatch 0). Speed,
+      full model, 8 x H200: `timing_s/gen` 61 -> 17-21 s on the 8 x 4 / 256-token workload, 404 ->
+      165 s on 32 x 8 / 2048 (about 204 -> 80 ms per decode step); the step 430 -> 194 s.
 - [ ] Baseline first: verl + vLLM batch-invariant (verl #7688) end to end on 8 Hopper GPUs,
       bitwise and speed (`scripts/verl_e2e/README.md`, a guide for another machine; not run yet).
 - [ ] Layerwise gate on the real checkpoint
@@ -701,6 +759,8 @@ Open, needs the multi-GPU machine:
       `VLLM_BATCH_INVARIANT=1`, logprobs for a fixed prompt set (batch 1/8/64, chunked
       prefill, decode) under `tests/fixtures/dsv4/`.
 - [ ] Whole attention layer and decoder layer against vLLM's modules (performance).
+- [ ] Rollout decode latency (section 10.3): the EP exchange (one packed NVLink all-to-all
+      per direction, fused index glue), fused unmerged LoRA, the expert GEMM at decode sizes.
 
 Open, single GPU, deprioritized:
 
