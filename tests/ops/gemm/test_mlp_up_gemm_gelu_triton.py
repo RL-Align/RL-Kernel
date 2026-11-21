@@ -95,7 +95,7 @@ def _hopper_backend():
         return None
     if not (mma_backend_available() and sm90_backend_compiled()):
         return None
-    if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] < 9:
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability()[0] != 9:
         return None
     return CudaMlpUpGemmGeluOp()
 

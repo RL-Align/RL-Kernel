@@ -528,7 +528,9 @@ def _hopper_serves(device=None) -> bool:
         return False
     if device is None:
         return False
-    return torch.cuda.get_device_capability(device)[0] >= 9
+    # The runtime route is cc 9.0 exactly: the wgmma body only exists under
+    # __CUDA_ARCH_FEAT_SM90_ALL, so a cc >= 10 build compiles it to an inert stub.
+    return torch.cuda.get_device_capability(device)[0] == 9
 
 
 # ---------------------------------------------------------------------------
