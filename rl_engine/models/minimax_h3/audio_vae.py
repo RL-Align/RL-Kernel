@@ -112,11 +112,37 @@ def pack_audio_rows(
 def unpack_audio_rows(rows: torch.Tensor, num_latents: int) -> torch.Tensor:
     """Channel-major rows ``[2 * T, 32]`` -> normalised ``[2, 32, T]`` (Diffusers' unpack step)."""
 
-    if rows.ndim != 2 or rows.shape[0] != STEREO_CHANNELS * num_latents:
+    if (
+        rows.ndim != 2
+        or rows.shape[0] != STEREO_CHANNELS * num_latents
+        or rows.shape[1] != LATENT_CHANNELS
+    ):
         raise ValueError(
-            f"rows must be [{STEREO_CHANNELS} * {num_latents}, C], got {tuple(rows.shape)}"
+            f"rows must be [{STEREO_CHANNELS} * {num_latents}, {LATENT_CHANNELS}], "
+            f"got {tuple(rows.shape)}"
         )
     return rows.reshape(STEREO_CHANNELS, num_latents, rows.shape[-1]).permute(0, 2, 1).contiguous()
+
+
+def validate_latent_stats(
+    latents_mean: Sequence[float], latents_std: Sequence[float]
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """FP32 ``latents_mean`` / ``latents_std``: 32 finite values each, std positive.
+
+    Shared by :meth:`AudioVAECheckpoint.read` and :class:`H3AudioVAEContract`, so a checkpoint
+    with bad statistics is rejected before its model is built.
+    """
+
+    mean = torch.tensor(list(latents_mean), dtype=torch.float32)
+    std = torch.tensor(list(latents_std), dtype=torch.float32)
+    for name, stats in (("latents_mean", mean), ("latents_std", std)):
+        if stats.shape != (LATENT_CHANNELS,) or not bool(torch.isfinite(stats).all()):
+            raise ValueError(
+                f"{name} must be {LATENT_CHANNELS} finite FP32 values, got {tuple(stats.shape)}"
+            )
+    if not bool((std > 0).all()):
+        raise ValueError("latents_std must be positive")
+    return mean, std
 
 
 def _check_latents(latents: torch.Tensor) -> None:
@@ -581,30 +607,121 @@ STRICT_DECODE = ExecutionPolicy(
 )
 
 
+def _has_fp32_precision_api() -> bool:
+    """True on PyTorch builds with the per-backend ``fp32_precision`` TF32 settings."""
+
+    return hasattr(torch.backends.cuda.matmul, "fp32_precision") and hasattr(
+        torch.backends.cudnn, "conv"
+    )
+
+
+def _cudnn_op(name: str) -> Any:
+    """``torch.backends.cudnn.conv`` / ``.rnn`` (PyTorch >= 2.9; absent from older stubs)."""
+
+    return getattr(torch.backends.cudnn, name)
+
+
+def _legacy_readable(read: Any) -> bool:
+    try:
+        read()
+    except RuntimeError:  # PyTorch >= 2.9: the caller set this backend through the new API
+        return False
+    return True
+
+
+def _save_tf32_state() -> tuple[Any, Any]:
+    """The caller's full FP32 precision state for cuBLAS and cuDNN, per backend.
+
+    Each backend is saved, set and restored through the API its current state is readable
+    with. The legacy one is used where it can be read (always on PyTorch without
+    ``fp32_precision``), and the matmul *precision string* is saved, not ``allow_tf32``:
+    ``allow_tf32`` reads True for both "high" and "medium", so restoring it turned "medium"
+    into "high" (PyTorch 2.4) or into a mixed state in which
+    ``get_float32_matmul_precision()`` raises (PyTorch 2.13). A backend the caller configured
+    with the per-backend API (where the legacy getter raises) keeps that API: writing the
+    other one would mix the two.
+    """
+
+    matmul = torch.backends.cuda.matmul
+    cudnn = torch.backends.cudnn
+    if _legacy_readable(torch.get_float32_matmul_precision):
+        matmul_state: Any = ("legacy", torch.get_float32_matmul_precision())
+    else:
+        matmul_state = ("fp32_precision", matmul.fp32_precision)
+    if _legacy_readable(lambda: cudnn.allow_tf32):
+        cudnn_state: Any = ("legacy", cudnn.allow_tf32)
+    else:
+        cudnn_state = (
+            "fp32_precision",
+            _cudnn_op("conv").fp32_precision,
+            _cudnn_op("rnn").fp32_precision,
+        )
+    return matmul_state, cudnn_state
+
+
+def _set_tf32(state: tuple[Any, Any], allow: bool) -> None:
+    """Set TF32 on or off for cuBLAS and cuDNN, each through the API ``state`` recorded."""
+
+    matmul_state, cudnn_state = state
+    value = "tf32" if allow else "ieee"
+    if matmul_state[0] == "legacy":
+        torch.backends.cuda.matmul.allow_tf32 = allow
+    else:
+        torch.backends.cuda.matmul.fp32_precision = value
+    if cudnn_state[0] == "legacy":
+        torch.backends.cudnn.allow_tf32 = allow
+    else:
+        _cudnn_op("conv").fp32_precision = value
+        _cudnn_op("rnn").fp32_precision = value
+
+
+def _restore_tf32_state(state: tuple[Any, Any]) -> None:
+    matmul_state, cudnn_state = state
+    if matmul_state[0] == "legacy":
+        torch.set_float32_matmul_precision(matmul_state[1])
+    else:
+        torch.backends.cuda.matmul.fp32_precision = matmul_state[1]
+    if cudnn_state[0] == "legacy":
+        torch.backends.cudnn.allow_tf32 = cudnn_state[1]
+    else:
+        _cudnn_op("conv").fp32_precision = cudnn_state[1]
+        _cudnn_op("rnn").fp32_precision = cudnn_state[2]
+
+
 @contextlib.contextmanager
 def execution_scope(policy: ExecutionPolicy) -> Iterator[None]:
-    """Apply ``policy``'s backend flags and restore the previous ones on exit (process-global)."""
+    """Apply ``policy``'s backend flags and restore the previous ones on exit (process-global).
+
+    Autocast is disabled for CPU and CUDA inside the scope: the contract is FP32, and an outer
+    autocast region would otherwise run the convolutions and linear layers in FP16/BF16 while
+    the provenance still reports the strict policy. cuDNN's ``enabled`` / ``benchmark`` /
+    ``deterministic`` and the TF32 settings are set and restored here directly, not through
+    ``torch.backends.cudnn.flags``: that helper always reads and writes the legacy
+    ``allow_tf32`` flag, which raises once a caller has set cuDNN precision with the
+    per-backend API.
+    """
 
     from torch.nn.attention import SDPBackend, sdpa_kernel
 
-    matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
-    torch.backends.cuda.matmul.allow_tf32 = policy.allow_tf32
+    cudnn = torch.backends.cudnn
+    cudnn_flags = (cudnn.enabled, cudnn.benchmark, cudnn.deterministic)
+    tf32_state = _save_tf32_state()
     try:
+        _set_tf32(tf32_state, policy.allow_tf32)
+        cudnn.enabled = policy.cudnn_enabled
+        cudnn.benchmark = False
+        cudnn.deterministic = policy.deterministic
         with contextlib.ExitStack() as stack:
-            stack.enter_context(
-                torch.backends.cudnn.flags(
-                    enabled=policy.cudnn_enabled,
-                    benchmark=False,
-                    deterministic=policy.deterministic,
-                    allow_tf32=policy.allow_tf32,
-                )
-            )
+            stack.enter_context(torch.autocast("cpu", enabled=False))
+            if torch.cuda.is_available():
+                stack.enter_context(torch.autocast("cuda", enabled=False))
             if policy.sdpa_backend is not None:
                 backend = {"math": SDPBackend.MATH, "efficient": SDPBackend.EFFICIENT_ATTENTION}
                 stack.enter_context(sdpa_kernel([backend[policy.sdpa_backend]]))
             yield
     finally:
-        torch.backends.cuda.matmul.allow_tf32 = matmul_tf32
+        cudnn.enabled, cudnn.benchmark, cudnn.deterministic = cudnn_flags
+        _restore_tf32_state(tf32_state)
 
 
 def _run_micro_batched(fn: Any, x: torch.Tensor, micro_batch: int | None) -> torch.Tensor:
@@ -635,10 +752,12 @@ class AudioVAECheckpoint:
         problems = []
         if int(config["sample_rate"]) != SAMPLE_RATE or int(meta["sample_rate"]) != SAMPLE_RATE:
             problems.append(f"sample_rate {config['sample_rate']}/{meta['sample_rate']}")
-        if int(config["latent_channels"]) != LATENT_CHANNELS or len(mean) != LATENT_CHANNELS:
+        if int(config["latent_channels"]) != LATENT_CHANNELS:
             problems.append(f"latent_channels {config['latent_channels']}")
-        if len(std) != LATENT_CHANNELS or min(std) <= 0:
-            problems.append("latents_std")
+        try:
+            validate_latent_stats(mean, std)
+        except ValueError as exc:
+            problems.append(str(exc))
         if (
             tuple(meta["encoder_rates"]) != ENCODER_RATES
             or tuple(meta["decoder_rates"]) != DECODER_RATES
@@ -729,16 +848,13 @@ class H3AudioVAEContract:
             raise TypeError(
                 f"the H3 audio VAE contract is FP32-only, got parameter dtypes {dtypes}"
             )
+        if getattr(model, "hop_length", None) != HOP_LENGTH:
+            raise ValueError(
+                f"the H3 audio VAE contract needs a {HOP_LENGTH}-sample hop, "
+                f"got {getattr(model, 'hop_length', None)}"
+            )
+        self.latents_mean, self.latents_std = validate_latent_stats(latents_mean, latents_std)
         self.model = model.eval()
-        self.latents_mean = torch.tensor(list(latents_mean), dtype=torch.float32)
-        self.latents_std = torch.tensor(list(latents_std), dtype=torch.float32)
-        for name, stats in (("latents_mean", self.latents_mean), ("latents_std", self.latents_std)):
-            if stats.shape != (LATENT_CHANNELS,) or not bool(torch.isfinite(stats).all()):
-                raise ValueError(
-                    f"{name} must be {LATENT_CHANNELS} finite values, got {tuple(stats.shape)}"
-                )
-        if not bool((self.latents_std > 0).all()):
-            raise ValueError("latents_std must be positive")
         self.encode_policy = encode_policy
         self.decode_policy = decode_policy
 

@@ -7,10 +7,17 @@ CPU tests use a reduced-width random module. Diffusers parity tests run when the
 ``PYTHONPATH``-provided) diffusers has ``AutoencoderKLMiniMaxH3Audio`` and drive Diffusers' own
 MiniMax-H3 pipeline blocks. Released-weight tests read ``$RL_KERNEL_H3_AUDIO_VAE`` (the Hub
 ``FL2VA/audio_vae`` directory) and need CUDA.
+
+Without those, pytest reports the parity and released-weight tests as *skipped* (with the reason),
+not passed: a CPU-only CI run checks the layout, the contract guards and the execution scope only.
+Diffusers bitwise parity and the released-weight checks are established by running this file with
+both set on a GPU host (the PR's B200 / H100 evidence).
 """
 
 from __future__ import annotations
 
+import contextlib
+import copy
 import json
 import math
 import os
@@ -124,6 +131,9 @@ def test_pack_unpack_reject_bad_shapes(tiny_stats):
         av.pack_audio_rows(torch.zeros(2, 32, 4, dtype=torch.float64), mean, std)
     with pytest.raises(ValueError):
         av.unpack_audio_rows(torch.zeros(9, 32), 5)
+    with pytest.raises(ValueError, match=r"\[2 \* 3, 32\]"):
+        av.unpack_audio_rows(torch.zeros(6, 1), 3)  # one column would broadcast in denormalize
+    assert av.unpack_audio_rows(torch.zeros(6, 32), 3).shape == (2, 32, 3)
 
 
 # --- preprocessing --------------------------------------------------------------------------
@@ -250,6 +260,14 @@ def test_contract_rejects_bad_inputs(tiny_model, tiny_stats, contract):
         contract.decode_latents(torch.zeros(2, 16, 3))
     with pytest.raises(ValueError):
         contract.decode_rows(torch.zeros(7, 32), 3)
+    with pytest.raises(ValueError, match="32"):
+        contract.decode_rows(torch.zeros(6, 1), 3)
+    other_hop = av.H3AudioVAE(
+        **TINY, encoder_rates=(2, 4, 4, 4, 5), decoder_rates=(5, 4, 2, 2, 2, 2, 2)
+    )
+    assert other_hop.hop_length == 640
+    with pytest.raises(ValueError, match="800-sample hop"):
+        av.H3AudioVAEContract(other_hop.eval(), *tiny_stats)
     with pytest.raises(ValueError):
         tiny_model.encode_mean(torch.zeros(2, 800))
 
@@ -275,6 +293,82 @@ def test_execution_scope_sets_and_restores_flags():
         b.cudnn.deterministic,
         b.cudnn.benchmark,
     ) == before
+
+
+@pytest.fixture
+def restore_precision():
+    """Undo any precision setting a test makes, whichever API it used."""
+
+    state = av._save_tf32_state()
+    yield
+    av._restore_tf32_state(state)
+
+
+def _precision_state() -> tuple:
+    m, c = torch.backends.cuda.matmul, torch.backends.cudnn
+    if av._has_fp32_precision_api():
+        return (m.fp32_precision, c.conv.fp32_precision, c.rnn.fp32_precision)
+    return (torch.get_float32_matmul_precision(), c.allow_tf32)
+
+
+@pytest.mark.parametrize("start", ["highest", "high", "medium"])
+@pytest.mark.parametrize("raises", [False, True])
+def test_execution_scope_restores_float32_matmul_precision(restore_precision, start, raises):
+    """A caller's precision string survives the scope, including ``"medium"`` and an exception.
+
+    ``matmul.allow_tf32`` reads True for both "high" and "medium", so restoring that flag
+    turned "medium" into "high" (PyTorch 2.4) or into a mixed legacy/new state in which
+    ``get_float32_matmul_precision()`` raises (PyTorch 2.13).
+    """
+
+    torch.set_float32_matmul_precision(start)
+    before = _precision_state()
+    with contextlib.suppress(RuntimeError):
+        with av.execution_scope(av.STRICT_ENCODE):
+            assert not torch.backends.cuda.matmul.allow_tf32
+            if raises:
+                raise RuntimeError("inside the scope")
+    assert torch.get_float32_matmul_precision() == start
+    assert _precision_state() == before
+
+
+@pytest.mark.skipif(not av._has_fp32_precision_api(), reason="needs the fp32_precision API")
+def test_execution_scope_accepts_and_restores_per_backend_precision(restore_precision):
+    """cuDNN conv and RNN precision set separately (new API) are accepted and restored."""
+
+    cudnn = torch.backends.cudnn
+    torch.backends.cuda.matmul.fp32_precision = "tf32"
+    cudnn.conv.fp32_precision = "ieee"
+    cudnn.rnn.fp32_precision = "tf32"
+    before = _precision_state()
+    with av.execution_scope(av.STRICT_DECODE):
+        assert torch.backends.cuda.matmul.fp32_precision == "ieee"
+        assert cudnn.conv.fp32_precision == "ieee" and cudnn.rnn.fp32_precision == "ieee"
+    assert _precision_state() == before
+
+
+def _encode_decode_digests(contract: av.H3AudioVAEContract, wave: torch.Tensor) -> tuple[str, str]:
+    enc = contract.encode_stereo(wave)
+    return enc.rows_sha256, contract.decode_rows(enc.rows, enc.num_latents).waveform_sha256
+
+
+def test_outer_cpu_autocast_does_not_change_hashes(contract):
+    wave = stereo(1600)
+    expected = _encode_decode_digests(contract, wave)
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        assert _encode_decode_digests(contract, wave) == expected
+    assert torch.is_autocast_enabled("cpu") is False
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_outer_cuda_autocast_does_not_change_hashes(tiny_model, tiny_stats, dtype):
+    contract = av.H3AudioVAEContract(copy.deepcopy(tiny_model).cuda(), *tiny_stats)
+    wave = stereo(1600)
+    expected = _encode_decode_digests(contract, wave)
+    with torch.autocast("cuda", dtype=dtype):
+        assert _encode_decode_digests(contract, wave) == expected
+        assert torch.is_autocast_enabled("cuda")
 
 
 def test_provenance_records_policies(contract):
@@ -418,6 +512,9 @@ def test_checkpoint_reader_validates_contract(tmp_path):
         ({"latent_channels": 64}, {}),
         ({}, {"encoder_rates": [2, 4, 8, 8]}),
         ({"latents_std": [0.0] * 32}, {}),
+        ({"latents_mean": [0.0] * 31 + [float("nan")]}, {}),
+        ({"latents_mean": [0.0] * 31 + [1e39]}, {}),  # finite in JSON, inf in FP32
+        ({"latents_std": [1.0] * 31}, {}),
         ({}, {"decoder_type": "hifigan"}),
     ):
         with pytest.raises(ValueError, match="not the H3 audio VAE contract"):
@@ -536,6 +633,17 @@ def test_released_decode_repeats_and_is_batch_invariant(released):
     batch = torch.cat([z.roll(3, -1), z, z * 0.9])
     assert torch.equal(contract.decode_latents(batch)[2:4].cpu(), dec.waveform)
     assert torch.equal(contract.decode_latents(z[1:])[0].cpu(), dec.waveform[1])
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_released_hashes_ignore_outer_autocast(released, dtype):
+    """Released weights: an outer CUDA autocast leaves the strict row and waveform hashes."""
+
+    _, contract = released
+    wave = released_clip(0)
+    expected = _encode_decode_digests(contract, wave)
+    with torch.autocast("cuda", dtype=dtype):
+        assert _encode_decode_digests(contract, wave) == expected
 
 
 def test_released_matches_diffusers(released):
