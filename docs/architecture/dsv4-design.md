@@ -649,6 +649,8 @@ Open, needs the multi-GPU machine:
       small batch (BI about 30 of the 50 ms); a profile of the rollout is next.
 - [x] The rollout's BI-off switch for the ablation (section 10; rollout side only, the
       actor's kernels have no non-invariant variant). In the 8-GPU guide as `run.sh ablation`.
+      Full model (A3, 30 steps of E3's workload): decode step 56 against E3's 84 ms, 156k to
+      437k mismatched tokens per step (BL2: 452k to 768k).
 - [x] `rlkernel` engine at EP > 1 (`expert_parallel_size`; groups of consecutive ranks;
       routed-adapter gradients divided by E before the data-parallel average): EP = 2, 4
       and 2 x 2 groups give the zero-B log-probs of EP = 1 byte for byte and its first

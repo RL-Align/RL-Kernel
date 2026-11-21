@@ -264,9 +264,7 @@ Recorded (2026-11-20 / 21; means over steps 3 to the end, seconds per step):
 | E2 | 100 | 0 | 175 | 150 | 6 | 17 | - | 74 ms | 47 GB |
 | BL2 | 50 | 452k to 768k | 239 | 137 | 29 | 61 | 11 | 34 ms | 102 GB (with offload) |
 | E3 | 100 | 0 | 388 | 328 | 13 | 43 | 3 | 84 ms | 60 GB |
-| A3 | 30 | 299k to 437k | 295 | 231 | 14 | 46 | 3 | 56 ms | 60 GB |
-
-(A3: the first 9 steps, run in progress.)
+| A3 | 30 | 156k to 437k | 294 | 229 | 14 | 46 | 3 | 56 ms | 60 GB |
 
 - Bitwise: E2 and E3 have mismatch 0 and `rollout_corr/kl` 0 at every step. BL2 runs
   token-level importance sampling to correct its `rollout_corr/kl` of 0.013 to 0.023;
@@ -279,7 +277,9 @@ Recorded (2026-11-20 / 21; means over steps 3 to the end, seconds per step):
   vLLM's TP 8, and our modules). The design doc tracks the profile.
 - Learning: AIME-2024 (greedy, 30 problems): BL2 0.608 -> 0.558 over 50 steps; E3 between
   0.633 and 0.767, 0.667 at step 100. The two runs' learning rates differ after step 3
-  (50- against 100-step cosine), and one problem is 0.033.
+  (50- against 100-step cosine), and one problem is 0.033. A3: 0.649, 0.685, 0.705, 0.671
+  at steps 0 to 30. The validation set holds each problem 32 times; with batch invariance
+  the 32 greedy answers are identical (scores in steps of 1/30), without it they are not.
 
 ## Not covered (open work in the design doc, section 12)
 
