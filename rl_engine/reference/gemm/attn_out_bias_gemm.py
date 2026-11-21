@@ -162,7 +162,10 @@ def attn_out_bias_gemm_reference_backward(
     x: torch.Tensor,
     weight: torch.Tensor,
     grad_output: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
+    *,
+    needs_grad_x: bool = True,
+    needs_grad_weight: bool = True,
+) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
     """Reference ``dx`` and ``dW``; ``db`` is the shared left fold.
 
     ``dx = dY @ W`` reduces over ``R = N`` under the mid-split tree (same
@@ -170,11 +173,14 @@ def attn_out_bias_gemm_reference_backward(
     with the **ascending-row left fold** (contract c-prime), one correctly-
     rounded FMA per row (torch.addcmul, same primitive as the leaf chains).
     """
-    w_f = weight.float()
     g_f = grad_output.reshape(-1, grad_output.size(-1)).float()
-    x_f = x.reshape(-1, x.size(-1)).float()
-    dx = tree_gemm_fp32(g_f, w_f.t().contiguous())
-    dw = _dw_left_fold_reference(g_f, x_f)
+    dx = None
+    dw = None
+    if needs_grad_x:
+        dx = tree_gemm_fp32(g_f, weight.float().t().contiguous())
+    if needs_grad_weight:
+        x_f = x.reshape(-1, x.size(-1)).float()
+        dw = _dw_left_fold_reference(g_f, x_f)
     return dx, dw
 
 
@@ -198,15 +204,23 @@ class _AttnOutBiasGemmTreeFunction(torch.autograd.Function):
     @staticmethod
     def backward(  # type: ignore[override]
         ctx, grad_output: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         from rl_engine.ops.autograd.backward_runtime import record_backward
 
         x2d, weight, bias = ctx.saved_tensors
-        grad_x, grad_w = attn_out_bias_gemm_reference_backward(x2d, weight, grad_output)
-        grad_x = grad_x.reshape(*ctx.lead_shape, x2d.size(-1)).to(x2d.dtype)
-        grad_w = grad_w.to(weight.dtype)
+        grad_x, grad_w = attn_out_bias_gemm_reference_backward(
+            x2d,
+            weight,
+            grad_output,
+            needs_grad_x=ctx.needs_input_grad[0],
+            needs_grad_weight=ctx.needs_input_grad[1],
+        )
+        if grad_x is not None:
+            grad_x = grad_x.reshape(*ctx.lead_shape, x2d.size(-1)).to(x2d.dtype)
+        if grad_w is not None:
+            grad_w = grad_w.to(weight.dtype)
         grad_b: Optional[torch.Tensor] = None
-        if bias is not None:
+        if bias is not None and ctx.needs_input_grad[2]:
             grad_b = row_local_bias_fp32(grad_output).to(bias.dtype)
         record_backward(
             "attn_out_bias_gemm",
@@ -255,6 +269,10 @@ class NativeAttnOutBiasGemmOp:
             raise ValueError(
                 f"x trailing dim {x.size(-1)} must match weight input dim {weight.size(1)}"
             )
+        if x.size(-1) == 0 or weight.size(0) == 0:
+            raise ValueError("input and output feature dimensions must be positive")
+        if x.dtype not in (torch.bfloat16, torch.float32):
+            raise ValueError(f"supported dtypes are bf16/fp32 (contract scope), got {x.dtype}")
         if x.device != weight.device:
             raise ValueError(
                 f"x and weight must live on the same device: {x.device} vs {weight.device}"

@@ -59,6 +59,9 @@ __device__ float tree_reduce(
     int leaves,
     int lo,
     int hi) {
+    if (hi == lo) {
+        return 0.0f;  // Empty dot product; the caller still adds bias once.
+    }
     if (hi - lo == 1) {
         const int k0 = lo * kLeafWidth;
         const int k1 = min(k0 + kLeafWidth, reduction);

@@ -56,6 +56,12 @@ ROCm dispatches Triton then PyTorch (the CUDA source is not ROCm-validated).
 | `bias` | `[3072]` | same as `x` | added once, in fp32, after the tree |
 | return | `[*lead, 3072]` | same as `x` | single RNE cast at the output |
 
+Empty batches are supported. Public operators reject zero input/output
+feature dimensions and require matching bf16/fp32 input, weight and bias
+dtypes, with a one-dimensional bias. Low-level tree GEMM helpers define
+an empty reduction as a zero dot product. Backward computes only the
+gradients requested by autograd, including when projection weights are frozen.
+
 ## Dispatch Behavior
 
 - CUDA: Triton -> CUDA -> PyTorch (Triton leaf chunks are the product path;

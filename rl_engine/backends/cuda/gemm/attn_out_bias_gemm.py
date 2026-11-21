@@ -25,6 +25,7 @@ from typing import Optional
 import torch
 
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+from rl_engine.reference.gemm.attn_out_bias_gemm import NativeAttnOutBiasGemmOp
 from rl_engine.utils.logger import logger
 
 _REQUIRED_SYMBOLS = (
@@ -60,7 +61,7 @@ class _AttnOutBiasGemmCudaFunction(torch.autograd.Function):
     @staticmethod
     def backward(  # type: ignore[override]
         ctx, grad_output: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         from rl_engine.ops.autograd.backward_runtime import record_backward
         from rl_engine.ops.autograd.vjp_fp32 import row_local_bias_fp32
 
@@ -68,12 +69,15 @@ class _AttnOutBiasGemmCudaFunction(torch.autograd.Function):
         # autograd may hand us an expanded (non-contiguous) upstream gradient,
         # e.g. from out.sum().backward(); materialise it before the C++ checks
         g_f = grad_output.reshape(-1, grad_output.size(-1)).float().contiguous()
-        grad_x = _C.attn_out_tree_gemm_cuda(g_f, weight.t().contiguous().float())
-        grad_w = _C.attn_out_dw_left_fold_cuda(g_f, x2d.float().contiguous())
-        grad_x = grad_x.reshape(*ctx.lead_shape, x2d.size(-1)).to(x2d.dtype)
-        grad_w = grad_w.to(weight.dtype)
+        grad_x = None
+        grad_w = None
+        if ctx.needs_input_grad[0]:
+            grad_x = _C.attn_out_tree_gemm_cuda(g_f, weight.t().contiguous().float())
+            grad_x = grad_x.reshape(*ctx.lead_shape, x2d.size(-1)).to(x2d.dtype)
+        if ctx.needs_input_grad[1]:
+            grad_w = _C.attn_out_dw_left_fold_cuda(g_f, x2d.float().contiguous()).to(weight.dtype)
         grad_b: Optional[torch.Tensor] = None
-        if bias is not None:
+        if bias is not None and ctx.needs_input_grad[2]:
             grad_b = row_local_bias_fp32(grad_output).to(bias.dtype)
         record_backward(
             "attn_out_bias_gemm",
@@ -119,8 +123,5 @@ class CudaAttnOutBiasGemmOp:
     ) -> torch.Tensor:
         if not x.is_cuda or x.device != weight.device:
             raise ValueError("CudaAttnOutBiasGemmOp requires CUDA tensors on one device")
-        if bias is not None and bias.device != x.device:
-            raise ValueError("bias must live on the same device as x")
-        if x.dtype not in (torch.bfloat16, torch.float32):
-            raise ValueError(f"supported dtypes are bf16/fp32 (contract scope), got {x.dtype}")
+        NativeAttnOutBiasGemmOp._check_inputs(x, weight, bias)
         return _AttnOutBiasGemmCudaFunction.apply(x, weight, bias)

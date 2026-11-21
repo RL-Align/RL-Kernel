@@ -174,9 +174,12 @@ class TestReferenceBackward:
 
 
 try:
-    from rl_engine.backends.shared.triton.gemm.attn_out_bias_gemm import TritonAttnOutBiasGemmOp
+    from rl_engine.backends.shared.triton.gemm.attn_out_bias_gemm import (
+        _TRITON_AVAILABLE,
+        TritonAttnOutBiasGemmOp,
+    )
 
-    _HAS_TRITON_OP = True
+    _HAS_TRITON_OP = _TRITON_AVAILABLE
 except Exception:  # pragma: no cover - triton or CUDA missing
     _HAS_TRITON_OP = False
 
@@ -243,9 +246,12 @@ class TestTritonBackendBitwise:
 
 
 try:
-    from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
+    from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import (
+        CudaAttnOutBiasGemmOp,
+        _cuda_backend_available,
+    )
 
-    _HAS_CUDA_OP = True
+    _HAS_CUDA_OP = _cuda_backend_available()
 except Exception:  # pragma: no cover - extension not built
     _HAS_CUDA_OP = False
 
@@ -868,13 +874,14 @@ class TestIndependentSpecBitwise:
                 acc = _f32(acc + dYf[s_, n].item())
             db_spec[n] = acc
 
-        for op, dev, name in (
-            (NativeAttnOutBiasGemmOp(), "cpu", "reference"),
-            (TritonAttnOutBiasGemmOp(), "cuda", "triton"),
-            (CudaAttnOutBiasGemmOp(), "cuda", "cuda"),
+        for op_class, dev, name, available in (
+            (NativeAttnOutBiasGemmOp, "cpu", "reference", True),
+            (TritonAttnOutBiasGemmOp, "cuda", "triton", _HAS_TRITON_OP),
+            (CudaAttnOutBiasGemmOp, "cuda", "cuda", _HAS_CUDA_OP),
         ):
-            if dev == "cuda" and not torch.cuda.is_available():
+            if dev == "cuda" and (not torch.cuda.is_available() or not available):
                 continue
+            op = op_class()
             xd = x.detach().clone().to(dev).requires_grad_(True)
             wd = w.detach().clone().to(dev).requires_grad_(True)
             bd = b.detach().clone().to(dev).requires_grad_(True)

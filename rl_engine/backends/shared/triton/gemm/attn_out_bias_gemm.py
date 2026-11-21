@@ -35,6 +35,7 @@ from typing import Optional
 import torch
 
 from rl_engine.reference.gemm.attn_out_bias_gemm import (
+    NativeAttnOutBiasGemmOp,
     finalize_tree_output,
     num_leaves,
     tree_from_leaf_evaluator,
@@ -177,6 +178,8 @@ def triton_tree_gemm(a_f: torch.Tensor, b_f: torch.Tensor) -> torch.Tensor:
         raise ValueError("triton_tree_gemm requires CUDA tensors")
     a_c = a_f.contiguous()
     b_c = b_f.contiguous()
+    if a_c.size(1) == 0 or a_c.size(0) == 0 or b_c.size(0) == 0:
+        return torch.zeros(a_c.size(0), b_c.size(0), device=a_c.device, dtype=torch.float32)
     leaves = num_leaves(a_c.size(1))
 
     def solve(lo: int, hi: int) -> torch.Tensor:
@@ -212,6 +215,8 @@ def triton_dw_left_fold(g_f: torch.Tensor, x_f: torch.Tensor) -> torch.Tensor:
     rows, out_n = g_c.shape
     in_k = x_c.shape[1]
     dw = torch.empty(out_n, in_k, device=g_c.device, dtype=torch.float32)
+    if dw.numel() == 0:
+        return dw
     grid = (triton.cdiv(out_n, _BLOCK_N), triton.cdiv(in_k, _BLOCK_N))
     _dw_left_fold_kernel[grid](
         g_c,
@@ -244,18 +249,21 @@ class _AttnOutBiasGemmTritonFunction(torch.autograd.Function):
     @staticmethod
     def backward(  # type: ignore[override]
         ctx, grad_output: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    ) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         from rl_engine.ops.autograd.backward_runtime import record_backward
         from rl_engine.ops.autograd.vjp_fp32 import row_local_bias_fp32
 
         x2d, weight, bias = ctx.saved_tensors
         g_f = grad_output.reshape(-1, grad_output.size(-1)).float()
-        grad_x = triton_tree_gemm(g_f, weight.t().contiguous().float())
-        grad_w = triton_dw_left_fold(g_f, x2d.float())
-        grad_x = grad_x.reshape(*ctx.lead_shape, x2d.size(-1)).to(x2d.dtype)
-        grad_w = grad_w.to(weight.dtype)
+        grad_x = None
+        grad_w = None
+        if ctx.needs_input_grad[0]:
+            grad_x = triton_tree_gemm(g_f, weight.t().contiguous().float())
+            grad_x = grad_x.reshape(*ctx.lead_shape, x2d.size(-1)).to(x2d.dtype)
+        if ctx.needs_input_grad[1]:
+            grad_w = triton_dw_left_fold(g_f, x2d.float()).to(weight.dtype)
         grad_b: Optional[torch.Tensor] = None
-        if bias is not None:
+        if bias is not None and ctx.needs_input_grad[2]:
             grad_b = row_local_bias_fp32(grad_output).to(bias.dtype)
         record_backward(
             "attn_out_bias_gemm",
@@ -295,8 +303,5 @@ class TritonAttnOutBiasGemmOp:
     ) -> torch.Tensor:
         if not x.is_cuda or x.device != weight.device:
             raise ValueError("TritonAttnOutBiasGemmOp requires CUDA tensors on one device")
-        if bias is not None and bias.device != x.device:
-            raise ValueError("bias must live on the same device as x")
-        if x.dtype not in (torch.bfloat16, torch.float32):
-            raise ValueError(f"supported dtypes are bf16/fp32 (contract scope), got {x.dtype}")
+        NativeAttnOutBiasGemmOp._check_inputs(x, weight, bias)
         return _AttnOutBiasGemmTritonFunction.apply(x, weight, bias)
