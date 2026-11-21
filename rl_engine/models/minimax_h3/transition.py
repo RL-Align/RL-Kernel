@@ -18,8 +18,8 @@ The contract makes every number a function of the *sample*, never of how samples
 * FP32 elementwise ops in exactly the order above (separate roundings, no fused contraction);
 * ``eps`` comes from ``step_noise(seed, step, sample_id, modality, shape)``, a per-sample
   generator, not one stream consumed in batch order;
-* the log-prob mean uses a fixed-order GEMM reduction (``h3-projection-gemm-v1``, FP32 ``ieee``),
-  each sample's row independent of the batch;
+* the log-prob mean uses a fixed-order FP32 row reduction (``h3-row-mean-v1``: fixed-size chunks,
+  then their sums), each sample's row independent of the batch;
 * ``noise_level == 0`` (a non-selected step) gives ``std == 0``, ``x_prev == mean`` and
   ``log_prob == 0``.
 """
@@ -61,20 +61,20 @@ class Transition:
 
 
 class _FixedOrderMean(torch.autograd.Function):
-    """Row means of a ``(B, K)`` FP32 matrix by the fixed-order GEMM, differentiable.
+    """Row means of a ``(B, K)`` FP32 matrix in a fixed order, differentiable.
 
-    The Triton GEMM writes into a fresh tensor and has no autograd of its own. The gradient
-    of a mean is ``grad / K`` for every element of the row: element-wise, no reduction, so
-    it needs no fixed order and is the same bits ``torch.mean`` gives.
+    The sums come from ``h3-row-mean-v1`` (fixed-size chunks, then the chunk sums, in an order
+    that depends only on ``K``), which has no autograd of its own. The gradient of a mean is
+    ``grad / K`` for every element of the row: element-wise, no reduction, so it needs no
+    fixed order and is the same bits ``torch.mean`` gives.
     """
 
     @staticmethod
     def forward(ctx, flat: torch.Tensor) -> torch.Tensor:
-        from rl_engine.backends.shared.triton.gemm import h3_projection as g
+        from rl_engine.backends.shared.triton.reduction import row_mean
 
         ctx.shape = flat.shape
-        ones = torch.ones(flat.shape[1], 1, device=flat.device, dtype=torch.float32)
-        return g.gemm(flat, ones)[:, 0] / flat.shape[1]
+        return row_mean.row_sums(flat) / flat.shape[1]
 
     @staticmethod
     def backward(ctx, grad: torch.Tensor) -> torch.Tensor:
@@ -123,3 +123,83 @@ def cps_transition(
     if return_logprob:
         log_prob = fixed_order_mean(-((prev_sample.detach() - mean) ** 2))
     return Transition(prev_sample, mean, std_dev_t, log_prob)
+
+
+def _step_sigmas(sigmas: torch.Tensor, index: int, batch: int, ndim: int):
+    sigmas = torch.as_tensor(sigmas, dtype=torch.float32)
+    if sigmas.ndim != 1 or sigmas.numel() < 2 or float(sigmas[-1]) != 0.0:
+        raise ValueError("the H3 sigma grid must be one-dimensional and end at zero")
+    if not 0 <= index < sigmas.numel() - 1:
+        raise IndexError(f"H3 sigma index {index} is out of range")
+    view = (-1,) + (1,) * (ndim - 1)
+    sigma = sigmas[index].expand(batch).reshape(view)
+    sigma_prev = sigmas[index + 1].expand(batch).reshape(view)
+    return sigma, sigma_prev
+
+
+def h3_sample_previous_step(
+    sample: torch.Tensor,
+    h3_velocity: torch.Tensor,
+    sigmas: torch.Tensor,
+    sigma_index: int,
+    *,
+    noise_level: float = NOISE_LEVEL,
+    sde_type: str = SDE_TYPE,
+    generator: torch.Generator | None = None,
+    prev_sample: torch.Tensor | None = None,
+    return_log_prob: bool = True,
+):
+    """Strict drop-in for verl-omni's ``sample_h3_transition`` (``sde_type="cps"``).
+
+    Same inputs and outputs as ``sample_h3_transition(scheduler, sample, h3_velocity, step, ...)``
+    with ``sigmas = scheduler.sigmas`` (the H3 grid ending at zero, as ``configure_flow_scheduler``
+    installs it) and ``sigma_index = scheduler.index_for_timestep(scheduler.timesteps[step])``,
+    the index the scheduler itself resolves (it equals ``step`` unless the grid repeats a
+    timestep), and the same return tuple ``(prev_sample, log_prob, prev_sample_mean, std_dev_t,
+    sqrt_dt)``:
+
+    * the flow-matching model output is ``-h3_velocity`` (the H3 velocity's sign convention);
+    * ``sigma`` and ``sigma_prev`` broadcast per sample, ``std_dev_t`` has shape ``(B, 1, ...)``
+      and ``sqrt_dt`` shape ``(B,)``;
+    * when sampling, the noise is ``randn(model_output.shape)`` drawn from ``generator`` (on the
+      generator's device, then moved to the sample's device), as Diffusers' ``randn_tensor`` does
+      for one generator, so a rollout draws exactly the scheduler's noise;
+    * ``prev_sample`` and ``prev_sample_mean`` are the scheduler's element-wise arithmetic in the
+      same order; only the log-prob mean differs: it is :func:`fixed_order_mean` (independent of
+      the batch), not ``Tensor.mean``.
+
+    Only the CPS type the H3 recipe uses is accepted; anything else is refused rather than run
+    on another formula.
+    """
+
+    if sde_type != "cps":
+        raise ValueError(
+            f"the strict H3 transition implements sde_type='cps' only, got {sde_type!r}"
+        )
+    if isinstance(noise_level, torch.Tensor):
+        raise TypeError("noise_level must be a Python float (the H3 recipe passes 0.8)")
+    model_output = -h3_velocity.float()
+    sample = sample.float()
+    sigma, sigma_prev = _step_sigmas(sigmas, sigma_index, sample.shape[0], sample.ndim)
+    sigma = sigma.to(sample.device)
+    sigma_prev = sigma_prev.to(sample.device)
+    noise = None
+    if prev_sample is None:
+        rand_device = generator.device if generator is not None else sample.device
+        noise = torch.randn(
+            model_output.shape, generator=generator, device=rand_device, dtype=torch.float32
+        ).to(sample.device)
+    else:
+        prev_sample = prev_sample.float()
+    out = cps_transition(
+        sample,
+        model_output,
+        sigma,
+        sigma_prev,
+        noise_level=noise_level,
+        noise=noise,
+        prev_sample=prev_sample,
+        return_logprob=return_log_prob,
+    )
+    sqrt_dt = torch.sqrt(-1 * (sigma_prev - sigma)).reshape(sample.shape[0])
+    return out.prev_sample, out.log_prob, out.prev_sample_mean, out.std_dev_t, sqrt_dt
