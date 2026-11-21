@@ -883,10 +883,10 @@ class KernelRegistry:
         # CUDA strict operators deliberately have no reference fallback.
         for platform in ("rocm", "npu", "musa"):
             self._priority_map[platform]["qwenimage_adaln_mod_projection"] = []
+            self._priority_map[platform]["qwenimage_final_adaln_out"] = []
         # The MLP down row is a device operator with no NPU kernel: do not
         # inherit the CPU row's reference as an NPU fallback (fail closed).
         self._priority_map["npu"]["mlp_down_gemm"] = []
-            self._priority_map[platform]["qwenimage_final_adaln_out"] = []
         self._priority_map["cuda"]["qwenimage_adaln_mod_projection"] = [
             OpBackend.CUDA_QWENIMAGE_ADALN_MOD_PROJECTION
         ]
