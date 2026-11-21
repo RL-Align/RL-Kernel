@@ -155,7 +155,7 @@ def shard_image_sequence(
         raise TypeError("image must have dtype float32 or bfloat16")
     expected_shape: tuple[int, ...]
     if positions.ndim == 2:
-        expected_shape = (image.size(1), 3)
+        expected_shape: tuple[int, ...] = (image.size(1), 3)
         position_dim = 0
     elif positions.ndim == 3:
         expected_shape = (image.size(0), image.size(1), 3)
