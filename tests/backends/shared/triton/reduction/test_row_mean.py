@@ -81,3 +81,27 @@ def test_the_bytes_do_not_depend_on_alignment(offset):
     assert torch.equal(
         row_mean.row_sums(wide[1:, :k]).view(torch.int32), row_mean.row_sums(copy).view(torch.int32)
     )
+
+
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two GPUs")
+def test_a_tensor_on_another_device_than_the_current_one():
+    """The launches follow the input's device, not the current one (whose CUDA context may not
+    even exist yet: run in a fresh process that has only touched ``cuda:1``)."""
+
+    import subprocess
+    import sys
+
+    code = """
+import torch
+from rl_engine.backends.shared.triton.reduction import row_mean
+g = torch.Generator().manual_seed(11)
+x = torch.randn(3, 8193, generator=g).to("cuda:1")
+with torch.cuda.device(1):
+    want = row_mean.row_sums(x)
+with torch.cuda.device(0):
+    got = row_mean.row_sums(x)
+assert got.device == x.device, got.device
+assert torch.equal(got.view(torch.int32), want.view(torch.int32))
+"""
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr[-2000:]
