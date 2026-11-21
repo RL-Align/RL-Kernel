@@ -79,6 +79,7 @@ async def _engine(args) -> dict[str, Any]:
         vae_patch_parallel_size=1,
         enforce_eager=True,
         step_execution=True,
+        max_num_seqs=args.max_num_seqs,  # step mode runs this many requests in one DiT call
         worker_extension_cls=EXTENSION,
         stage_init_timeout=args.init_timeout,
         init_timeout=args.init_timeout,
@@ -87,6 +88,7 @@ async def _engine(args) -> dict[str, Any]:
         "tp": args.tp,
         "checkpoint": "MiniMax-H3 (released)",
         "steps": args.steps,
+        "max_num_seqs": args.max_num_seqs,
     }
     try:
         install = await engine.collective_rpc(
@@ -360,6 +362,7 @@ def main() -> None:
     ap.add_argument("--height", type=int, default=256)
     ap.add_argument("--width", type=int, default=448)
     ap.add_argument("--duration", type=float, default=4.0)  # H3 takes 4-15 s
+    ap.add_argument("--max-num-seqs", type=int, default=2)  # 1 would never batch A with B
     ap.add_argument("--record-calls", type=int, default=2)
     ap.add_argument("--strict-boundaries", action="store_true")
     ap.add_argument("--release-weights", action="store_true")
