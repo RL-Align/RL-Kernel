@@ -266,15 +266,26 @@ async def _lora_sync(engine, args) -> dict[str, Any]:
 
 
 class RpcError(RuntimeError):
-    """A worker method failed: vLLM-Omni's stage client returns ``{"error": True, "reason"}``
-    as the RPC's result instead of raising."""
+    """A worker method failed. AsyncOmni 6039984e returns the failure as the stage's result
+    instead of raising: ``{"supported": False, "error": "<message>"}`` (measured), or
+    ``{"error": True, "reason": "<message>"}`` from the stage client."""
+
+
+def _rpc_error(r: Any) -> str | None:
+    if not isinstance(r, dict) or "error" not in r:
+        return None
+    if r["error"] is True:
+        return str(r.get("reason"))
+    if r.get("supported") is False:
+        return str(r["error"])
+    return None
 
 
 async def _rpc(engine, method: str, **kw: Any) -> list:
     """``engine.collective_rpc`` that raises on a failed stage and returns the ranks' results."""
 
     results = _flat(await engine.collective_rpc(method, **kw))
-    errors = [r["reason"] for r in results if isinstance(r, dict) and r.get("error") is True]
+    errors = [e for e in map(_rpc_error, results) if e is not None]
     if errors:
         raise RpcError(f"{method}: {errors}")
     return results
