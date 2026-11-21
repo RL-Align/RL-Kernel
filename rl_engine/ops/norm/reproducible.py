@@ -233,13 +233,16 @@ def exact_norm(values, group=None) -> float:
 def clip_grad_norm_exact_(parameters, max_norm: float, *, counted=None, group=None) -> float:
     """``torch.nn.utils.clip_grad_norm_`` with the exact norm of :func:`exact_norm`.
 
-    ``counted(p)`` selects the parameters whose gradients enter the norm on this rank (default:
-    all of them); use it so that each replicated parameter is counted once across ``group``.
-    Every gradient is then scaled by ``clamp(max_norm / (norm + 1e-6), max=1)`` computed in
-    FP32, as PyTorch does. A non-finite norm leaves the gradients unchanged and is returned, so
-    that the caller can skip the step (verl's FSDP2 clip does the same).
+    ``parameters`` is a Tensor or an iterable of them. ``counted(p)`` selects the parameters whose
+    gradients enter the norm on this rank (default: all of them); use it so that each replicated
+    parameter is counted once across ``group``. Every gradient is then scaled by
+    ``clamp(max_norm / (norm + 1e-6), max=1)`` computed in FP32, as PyTorch does, and multiplied at
+    FP32 whatever the gradients' dtype. A non-finite norm leaves the gradients unchanged and is
+    returned, so that the caller can skip the step (verl's FSDP2 clip does the same).
     """
 
+    if isinstance(parameters, torch.Tensor):  # one parameter, as torch.nn.utils.clip_grad_norm_
+        parameters = [parameters]
     params = [p for p in parameters if p.grad is not None]
     keep = params if counted is None else [p for p in params if counted(p)]
     total = exact_norm([p.grad for p in keep], group)
@@ -250,13 +253,16 @@ def clip_grad_norm_exact_(parameters, max_norm: float, *, counted=None, group=No
         / (torch.tensor(total, dtype=torch.float32) + 1e-6),
         max=1.0,
     )
-    # One coefficient per (device, dtype) and one foreach multiply per group, as PyTorch's
-    # clip does: a coefficient copied to the device for every gradient synchronises each time.
+    # The FP32 coefficient is passed as a Python scalar, so the kernels multiply at FP32 for FP16
+    # and BF16 gradients too. PyTorch's clip passes a 0-d tensor, which type promotion casts to
+    # the gradients' dtype: a coefficient below FP16's range then zeroes every gradient. For FP32
+    # gradients the two agree. One foreach multiply per (device, dtype) group, no device copy.
+    scale = float(coef)
     groups: dict[tuple[torch.device, torch.dtype], list[torch.Tensor]] = {}
     for p in params:
         groups.setdefault((p.grad.device, p.grad.dtype), []).append(p.grad)
-    for (device, dtype), grads in groups.items():
-        torch._foreach_mul_(grads, coef.to(device=device, dtype=dtype))
+    for grads in groups.values():
+        torch._foreach_mul_(grads, scale)
     return total
 
 
