@@ -583,6 +583,137 @@ def test_benchmark_log_bars_raise_the_axis_over_the_largest_value():
     plt.close(fig)
 
 
+def _load_benchmark():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[3] / "benchmarks/models/benchmark_h3_audio_vae.py"
+    spec = importlib.util.spec_from_file_location("benchmark_h3_audio_vae_under_test", script)
+    assert spec is not None and spec.loader is not None
+    bench = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bench)
+    return bench
+
+
+def test_benchmark_rejects_negative_counts_before_any_work(tmp_path):
+    bench = _load_benchmark()
+    for flag in ("--repeats", "--warmup"):
+        with pytest.raises(SystemExit):
+            bench.main(["--checkpoint", str(tmp_path), flag, "-1", "--out", str(tmp_path / "x")])
+    assert not (tmp_path / "x").exists()
+
+
+def test_benchmark_batch8_last_reads_the_final_slot():
+    """A path that changes only the last batch slot must fail ``batch8_last``."""
+
+    bench = _load_benchmark()
+    target, others = stereo(64), torch.cat([stereo(64, seed=s) for s in (1, 2, 3)])
+
+    def last_slot_differs(x: torch.Tensor) -> torch.Tensor:
+        out = x.clone()
+        if x.shape[0] == 8:
+            out[-1] += 1.0
+        return out
+
+    res = bench.invariance(last_slot_differs, target, others)
+    assert res["max_abs"]["batch8_last"] > 0.5 and not res["bitwise_equal"]["batch8_last"]
+    assert res["max_abs"]["batch8_first"] == 0.0 and not res["batch_invariant"]
+
+
+def test_benchmark_invariance_compares_bytes_not_values():
+    """``-0.0`` vs ``+0.0`` is a zero ``max_abs`` but not byte equality, so not batch invariant."""
+
+    bench = _load_benchmark()
+    target, others = torch.zeros(2, 8), torch.zeros(6, 8)
+
+    def negative_zero_alone(x: torch.Tensor) -> torch.Tensor:
+        return -x if x.shape[0] == 1 else x.clone()
+
+    res = bench.invariance(negative_zero_alone, target, others)
+    assert res["max_abs"]["mono_alone"] == 0.0 and not res["bitwise_equal"]["mono_alone"]
+    assert not res["batch_invariant"] and res["repeat_equal"]
+
+
+def test_benchmark_log_cap_covers_the_largest_value_in_either_panel():
+    bench = _load_benchmark()
+    assert bench.log_cap([2.0, 0.1], 1.0) == 10.0
+    assert bench.log_cap([0.1], 1.0) == 1.0 and bench.log_cap([], 1e-3) == 1e-3
+
+
+def test_benchmark_two_panel_charts_share_one_cap(tmp_path):
+    """The larger peak in the first panel must survive the second panel's render."""
+
+    pytest.importorskip("matplotlib")
+    bench = _load_benchmark()
+
+    def entry(drift: float, err: float) -> dict:
+        return {
+            "max_abs": {"repeat": 0.0, "mono_alone": drift},
+            "vs_fp64_max_abs": err,
+            "latency": {"median_ms": 1.0},
+        }
+
+    report = {
+        "paths": {"ours": "x"},
+        "provenance": {"gpu": "GPU"},
+        "cold_start": {
+            "ours": {"encode_first_vs_third_max_abs": 0.0, "decode_first_vs_third_max_abs": 0.0}
+        },
+        "cases": [
+            {
+                "samples": 32_000,
+                "latents_per_channel": 40,
+                "paths": {"ours": {"encode": entry(2.0, 3.0), "decode": entry(0.1, 0.2)}},
+            }
+        ],
+    }
+    import matplotlib.pyplot as plt
+
+    seen = []
+    real_close = plt.close
+
+    def close(fig):
+        seen.append([ax.get_ylim()[1] for ax in fig.axes])
+        real_close(fig)
+
+    plt.close = close
+    try:
+        bench.plot(report, tmp_path / "chart")
+    finally:
+        plt.close = real_close
+    bi, accuracy = seen[0], seen[1]
+    assert bi == [10.0, 10.0] and accuracy == [10.0, 10.0]
+
+
+def test_checkpoint_weights_path_is_the_verified_file(tmp_path):
+    import hashlib
+
+    root = _fake_component(tmp_path, source_safetensors_path="weights.safetensors")
+    (root / "weights.safetensors").write_bytes(b"other weights")
+    ck = av.AudioVAECheckpoint.read(root)
+    assert ck.weights_path == root / "weights.safetensors"
+    digest = hashlib.sha256(b"other weights").hexdigest()
+    assert av.AudioVAECheckpoint.read(root, verify_sha256=digest).sha256 == digest
+    with pytest.raises(ValueError, match="sha256"):  # model.safetensors is not what is verified
+        av.AudioVAECheckpoint.read(root, verify_sha256=hashlib.sha256(b"not weights").hexdigest())
+
+
+def test_benchmark_verify_remote_rejects_unpinned_weights(tmp_path):
+    bench = _load_benchmark()
+    with pytest.raises(ValueError, match="sha256"):
+        bench.verify_remote(_fake_component(tmp_path))
+
+
+def test_native_forward_keeps_fp64(tiny_model):
+    model = copy.deepcopy(tiny_model).double()
+    x = stereo(1600).double()[:, None]
+    with torch.inference_mode():
+        z = model.encode_mean_native(x)
+        assert z.dtype == torch.float64 and model.encode_mean(x).dtype == torch.float32
+        assert torch.equal(model.encode_mean(x), z.float())
+        w = model.decode_native(z)
+        assert w.dtype == torch.float64 and torch.equal(model.decode(z), w.float())
+
+
 # --- released weights on CUDA ----------------------------------------------------------------
 
 

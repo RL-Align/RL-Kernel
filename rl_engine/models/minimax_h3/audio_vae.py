@@ -532,6 +532,11 @@ class H3AudioVAE(nn.Module):
     def encode_mean(self, sample: torch.Tensor) -> torch.Tensor:
         """``[B, 1, samples]`` -> posterior mean ``[B, latent_channels, ceil(samples / hop)]``."""
 
+        return self.encode_mean_native(sample).float()
+
+    def encode_mean_native(self, sample: torch.Tensor) -> torch.Tensor:
+        """:meth:`encode_mean` in the module's own dtype (an FP64 reference stays FP64)."""
+
         if sample.ndim != 3 or sample.shape[1] != 1:
             raise ValueError(f"sample must be [B, 1, samples], got {tuple(sample.shape)}")
         right_pad = (
@@ -541,14 +546,19 @@ class H3AudioVAE(nn.Module):
             sample = F.pad(sample, (0, right_pad))
         hidden = self.encoder(sample)
         hidden = self.pre_block(hidden.transpose(1, 2)).transpose(1, 2)
-        return self.mean_proj(hidden).float()
+        return self.mean_proj(hidden)
 
     def decode(self, latents: torch.Tensor) -> torch.Tensor:
         """Denormalised ``[B, C, T]`` -> waveform ``[B, 1, T * hop]`` clamped to ``[-1, 1]``."""
 
+        return self.decode_native(latents).float()
+
+    def decode_native(self, latents: torch.Tensor) -> torch.Tensor:
+        """:meth:`decode` in the module's own dtype (an FP64 reference stays FP64)."""
+
         if latents.ndim != 3:
             raise ValueError(f"latents must be [B, C, T], got {tuple(latents.shape)}")
-        return self.decoder(self.dec_in_proj(latents)).float()
+        return self.decoder(self.dec_in_proj(latents))
 
 
 _WN_KEYS = (
@@ -769,13 +779,20 @@ class AudioVAECheckpoint:
             raise ValueError(f"{root} is not the H3 audio VAE contract: {', '.join(problems)}")
         digest = None
         if verify_sha256 is not None:
-            digest = _file_sha256(root / config["source_safetensors_path"])
+            digest = _file_sha256(_weights_path(root))
             if digest != verify_sha256:
                 raise ValueError(f"audio VAE weights sha256 {digest} != pinned {verify_sha256}")
         return cls(root, mean, std, dict(meta), digest)
 
+    @property
+    def weights_path(self) -> Path:
+        """The weight file ``config.json`` names: the one :meth:`read` hashes and :meth:`build`
+        loads. Every loader of this component should open this path."""
+
+        return _weights_path(self.path)
+
     def build(self, device: torch.device | str = "cpu") -> H3AudioVAE:
-        """Instantiate the module and load ``model.safetensors`` with ``strict=True`` (FP32)."""
+        """Instantiate the module and load :attr:`weights_path` with ``strict=True`` (FP32)."""
 
         from safetensors.torch import load_file
 
@@ -784,10 +801,7 @@ class AudioVAECheckpoint:
             latent_dim=int(self.kwargs.get("latent_dim", 2048)),
             decoder_dim=int(self.kwargs.get("decoder_dim", 1024)),
         )
-        config = json.loads((self.path / "config.json").read_text())
-        model.load_state_dict(
-            load_file(str(self.path / config["source_safetensors_path"])), strict=True
-        )
+        model.load_state_dict(load_file(str(self.weights_path)), strict=True)
         return model.to(device=device, dtype=torch.float32).eval()
 
 
@@ -799,6 +813,11 @@ def pinned_audio_vae_sha256(task: str = "FL2VA") -> str:
         if entry["path"] == f"{task}/audio_vae/model.safetensors":
             return str(entry["sha256"])
     raise KeyError(f"no pinned audio VAE weights for {task}")
+
+
+def _weights_path(root: Path) -> Path:
+    config = json.loads((Path(root) / "config.json").read_text())
+    return Path(root) / config["source_safetensors_path"]
 
 
 def _file_sha256(path: Path) -> str:
