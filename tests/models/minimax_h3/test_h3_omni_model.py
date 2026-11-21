@@ -212,13 +212,6 @@ class TestRefusals:
         [
             {"reference_kv_state": object()},
             {"control_rows": torch.zeros(1)},
-            {
-                "packed_seq_params": {
-                    "cu_seqlens_q": torch.tensor([0, 9, 11]),
-                    "max_seqlen_q": 9,
-                    "vsa_prefix_segments": (3,),
-                }
-            },
         ],
     )
     def test_calls_the_actor_cannot_reproduce(self, change):
@@ -231,6 +224,11 @@ class TestRefusals:
             om.check_call(self._k(), pdd_step=0)
         with pytest.raises(TypeError):
             om.check_call({**self._k(), "new_kwarg": 1})
+
+    def test_vsa_prefix_segments_are_layout_metadata(self):
+        k = self._k()
+        k["packed_seq_params"] = {**k["packed_seq_params"], "vsa_prefix_segments": (3, 4)}
+        om.check_call(k)  # sent on every call; only a VSA DiT (refused at install) reads them
 
     def test_zero_scale_control_is_allowed(self):
         om.check_call({**self._k(), "control_rows": torch.zeros(1), "control_context_scale": 0.0})
@@ -315,6 +313,10 @@ class TestInstall:
             with pytest.raises(RuntimeError):
                 om.install_h3_omni_model(t, _Binding())
             assert "forward" not in t.__dict__ and not t.w.is_meta
+        t = MiniMaxH3DiTModel()
+        t.to_gate_compress = torch.nn.Linear(2, 2)
+        with pytest.raises(RuntimeError, match="sparse attention"):
+            om.install_h3_omni_model(t, _Binding())
         t = MiniMaxH3DiTModel()
         t.forward = lambda **k: "compiled"
         with pytest.raises(RuntimeError):

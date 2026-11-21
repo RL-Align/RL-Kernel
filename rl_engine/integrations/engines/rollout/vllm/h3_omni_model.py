@@ -27,7 +27,7 @@ transformer's ``forward`` for :class:`H3OmniModelBinding`, which
 
 The engine's own blocks are never called, which also bypasses their compiled forwards, the AdaLN
 cache and block hooks. What would change the result instead of being bypassed is refused: the
-reference-KV cache, control hints, the VSA prefix segments, PDD steps, VDN attention, sequence
+reference-KV cache, control hints, PDD steps, FastH3 sparse (VSA) attention, VDN attention, sequence
 parallelism, a TP size other than the grid's, cache backends that skip DiT calls, quantization
 and an engine LoRA (the LoRA lives on the actor's model: ``h3_lora``).
 """
@@ -106,11 +106,6 @@ def check_call(kwargs: Mapping[str, Any], pdd_step: Any = None) -> None:
         and float(kwargs.get("control_context_scale", 1.0)) != 0
     ):
         raise ValueError("control hints add a ControlNet branch the actor does not have")
-    segments = _field(kwargs["packed_seq_params"], "vsa_prefix_segments", ())
-    if len(tuple(segments)):
-        raise ValueError(
-            "VSA prefix segments select sparse attention; the actor runs full attention"
-        )
 
 
 def split_requests(kwargs: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -417,6 +412,10 @@ def check_engine_transformer(transformer: torch.nn.Module) -> list[str]:
         reasons.append(f"{type(transformer).__name__} is not vLLM-Omni's MiniMaxH3DiTModel")
     if getattr(transformer, "vdn_config", None) is not None:
         reasons.append("VDN-H3 hybrid attention is not the released dense H3")
+    if any(name.endswith("to_gate_compress") for name, _ in transformer.named_modules()):
+        # FastH3 video sparse attention: vLLM-Omni then selects the attended tiles with the
+        # packed layout's vsa_prefix_segments; the actor runs full attention.
+        reasons.append("FastH3 sparse attention (to_gate_compress) is not the actor's attention")
     if "forward" in transformer.__dict__:
         reasons.append(
             "its forward is already replaced on the instance (compile, offload or another binding)"
