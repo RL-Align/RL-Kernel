@@ -83,8 +83,9 @@ def response_positions(shape, rows=None):
 # Actor layouts. The strict arm is certified at TP4 with the l2 run's EP (expert tensor
 # parallel 4 // EP); its training is certified at EP1 only. Stock VIME cannot run TP4 (two
 # KV heads; Megatron's attention output gate breaks when TP exceeds them), so it runs its
-# recipe's TP2 with expert tensor parallel 1 and experts over all four ranks: data parallel 2.
-STOCK_VIME_LAYOUT = {"tp": 2, "ep": 4, "etp": 1, "dp": 2}
+# recipe's TP2 with sequence parallel and expert tensor parallel 1, experts over all four
+# ranks: data parallel 2. The strict profile is certified without sequence parallel.
+STOCK_VIME_LAYOUT = {"tp": 2, "sp": True, "ep": 4, "etp": 1, "dp": 2}
 STRICT_TRAINING_NEEDS_EP1 = (
     "the certified strict training profile is EP1; run train on an EP1 l2 run"
 )
@@ -93,8 +94,18 @@ STRICT_TRAINING_NEEDS_EP1 = (
 def actor_layout(run_ep, arm):
     """Parallel layout of a replay/train arm on the run's four GPUs."""
     if arm == STRICT_ARM:
-        return {"tp": 4, "ep": run_ep, "etp": 4 // run_ep, "dp": 1}
+        return {"tp": 4, "sp": False, "ep": run_ep, "etp": 4 // run_ep, "dp": 1}
     return dict(STOCK_VIME_LAYOUT)
+
+
+def packed_lengths(lengths, multiple):
+    """Packed sequence lengths plus one pad sequence up to ``multiple`` tokens.
+
+    Sequence parallel splits the packed tokens over the TP ranks, so their count must divide
+    by TP; VIME's ``get_batch`` pads the same way (pad token 0, one extra packed sequence).
+    """
+    pad = -sum(lengths) % multiple
+    return [*lengths, pad] if pad else list(lengths)
 
 
 def actor_unsupported(run_ep, phase, arm):

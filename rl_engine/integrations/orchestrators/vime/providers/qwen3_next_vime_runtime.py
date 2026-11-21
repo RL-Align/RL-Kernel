@@ -38,10 +38,11 @@ SHARED_SPEC = (
     "rl_engine.integrations.orchestrators.vime.providers.qwen3_next_vime",
     "get_qwen3_next_shared_spec",
 )
-# Stock VIME's parallel layout on the same four GPUs: TP2 and expert tensor parallel 1 as in
-# its recipe (scripts/run-qwen3-next-80B-A3B.sh), experts over all four ranks, so data
-# parallel 2. Stock VIME cannot run TP4: Qwen3-Next has two KV heads, and Megatron's
-# attention output gate is not narrowed when a rank keeps part of a KV group's query heads.
+# Stock VIME's parallel layout on the same four GPUs: TP2 with sequence parallel and expert
+# tensor parallel 1 as in its recipe (scripts/run-qwen3-next-80B-A3B.sh), experts over all
+# four ranks, so data parallel 2. Stock VIME cannot run TP4: Qwen3-Next has two KV heads,
+# and Megatron's attention output gate is not narrowed when a rank keeps part of a KV group's
+# query heads.
 STOCK_TP, STOCK_EP = 2, 4
 
 
@@ -49,9 +50,9 @@ def runtime_argv(checkpoint, *, training, ep=1, providers=True, seq_length=1040,
     """Use native argument parsing/validation; no precision-policy overrides.
 
     ``providers=False`` builds the actor on stock VIME: its own Qwen3-Next spec and model
-    provider, the MoE fusion its recipe enables, and its layout (``tp=STOCK_TP``,
-    ``ep=STOCK_EP``, expert tensor parallel 1). Only speed comparisons use it; every
-    acceptance stage runs the RL-Kernel providers at TP4.
+    provider, the MoE fusion its recipe enables, and its layout (``tp=STOCK_TP`` with
+    sequence parallel, ``ep=STOCK_EP``, expert tensor parallel 1). Only speed comparisons use
+    it; every acceptance stage runs the RL-Kernel providers at TP4.
     """
     checkpoint = str(Path(checkpoint).absolute())
     if providers:
@@ -149,7 +150,7 @@ def runtime_argv(checkpoint, *, training, ep=1, providers=True, seq_length=1040,
     ]
     if not providers:
         del values["custom-model-provider-path"]
-        switches.append("moe-permute-fusion")
+        switches.extend(("moe-permute-fusion", "sequence-parallel"))
     argv = ["qwen3-next-native-actor"]
     for name, value in values.items():
         argv.extend((f"--{name}", str(value)))
@@ -191,7 +192,9 @@ def create_actor(checkpoint, *, training, ep=1, providers=True, seq_length=1040,
     args.rank, args.local_rank = dist.get_rank(), int(os.environ["LOCAL_RANK"])
     args.world_size = 4
     args.num_rollout = 3 if training else 0
-    args.sequence_parallel = False
+    # The certified strict profile runs without sequence parallel. Stock VIME's recipe runs
+    # TP2 with it, and Megatron's MoE layer refuses to train at TP > 1 without it.
+    args.sequence_parallel = not providers
     args.fp32_residual_connection = False
     args.overlap_grad_reduce = False
     args.overlap_param_gather = False

@@ -214,7 +214,9 @@ def test_stock_vime_runs_its_recipe_layout_and_strict_stays_certified():
     assert _option(stock, "tensor-model-parallel-size") == "2"
     assert _option(stock, "expert-model-parallel-size") == "4"
     assert _option(stock, "expert-tensor-parallel-size") == "1"
+    assert "--sequence-parallel" in stock
     shared = runtime_argv("/checkpoint", training=False, ep=4)
+    assert "--sequence-parallel" not in shared
     assert _option(shared, "tensor-model-parallel-size") == "4"
     assert _option(shared, "expert-tensor-parallel-size") == "1"
     with pytest.raises(ValueError, match="TP2 EP4"):
@@ -226,10 +228,11 @@ def test_stock_vime_runs_its_recipe_layout_and_strict_stays_certified():
 
 
 def test_actor_layouts_and_unsupported_strict_training():
-    assert cases.actor_layout(1, "strict") == {"tp": 4, "ep": 1, "etp": 4, "dp": 1}
-    assert cases.actor_layout(4, "strict") == {"tp": 4, "ep": 4, "etp": 1, "dp": 1}
+    assert cases.actor_layout(1, "strict") == {"tp": 4, "sp": False, "ep": 1, "etp": 4, "dp": 1}
+    assert cases.actor_layout(4, "strict") == {"tp": 4, "sp": False, "ep": 4, "etp": 1, "dp": 1}
     for ep in (1, 4):
-        assert cases.actor_layout(ep, "native") == {"tp": 2, "ep": 4, "etp": 1, "dp": 2}
+        stock = {"tp": 2, "sp": True, "ep": 4, "etp": 1, "dp": 2}
+        assert cases.actor_layout(ep, "native") == stock
         assert cases.actor_unsupported(ep, "replay", "strict") is None
         assert cases.actor_unsupported(ep, "train", "native") is None
     assert cases.actor_unsupported(1, "train", "strict") is None
@@ -253,3 +256,16 @@ def test_response_positions_of_a_rank_share_match_its_packed_rows():
     assert targets == [token for row in share for token in row[8:]]
     assert [packed[p + 1] for p in positions] == targets
     assert cases.response_positions(shape) == cases.response_positions(shape, full)
+
+
+def test_packed_lengths_pad_to_the_sequence_parallel_split():
+    assert cases.packed_lengths([80, 80], 2) == [80, 80]
+    assert cases.packed_lengths([80, 81], 2) == [80, 81, 1]
+    assert cases.packed_lengths([5], 4) == [5, 3]
+    assert cases.packed_lengths([7, 9], 1) == [7, 9]
+    for workload in cases.WORKLOADS.values():
+        for shape in workload["replay"]:
+            for rank in (0, 1):
+                rows, _ = cases.data_parallel_share(cases.sequences(shape), rank, 2)
+                lengths = [len(row) for row in rows]
+                assert cases.packed_lengths(lengths, 2) == lengths  # no shape needs padding
