@@ -4,6 +4,7 @@
 import sys
 from types import ModuleType
 
+import pytest
 import torch
 
 import rl_engine.platforms.device as device_module
@@ -141,6 +142,12 @@ class TestMusaPlatform:
             ],
             "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
             "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
+            # Qwen-Image WS1 MLP up + GELU: the CUDA sources are NVIDIA PTX, so
+            # Triton is the validated backend on MUSA too.
+            "mlp_up_gemm_gelu": [
+                OpBackend.TRITON_MLP_UP_GEMM_GELU,
+                OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+            ],
         }
         for op_name, candidates in expected.items():
             assert registry._priority_map["musa"][op_name] == candidates
@@ -248,6 +255,126 @@ def test_executor_flow():
     mock_input_ids = torch.ones((1, 16), dtype=torch.long)
     result = executor.execute_rollout(mock_input_ids)
     logger.info(f"Executor result: {result}")
+
+
+# --- mlp_up_gemm_gelu: the contract pin must survive dispatch ----------------
+# `RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND` names an arithmetic contract, and only
+# some backends implement each one: the CUDA portable kernel and the fp32
+# reference produce the tree, the CUDA Hopper kernel and Triton the mma order.
+# Dispatch runs before the CUDA backend reads the switch, so the registry has to
+# narrow the candidates itself; otherwise `general` runs Triton's mma arithmetic.
+_MLP_UP_GEMM_GELU_ENV = "RL_KERNEL_MLP_UP_GEMM_GELU_BACKEND"
+
+
+def test_mlp_up_gemm_gelu_auto_keeps_the_static_order(monkeypatch):
+    monkeypatch.delenv(_MLP_UP_GEMM_GELU_ENV, raising=False)
+
+    registry = KernelRegistry()
+
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
+        OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+    ]
+
+
+def test_mlp_up_gemm_gelu_general_pin_never_selects_the_mma_backend(monkeypatch):
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, " general ")
+
+    registry = KernelRegistry()
+
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+    ]
+    # No CUDA tree kernel off CUDA; the fp32 reference is the same contract.
+    assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU
+    ]
+    assert registry._priority_map["musa"]["mlp_up_gemm_gelu"] == [
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU
+    ]
+
+
+def test_mlp_up_gemm_gelu_hopper_pin_keeps_the_mma_producers(monkeypatch):
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "hopper")
+
+    registry = KernelRegistry()
+
+    # Triton first: it serves the mma order on every CUDA arch. The native
+    # Hopper op only satisfies it at call time on cc 9.0 + the sm90 build, and
+    # `get_op` does not fall back on call-time failures.
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
+        OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
+    ]
+    # The fp32 reference computes the tree, so it cannot serve a hopper pin.
+    assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [OpBackend.TRITON_MLP_UP_GEMM_GELU]
+
+
+def test_mlp_up_gemm_gelu_pins_are_repeatable(monkeypatch):
+    """Re-pinning rebuilds from the static order, not from a narrowed list."""
+
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "general")
+    registry = KernelRegistry()
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+    ]
+
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "hopper")
+    registry._adjust_priority_from_env()
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
+        OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
+    ]
+    assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [OpBackend.TRITON_MLP_UP_GEMM_GELU]
+
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "auto")
+    registry._adjust_priority_from_env()
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [
+        OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        OpBackend.CUDA_MLP_UP_GEMM_GELU,
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+    ]
+    assert registry._priority_map["rocm"]["mlp_up_gemm_gelu"] == [
+        OpBackend.TRITON_MLP_UP_GEMM_GELU,
+        OpBackend.PYTORCH_MLP_UP_GEMM_GELU,
+    ]
+
+
+def test_mlp_up_gemm_gelu_pin_respects_hardware_eligibility(monkeypatch):
+    """A pin rebuilds from the post-hardware row, so it cannot revive a dropped backend."""
+
+    original = KernelRegistry._adjust_priority_for_hardware
+
+    def drop_triton(self):
+        original(self)
+        self._priority_map["cuda"]["mlp_up_gemm_gelu"].remove(OpBackend.TRITON_MLP_UP_GEMM_GELU)
+
+    monkeypatch.setattr(KernelRegistry, "_adjust_priority_for_hardware", drop_triton)
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "hopper")
+
+    registry = KernelRegistry()
+
+    assert registry._priority_map["cuda"]["mlp_up_gemm_gelu"] == [OpBackend.CUDA_MLP_UP_GEMM_GELU]
+
+
+def test_mlp_up_gemm_gelu_unknown_pin_is_rejected(monkeypatch):
+    monkeypatch.setenv(_MLP_UP_GEMM_GELU_ENV, "tensor-core")
+
+    with pytest.raises(ValueError, match=_MLP_UP_GEMM_GELU_ENV):
+        KernelRegistry()
+
+
+def test_mlp_up_gemm_gelu_pin_values_match_the_backend():
+    """The registry's contract map and the CUDA backend's switch cannot drift."""
+
+    from rl_engine.backends.cuda.gemm.mlp_up_gemm_gelu import _VALID_BACKENDS
+
+    assert set(KernelRegistry._MLP_UP_GEMM_GELU_CONTRACT_BACKENDS) | {"auto"} == set(
+        _VALID_BACKENDS
+    )
 
 
 if __name__ == "__main__":

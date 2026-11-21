@@ -89,7 +89,7 @@ def test_fast_math_build_excludes_bit_reference_softmax(monkeypatch) -> None:
 
 @pytest.mark.parametrize("variable", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS"])
 def test_external_fast_math_flags_exclude_bit_reference_softmax(monkeypatch, variable) -> None:
-    with pytest.warns(RuntimeWarning, match="joint-attention softmax CUDA bit reference"):
+    with pytest.warns(RuntimeWarning, match="MLP up GEMM"):
         extension = _load_extension_config(
             monkeypatch,
             hip=None,
@@ -113,7 +113,7 @@ def test_external_fast_math_flags_exclude_bit_reference_softmax(monkeypatch, var
 def test_external_relaxed_math_spellings_exclude_bit_reference_softmax(
     monkeypatch, variable, flags
 ) -> None:
-    with pytest.warns(RuntimeWarning, match="joint-attention softmax CUDA bit reference"):
+    with pytest.warns(RuntimeWarning, match="MLP up GEMM"):
         extension = _load_extension_config(
             monkeypatch,
             hip=None,
@@ -122,6 +122,8 @@ def test_external_relaxed_math_spellings_exclude_bit_reference_softmax(
 
     assert "csrc/cuda/attention/joint_attn_softmax.cu" not in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" not in extension["extra_compile_args"]["cxx"]
+    assert "csrc/cuda/gemm/mlp_up_gemm_gelu.cu" not in extension["sources"]
+    assert "-DKERNEL_ALIGN_WITH_MLP_UP_GEMM_GELU" not in extension["extra_compile_args"]["cxx"]
 
 
 @pytest.mark.parametrize(
@@ -131,7 +133,7 @@ def test_external_relaxed_math_spellings_exclude_bit_reference_softmax(
 def test_uncheckable_external_options_file_excludes_bit_reference_softmax(
     monkeypatch, flags
 ) -> None:
-    with pytest.warns(RuntimeWarning, match="joint-attention softmax CUDA bit reference"):
+    with pytest.warns(RuntimeWarning, match="MLP up GEMM"):
         extension = _load_extension_config(
             monkeypatch,
             hip=None,
@@ -140,6 +142,8 @@ def test_uncheckable_external_options_file_excludes_bit_reference_softmax(
 
     assert "csrc/cuda/attention/joint_attn_softmax.cu" not in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" not in extension["extra_compile_args"]["cxx"]
+    assert "csrc/cuda/gemm/mlp_up_gemm_gelu.cu" not in extension["sources"]
+    assert "-DKERNEL_ALIGN_WITH_MLP_UP_GEMM_GELU" not in extension["extra_compile_args"]["cxx"]
 
 
 def test_unparseable_external_nvcc_flags_exclude_bit_reference_softmax(monkeypatch) -> None:
@@ -202,3 +206,16 @@ def test_adaln_build_registers_native_source_only_for_precise_cuda(
     extension = _load_extension_config(monkeypatch, hip=hip, fast_math=fast_math == "1")
     assert ("csrc/cuda/norm/adaln_modulation.cu" in extension["sources"]) is enabled
     assert ("-DRLK_ADALN_CUDA_ENABLED" in extension["extra_compile_args"]["cxx"]) is enabled
+
+
+@pytest.mark.parametrize(
+    "hip,fast_math,enabled", [(None, "0", True), (None, "1", False), ("test", "0", False)]
+)
+def test_mlp_up_build_registers_bit_exact_source_only_for_precise_cuda(
+    monkeypatch, hip, fast_math, enabled
+):
+    extension = _load_extension_config(monkeypatch, hip=hip, fast_math=fast_math == "1")
+    assert ("csrc/cuda/gemm/mlp_up_gemm_gelu.cu" in extension["sources"]) is enabled
+    assert (
+        "-DKERNEL_ALIGN_WITH_MLP_UP_GEMM_GELU" in extension["extra_compile_args"]["cxx"]
+    ) is enabled

@@ -50,6 +50,7 @@ def test_all_ws1_single_ops_are_registered():
         "pack",
         "linear_logp",
         "prefix_shared_attention",
+        "mlp_up_gemm_gelu",
     } <= names
 
 
@@ -67,6 +68,8 @@ def test_all_ws1_single_ops_are_registered():
             "cuda",
             marks=pytest.mark.cuda_only,
         ),
+        ("mlp_up_gemm_gelu", "cuda"),
+        ("mlp_up_gemm_gelu", "triton"),
     ],
 )
 def test_check_operator_runs_ported_ops(op, candidate):
