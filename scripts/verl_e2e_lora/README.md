@@ -18,9 +18,12 @@ Use the whole RL-Kernel checkout (branch `test-dsv4-cuda`), not only this direct
    batch-invariant), on the same workload.
 3. **Control:** with the adapter sync switched off, the same metric must turn nonzero.
 
-Proven so far, on 2 x H200 with a 4-layer checkpoint at the real dimensions and random
-weights (design doc 10.1): mismatch 0 at each of 4 steps; the negative control 4096 of 4096
-tokens from step 2. The real checkpoint, 8 GPUs and longer runs are what this guide adds.
+Proven so far (design doc 10.1):
+- 2 x H200, a 4-layer checkpoint at the real dimensions with random weights: mismatch 0 at
+  each of 4 steps; the negative control 4096 of 4096 tokens from step 2.
+- 8 x H200, the real checkpoint's 43 layers, the DAPO math reward: mismatch 0 at every one of
+  100 steps, twice (E2: 32 x 8, response <= 2048; E3: 32 x 16, response <= 4096). Section 8
+  has these runs and the baseline's.
 
 ## The two stacks
 
@@ -29,17 +32,17 @@ view, data, reward, batch and LoRA rank. verl, vLLM and Megatron are not modifie
 
 | | RL-Kernel + verl (`rlkernel`) | verl #7483 (`baseline`) |
 |---|---|---|
-| Actor | verl engine `rlkernel` (RL-Kernel's `Dsv4Model`, batch-invariant kernels), data parallel 8, no offload | Megatron (Bridge `c7774d44`, Megatron-LM `fd1121b8`), EP 8, parameter and optimizer offload, full recompute, router replay R3 |
-| Rollout | vLLM fork `ISEEKYAN/vllm@1a6542c` + RL-Kernel's model plugin, `VLLM_BATCH_INVARIANT=1`, 8 replicas of TP 1, eager (no CUDA graphs yet), FP8 KV cache | vLLM 0.32.0 with its own LoRA (`merge=False`), one TP 8 / EP 8 instance, CUDA graphs, FP8 KV cache |
-| LoRA targets | `wq_a`, `wkv`, `wq_b`, `wo_b`; routed `fc1` / `fc2` (one adapter shared by every expert); shared expert `fc1` / `fc2`. BF16 adapters, FP32 master copy | the launcher's list: the same projections plus the compressor (`wkv`, `wgate`), the indexer's `weights_proj` and the router; `experts_shared_outer_loras`; FP32 adapters, LoRA+ ratio 16 |
+| Actor | verl engine `rlkernel` (RL-Kernel's `Dsv4Model`, batch-invariant kernels), data parallel 8 with the routed experts over EP 8, activation recompute (`RECOMPUTE=1`), no offload | Megatron (Bridge `c7774d44`, Megatron-LM `fd1121b8`), EP 8, parameter and optimizer offload, full recompute, router replay R3 |
+| Rollout | vLLM fork `ISEEKYAN/vllm@1a6542c` + RL-Kernel's model plugin, `VLLM_BATCH_INVARIANT=1`, one DP 8 / EP 8 instance (attention data parallel), CUDA graphs with `GRAPH=1`, FP8 KV cache | vLLM 0.32.0 with its own LoRA (`merge=False`), one TP 8 / EP 8 instance, CUDA graphs, FP8 KV cache |
+| LoRA targets | `wq_a`, `wkv`, `wq_b`, `wo_b`; routed `fc1` / `fc2` (one adapter shared by every expert); shared expert `fc1` / `fc2`. BF16 adapters, FP32 master copy | the launcher's list: the same projections plus the compressor (`wkv`, `wgate`), the indexer's `weights_proj` and the router; one adapter shared by every expert (`run.sh` drops `experts_shared_outer_loras`, which vLLM 0.32 cannot load); FP32 adapters. The launcher's LoRA+ ratio 16 is read by neither verl nor Bridge |
 | Weight sync | BF16 adapters only, into the plugin's layers | verl's LoRA sync into vLLM's LoRA manager |
 | Off-policy handling | none (the rollout is the recompute) | token-level rollout importance sampling (0.5-5) |
-| Learning rate | 1e-4, constant | 5e-6, 3 warmup steps |
+| Learning rate | `run.sh`: 1e-4, constant | `run.sh`: 5e-6, 3 warmup steps. `experiments.sh` sets both runs' optimizer the same (section 8) |
 
 Read the speed numbers as stack against stack. The LoRA target sets and the rollout
-parallelism differ (each run uses its own recipe's choices). The rollout without CUDA graphs
-is a known cost on our side. The learning rate does not change the step time. The ablation
-run (section 5) splits our time into what batch invariance costs the rollout and the rest.
+parallelism differ (each run uses its own recipe's choices). The learning rate does not
+change the step time. The ablation run (section 5) splits our time into what batch
+invariance costs the rollout and the rest.
 
 ## 0. Requirements
 
@@ -54,13 +57,18 @@ run (section 5) splits our time into what batch invariance costs the rollout and
 | Time | setup 3-4 h (the vLLM fork builds from source); then about 3-5 h of runs |
 
 **Model size.** Both runs train on the first `LAYERS` layers of the checkpoint (default 4:
-window, window, C4, C128, one of each attention type), because the `rlkernel` engine is data
-parallel only (no expert parallelism yet): every GPU holds a whole copy of the actor and,
-during generation, of the rollout. Each layer is about 3.2 GB of FP4 experts plus 6.4 GB of
-E4M3 expert weights kept expanded for speed, so about 10 GB per copy. At 4 layers on H200 the
-2-GPU run peaked at 49 GB in the actor, next to the rollout's 35 % of the GPU. On H100 80 GB,
-4 layers do not fit: use `LAYERS=2` (window layers only, so no compressed attention; say so
-in the report). Set `LAYERS` before `setup.sh data` and keep it for every run.
+window, window, C4, C128, one of each attention type). Set `LAYERS` before `setup.sh data`
+and keep it for every run.
+- Small views (sections 2 to 7): without expert parallelism every GPU holds a whole copy of
+  the actor and, during generation, of the rollout. Each layer is about 3.2 GB of FP4
+  experts plus 6.4 GB of E4M3 expert weights kept expanded for speed. At 4 layers on H200
+  the 2-GPU run peaked at 49 GB in the actor, next to the rollout's 35 % of the GPU. On
+  H100 80 GB, 4 layers do not fit: use `LAYERS=2` (window layers only, so no compressed
+  attention; say so in the report).
+- The full model (`LAYERS=43`, section 8): EP 8 in the actor (`ACTOR_EP=8`) and the rollout
+  (`ROLLOUT_DP=8`), activation recompute, and `RL_KERNEL_DSV4_PERSIST_W8=0` (the E4M3
+  expansion per call instead of kept: same bytes). The actor peaked at 60 GB per H200 at
+  8192 tokens per micro-batch.
 
 ## 1. Setup (host)
 
@@ -187,8 +195,8 @@ took 0.79x of the BI run's time.
 
 - Against the `rlkernel` run, the difference in `timing_s/gen` is the price of batch
   invariance in the rollout.
-- Against the baseline, the remaining gap is the stacks themselves: the engine, the
-  parallelism and the missing CUDA graphs.
+- Against the baseline, the remaining gap is the stacks themselves: the engine and the
+  parallelism.
 
 ## 6. Baseline: verl #7483 (8 GPUs, 20 steps, ~1-2 h)
 
@@ -227,13 +235,57 @@ Send the archive plus a short note:
 | baseline | the same as rlkernel |
 | Failures | exact command, last 50 lines of `train.log`, what was tried |
 
+## 8. The full model (`experiments.sh`, 8 x H200, about 4-11 h per run)
+
+`experiments.sh` holds the full-model runs as stages, each a `run.sh` call with the
+real checkpoint's 43 layers, EP 8 on both sides and the DAPO math reward (its header lists
+the settings):
+
+```bash
+DRY_RUN=1 bash experiments.sh BL2 E3 A3   # print the run.sh calls
+bash experiments.sh BL2 E3 A3             # run them in order; logs in $OUT_DIR/<stage>.log
+```
+
+| Stage | Stack | Workload | Steps | Learning rate |
+|---|---|---|---|---|
+| `E2` | rlkernel, BI, graphs | 32 x 8, response <= 2048 | 100 | 1e-4 constant |
+| `BL2` | verl #7483 | W7: 32 x 16, response <= 4096, AIME-2024 every 10 steps | 50 | 1e-4, cosine to 1e-5 over 50 |
+| `E3` | rlkernel, BI, graphs | W7 | 100 | 1e-4, cosine to 1e-5 over 100 |
+| `A3` | rlkernel, rollout BI off, graphs | W7 | `A3_STEPS` (50) | as E3, over `A3_STEPS` |
+
+W7 sets the same optimizer and PPO knobs in both stacks (the baseline launcher's: weight
+decay 0, clip 0.2 / 0.28, clip_c 10, token-mean, 3 warmup steps). BL2's rollout needs
+`moe_backend=auto`: verl's default, DeepGEMM, has only an SM100 MXFP4 MoE.
+
+Recorded (2026-11-20 / 21; means over steps 3 to the end, seconds per step):
+
+| Run | Steps | Mismatched tokens per step | step | gen | old_log_prob | update_actor | sync | gen per longest response token | Actor peak |
+|---|---|---|---|---|---|---|---|---|---|
+| E2 | 100 | 0 | 175 | 150 | 6 | 17 | - | 74 ms | 47 GB |
+| BL2 | 50 | 452k to 768k | 239 | 137 | 29 | 61 | 11 | 34 ms | 102 GB (with offload) |
+| E3 | 100 | 0 | 388 | 328 | 13 | 43 | 3 | 84 ms | 60 GB |
+| A3 | 30 | 299k to 437k | 295 | 231 | 14 | 46 | 3 | 56 ms | 60 GB |
+
+(A3: the first 9 steps, run in progress.)
+
+- Bitwise: E2 and E3 have mismatch 0 and `rollout_corr/kl` 0 at every step. BL2 runs
+  token-level importance sampling to correct its `rollout_corr/kl` of 0.013 to 0.023;
+  A3's is 0.005 (only the rollout's kernels differ from the actor's).
+- Speed: our actor side (`old_log_prob` + `update_actor`) is faster than the baseline's,
+  our generation slower. Generation time follows the longest response (about 4000 tokens
+  in almost every step), so `gen` / longest response is the decode-step latency at small
+  batch. Of E3's 50 ms over BL2, the rollout's batch invariance is about 30 ms (E3 against
+  A3); the rest is the stack (DP 8 attention with the MoE's static EP exchange against
+  vLLM's TP 8, and our modules). The design doc tracks the profile.
+- Learning: AIME-2024 (greedy, 30 problems): BL2 0.608 -> 0.558 over 50 steps; E3 between
+  0.633 and 0.767, 0.667 at step 100. The two runs' learning rates differ after step 3
+  (50- against 100-step cosine), and one problem is 0.033.
+
 ## Not covered (open work in the design doc, section 12)
 
 - **Batch invariance off in the actor:** RL-Kernel's kernels have no non-invariant
   variant; the ablation turns it off in the rollout only.
-- **The full 43-layer model:** needs the `rlkernel` engine at EP > 1 and the rollout plugin
-  at EP > 1.
-- **CUDA graphs in our rollout:** it runs eager today, which mostly costs decode time.
+- **The rollout's decode latency:** section 8's gap to vLLM's TP 8 at small batch.
 
 ## Files
 
@@ -244,6 +296,7 @@ Send the archive plus a short note:
 | `rlkernel-env.lock.txt` | The RL-Kernel env's packages (from the tested 2-GPU env) |
 | `deepgemm-sm90-paged-mqa-empty.patch` | The local DeepGEMM fix |
 | `run.sh` | `gate`, `rlkernel`, `control`, `ablation`, `baseline` |
+| `experiments.sh` | The full-model runs (section 8) as stages over `run.sh` |
+| `run_dsv4_rlkernel_grpo.sh` | The RL-Kernel + verl launcher `run.sh` calls (also the 2-GPU toy run) |
+| `custom_reward.py` | The synthetic dense reward (`REWARD=synthetic`, the default) |
 | `compare.py` | Per-run summary and the comparison table |
-| `../verl_e2e/run_dsv4_rlkernel_grpo.sh` | The RL-Kernel + verl launcher (also the 2-GPU run) |
-| `../verl_e2e/custom_reward.py` | The synthetic dense reward both runs use |

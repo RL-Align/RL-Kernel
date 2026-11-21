@@ -88,9 +88,12 @@ Design doc 10.1 has the pieces. Things that cost time:
     - It changes the rollout only: the actor's kernels have no non-invariant variant.
 - W6 gate (`run.sh gate`) passed on the real checkpoint's first 4 layers (2 x H100,
   2026-11-17, cluster u4478697; the rlkernel / control / ablation / baseline runs are next).
-- Ready, not run: the rest of `scripts/verl_e2e_lora/` (W6), the 8-GPU guide against verl
-  #7483 on the real checkpoint (first `LAYERS` layers). It includes the ablation run and
-  needs a machine with 8 GPUs per job.
+- Full-model comparison (`scripts/verl_e2e_lora/experiments.sh`, README section 8; 8 x H200,
+  43 layers, 2026-11-20 / 21): E3 (rlkernel, 32 x 16, response <= 4096) mismatch 0 at all
+  100 steps; BL2 (verl #7483, 50 steps) runs; A3 (rollout BI off) running. Our actor side
+  is faster, our decode about 2.5x slower per step (84 against 34 ms; BI about 30 ms of the
+  gap). A rollout profile (nsys) is next. The launcher and the synthetic reward moved from
+  `scripts/verl_e2e/` into `scripts/verl_e2e_lora/` (2026-11-21).
 - EP and memory (2026-11-17, real checkpoint's first 4 layers, H100):
   - `rlkernel` engine at EP = 2 / 4 and the rollout plugin at DP = EP = 2 / 4: bitwise to
     EP = 1; EP = 8 too (8 x H200, engine 2026-11-18, rollout 2026-11-19).
@@ -137,7 +140,7 @@ The design doc's environment section is generic. On this account:
     the checkout into `wt213` first.
   - Toy GRPO: `sbatch --gres=gpu:gpu:2 --mem=400G gpu_job_verl.sh
     "MODEL_PATH=$WORK/dsv4-toy256 DATA=$WORK/data/gsm8k bash
-    $WORK/wt213/scripts/verl_e2e/run_dsv4_rlkernel_grpo.sh"`.
+    $WORK/wt213/scripts/verl_e2e_lora/run_dsv4_rlkernel_grpo.sh"`.
 - **Checkpoints:**
   - `~/dsv4-work/dsv4-toy256`: the toy checkpoint, real dimensions, 4 layers, 256 experts,
     random weights.
