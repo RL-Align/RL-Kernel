@@ -61,6 +61,10 @@ class H3OmniWorkerExtension:
             reasons += om.check_engine_config(od_config, tp=tp)
         if reasons:
             raise RuntimeError("cannot bind the H3 rollout DiT: " + "; ".join(reasons))
+        # The engine's DiT never runs again once bound; free it before loading the actor's model
+        # (a rank may not hold both). A failed load then leaves the engine without a DiT.
+        released = om.release_engine_weights(pipeline.transformer) if release_weights else 0
+        torch.cuda.empty_cache()
         model = sl.load_sharded_model(transformer_dir, tp, tp_rank, "cuda").eval()
         for p in model.parameters():
             p.requires_grad_(False)
@@ -95,9 +99,8 @@ class H3OmniWorkerExtension:
         binding = om.H3OmniModelBinding(
             model, grid, strict_boundaries=strict_boundaries, record=record
         )
-        handle = om.install_h3_omni_model(
-            pipeline.transformer, binding, od_config=od_config, release_weights=release_weights
-        )
+        handle = om.install_h3_omni_model(pipeline.transformer, binding, od_config=od_config)
+        handle.released = released
         torch.cuda.empty_cache()
         self._rlk_h3 = handle
         return {**handle.report(), "resident_param_bytes": _resident(model)}

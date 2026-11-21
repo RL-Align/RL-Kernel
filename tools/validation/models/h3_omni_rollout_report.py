@@ -100,6 +100,11 @@ async def _engine(args) -> dict[str, Any]:
             ),
         )
         report["install"] = install
+        bound = _flat(install)
+        if len(bound) != args.tp or not all(
+            isinstance(r, dict) and r.get("contract") for r in bound
+        ):
+            raise RuntimeError(f"rlk_h3_install did not succeed on every rank: {bound}")
         if args.lora_rank:
             report["lora_digests_equal_on_ranks"] = None
             digests = await engine.collective_rpc(
@@ -352,9 +357,9 @@ def main() -> None:
     )
     ap.add_argument("--tp", type=int, default=4)
     ap.add_argument("--steps", type=int, default=2)
-    ap.add_argument("--height", type=int, default=384)
-    ap.add_argument("--width", type=int, default=672)
-    ap.add_argument("--duration", type=float, default=1.0)
+    ap.add_argument("--height", type=int, default=256)
+    ap.add_argument("--width", type=int, default=448)
+    ap.add_argument("--duration", type=float, default=4.0)  # H3 takes 4-15 s
     ap.add_argument("--record-calls", type=int, default=2)
     ap.add_argument("--strict-boundaries", action="store_true")
     ap.add_argument("--release-weights", action="store_true")
