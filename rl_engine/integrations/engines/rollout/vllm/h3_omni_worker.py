@@ -10,16 +10,59 @@ H3OmniWorkerExtension"`` to the diffusion engine; its methods then run on every 
 * ``rlk_h3_install(transformer_dir, ...)`` loads this rank's shards of the Diffusers-layout H3
   (``h3_sharded_load``) and replaces the pipeline's DiT call (``install_h3_omni_model``);
 * ``rlk_h3_attach_seeded_lora(...)`` / ``rlk_h3_load_lora(...)`` put a LoRA on the bound model
-  (a seeded one for tests, or the actor's shards with their digests) and return the digests;
+  (a seeded one for tests, or the actor's shards with their digests, all ranks or none) and
+  return the digests; ``rlk_h3_lora_digests()`` reads them back;
 * ``rlk_h3_report()`` returns the readback (grid, collective, calls, digests of every DiT output).
+
+vLLM-Omni's diffusion ``collective_rpc`` runs a method on every rank but returns rank 0's value
+only, so each method here gathers every TP rank's result (or error) over the TP group's CPU group
+first: the reply is the list of all ranks' results, and an error on any rank raises on every rank
+(after the gather, so no rank waits on one that failed).
 """
 
 from __future__ import annotations
 
+import functools
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import torch
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _run(fn: Callable[[], Any]) -> dict[str, Any]:
+    try:
+        return {"ok": True, "result": fn()}
+    except Exception as e:  # reported by every rank through _gather
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _gather(mine: dict[str, Any]) -> tuple[list[Any], dict[int, str]]:
+    """Every TP rank's ``_run`` outcome, in rank order, and the failed ranks' errors."""
+
+    import torch.distributed as dist
+    from vllm.distributed.parallel_state import get_tp_group
+
+    group = get_tp_group()
+    replies: list[Any] = [None] * group.world_size
+    dist.all_gather_object(replies, mine, group=group.cpu_group)
+    failed = {rank: r["error"] for rank, r in enumerate(replies) if not r["ok"]}
+    return [r.get("result") for r in replies], failed
+
+
+def _all_ranks(method: _F) -> _F:
+    """Run ``method`` on this rank, then return every TP rank's result, in rank order."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        results, failed = _gather(_run(lambda: method(self, *args, **kwargs)))
+        if failed:
+            raise RuntimeError(f"{method.__name__} failed on TP ranks {failed}")
+        return results
+
+    return wrapper  # type: ignore[return-value]
 
 
 class H3OmniWorkerExtension:
@@ -34,6 +77,7 @@ class H3OmniWorkerExtension:
             raise RuntimeError("no loaded diffusion pipeline with a transformer on this worker")
         return pipeline
 
+    @_all_ranks
     def rlk_h3_install(
         self,
         transformer_dir: str,
@@ -105,6 +149,7 @@ class H3OmniWorkerExtension:
         self._rlk_h3 = handle
         return {**handle.report(), "resident_param_bytes": _resident(model)}
 
+    @_all_ranks
     def rlk_h3_attach_seeded_lora(
         self, *, rank: int = 64, alpha: float = 128.0, seed: int = 0, b_zero: bool = False
     ) -> dict[str, str]:
@@ -123,21 +168,60 @@ class H3OmniWorkerExtension:
         )
         return h3_lora.lora_digests(handle.binding.model)
 
-    def rlk_h3_load_lora(
-        self, shards: list, *, scale: float, expected: dict[str, str]
-    ) -> dict[str, str]:
+    def rlk_h3_load_lora(self, source: str, *, scale: float) -> list[dict[str, str]]:
+        """Install the LoRA shards the actor's TP rank ``r`` saved for rollout rank ``r``.
+
+        ``source`` is a path with ``{rank}``; that file holds ``{"shards": [...], "digests":
+        {...}}`` (``h3_lora.shard_block_lora`` per block and the sender's ``lora_digests``). All
+        ranks or none: if any rank's shards are refused (shape or digest), every rank keeps its
+        previous LoRA and the call raises.
+        """
+
         from rl_engine.validation.models import h3_lora
+        from rl_engine.validation.models import h3_parallel_model as pm
 
         handle = self._rlk_handle()
         grid = handle.binding.grid
-        return h3_lora.install_lora_shards(
-            handle.binding.model, shards, grid.tp, grid.tp_rank, scale=scale, expected=expected
-        )
+        blocks = list(handle.binding.model.transformer_blocks)
+        previous = [block.__dict__.get(pm.LORA_ATTR) for block in blocks]
 
+        first = next(iter(handle.binding.model.parameters()), None)
+        device = first.device if first is not None else torch.device("cuda")
+
+        def load() -> dict[str, str]:
+            sent = torch.load(source.format(rank=grid.tp_rank), weights_only=True)
+            return h3_lora.install_lora_shards(
+                handle.binding.model,
+                sent["shards"],
+                grid.tp,
+                grid.tp_rank,
+                scale=scale,
+                expected=sent["digests"],
+                device=device,
+            )
+
+        results, failed = _gather(_run(load))
+        if failed:
+            for block, old in zip(blocks, previous):
+                if old is None:
+                    block.__dict__.pop(pm.LORA_ATTR, None)
+                else:
+                    setattr(block, pm.LORA_ATTR, old)
+            raise RuntimeError(f"rlk_h3_load_lora refused on TP ranks {failed}; no rank changed")
+        return results
+
+    @_all_ranks
+    def rlk_h3_lora_digests(self) -> dict[str, str]:
+        from rl_engine.validation.models import h3_lora
+
+        return h3_lora.lora_digests(self._rlk_handle().binding.model)
+
+    @_all_ranks
     def rlk_h3_report(self) -> dict[str, Any]:
         handle = self._rlk_handle()
         return {**handle.report(), "digests": list(handle.binding.digests)}
 
+    @_all_ranks
     def rlk_h3_remove(self) -> None:
         handle = self._rlk_handle()
         handle.remove()

@@ -385,6 +385,41 @@ class TestLoRASync:
         assert h3_lora.lora_digests(receiver) == old
         assert getattr(receiver.transformer_blocks[0], pm.LORA_ATTR)["tp_rank"] == 1
 
+    @pytest.mark.parametrize("other_rank_fails", [False, True], ids=["all-ok", "rank2-refused"])
+    def test_worker_sync_is_all_ranks_or_none(self, monkeypatch, tmp_path, other_rank_fails):
+        from types import SimpleNamespace
+
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_worker as wk
+        from rl_engine.validation.models import h3_lora
+
+        model = self._Model(2)
+        model.w = torch.nn.Parameter(torch.zeros(1))  # the shards go to the model's device
+        old = h3_lora.install_lora_shards(
+            model, self._shards(4, 1, seed=5), 4, 1, scale=2.0, device="cpu"
+        )
+        shards = self._shards(4, 1)
+        sent = h3_lora.install_lora_shards(self._Model(2), shards, 4, 1, scale=2.0, device="cpu")
+        torch.save({"shards": shards, "digests": sent}, tmp_path / "rank1.pt")
+        ext = wk.H3OmniWorkerExtension()
+        ext._rlk_h3 = SimpleNamespace(
+            binding=SimpleNamespace(model=model, grid=SimpleNamespace(tp=4, tp_rank=1))
+        )
+
+        def gather(mine):  # this rank is 1; another rank reports its refusal
+            assert mine["ok"]
+            failed = {2: "RuntimeError: LoRA sync digest mismatch"} if other_rank_fails else {}
+            return [None, mine["result"], None, None], failed
+
+        monkeypatch.setattr(wk, "_gather", gather)
+        source = str(tmp_path / "rank{rank}.pt")
+        if other_rank_fails:
+            with pytest.raises(RuntimeError, match="no rank changed"):
+                ext.rlk_h3_load_lora(source, scale=2.0)
+            assert h3_lora.lora_digests(model) == old  # installed here, then put back
+        else:
+            assert ext.rlk_h3_load_lora(source, scale=2.0)[1] == sent
+            assert h3_lora.lora_digests(model) == sent
+
     def test_shards_of_another_rank_layout_are_refused(self):
         from rl_engine.validation.models import h3_lora
 

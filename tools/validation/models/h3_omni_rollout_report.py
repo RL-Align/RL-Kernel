@@ -12,7 +12,9 @@ Three stages, each writing ``<out>/<stage>.json``:
     A and B together. Every DiT call is recorded by every rank as digests of its Diffusers inputs
     and outputs; rank 0 also saves the first ``--record-calls`` calls in full (``calls/``).
     Checks: every rank returns the same bytes for every call; a request run with another
-    (``num_requests > 1``) gives the same outputs as the same inputs run alone.
+    (``num_requests > 1``) gives the same outputs as the same inputs run alone. With a LoRA, the
+    LoRA reaches the workers as the actor's per-rank shards (``rlk_h3_load_lora``): a sync with one
+    changed element is refused on every rank, the true one installs the sender's digests.
 
 ``canonical`` (1 GPU)
     Loads the whole model on one GPU (``Grid(1, 1)``, the canonical run of #701 / #732 / #733)
@@ -108,23 +110,7 @@ async def _engine(args) -> dict[str, Any]:
         ):
             raise RuntimeError(f"rlk_h3_install did not succeed on every rank: {bound}")
         if args.lora_rank:
-            report["lora_digests_equal_on_ranks"] = None
-            digests = await engine.collective_rpc(
-                "rlk_h3_attach_seeded_lora",
-                kwargs=dict(
-                    rank=args.lora_rank,
-                    alpha=args.lora_alpha,
-                    seed=args.lora_seed,
-                    b_zero=args.lora_b_zero,
-                ),
-            )
-            report["lora"] = {
-                "rank": args.lora_rank,
-                "alpha": args.lora_alpha,
-                "seed": args.lora_seed,
-                "b_zero": args.lora_b_zero,
-                "shards_per_rank": [len(d) for d in _flat(digests)],
-            }
+            report["lora"] = await _lora_sync(engine, args)
 
         def params(seed: int):
             p = copy.deepcopy(engine.default_sampling_params_list)
@@ -183,9 +169,103 @@ async def _engine(args) -> dict[str, Any]:
             pairs += 1
     report["batched_calls_with_an_alone_twin"] = pairs
     report["pass"] = bool(
-        report["ranks_agree"] and report["same_inputs_same_outputs"] and pairs > 0
+        report["ranks_agree"]
+        and report["same_inputs_same_outputs"]
+        and pairs > 0
+        and len(calls) == args.tp
+        and (not args.lora_rank or report["lora"]["pass"])
     )
     return report
+
+
+def _save_actor_shards(args, seed: int, out: Path, tamper_rank: int | None = None) -> str:
+    """What the actor's TP rank ``r`` sends rollout rank ``r``: its shards of the seeded LoRA and
+    their digests, one file per rank. ``tamper_rank`` changes one element of that rank's shards
+    after the digests are taken (the negative control)."""
+
+    from rl_engine.integrations.engines.rollout.vllm.h3_omni_model import tensor_digest
+    from rl_engine.validation.models import h3_lora
+
+    out.mkdir(parents=True, exist_ok=True)
+    full = [
+        h3_lora.make_block_lora(b, rank=args.lora_rank, seed=seed, b_zero=args.lora_b_zero)
+        for b in range(50)
+    ]
+    for r in range(args.tp):
+        shards = [  # own storage per rank: shard_lora may return the same A or a view
+            {
+                t: {p: v.clone() for p, v in parts.items()}
+                for t, parts in h3_lora.shard_block_lora(block, args.tp, r).items()
+            }
+            for block in full
+        ]
+        digests = {
+            f"{b}.{t}.{p}": tensor_digest(v)
+            for b, parts_by_target in enumerate(shards)
+            for t, parts in parts_by_target.items()
+            for p, v in parts.items()
+        }
+        if r == tamper_rank:
+            a = shards[17]["attn.to_v"]["A"]
+            a[3, 5] = a[3, 5] + 1  # one element: BF16 + 1 always changes it
+        torch.save({"shards": shards, "digests": digests}, out / f"rank{r}.pt")
+    return str(out / "rank{rank}.pt")
+
+
+async def _lora_sync(engine, args) -> dict[str, Any]:
+    """Acceptance 4 on the engine: a decoy LoRA (seed + 1) is attached; a sync whose rank-2 (or
+    last) shards have one changed element must be refused with every rank keeping the decoy; the
+    true sync (seed) must install on every rank with the sender's digests. The requests then run
+    on the synced LoRA, and the canonical stage attaches the seed's LoRA directly."""
+
+    import shutil
+
+    scale = args.lora_alpha / args.lora_rank
+    decoy = _flat(
+        await engine.collective_rpc(
+            "rlk_h3_attach_seeded_lora",
+            kwargs=dict(
+                rank=args.lora_rank,
+                alpha=args.lora_alpha,
+                seed=args.lora_seed + 1,
+                b_zero=args.lora_b_zero,
+            ),
+        )
+    )
+    tamper_rank = min(2, args.tp - 1)
+    bad = _save_actor_shards(args, args.lora_seed, args.out / "lora-bad", tamper_rank)
+    try:
+        await engine.collective_rpc("rlk_h3_load_lora", args=(bad,), kwargs=dict(scale=scale))
+        refused = None
+    except Exception as e:  # expected
+        refused = f"{type(e).__name__}: {e}"[:600]
+    after_bad = _flat(await engine.collective_rpc("rlk_h3_lora_digests"))
+    good = _save_actor_shards(args, args.lora_seed, args.out / "lora-good")
+    installed = _flat(
+        await engine.collective_rpc("rlk_h3_load_lora", args=(good,), kwargs=dict(scale=scale))
+    )
+    sent = [torch.load(good.format(rank=r), weights_only=True)["digests"] for r in range(args.tp)]
+    for d in ("lora-bad", "lora-good"):
+        shutil.rmtree(args.out / d, ignore_errors=True)
+    out = {
+        "rank": args.lora_rank,
+        "alpha": args.lora_alpha,
+        "seed": args.lora_seed,
+        "b_zero": args.lora_b_zero,
+        "shards_per_rank": [len(d) for d in installed],
+        "tampered": {"rank": tamper_rank, "block": 17, "target": "attn.to_v.A", "at": [3, 5]},
+        "tampered_sync_refused": refused,
+        "every_rank_kept_the_decoy": after_bad == decoy,
+        "every_rank_has_the_senders_digests": installed == sent,
+    }
+    out["pass"] = bool(
+        refused
+        and "digest mismatch" in refused
+        and out["every_rank_kept_the_decoy"]
+        and out["every_rank_has_the_senders_digests"]
+        and len(installed) == args.tp
+    )
+    return out
 
 
 def _flat(results: Any) -> list:
