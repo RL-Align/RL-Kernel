@@ -1,13 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Architecture-independent CUDA implementation; no Hopper-only instructions."""
 
-import importlib.util
-
 import torch
 
 from rl_engine.backends import extension  # noqa: F401 - loads the normal native library
 from rl_engine.ops.rope._registration import register_rotation
-from rl_engine.ops.rope.multi_axis_rope import MultiAxisRoPEMetadata, validate_inputs
+from rl_engine.ops.rope.multi_axis_rope import MultiAxisRoPEMetadata
 
 
 def _apply(x, cos, sin, transpose):
@@ -15,13 +13,7 @@ def _apply(x, cos, sin, transpose):
 
 
 def native_available():
-    if torch.version.hip is not None:
-        return False
-    if not hasattr(torch.ops.rl_kernel_native, "multi_axis_rope"):
-        library = importlib.util.find_spec("rl_engine._rope_cuda")
-        if library is not None:
-            torch.ops.load_library(library.origin)
-    return hasattr(torch.ops.rl_kernel_native, "multi_axis_rope")
+    return torch.version.hip is None and hasattr(torch.ops.rl_kernel_native, "multi_axis_rope")
 
 
 _rotation = register_rotation(
@@ -43,7 +35,6 @@ class MultiAxisRoPECudaOp(MultiAxisRoPEMetadata):
             )
 
     def __call__(self, x, cos, sin):
-        validate_inputs(x, cos, sin)
         if x.device.type != "cuda":
             raise ValueError("CUDA multi_axis_rope requires CUDA tensors")
         return _rotation(x, cos, sin, False)

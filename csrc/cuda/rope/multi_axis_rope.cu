@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Qwen-Image adjacent-pair rotation. Reads strided BSHD inputs/tables directly.
 #include <ATen/ATen.h>
-#include <ATen/core/dispatch/Dispatcher.h>
 #include <c10/core/GradMode.h>
 #include <torch/library.h>
 #include <cuda_runtime.h>
@@ -73,18 +72,19 @@ void launch_rotation(const at::Tensor& x, const at::Tensor& cos, const at::Tenso
 
 at::Tensor multi_axis_rope_apply(const at::Tensor& x, const at::Tensor& cos,
                                 const at::Tensor& sin, bool transpose) {
-  TORCH_CHECK(x.is_cuda() && cos.is_cuda() && sin.is_cuda(), "multi_axis_rope: CUDA tensors required");
-  TORCH_CHECK(x.device() == cos.device() && x.device() == sin.device(), "multi_axis_rope: device mismatch");
+  TORCH_CHECK(x.is_cuda() && x.device() == cos.device() && x.device() == sin.device(),
+              "multi_axis_rope: x, cos and sin must share a CUDA device");
   TORCH_CHECK(x.dim() == 4 && x.size(3) == kHeadDim && x.size(2) > 0,
               "multi_axis_rope: x must be [B, S, H, 128], H > 0");
   TORCH_CHECK(x.scalar_type() == at::kFloat || x.scalar_type() == at::kHalf ||
               x.scalar_type() == at::kBFloat16, "multi_axis_rope: unsupported input dtype");
   TORCH_CHECK(cos.scalar_type() == at::kFloat && sin.scalar_type() == at::kFloat,
               "multi_axis_rope: tables must be fp32");
-  TORCH_CHECK(cos.sizes() == sin.sizes(), "multi_axis_rope: table shape mismatch");
-  TORCH_CHECK((cos.dim() == 2 && cos.size(0) == x.size(1) && cos.size(1) == kPairsPerHead) ||
-              (cos.dim() == 3 && cos.size(0) == x.size(0) && cos.size(1) == x.size(1) && cos.size(2) == kPairsPerHead),
-              "multi_axis_rope: tables must be [S, 64] or [B, S, 64]");
+  const auto table_shape = cos.sizes();
+  TORCH_CHECK(table_shape == sin.sizes() &&
+              (table_shape == at::IntArrayRef{x.size(1), kPairsPerHead} ||
+               table_shape == at::IntArrayRef{x.size(0), x.size(1), kPairsPerHead}),
+              "multi_axis_rope: tables must have matching [S, 64] or [B, S, 64] shapes");
   TORCH_CHECK(!cos.requires_grad() && !sin.requires_grad(), "multi_axis_rope: table gradients unsupported");
   // The Python custom op supplies recursive VJPs and calls this primitive with
   // grad mode disabled. Raw grad-enabled calls must not lose input gradients.
@@ -110,23 +110,10 @@ at::Tensor multi_axis_rope_apply(const at::Tensor& x, const at::Tensor& cos,
 }
 }  // namespace
 
-// Same-revision full and companion libraries may coexist. Query process-wide
-// dispatcher state rather than a once-flag that would be private to each DSO.
 TORCH_LIBRARY_FRAGMENT(rl_kernel_native, m) {
-  auto& dispatcher = c10::Dispatcher::singleton();
-  if (!dispatcher.findSchema({"rl_kernel_native::multi_axis_rope", ""})) {
-    try {
-      m.def("multi_axis_rope(Tensor x, Tensor cos, Tensor sin, bool transpose) -> Tensor");
-    } catch (const c10::Error&) {
-      // A concurrent provider can win between the query and registration.
-      if (!dispatcher.findSchema({"rl_kernel_native::multi_axis_rope", ""})) throw;
-    }
-  }
+  m.def("multi_axis_rope(Tensor x, Tensor cos, Tensor sin, bool transpose) -> Tensor");
 }
+
 TORCH_LIBRARY_IMPL(rl_kernel_native, CUDA, m) {
-  const auto op = c10::Dispatcher::singleton().findSchema({"rl_kernel_native::multi_axis_rope", ""});
-  TORCH_INTERNAL_ASSERT(op.has_value());
-  if (!op->hasKernelForDispatchKey(c10::DispatchKey::CUDA)) {
-    m.impl("multi_axis_rope", &multi_axis_rope_apply);
-  }
+  m.impl("multi_axis_rope", &multi_axis_rope_apply);
 }

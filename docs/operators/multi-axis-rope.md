@@ -68,15 +68,13 @@ Python execution count does not count CUDA Graph replays.
 
 Ordinary CUDA builds include the operator in `rl_engine._C`. Use a CUDA toolkit
 matching PyTorch; `RL_KERNEL_REQUIRE_EXT=1` makes a requested native build fail
-rather than silently falling back. The optional `RL_KERNEL_ROPE_ONLY=1` wheel
-builds only `rl_engine._rope_cuda` from the same production source. Same-revision
-full and companion libraries can coexist. The RoPE scalar arithmetic preserves
-subnormals under shared fast-math flags; this does not qualify other operators.
+rather than silently falling back. The RoPE scalar arithmetic preserves
+subnormals under the extension's shared fast-math flags.
 
 ```bash
 RL_KERNEL_REQUIRE_EXT=1 python -m pip install --no-build-isolation -e .
 python -m pytest tests/ops/rope/test_multi_axis_rope.py \
-  tests/build/test_multi_axis_rope_build.py tests/validation/operators/test_operator_inputs.py -q -rs
+  tests/validation/operators/test_operator_inputs.py -q -rs
 python tools/validation/operators/check_operator.py --op multi_axis_rope \
   --candidate cuda --device cuda --dtype bf16 --batch 2 --seq 7 --n-heads 3 --check-grad
 # Repeat with --candidate triton for the other GPU backend.

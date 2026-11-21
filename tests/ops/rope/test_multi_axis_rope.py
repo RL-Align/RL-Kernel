@@ -3,12 +3,6 @@
 
 import gc
 import math
-import os
-import subprocess
-import sys
-import textwrap
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -304,108 +298,6 @@ def test_non_cuda_registry_keeps_multi_axis_reference(platform, monkeypatch):
     assert op.trace()["actual_backend"] == "rlkernel.reference.qwenimage_multi_axis_rope.v1"
     x, cos, sin = inputs("cpu")
     assert_bits(op(x, cos, sin), get_multi_axis_rope_op("reference")(x, cos, sin))
-
-
-@pytest.mark.parametrize("exception_type", [OSError, RuntimeError])
-def test_operator_wheel_load_error_propagates(exception_type, monkeypatch):
-    from rl_engine.backends.cuda.rope import multi_axis_rope as cuda_module
-
-    error = exception_type("probe library load failure")
-
-    def fail_load(path):
-        raise error
-
-    monkeypatch.setattr(
-        cuda_module,
-        "torch",
-        SimpleNamespace(
-            version=SimpleNamespace(hip=None),
-            ops=SimpleNamespace(rl_kernel_native=SimpleNamespace(), load_library=fail_load),
-        ),
-    )
-    monkeypatch.setattr(
-        cuda_module.importlib.util,
-        "find_spec",
-        lambda name: SimpleNamespace(origin="probe.so"),
-    )
-    with pytest.raises(exception_type, match="probe library load failure") as caught:
-        cuda_module.native_available()
-    assert caught.value is error
-
-
-def test_operator_wheel_probe_stops_after_registration(monkeypatch):
-    from rl_engine.backends.cuda.rope import multi_axis_rope as cuda_module
-
-    dispatcher = SimpleNamespace()
-    loads = []
-
-    def load(path):
-        loads.append(path)
-        dispatcher.multi_axis_rope = object()
-
-    monkeypatch.setattr(
-        cuda_module,
-        "torch",
-        SimpleNamespace(
-            version=SimpleNamespace(hip=None),
-            ops=SimpleNamespace(rl_kernel_native=dispatcher, load_library=load),
-        ),
-    )
-    monkeypatch.setattr(
-        cuda_module.importlib.util, "find_spec", lambda _: SimpleNamespace(origin="probe.so")
-    )
-    assert cuda_module.native_available()
-    assert cuda_module.native_available()
-    assert loads == ["probe.so"]
-
-
-def test_operator_wheel_probe_can_discover_late_library(monkeypatch):
-    from rl_engine.backends.cuda.rope import multi_axis_rope as cuda_module
-
-    dispatcher = SimpleNamespace()
-    library = None
-
-    def load(path):
-        dispatcher.multi_axis_rope = object()
-
-    monkeypatch.setattr(
-        cuda_module,
-        "torch",
-        SimpleNamespace(
-            version=SimpleNamespace(hip=None),
-            ops=SimpleNamespace(rl_kernel_native=dispatcher, load_library=load),
-        ),
-    )
-    monkeypatch.setattr(cuda_module.importlib.util, "find_spec", lambda _: library)
-    assert not cuda_module.native_available()
-    library = SimpleNamespace(origin="probe.so")
-    assert cuda_module.native_available()
-
-
-def test_operator_wheel_import_without_full_extension(tmp_path):
-    script = textwrap.dedent(
-        """
-        import importlib.abc
-        import sys
-
-        class MissingFullExtension(importlib.abc.MetaPathFinder):
-            def find_spec(self, fullname, path=None, target=None):
-                if fullname == 'rl_engine._C':
-                    raise ModuleNotFoundError('full extension intentionally absent', name=fullname)
-
-        sys.meta_path.insert(0, MissingFullExtension())
-        from rl_engine.backends.cuda.rope.multi_axis_rope import MultiAxisRoPECudaOp
-        from rl_engine.backends import extension
-        assert extension._C is None
-        assert not extension._EXT_AVAILABLE
-        assert MultiAxisRoPECudaOp.backend_id == 'rlkernel.cuda.qwenimage_multi_axis_rope.v1'
-    """
-    )
-    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[3]))
-    result = subprocess.run(
-        [sys.executable, "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_cuda_registry_uses_native_when_present():

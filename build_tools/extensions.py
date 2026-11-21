@@ -184,7 +184,6 @@ def _native_extension_required() -> bool:
     """Whether the caller explicitly requested a native extension build."""
     return (
         envs.env_flag(envs.RL_KERNEL_REQUIRE_EXT)
-        or envs.env_flag("RL_KERNEL_ROPE_ONLY")
         or bool(os.environ.get("PYTORCH_ROCM_ARCH", "").strip())
         or bool(os.environ.get("TORCH_CUDA_ARCH_LIST", "").strip())
         or envs.env_flag("FORCE_CUDA")
@@ -261,33 +260,6 @@ def get_extensions():
     if os.environ.get("KERNEL_ALIGN_DEV_RPATH") == "1":
         torch_rpath.append(f"-Wl,-rpath,{torch_lib_dir}")
     is_rocm = getattr(torch.version, "hip", None) is not None
-
-    # A normal wheel build for the independently usable RoPE library. This
-    # explicit profile avoids compiling unrelated Hopper/IPC operators and is
-    # also useful on Windows. Default builds still include RoPE in the full _C.
-    if envs.env_flag("RL_KERNEL_ROPE_ONLY"):
-        if is_rocm or getattr(torch.version, "cuda", None) is None:
-            raise RuntimeError("RL_KERNEL_ROPE_ONLY requires CUDA-enabled PyTorch")
-        from torch.utils.cpp_extension import CUDA_HOME
-
-        library_dirs = []
-        if os.name == "nt" and CUDA_HOME and (Path(CUDA_HOME) / "lib/cudart.lib").is_file():
-            library_dirs.append(str(Path(CUDA_HOME) / "lib"))
-        return [
-            GpuExtension(
-                name="rl_engine._rope_cuda",
-                sources=[
-                    "csrc/bindings/rope_module.cpp",
-                    "csrc/cuda/rope/multi_axis_rope.cu",
-                ],
-                library_dirs=library_dirs,
-                extra_compile_args={
-                    "cxx": ["/O2", "/std:c++17"] if os.name == "nt" else ["-O3", "-std=c++17"],
-                    "nvcc": ["-O3", "-std=c++17", "--fmad=false"],
-                },
-                extra_link_args=[] if os.name == "nt" else list(torch_rpath),
-            )
-        ]
 
     if _musa_build_available(torch):
         extensions.append(

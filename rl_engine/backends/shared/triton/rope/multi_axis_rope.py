@@ -5,7 +5,7 @@ import torch
 import triton
 
 from rl_engine.ops.rope._registration import register_rotation
-from rl_engine.ops.rope.multi_axis_rope import MultiAxisRoPEMetadata, validate_inputs
+from rl_engine.ops.rope.multi_axis_rope import MultiAxisRoPEMetadata
 
 from ._flash_attn_rotary import rotary_kernel
 
@@ -57,7 +57,6 @@ class MultiAxisRoPETritonOp(MultiAxisRoPEMetadata):
             raise RuntimeError("this multi_axis_rope Triton profile requires NVIDIA CUDA")
 
     def __call__(self, x, cos, sin):
-        validate_inputs(x, cos, sin)
         if x.device.type != "cuda":
             raise ValueError("Triton multi_axis_rope requires CUDA tensors")
         return _rotation(x, cos, sin, False)
