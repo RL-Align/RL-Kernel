@@ -17,6 +17,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from rl_engine.validation.operators import run_operator_suite  # noqa: E402
+from rl_engine.validation.operators.operator_inputs import (  # noqa: E402
+    DEFAULT_ATTN_OUT_DIM,
+    DEFAULT_HIDDEN,
+)
 from rl_engine.validation.operators.operator_specs import (  # noqa: E402
     make_candidate,
     make_operator_case,
@@ -119,7 +123,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-mode", choices=("random", "constant"), default="random")
     parser.add_argument("--constant-value", type=float, default=0.25)
     parser.add_argument("--token-value", type=int, default=0)
-    parser.add_argument("--normalized-dim", type=int, default=4096)
+    parser.add_argument("--normalized-dim", type=int)
     parser.add_argument("--n-heads", type=int, default=32)
     parser.add_argument("--head-dim", type=int, default=128)
     parser.add_argument("--k-dim", type=int, default=4096)
@@ -146,7 +150,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--json", action="store_true", help="Print the full structured report as JSON."
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.normalized_dim is None:
+        args.normalized_dim = (
+            DEFAULT_ATTN_OUT_DIM if args.op == "attn_out_bias_gemm" else DEFAULT_HIDDEN
+        )
+    return args
 
 
 def main() -> None:

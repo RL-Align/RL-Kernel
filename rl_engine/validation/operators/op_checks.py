@@ -621,12 +621,13 @@ def _bitwise_verdict(
             if gold_output.dtype == candidate_output.dtype
             else gold_output.to(candidate_output.dtype)
         )
-        passed = bool(
-            torch.equal(
-                expected.contiguous().view(_BITWISE_VIEWS[candidate_output.dtype]),
-                candidate_output.contiguous().view(_BITWISE_VIEWS[candidate_output.dtype]),
-            )
-        )
+        int_dtype = _BITWISE_VIEWS[candidate_output.dtype]
+        expected_bits = expected.contiguous().view(int_dtype)
+        candidate_bits = candidate_output.contiguous().view(int_dtype)
+        if candidate_bits.device != expected_bits.device:
+            candidate_bits = candidate_bits.cpu()
+            expected_bits = expected_bits.cpu()
+        passed = torch.equal(expected_bits, candidate_bits)
         note = "bitwise" if passed else "bitwise: bit-pattern mismatch"
     message = f"{check.message} [{note}]" if check.message else note
     return replace(check, passed=passed, message=message)

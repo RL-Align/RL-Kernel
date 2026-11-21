@@ -7,6 +7,7 @@ import os
 import runpy
 import shutil
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -92,8 +93,24 @@ def test_fast_math_build_excludes_bit_reference_softmax(monkeypatch) -> None:
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" not in extension["extra_compile_args"]["cxx"]
 
 
-@pytest.mark.parametrize("platform", ["CUDA", "ROCM"])
-def test_attn_out_bindings_follow_build_platform(platform):
+@pytest.mark.parametrize(
+    ("hip", "fast_math", "nvcc_env", "expected"),
+    [
+        (None, False, {}, True),
+        (None, True, {}, False),
+        (None, False, {"NVCC_APPEND_FLAGS": "--ftz=true"}, False),
+        ("test", False, {}, False),
+    ],
+)
+def test_attn_out_bindings_follow_build_config(monkeypatch, hip, fast_math, nvcc_env, expected):
+    warning = (
+        pytest.warns(RuntimeWarning, match="attn-out bias GEMM") if nvcc_env else nullcontext()
+    )
+    with warning:
+        extension = _load_extension_config(
+            monkeypatch, hip=hip, fast_math=fast_math, nvcc_env=nvcc_env
+        )
+    assert ("csrc/cuda/gemm/attn_out_bias_gemm.cu" in extension["sources"]) == expected
     compiler = shutil.which("c++")
     if compiler is None:
         pytest.skip("C++ preprocessor unavailable")
@@ -101,7 +118,7 @@ def test_attn_out_bindings_follow_build_platform(platform):
     # Exercise the actual platform guards without needing CUDA/ROCm headers.
     source = "\n".join(line for line in source.splitlines() if not line.startswith("#include"))
     result = subprocess.run(
-        [compiler, "-E", "-P", "-x", "c++", f"-DKERNEL_ALIGN_WITH_{platform}", "-"],
+        [compiler, "-E", "-P", "-x", "c++", *extension["extra_compile_args"]["cxx"], "-"],
         input=source,
         text=True,
         capture_output=True,
@@ -112,7 +129,7 @@ def test_attn_out_bindings_follow_build_platform(platform):
         "attn_out_tree_gemm_cuda",
         "attn_out_dw_left_fold_cuda",
     ):
-        assert (symbol in result.stdout) == (platform == "CUDA")
+        assert (symbol in result.stdout) == expected
 
 
 @pytest.mark.parametrize("variable", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS"])

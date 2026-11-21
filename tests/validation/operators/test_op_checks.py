@@ -686,3 +686,20 @@ def test_attn_out_bitwise_verdict_enforces_output_dtype(input_dtype, wrong_dtype
     assert not failed.passed
     assert f"dtype mismatch: candidate={wrong_dtype} expected={input_dtype}" in failed.message
     assert good.cases[0].passed
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU candidate and CPU gold")
+def test_bitwise_strict_cross_device():
+    case = _strict_identity_case()
+    report = run_operator_suite(
+        "identity",
+        candidates=[
+            CandidateSpec(name="correct", fn=lambda x: x.cuda()),
+            CandidateSpec(name="one-ulp", fn=lambda x: _bump_one_ulp_bf16(x).cuda()),
+        ],
+        cases=[case],
+    )
+    good, bad = report.candidates
+    assert good.passed
+    assert not bad.passed
+    assert "bit-pattern mismatch" in bad.cases[0].outputs[0].message

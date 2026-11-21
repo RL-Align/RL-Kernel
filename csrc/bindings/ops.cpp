@@ -251,7 +251,7 @@ void deterministic_collective_rocm_ipc_all_gather_input(
 bool det_gemm_sm90_compiled();
 torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b);
 // Qwen-Image attn-out bias GEMM (frozen tree contract)
-#ifdef KERNEL_ALIGN_WITH_CUDA
+#ifdef KERNEL_ALIGN_WITH_ATTN_OUT_BIAS_GEMM
 torch::Tensor attn_out_bias_gemm_cuda_forward(
     torch::Tensor x, torch::Tensor weight, c10::optional<torch::Tensor> bias, bool bf16_out);
 torch::Tensor attn_out_tree_gemm_cuda(torch::Tensor a, torch::Tensor b);
@@ -780,7 +780,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // registry Batch-Invariant Deterministic GEMM
     m.def("det_gemm_sm90_compiled", &det_gemm_sm90_compiled,
           "Whether the extension contains the SM90 deterministic GEMM implementation");
-#ifdef KERNEL_ALIGN_WITH_CUDA
+#ifdef KERNEL_ALIGN_WITH_ATTN_OUT_BIAS_GEMM
     m.def("attn_out_bias_gemm_cuda_forward", &attn_out_bias_gemm_cuda_forward,
           "Qwen-Image attn-out bias GEMM forward (frozen tree contract, FMA chain)");
     m.def("attn_out_tree_gemm_cuda", &attn_out_tree_gemm_cuda,

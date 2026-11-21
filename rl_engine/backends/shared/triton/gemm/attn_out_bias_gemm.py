@@ -77,7 +77,7 @@ if _TRITON_AVAILABLE:
         written as contiguous [leaf_hi - leaf_lo, P, Q] planes.
         """
         pid_m = tl.program_id(0).to(tl.int64)
-        pid_n = tl.program_id(1).to(tl.int64)
+        pid_n = tl.program_id(1).to(tl.int64) + tl.program_id(2).to(tl.int64) * tl.num_programs(1)
         m_offs = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
         n_offs = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
         m_mask = m_offs < P
@@ -113,7 +113,7 @@ if _TRITON_AVAILABLE:
         in ascending order, one correctly-rounded FMA per row (left fold).
         """
         pid_n = tl.program_id(0).to(tl.int64)
-        pid_k = tl.program_id(1).to(tl.int64)
+        pid_k = tl.program_id(1).to(tl.int64) + tl.program_id(2).to(tl.int64) * tl.num_programs(1)
         n_offs = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
         k_offs = pid_k * BLOCK_K + tl.arange(0, BLOCK_K)
         n_mask = n_offs < N
@@ -132,6 +132,12 @@ def _require_triton() -> None:
         raise RuntimeError("Triton is not available for attn_out_bias_gemm")
 
 
+def _tile_grid(row_tiles: int, col_tiles: int) -> tuple[int, int, int]:
+    # CUDA limits grid.y to 65535. Spread wider outputs across grid.z.
+    slabs = triton.cdiv(col_tiles, 65535)
+    return row_tiles, triton.cdiv(col_tiles, slabs), slabs
+
+
 def _launch_leaf_chunk(
     a_c: torch.Tensor, b_c: torch.Tensor, leaf_lo: int, leaf_hi: int
 ) -> torch.Tensor:
@@ -140,7 +146,7 @@ def _launch_leaf_chunk(
     partials = torch.empty(
         leaf_hi - leaf_lo, rows_p, cols_q, device=a_c.device, dtype=torch.float32
     )
-    grid = (triton.cdiv(rows_p, _BLOCK_M), triton.cdiv(cols_q, _BLOCK_N))
+    grid = _tile_grid(triton.cdiv(rows_p, _BLOCK_M), triton.cdiv(cols_q, _BLOCK_N))
     _tree_gemm_leaf_kernel[grid](
         a_c,
         b_c,
@@ -214,7 +220,7 @@ def triton_dw_left_fold(g_f: torch.Tensor, x_f: torch.Tensor) -> torch.Tensor:
     dw = torch.empty(out_n, in_k, device=g_c.device, dtype=torch.float32)
     if dw.numel() == 0:
         return dw
-    grid = (triton.cdiv(out_n, _BLOCK_N), triton.cdiv(in_k, _BLOCK_N))
+    grid = _tile_grid(triton.cdiv(out_n, _BLOCK_N), triton.cdiv(in_k, _BLOCK_N))
     _dw_left_fold_kernel[grid](
         g_c,
         x_c,

@@ -13,10 +13,8 @@ The harness implements the frozen comparison procedure from the contract
     4. compare the *bit patterns of the logical elements* via a dtype bitcast
        (int16 for bf16, int32 for fp32) -- not the underlying allocation bytes
 
-The bitcast assertion distinguishes +0.0/-0.0 and NaN payloads, which
-``torch.equal`` (value semantics) does not; both assertions are always issued
-together -- the value assertion gives readable failures, the bitcast assertion
-carries the contract.
+The integer comparison distinguishes signed zeros and NaN payloads, and
+accepts matching NaN bit patterns.
 
 The acceptance structure is star-shaped: every backend (pytorch reference,
 Triton, CUDA) is compared byte-for-byte against the FP32 CPU same-tree
@@ -64,9 +62,7 @@ def assert_bitwise_equal(a: torch.Tensor, b: torch.Tensor, context: str = "") ->
     prefix = f"[{context}] " if context else ""
     assert a.shape == b.shape, f"{prefix}shape mismatch: {tuple(a.shape)} vs {tuple(b.shape)}"
     assert a.dtype == b.dtype, f"{prefix}dtype mismatch: {a.dtype} vs {b.dtype}"
-    assert torch.equal(a, b), f"{prefix}value mismatch (torch.equal)"
-    if a.numel() > 0:
-        assert bitwise_equal(a, b), f"{prefix}bit-pattern mismatch (bitcast compare)"
+    assert bitwise_equal(a, b), f"{prefix}bit-pattern mismatch (bitcast compare)"
 
 
 def _make_inputs(rows: int, dim: int, dtype: torch.dtype, seed: int = 1234):
@@ -915,3 +911,32 @@ class TestIndependentSpecBitwise:
                 assert_bitwise_equal(
                     first.cpu(), second.cpu(), f"{type(op).__name__} {name} repeat"
                 )
+
+
+@pytest.mark.parametrize(
+    ("dtype", "bits", "payload"),
+    [(torch.float32, torch.int32, 0x7FC00001), (torch.bfloat16, torch.int16, 0x7FC1)],
+)
+def test_bitwise_assertion_compares_nan_payloads(dtype, bits, payload):
+    nan = torch.tensor([payload], dtype=bits).view(dtype)
+    assert_bitwise_equal(nan, nan.clone())
+    other = torch.tensor([payload + 1], dtype=bits).view(dtype)
+    with pytest.raises(AssertionError, match="bit-pattern mismatch"):
+        assert_bitwise_equal(nan, other)
+
+
+@pytest.mark.skipif(
+    not (_HAS_TRITON_OP and torch.cuda.is_available()), reason="requires Triton GPU"
+)
+def test_triton_grid_spans_wide_output():
+    from rl_engine.backends.shared.triton.gemm.attn_out_bias_gemm import (
+        triton_dw_left_fold,
+        triton_tree_gemm,
+    )
+
+    width = 65535 * 64 + 1
+    values = torch.arange(width, dtype=torch.float32, device="cuda")
+    one = values.new_ones((1, 1))
+    expected = values.view(1, width)
+    assert torch.equal(triton_tree_gemm(one, values.view(width, 1)), expected)
+    assert torch.equal(triton_dw_left_fold(one, expected), expected)

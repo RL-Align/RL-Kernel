@@ -45,7 +45,9 @@ out = op(x, weight, bias=bias)                              # [*lead, 3072]
 | CUDA (per-thread full tree) | `CudaAttnOutBiasGemmOp` | `_C.attn_out_bias_gemm_cuda_forward`, `_C.attn_out_tree_gemm_cuda`, `_C.attn_out_dw_left_fold_cuda` | Supported |
 | PyTorch same-tree reference | `NativeAttnOutBiasGemmOp` | — | Gold + CPU fallback |
 
-ROCm dispatches Triton then PyTorch (the CUDA source is not ROCm-validated).
+ROCm dispatches Triton then PyTorch. CUDA builds with fast-math or unverified
+NVCC math flags also omit the native attn-out bindings to preserve the frozen
+FP32 contract.
 
 ## Tensor Contract
 
@@ -115,6 +117,8 @@ for O(S*N) memory (no partial planes). The Triton path bounds partials to `(12 +
 via chunked depth-first combination.
 
 ## Tests
+
+The validation CLI defaults to the model width of 3072 for this operator.
 
 ```bash
 python -m pytest tests/ops/gemm/test_attn_out_bias_gemm.py -q
