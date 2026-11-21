@@ -93,7 +93,8 @@ async def _engine(args) -> dict[str, Any]:
         "max_num_seqs": args.max_num_seqs,
     }
     try:
-        install = await engine.collective_rpc(
+        bound = await _rpc(
+            engine,
             "rlk_h3_install",
             kwargs=dict(
                 transformer_dir=str(args.checkpoint / "transformer"),
@@ -103,8 +104,7 @@ async def _engine(args) -> dict[str, Any]:
                 record_calls=tuple(range(args.record_calls)),
             ),
         )
-        report["install"] = install
-        bound = _flat(install)
+        report["install"] = bound
         if len(bound) != args.tp or not all(
             isinstance(r, dict) and r.get("contract") for r in bound
         ):
@@ -146,7 +146,7 @@ async def _engine(args) -> dict[str, Any]:
         await asyncio.gather(one("A-batched", "A", 11), one("B-batched", "B", 22))
         timings["A+B together"] = time.perf_counter() - t0
         report["seconds"] = timings
-        ranks = _flat(await engine.collective_rpc("rlk_h3_report"))
+        ranks = await _rpc(engine, "rlk_h3_report")
         report["ranks"] = ranks
     finally:
         engine.shutdown()
@@ -221,29 +221,26 @@ async def _lora_sync(engine, args) -> dict[str, Any]:
     import shutil
 
     scale = args.lora_alpha / args.lora_rank
-    decoy = _flat(
-        await engine.collective_rpc(
-            "rlk_h3_attach_seeded_lora",
-            kwargs=dict(
-                rank=args.lora_rank,
-                alpha=args.lora_alpha,
-                seed=args.lora_seed + 1,
-                b_zero=args.lora_b_zero,
-            ),
-        )
+    decoy = await _rpc(
+        engine,
+        "rlk_h3_attach_seeded_lora",
+        kwargs=dict(
+            rank=args.lora_rank,
+            alpha=args.lora_alpha,
+            seed=args.lora_seed + 1,
+            b_zero=args.lora_b_zero,
+        ),
     )
     tamper_rank = min(2, args.tp - 1)
     bad = _save_actor_shards(args, args.lora_seed, args.out / "lora-bad", tamper_rank)
     try:
-        await engine.collective_rpc("rlk_h3_load_lora", args=(bad,), kwargs=dict(scale=scale))
+        await _rpc(engine, "rlk_h3_load_lora", args=(bad,), kwargs=dict(scale=scale))
         refused = None
-    except Exception as e:  # expected
-        refused = f"{type(e).__name__}: {e}"[:600]
-    after_bad = _flat(await engine.collective_rpc("rlk_h3_lora_digests"))
+    except RpcError as e:  # expected
+        refused = str(e)[:600]
+    after_bad = await _rpc(engine, "rlk_h3_lora_digests")
     good = _save_actor_shards(args, args.lora_seed, args.out / "lora-good")
-    installed = _flat(
-        await engine.collective_rpc("rlk_h3_load_lora", args=(good,), kwargs=dict(scale=scale))
-    )
+    installed = await _rpc(engine, "rlk_h3_load_lora", args=(good,), kwargs=dict(scale=scale))
     sent = [torch.load(good.format(rank=r), weights_only=True)["digests"] for r in range(args.tp)]
     for d in ("lora-bad", "lora-good"):
         shutil.rmtree(args.out / d, ignore_errors=True)
@@ -266,6 +263,21 @@ async def _lora_sync(engine, args) -> dict[str, Any]:
         and len(installed) == args.tp
     )
     return out
+
+
+class RpcError(RuntimeError):
+    """A worker method failed: vLLM-Omni's stage client returns ``{"error": True, "reason"}``
+    as the RPC's result instead of raising."""
+
+
+async def _rpc(engine, method: str, **kw: Any) -> list:
+    """``engine.collective_rpc`` that raises on a failed stage and returns the ranks' results."""
+
+    results = _flat(await engine.collective_rpc(method, **kw))
+    errors = [r["reason"] for r in results if isinstance(r, dict) and r.get("error") is True]
+    if errors:
+        raise RpcError(f"{method}: {errors}")
+    return results
 
 
 def _flat(results: Any) -> list:
