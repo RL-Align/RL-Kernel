@@ -21,6 +21,10 @@ transformer's ``forward`` for :class:`H3OmniModelBinding`, which
   canonical run;
 * splits a step-mode batch (``num_requests > 1``) into its requests and runs each alone, so a
   request's velocity does not depend on the others;
+* runs under PyTorch's default SDPA backends (``torch_default_sdpa``). Importing vLLM switches
+  cuDNN attention off for the whole process (``vllm/platforms/cuda.py``), and without the strict
+  boundaries (Hopper only) the token refiner's attention is SDPA, so the engine would otherwise
+  pick another kernel than the actor's and the canonical run do;
 * returns ``(video, audio)`` as vLLM-Omni does: video rows at ``img_pos_for_infer_output_info``
   times ``update_mask`` (unless ``skip_mask_out_condition``), audio rows times
   ``update_audio_mask`` when given.
@@ -35,7 +39,8 @@ and an engine LoRA (the LoRA lives on the actor's model: ``h3_lora``).
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -70,6 +75,44 @@ KNOWN_KWARGS = frozenset(
     }
 )
 PAD_TAG = -1
+
+
+def _default_sdpa_backends() -> list:
+    from torch.nn.attention import SDPBackend
+
+    # torch's own enabled set, in torch's order; vLLM's import drops CUDNN_ATTENTION from it
+    return [
+        SDPBackend.CUDNN_ATTENTION,
+        SDPBackend.FLASH_ATTENTION,
+        SDPBackend.EFFICIENT_ATTENTION,
+        SDPBackend.MATH,
+        SDPBackend.OVERRIDEABLE,
+    ]
+
+
+@contextmanager
+def torch_default_sdpa() -> Iterator[None]:
+    """Enable exactly PyTorch's default SDPA backends inside the ``with`` body, whatever the
+    process switched off (vLLM disables cuDNN attention at import); restored on exit."""
+
+    from torch.nn.attention import sdpa_kernel
+
+    with sdpa_kernel(_default_sdpa_backends()):
+        yield
+
+
+def sdpa_backends_enabled() -> dict[str, bool]:
+    """Which SDPA backends are enabled right now (for the reports)."""
+
+    cuda = torch.backends.cuda
+    return {
+        "cudnn": cuda.cudnn_sdp_enabled(),
+        "flash": cuda.flash_sdp_enabled(),
+        "efficient": cuda.mem_efficient_sdp_enabled(),
+        "math": cuda.math_sdp_enabled(),
+    }
+
+
 _ABSENT = object()
 
 
@@ -341,6 +384,7 @@ class H3OmniModelBinding:
         videos, audios = [], []
         with (
             torch.no_grad(),
+            torch_default_sdpa(),
             pm.parallel_model_execution(
                 self.model,
                 self.grid,
@@ -448,6 +492,7 @@ class H3OmniModelHandle:
             "tp_rank": grid.tp_rank,
             "attention": grid.attention,
             "strict_boundaries": self.binding.strict_boundaries,
+            "sdpa_backends_outside_the_call": sdpa_backends_enabled(),
             "tp_collective": type(grid.tp_collective).__name__ if grid.tp_collective else None,
             "engine_parameter_bytes_released": self.released,
             "calls": self.binding.calls,

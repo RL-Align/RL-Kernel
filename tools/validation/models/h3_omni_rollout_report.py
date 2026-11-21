@@ -239,6 +239,7 @@ def _canonical(args) -> dict[str, Any]:
         }
         with (
             torch.no_grad(),
+            om.torch_default_sdpa(),  # the binding's backends, whatever this process imported
             pm.parallel_model_execution(
                 model, grid, sp=False, trace=FullModelTrace(), strict_boundaries=strict
             ),

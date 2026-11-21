@@ -329,6 +329,19 @@ class TestInstall:
         assert t.w.is_meta and t.b.is_meta and t() == "bound"
 
 
+class TestSDPA:
+    def test_the_call_gets_torchs_default_backends_back(self):
+        cuda = torch.backends.cuda
+        before = om.sdpa_backends_enabled()
+        cuda.enable_cudnn_sdp(False)  # what importing vLLM does
+        try:
+            with om.torch_default_sdpa():
+                assert all(om.sdpa_backends_enabled().values())
+            assert not cuda.cudnn_sdp_enabled()  # put back on exit
+        finally:
+            cuda.enable_cudnn_sdp(before["cudnn"])
+
+
 class TestLoRASync:
     class _Model(torch.nn.Module):
         def __init__(self, n):
@@ -428,14 +441,19 @@ def _direct(model, inputs, strict):
         return model(**inputs)
 
 
-@pytest.mark.parametrize("with_lora", [False, True], ids=["base", "lora"])
-def test_bound_call_is_the_models_call(full_model, with_lora):
+@pytest.mark.parametrize(
+    "with_lora,vllm_sdpa",
+    [(False, False), (True, False), (False, True)],
+    ids=["base", "lora", "base-cudnn-sdpa-off"],
+)
+def test_bound_call_is_the_models_call(full_model, with_lora, vllm_sdpa):
     from rl_engine.validation.models import h3_lora
     from rl_engine.validation.models import h3_parallel_model as pm
     from rl_engine.validation.models import h3_tp
 
     model = full_model
     strict = torch.cuda.get_device_capability() == (9, 0)  # strict video boundaries need SM90
+    cudnn = torch.backends.cuda.cudnn_sdp_enabled()
     if with_lora:
         h3_lora.attach_lora(model, 1, 0, rank=64, seed=3)
     try:
@@ -448,7 +466,9 @@ def test_bound_call_is_the_models_call(full_model, with_lora):
         singles = [_cuda(_omni(r, u, t, p)) for (r, u, t), p in zip(reqs, (7, 0, 3))]
         alone = []
         for (req, update, _), k in zip(reqs, singles):
+            torch.backends.cuda.enable_cudnn_sdp(not vllm_sdpa)  # vLLM's import turns it off
             v, a = binding.forward(**k)
+            torch.backends.cuda.enable_cudnn_sdp(cudnn)  # the actor's process: torch's default
             dv, da = _direct(model, _cuda(req), strict)
             assert torch.equal(v, dv[0] * update.cuda().unsqueeze(-1)) and torch.equal(a, da[0])
             alone.append((v, a))
@@ -456,5 +476,6 @@ def test_bound_call_is_the_models_call(full_model, with_lora):
         assert torch.equal(v, torch.cat([x for x, _ in alone]))
         assert torch.equal(a, torch.cat([y for _, y in alone]))
     finally:
+        torch.backends.cuda.enable_cudnn_sdp(cudnn)
         for block in model.transformer_blocks:
             block.__dict__.pop(pm.LORA_ATTR, None)
