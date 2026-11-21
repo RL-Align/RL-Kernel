@@ -246,13 +246,14 @@ def _run_case_backward(
         case.grad_input_names,
         grad_outputs=_match_grad_outputs(shared_upstreams, gold_outputs),
     )
-    output_checks = _compare_case_outputs(
+    forward_check = _compare_case_outputs(
         candidate,
         case,
         contract,
         candidate_outputs,
         gold_outputs,
-    ).outputs
+    )
+    output_checks = forward_check.outputs
     # Gradient thresholds come from the independent gradient_accuracy judgment
     # (#267); they must not silently inherit forward_accuracy rows.
     if "judgments" in contract:
@@ -306,7 +307,7 @@ def _run_case_backward(
         op_class=case.op_class,
         passed=all(output.passed for output in checks),
         outputs=checks,
-        backend_trace=dict(candidate.fn.trace) if hasattr(candidate.fn, "trace") else None,
+        backend_trace=forward_check.backend_trace,
     )
 
 
@@ -382,13 +383,16 @@ def _compare_case_outputs(
             zip(candidate_outputs, gold_outputs, strict=True)
         )
     ]
+    trace = getattr(candidate.fn, "trace", None)
+    if callable(trace):
+        trace = trace()
     return CaseCheck(
         case_name=case.name,
         dtype=str(case.dtype),
         op_class=case.op_class,
         passed=all(output.passed for output in output_checks),
         outputs=output_checks,
-        backend_trace=dict(candidate.fn.trace) if hasattr(candidate.fn, "trace") else None,
+        backend_trace=dict(trace) if trace is not None else None,
     )
 
 
