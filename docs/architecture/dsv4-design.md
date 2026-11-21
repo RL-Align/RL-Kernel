@@ -688,8 +688,9 @@ Directions after the NCCL fix, in order (none started):
    rows (not an all-reduce) and combine per token in the actor's slot order locally. More
    bytes than vLLM's all-reduce, no dispatch at all. Worth costing against 4.
 
-The scripts (`profile_rollout.sh`, `prof_client.py`) are on the cluster's /work for now
-(`outputs/node_482453/prof/`); a 512-concurrent trace of all three is the next measurement.
+The scripts: `scripts/verl_e2e_lora/profile_rollout.sh bi|nonbi|bl` (with
+`prof_client.py`); `nsys export -t sqlite` and the graph-node kernels grouped by the launch's
+correlation id give a replay's breakdown.
 
 ## 11. Legacy code not used by DSv4
 

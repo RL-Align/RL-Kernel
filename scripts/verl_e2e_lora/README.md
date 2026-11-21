@@ -300,6 +300,7 @@ Recorded (2026-11-20 / 21; means over steps 3 to the end, seconds per step):
 | `deepgemm-sm90-paged-mqa-empty.patch` | The local DeepGEMM fix |
 | `run.sh` | `gate`, `rlkernel`, `control`, `ablation`, `baseline` |
 | `experiments.sh` | The full-model runs (section 8) as stages over `run.sh` |
+| `profile_rollout.sh`, `prof_client.py` | The rollout's vLLM server alone under nsys, E3 / A3 / BL2 settings (design doc 10.3) |
 | `run_dsv4_rlkernel_grpo.sh` | The RL-Kernel + verl launcher `run.sh` calls (also the 2-GPU toy run) |
 | `custom_reward.py` | The synthetic dense reward (`REWARD=synthetic`, the default) |
 | `compare.py` | Per-run summary and the comparison table |
