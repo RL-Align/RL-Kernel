@@ -19,7 +19,7 @@ Design (see docs/operators/attn-out-bias-gemm.md):
   FMA per row into a single [N, K] fp32 accumulator -- no partials, memory
   independent of S.
 - One correctly-rounded FP32 FMA discipline on BOTH sides: these kernels use
-  explicit ``libdevice.fma_rn`` and the torch reference uses
+  explicit ``tl.fma`` and the torch reference uses
   ``torch.addcmul`` (an oracle-verified correctly-rounded FP32 FMA), so every
   backend matches the reference byte for byte in BOTH dtypes -- no tolerance
   path. ``tl.sum`` (unspecified tree order) and ``tl.dot``/mma (unspecified
@@ -46,7 +46,6 @@ from rl_engine.utils.logger import logger
 try:
     import triton
     import triton.language as tl
-    from triton.language.extra import libdevice
 
     _TRITON_AVAILABLE = True
 except ImportError:  # pragma: no cover - Triton is an optional backend
@@ -91,11 +90,8 @@ if _TRITON_AVAILABLE:
             for k in range(k0, k1):
                 a_vec = tl.load(a_ptr + m_offs * R + k, mask=m_mask, other=0.0)
                 b_vec = tl.load(b_ptr + n_offs * R + k, mask=n_mask, other=0.0)
-                # fma_rn is fma.rn.f32: exact product, one rounding per
-                # multiply-add. One FMA discipline on both sides (the torch
-                # reference uses addcmul, an oracle-verified FMA), which is
-                # what the bit-equality harness checks in both dtypes.
-                acc = libdevice.fma_rn(a_vec[:, None], b_vec[None, :], acc)
+                # One FP32 rounding per multiply-add in the ascending-k leaf chain.
+                acc = tl.fma(a_vec[:, None], b_vec[None, :], acc)
             plane = tl.cast(leaf - leaf_lo, tl.int64) * P * Q
             dst = partials_ptr + plane + m_offs[:, None] * Q + n_offs[None, :]
             tl.store(dst, acc, mask=m_mask[:, None] & n_mask[None, :])
@@ -126,7 +122,7 @@ if _TRITON_AVAILABLE:
         for s in range(0, S):
             g_vec = tl.load(g_ptr + s.to(tl.int64) * N + n_offs, mask=n_mask, other=0.0)
             x_vec = tl.load(x_ptr + s.to(tl.int64) * K + k_offs, mask=k_mask, other=0.0)
-            acc = libdevice.fma_rn(g_vec[:, None], x_vec[None, :], acc)
+            acc = tl.fma(g_vec[:, None], x_vec[None, :], acc)
         dst = dw_ptr + n_offs[:, None] * K + k_offs[None, :]
         tl.store(dst, acc, mask=n_mask[:, None] & k_mask[None, :])
 

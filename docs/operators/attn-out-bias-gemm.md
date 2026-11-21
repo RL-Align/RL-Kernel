@@ -17,7 +17,7 @@ parallel variant). The numeric contract version is
   (WS2 TP-row friendly).
 - **Multiply-add discipline**: one correctly-rounded FP32 FMA on BOTH sides
   of every multiply-into-add site -- device backends use explicit intrinsics
-  (`libdevice.fma_rn` / `__fmaf_rn`) and the FP32 reference uses
+  (`tl.fma` / `__fmaf_rn`) and the FP32 reference uses
   `torch.addcmul` (a correctly-rounded single-rounding FP32 FMA, verified
   against the `libm fmaf` oracle). One discipline, one set of bits: every
   backend matches the reference byte for byte in BOTH dtypes, with no
@@ -76,8 +76,9 @@ same-tree reference (explicit elementwise ops, no matmul, no implicit
 reductions, bit-identical on every device).
 
 - **bf16 and fp32 inputs**: every backend matches the reference byte for
-  byte (single FMA discipline on both sides; verified across all acceptance
-  tiers).
+  byte on the tested RTX 5090 configurations. For AMD, both Triton kernels
+  compile offline for `gfx942` with FP32 fused multiply-add instructions.
+  Bitwise acceptance on AMD hardware still requires a device run.
 - **batch invariance**: bitwise (`torch.equal` plus a dtype-bitcast
   assertion on the logical elements) across batch composition, leading
   shapes, padding, and repeat runs, for outputs and `dx` alike.
