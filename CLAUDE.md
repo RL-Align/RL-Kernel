@@ -74,6 +74,8 @@ Design doc 10.1 has the pieces. Things that cost time:
   the actor and the rollout (the rollout's copy is outside vLLM's memory budget). The full
   43 layers at EP 8 need it off: `RL_KERNEL_DSV4_PERSIST_W8=0` (same bytes).
 - The attention backward is not deterministic, so grad norms differ slightly run to run.
+- `VLLM_BATCH_INVARIANT=1` sets NCCL to one channel / Simple / tree in every vLLM worker.
+  The plugin undoes it (`_keep_nccl_bandwidth`): the rollout's NCCL only moves bytes.
 
 ## Status (2026-11-20) and next
 
@@ -93,9 +95,11 @@ Design doc 10.1 has the pieces. Things that cost time:
   100 steps; BL2 (verl #7483, 50 steps) runs; A3 (rollout BI off, 30 steps) 156k to 437k
   mismatched tokens per step. Our actor side is faster, our decode about 2.5x slower per
   step (84 against 34 ms; A3 56 ms, so BI is about 30 ms of the gap). The rollout profile
-  (design doc 10.3): graphs work (one replay per step); the gap is the MoE's EP exchange
-  (NCCL all-to-alls; vLLM's TP 8 needs none), the unmerged LoRA's small kernels and the
-  expert GEMM at decode sizes. Those are the next performance items. The launcher and the synthetic
+  (design doc 10.3): graphs work (one replay per step). vLLM's BI mode had capped NCCL at
+  one channel, slowing our EP exchange 8x; fixed in the plugin (BI now 12-14 % over BI
+  off in the server alone). The rest of the gap to vLLM's TP 8: the EP exchange (vLLM
+  needs none), the unmerged LoRA's small kernels, the expert GEMM at decode sizes; those
+  are the next performance items. E3 predates the fix. The launcher and the synthetic
   reward moved from `scripts/verl_e2e/` into `scripts/verl_e2e_lora/` (2026-11-21).
 - EP and memory (2026-11-17, real checkpoint's first 4 layers, H100):
   - `rlkernel` engine at EP = 2 / 4 and the rollout plugin at DP = EP = 2 / 4: bitwise to

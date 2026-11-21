@@ -617,12 +617,24 @@ EP 8, graphs, rank-16 adapters reserved), A3's (BI off) and BL2's (vLLM 0.32, TP
 no LoRA adapter, so slightly optimistic for the baseline); full model, 8 x H200. Each
 request decodes exactly 256 tokens; ms per decode step:
 
-| Concurrent requests (per DP rank) | BL2 rollout | ours, BI (E3) | ours, BI off (A3) |
-|---|---|---|---|
-| 1 (1) | 9.6 | 33.7 | 28.6 |
-| 8 (1) | 11.8 | 43.9 | 32.5 |
-| 64 (8) | 14.2 | 68.9 | 46.2 |
-| 512 (64) | 53.0 | 190.1 | 106.9 |
+| Concurrent requests (per DP rank) | BL2 rollout | ours, BI (E3) | ours, BI, NCCL fixed | ours, BI off (A3) |
+|---|---|---|---|---|
+| 1 (1) | 9.6 | 33.7 | 32.1 | 28.6 |
+| 8 (1) | 11.8 | 43.9 | 36.4 | 32.5 |
+| 64 (8) | 14.2 | 68.9 | 52.2 | 46.2 |
+| 512 (64) | 53.0 | 190.1 | 121.5 | 106.9 |
+
+**Found and fixed (2026-11-21):** `VLLM_BATCH_INVARIANT=1` makes every vLLM worker set one
+NCCL channel, the Simple protocol and tree all-reduce before NCCL starts
+(`override_envs_for_invariance`), so that NCCL's reductions sum in a fixed order. Our
+rollout runs no NCCL reduction on model data (TP 1; the EP exchange only moves bytes), so
+this only cut the exchange to about one SM's copy bandwidth: at 64 requests per rank
+`SendRecv` took 303 us per call with BI and 38 us without, the same bytes. The plugin now
+restores the NCCL variables after vLLM's override (`_keep_nccl_bandwidth`;
+`RL_KERNEL_DSV4_NCCL_DETERMINISTIC=1` keeps them): 40 us per call, the 64-per-rank step
+136 -> 68.5 ms; the vLLM gate at DP 8 with graphs and LoRA still 0 of 432. Batch invariance
+now costs 12-14 % over BI off at 8-64 requests per rank, where the earlier E3 / A3 gap was
+mostly this. The bullets below describe the traces before the fix.
 
 - The graphs work: a decode step is one replay of one full graph (attention included),
   0.13 ms between replays, so no host or launch overhead.
@@ -633,9 +645,14 @@ request decodes exactly 256 tokens; ms per decode step:
   around them), the 8 unmerged adapters about 215 us (about 10 small kernels each), the
   rest (projections, compressor, indexer, attention, experts, shared expert, mHC) about
   260 us.
-- At 8 requests per rank: NCCL `SendRecv` 17 -> 89 us per call on every rank alike (so
-  bandwidth, not skew: about 35 GB/s), 23 ms of the 64 ms step; our expert GEMM 107-114 us
-  against vLLM's MXFP4 MoE (`humming`) 60 us for the same rows per rank.
+- At 8 requests per rank: NCCL `SendRecv` 17 -> 89 us per call on every rank alike (the
+  one-channel cap above), 23 ms of the 64 ms step; our expert GEMM 107-114 us against
+  vLLM's MXFP4 MoE (`humming`) 60 us for the same rows per rank.
+- At 64 requests per rank after the fix (68.5 ms; vLLM's TP 8 step with all 512 tokens
+  22.7 ms): expert GEMM 13.0 ms, `SendRecv` 10.4 ms, elementwise and index kernels about
+  15 ms, the adapters' BF16 GEMMs 5.2 ms. The static exchange sends every rank pair a fixed
+  tokens x top-k rows, about EP times the average rows, so it moves several times the bytes
+  it needs; vLLM's two all-reduces per layer took 4.7 ms in all.
 - Why vLLM needs no exchange: with TP attention every rank holds every token after `wo_b`'s
   all-reduce. Each rank routes all tokens (replicated gate), runs only its own experts
   (`expert_map`: local id or -1), and one all-reduce sums the partial outputs, the same
@@ -647,24 +664,29 @@ request decodes exactly 256 tokens; ms per decode step:
   sums the experts in rank order, both unlike the actor's order, so the rollout would no
   longer match the actor bitwise (and vLLM picks one- or two-shot all-reduce by size).
 
-Directions, in order of expected gain (none started):
+Directions after the NCCL fix, in order (none started):
 
-1. **The EP exchange.** One exchange per direction instead of five: pack codes, scales,
-   `p_s`, the adapters' rows and the counts into one buffer; fuse the index glue on both
-   sides into one kernel each. Replace NCCL `all_to_all_single` with an NVLink
-   peer-to-peer all-to-all (DeepEP / pplx style, buffers mapped once, graph-capturable).
-   Same rows in the same order, so bytes unchanged. Expected at batch 1 about 8-10 ms of
-   32, more at larger batch.
-2. **TP-style layout that keeps the actor's order.** All-gather the tokens after attention
-   (every rank routes all tokens), each rank runs its experts, then all-gather the expert
-   rows (not an all-reduce) and combine per token in the actor's slot order locally. More
-   bytes than vLLM's all-reduce, no dispatch at all; attention stays DP. Worth costing
-   against 1.
-3. **Fused unmerged LoRA.** One kernel per adapter site (`x A^T` to BF16, `h B^T` in FP32,
+1. **Fewer, packed exchanges on NCCL.** One exchange per direction instead of five: pack
+   codes, scales, `p_s`, the adapters' rows and the counts into one buffer; fuse the index
+   glue on both sides into one kernel each. Same rows in the same order, so bytes
+   unchanged; no new dependency.
+2. **Fused unmerged LoRA.** One kernel per adapter site (`x A^T` to BF16, `h B^T` in FP32,
    the scaled add and the cast), or both sites of an expert pair at once, keeping
    `dsv4-lora-v1`'s arithmetic. About 9 ms at batch 1.
-4. **The expert GEMM at decode sizes** (P5 against vLLM's MXFP4 kernel, about 1.8x at 48
+3. **The expert GEMM at decode sizes** (P5 against vLLM's MXFP4 kernel, about 1.8x at 48
    rows per rank) and the remaining elementwise glue (fewer, larger kernels).
+4. **DeepEP's low-latency mode as the transport** (section 12's open item;
+   `zhuzilin/DeepEP@align_fp8_quantization`), if the exchange still matters after 1: two
+   kernels per layer, only the valid rows, written once into the peer's buffer,
+   graph-capturable. For the same bytes: its in-kernel FP8 cast (128-element scales) must
+   give way to our MXFP8 codes and scales sent as payload; its combine sums the top-k
+   outputs in-kernel, which must equal the actor's slot-order FP32 sum or become a plain
+   return; its masked per-expert layout needs a P5 variant or a compaction; NVSHMEM has
+   to build here. Estimated a few ms per step after 1 to 3.
+5. **TP-style layout that keeps the actor's order.** All-gather the tokens after attention
+   (every rank routes all tokens), each rank runs its experts, then all-gather the expert
+   rows (not an all-reduce) and combine per token in the actor's slot order locally. More
+   bytes than vLLM's all-reduce, no dispatch at all. Worth costing against 4.
 
 The scripts (`profile_rollout.sh`, `prof_client.py`) are on the cluster's /work for now
 (`outputs/node_482453/prof/`); a 512-concurrent trace of all three is the next measurement.
@@ -759,8 +781,8 @@ Open, needs the multi-GPU machine:
       `VLLM_BATCH_INVARIANT=1`, logprobs for a fixed prompt set (batch 1/8/64, chunked
       prefill, decode) under `tests/fixtures/dsv4/`.
 - [ ] Whole attention layer and decoder layer against vLLM's modules (performance).
-- [ ] Rollout decode latency (section 10.3): the EP exchange (one packed NVLink all-to-all
-      per direction, fused index glue), fused unmerged LoRA, the expert GEMM at decode sizes.
+- [ ] Rollout decode latency (section 10.3): packed EP exchanges with fused index glue,
+      fused unmerged LoRA, the expert GEMM at decode sizes, then DeepEP as the transport.
 
 Open, single GPU, deprioritized:
 
