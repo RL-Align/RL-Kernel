@@ -8,7 +8,10 @@ import torch
 
 from rl_engine.backends.extension import _C
 from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_tree_gemm
+from rl_engine.models.muse_glimmer.operator_trace import MuseGlimmerSpec
 from rl_engine.ops.autograd.backward_runtime import record_backward
+
+_WEIGHT_SHAPES = frozenset(MuseGlimmerSpec.from_manifest().gemm_shapes().values())
 
 
 class _DenseGemm(torch.autograd.Function):
@@ -59,8 +62,8 @@ def dense_gemm(
         raise ValueError(f"unknown Muse-Glimmer dense GEMM backend {backend!r}")
     if x.ndim != 2 or weight.ndim != 2 or x.size(1) != weight.size(1):
         raise ValueError("Muse-Glimmer dense GEMM requires X[M,K] and W[N,K] with the same K")
-    if x.numel() == 0 or weight.numel() == 0:
-        raise ValueError("Muse-Glimmer dense GEMM requires positive M, N and K")
+    if x.size(0) == 0 or tuple(weight.shape) not in _WEIGHT_SHAPES:
+        raise ValueError("Muse-Glimmer requires positive M and a single projection weight shape")
     if x.dtype != torch.bfloat16 or weight.dtype != torch.bfloat16:
         raise TypeError("Muse-Glimmer dense GEMM requires BF16 inputs and weights")
     if not x.is_cuda or x.device != weight.device:

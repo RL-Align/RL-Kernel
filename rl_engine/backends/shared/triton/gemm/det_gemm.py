@@ -533,9 +533,14 @@ if _TRITON_AVAILABLE:
         M,
         N: tl.constexpr,
         BLOCK: tl.constexpr,
+        BLOCKS_ON_X: tl.constexpr = False,
     ):
-        operation = tl.program_id(0)
-        block = tl.program_id(1)
+        if BLOCKS_ON_X:
+            block = tl.program_id(0)
+            operation = tl.program_id(1)
+        else:
+            operation = tl.program_id(0)
+            block = tl.program_id(1)
         offsets = (block * BLOCK + tl.arange(0, BLOCK)).to(tl.int64)
         elements = M * N
         mask = offsets < elements
@@ -1015,7 +1020,13 @@ def _triton_tree_gemm(
                     BLOCK=reduction_block,
                 )
             else:
-                reduction_grid = (len(operations), triton.cdiv(m_size * n_size, reduction_block))
+                blocks = triton.cdiv(m_size * n_size, reduction_block)
+                # W[N,K] can exceed 65,535 blocks even after workspace chunking.
+                # Move that dimension to grid X without changing any tree edges.
+                blocks_on_x = blocks > 65535
+                reduction_grid = (
+                    (blocks, len(operations)) if blocks_on_x else (len(operations), blocks)
+                )
                 _det_gemm_tree_reduce_kernel[reduction_grid](
                     workspace,
                     lower,
@@ -1024,6 +1035,7 @@ def _triton_tree_gemm(
                     M=m_size,
                     N=n_size,
                     BLOCK=reduction_block,
+                    BLOCKS_ON_X=blocks_on_x,
                 )
 
     copy_block = 256

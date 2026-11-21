@@ -181,6 +181,13 @@ class MuseGlimmerSpec:
             "down_proj": (h, f),
         }
 
+    def gemm_shape_groups(self) -> dict[tuple[int, int], list[str]]:
+        """Independent projection nodes sharing one (N, K) qualification case."""
+        groups: dict[tuple[int, int], list[str]] = {}
+        for name, shape in self.gemm_shapes().items():
+            groups.setdefault(shape, []).append(name)
+        return groups
+
     def trace(self) -> tuple[TraceNode, ...]:
         nodes = [_node("embedding", "normalized_embedding", None)]
         for index in range(self.num_hidden_layers):
