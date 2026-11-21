@@ -168,6 +168,7 @@ def register() -> None:
     vcompressor.compress_norm_rope_store_two_stage_triton = _rlk_compress_store
     vcutedsl.compress_norm_rope_store_cutedsl = _rlk_compress_store
     _accept_pinned_deepgemm()
+    _keep_nccl_bandwidth()
     # Decode through FlashMLA's sparse kernel, as prefill: the paged FP8 decode kernel
     # rounds differently (checked in RlkDeepseekV4Model).
     os.environ.setdefault("VLLM_DS4_DECODE_KERNEL", "sparse")
@@ -292,6 +293,41 @@ def _accept_pinned_deepgemm() -> None:
         require_deepgemm()
 
     vdg.enable_deep_gemm_batch_invariance = enable
+
+
+ENV_NCCL_DETERMINISTIC = "RL_KERNEL_DSV4_NCCL_DETERMINISTIC"
+
+
+def _keep_nccl_bandwidth() -> None:
+    """Undo the NCCL part of vLLM's batch-invariant environment.
+
+    ``VLLM_BATCH_INVARIANT=1`` makes every worker set one channel, one thread, the Simple
+    protocol and tree all-reduce before NCCL starts, so that NCCL's reductions sum in a
+    fixed order. This model runs no NCCL reduction on model data (TP 1, checked in
+    :class:`RlkDeepseekV4ForCausalLM`; the MoE's EP exchange is ``all_to_all_single``, pure
+    byte movement, and DP's synchronisation all-reduces integer token counts), so the
+    settings only cut the exchange's bandwidth: about 8x at 64 requests per rank (nsys,
+    2026-11-21; design doc 10.3). The NCCL variables get back the values they had before
+    vLLM's override. ``RL_KERNEL_DSV4_NCCL_DETERMINISTIC=1`` keeps vLLM's settings."""
+    if os.environ.get(ENV_NCCL_DETERMINISTIC, "0") == "1":
+        return
+    import vllm.model_executor.layers.batch_invariant as vbi
+
+    if getattr(vbi.override_envs_for_invariance, "rlk_wrapped", False):
+        return
+    override = vbi.override_envs_for_invariance
+
+    def keep_nccl() -> None:
+        saved = {k: v for k, v in os.environ.items() if k.startswith("NCCL_")}
+        override()
+        for k in [k for k in os.environ if k.startswith("NCCL_")]:
+            if k in saved:
+                os.environ[k] = saved[k]
+            else:
+                del os.environ[k]
+
+    keep_nccl.rlk_wrapped = True
+    vbi.override_envs_for_invariance = keep_nccl
 
 
 _WARNED: set = set()
