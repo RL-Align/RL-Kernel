@@ -206,11 +206,16 @@ def run_tp_block_rows(
     sp: bool,
     shard: par.SeqShard,
     leaves: dict[str, torch.Tensor] | None = None,
+    shards: dict[str, torch.Tensor] | None = None,
 ) -> torch.Tensor:
     """The block body for rows this rank already holds (what a chained model hands each block).
 
     ``h_res`` / ``idx_res`` are this rank's residual rows (its CP rows, or its TP share of them
     with ``sp``), ``cos`` / ``sin`` the rotary tables of its CP rows. Returns the residual rows.
+
+    ``shards`` holds this rank's shards of the sharded projections, keyed like
+    ``h3_parallel_model.SHARDED_WEIGHTS`` (a weight-sharded model loads only those); without it
+    each shard is cut from the full weight in ``weights``. The two give the same bytes.
     """
 
     par.require_rows_on_every_rank(shard)  # the chained model enters here, not through run_tp_block
@@ -221,6 +226,10 @@ def run_tp_block_rows(
     def leaf(name, tensor):
         """This block's weight shard ``name`` (see ``shard_leaf``)."""
         return shard_leaf(name, tensor, leaves)
+
+    def sharded(name, cut):
+        """Shard ``name``: the stored one when the model holds shards, else ``cut()``."""
+        return leaf(name, shards[name] if shards is not None else cut())
 
     table = ops.projection(temb, w("adaln_proj.linear.weight"), w("adaln_proj.linear.bias"))
 
@@ -235,7 +244,10 @@ def run_tp_block_rows(
     q, k, v = proj_in(
         x,
         [
-            leaf(f"attn.to_{n}.weight", par.shard_rows(w(f"attn.to_{n}.weight"), tp, grid.tp_rank))
+            sharded(
+                f"attn.to_{n}.weight",
+                lambda n=n: par.shard_rows(w(f"attn.to_{n}.weight"), tp, grid.tp_rank),
+            )
             for n in "qkv"
         ],
         sp,
@@ -261,7 +273,10 @@ def run_tp_block_rows(
         attn = par.ulysses_attention(q, k, heads(v), _attention_fn(ops), shard, grid.cp_group)
     o = par.row_parallel_linear(
         attn.reshape(rows, local_heads * HEAD_DIM),
-        leaf("attn.to_out.0.weight", par.shard_cols(w("attn.to_out.0.weight"), tp, grid.tp_rank)),
+        sharded(
+            "attn.to_out.0.weight",
+            lambda: par.shard_cols(w("attn.to_out.0.weight"), tp, grid.tp_rank),
+        ),
         coll,
         tp,
         scatter=sp,
@@ -274,15 +289,15 @@ def run_tp_block_rows(
     hid, gate = proj_in(
         x2,
         [
-            leaf("ff.hidden", par.shard_rows(fused[:half], tp, grid.tp_rank)),
-            leaf("ff.gate", par.shard_rows(fused[half:], tp, grid.tp_rank)),
+            sharded("ff.hidden", lambda: par.shard_rows(fused[:half], tp, grid.tp_rank)),
+            sharded("ff.gate", lambda: par.shard_rows(fused[half:], tp, grid.tp_rank)),
         ],
         sp,
     )
     act = ops.swiglu(gate.contiguous(), hid.contiguous())
     down = par.row_parallel_linear(
         act,
-        leaf("ff.net.2.weight", par.shard_cols(w("ff.net.2.weight"), tp, grid.tp_rank)),
+        sharded("ff.net.2.weight", lambda: par.shard_cols(w("ff.net.2.weight"), tp, grid.tp_rank)),
         coll,
         tp,
         scatter=sp,

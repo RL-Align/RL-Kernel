@@ -17,11 +17,18 @@ this rank's weight-shard gradients of all 350 sharded projections (device checks
 that must be reported at exactly that block and row with that owner. The rank must hold the row;
 without SP, where the TP ranks of a CP rank hold the same rows, it must be the last of them, whose
 copy the assembled output keeps (anything else is refused).
+
+With ``--sharded`` the grid run uses a model loaded by ``h3_sharded_load.load_sharded_model``:
+after the canonical run the full model is freed, and each rank loads only its shards of the
+sharded projections (the rest of the model in full), so the comparison above holds for a rank
+that never holds those full weights. ``--provider-boundaries`` leaves the boundary modules on the
+provider in both runs, for GPUs the strict boundary rows do not support (they need SM90).
 """
 
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import socket
@@ -33,6 +40,7 @@ import torch.distributed as dist
 
 from rl_engine.validation.models import h3_block as hb
 from rl_engine.validation.models import h3_parallel_model as pm
+from rl_engine.validation.models import h3_sharded_load as sl
 from rl_engine.validation.models import h3_tp
 from rl_engine.validation.models.h3_full_model import FullModelTrace
 
@@ -54,7 +62,7 @@ def _inputs(size: str):
     return packed_inputs("cuda") if SIZES[size] is None else sized_inputs("cuda", **SIZES[size])
 
 
-def _run(model, base, grid, sp, ops, gradients, digest_leaf, *, inject=None):
+def _run(model, base, grid, sp, ops, gradients, digest_leaf, *, strict, inject=None):
     """Forward + backward on ``grid``: outputs, input gradients, snapshots, shard-gradient digests.
 
     ``digest_leaf(name, grad)`` reduces each weight-shard gradient to its digest as it is
@@ -67,7 +75,9 @@ def _run(model, base, grid, sp, ops, gradients, digest_leaf, *, inject=None):
     trace = FullModelTrace()
     trace.capture = True
     began = time.perf_counter()
-    with pm.parallel_model_execution(model, grid, sp=sp, trace=trace, ops=ops) as state:
+    with pm.parallel_model_execution(
+        model, grid, sp=sp, trace=trace, ops=ops, strict_boundaries=strict
+    ) as state:
         state.inject = inject
         state.digest_leaf = digest_leaf
         video, audio = model(**inputs)
@@ -84,6 +94,23 @@ def _run(model, base, grid, sp, ops, gradients, digest_leaf, *, inject=None):
     }
 
 
+def _prepare(model) -> None:
+    """Checkpoint the blocks and freeze the parameters: the shard leaves carry the gradients."""
+    model.enable_gradient_checkpointing()
+    for p in model.parameters():
+        p.requires_grad_(False)
+
+
+def _resident_bytes(model) -> int:
+    """Bytes of the parameters and stored projection shards actually on the device."""
+    total = sum(p.numel() * p.element_size() for p in model.parameters() if not p.is_meta)
+    for block in model.transformer_blocks:
+        stored = getattr(block, pm.SHARDS_ATTR, None)
+        if stored is not None:
+            total += sum(t.numel() * t.element_size() for t in stored["tensors"].values())
+    return total
+
+
 def main() -> None:
     """Run the canonical model and the grid on this rank, compare them, write the report."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -96,6 +123,12 @@ def main() -> None:
     parser.add_argument("--size", choices=tuple(SIZES), default="40")
     parser.add_argument("--local-size", type=int, default=8, help="GPUs per node")
     parser.add_argument("--inject", default="", help="BLOCK:ROW:RANK negative control")
+    parser.add_argument(
+        "--sharded", action="store_true", help="run the grid on a model holding only its shards"
+    )
+    parser.add_argument(
+        "--provider-boundaries", action="store_true", help="boundary modules on the provider"
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
@@ -128,10 +161,9 @@ def main() -> None:
         .to("cuda")
         .eval()
     )
-    model.enable_gradient_checkpointing()
-    for p in model.parameters():
-        p.requires_grad_(False)  # the shard leaves carry the weight gradients
+    _prepare(model)
     load_seconds = time.perf_counter() - started
+    strict = not args.provider_boundaries
 
     base = _inputs(args.size)
     tags = base["token_tags"].cpu()
@@ -166,8 +198,26 @@ def main() -> None:
         ops,
         gradients,
         lambda name, grad: pm.exact_digest(pm.shard_of(grad, name, args.tp, grid.tp_rank)),
+        strict=strict,
     )
     expected = reference["leaf_digests"]
+    full_param_bytes = _resident_bytes(model)
+    sharded = None
+    if args.sharded:
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        started = time.perf_counter()
+        model = sl.load_sharded_model(
+            args.checkpoint / "transformer", grid.tp, grid.tp_rank, "cuda"
+        ).eval()
+        _prepare(model)
+        sharded = {
+            "load_seconds": time.perf_counter() - started,
+            "resident_param_bytes": _resident_bytes(model),
+            "full_model_param_bytes": full_param_bytes,
+        }
     torch.cuda.empty_cache()
     inject = None
     if args.inject:
@@ -181,8 +231,11 @@ def main() -> None:
         ops,
         gradients,
         lambda name, grad: pm.exact_digest(grad),
+        strict=strict,
         inject=inject,
     )
+    if sharded is not None:
+        sharded["parallel_peak_bytes"] = torch.cuda.max_memory_allocated()
 
     checks = {
         "video_velocity_bitwise": torch.equal(reference["video"], observed["video"]),
@@ -227,6 +280,7 @@ def main() -> None:
             "parallel": observed["seconds"],
         },
         "readback": pm.grid_readback(grid, sp=args.sp, ops=ops),
+        "sharded": sharded,
     }
     gathered = [None] * world
     dist.all_gather_object(gathered, result)
@@ -242,6 +296,8 @@ def main() -> None:
             size=args.size,
             packed_rows=length,
             inject=args.inject or None,
+            sharded=args.sharded,
+            strict_boundaries=strict,
             world=world,
             spans=spans,
             all_bitwise=all(all(r["checks"].values()) for r in gathered),
