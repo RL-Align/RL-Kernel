@@ -108,8 +108,10 @@ def row_sums(x: torch.Tensor) -> torch.Tensor:
     if n_chunks > 65535:
         raise ValueError(f"row_sums supports up to {65535 * CHUNK} elements per row, got {k}")
     partial = torch.empty((rows, n_chunks), device=x.device, dtype=torch.float32)
-    _chunk_sums_kernel[(rows, n_chunks)](
-        x, partial, k, n_chunks, x.stride(0), CHUNK=CHUNK, BLOCK=BLOCK, num_warps=NUM_WARPS
-    )
-    _partial_sums_kernel[(rows,)](partial, out, n_chunks, BLOCK=BLOCK, num_warps=NUM_WARPS)
+    # Triton launches on the current device; ``x`` may live on another one.
+    with torch.cuda.device(x.device):
+        _chunk_sums_kernel[(rows, n_chunks)](
+            x, partial, k, n_chunks, x.stride(0), CHUNK=CHUNK, BLOCK=BLOCK, num_warps=NUM_WARPS
+        )
+        _partial_sums_kernel[(rows,)](partial, out, n_chunks, BLOCK=BLOCK, num_warps=NUM_WARPS)
     return out
