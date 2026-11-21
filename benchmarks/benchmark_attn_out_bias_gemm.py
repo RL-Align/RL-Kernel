@@ -6,8 +6,8 @@
 
 Compares the FP32 tree reference against the Triton leaf-chunk backend and
 the CUDA per-thread-tree backend (forward and forward+backward) across the
-issue #386 acceptance tiers. All backends share the frozen reduction tree;
-see docs/operators/attn-out-bias-gemm.md.
+selected token counts. The reference runs on the same GPU. The benchmark
+reports mean elapsed time and speedup relative to the reference.
 """
 
 import argparse

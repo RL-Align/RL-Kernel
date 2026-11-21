@@ -16,11 +16,10 @@ The harness implements the frozen comparison procedure from the contract
 The integer comparison distinguishes signed zeros and NaN payloads, and
 accepts matching NaN bit patterns.
 
-The acceptance structure is star-shaped: every backend (pytorch reference,
-Triton, CUDA) is compared byte-for-byte against the FP32 CPU same-tree
-reference; cross-backend equality is a transitive corollary; batch-invariance
-checks compare a backend against itself across batch composition, shape,
-padding, and repeat runs, without the reference involved.
+The small reference cases compare device results with CPU results. The
+3072-wide sweep compares CUDA with Triton at every tier and CUDA with the
+CPU reference at 1, 7 and 300 rows. Invariance checks compare rows from
+different executions of the same backend.
 """
 
 from __future__ import annotations
@@ -187,12 +186,7 @@ requires_triton_cuda = pytest.mark.skipif(
 
 @requires_triton_cuda
 class TestTritonBackendBitwise:
-    """Star-shaped acceptance: triton vs the FP32 CPU same-tree reference.
-
-    Both dtypes byte-for-byte: one correctly-rounded FMA discipline on both
-    sides (kernels use fma.rn; the reference uses torch.addcmul, an
-    oracle-verified FMA). No tolerance path.
-    """
+    """Compare Triton results with the FP32 CPU reference in both dtypes."""
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
     @pytest.mark.parametrize("rows", [1, 2, 7, 33, 64])
@@ -734,11 +728,9 @@ class TestFmaPrimitive:
     """Rule gate 1: the reference primitive must BE a correctly-rounded FMA."""
 
     def test_addcmul_passes_reported_midband_counterexample(self):
-        # Regression for the externally reported counterexample that disproved
-        # the old fp64-emulation claim: a = b = 1+2^-12, c = 2^-60. The exact
-        # a*b + c sits strictly above the fp32 midpoint 1+2^-11+2^-24, so the
-        # correctly-rounded FMA rounds UP; the fp64-relay path rounds the
-        # intermediate onto the midpoint and ties-to-even rounds DOWN.
+        # For a = b = 1+2^-12 the exact product is the FP32 midpoint
+        # 1+2^-11+2^-24. Adding 2^-60 before rounding moves the result
+        # above the midpoint, so the correctly rounded FMA rounds up.
         a = _f32(1.0 + 2**-12)
         b = _f32(1.0 + 2**-12)
         c = _f32(2.0**-60)
@@ -747,7 +739,7 @@ class TestFmaPrimitive:
         oracle = _LIBM.fmaf(a, b, c)
         assert struct.unpack("<I", struct.pack("<f", got))[0] == 0x3F801001
         assert struct.unpack("<I", struct.pack("<f", oracle))[0] == 0x3F801001
-        # and the refuted path, kept as a negative witness
+        # Rounding the product to FP32 first rounds the tie down.
         refuted = _f32(_f32(a * b) + c)
         assert struct.unpack("<I", struct.pack("<f", refuted))[0] == 0x3F801000
 

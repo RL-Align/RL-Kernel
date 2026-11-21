@@ -15,10 +15,8 @@
 //     each leaf is an ascending-k fp32 chain starting from +0.0; leaves merge
 //     through a mid-split tree T(l,r) = T(l,m) + T(m,r). The tree depends
 //     only on R, so row outputs are batch-invariant by construction.
-//   * Multiply-add discipline: one correctly-rounded FP32 FMA on BOTH sides
-//     (__fmaf_rn here; the FP32 reference uses torch.addcmul, an
-//     oracle-verified correctly-rounded FMA), so the kernel matches the
-//     reference byte for byte in BOTH dtypes -- no tolerance path.
+//   * Leaf chains and dW use __fmaf_rn for FP32 fused multiply-add.
+//     This source is included only in strict-math CUDA builds.
 //   * RNE everywhere; bias added once in fp32 after the complete tree; the
 //     single fp32 -> output-dtype cast happens at the final store.
 //   * No split-K, no atomics, no tensor-core mma (its internal accumulation

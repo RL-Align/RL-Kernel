@@ -17,15 +17,12 @@ Frozen numeric contract (issue #386, contract version
    product to ``+0.0``). Leaves combine through a mid-split tree
    ``T(l, r) = T(l, m) + T(m, r)`` over leaf indices. The tree depends only on
    ``R`` -- never on batch size, token count, or tiling -- so row outputs are
-   batch-invariant by construction, and a contiguous half-R split composes
-   (left subtree + right subtree == whole tree) for the WS2 TP-row shard path.
-2. **Multiply-add discipline.** Correctly-rounded FP32 FMA at every
-   multiply-into-add site, on BOTH sides: device backends use explicit
-   ``fma_rn`` intrinsics and this reference uses ``torch.addcmul`` (a
-   correctly-rounded single-rounding FP32 FMA on the pinned toolchains,
-   oracle-verified against ``libm fmaf``). One discipline, one set of bits --
-   no intermediate double rounding, no tolerance path. RNE rounding
-   everywhere, including the single fp32 -> input-dtype output cast.
+   batch-invariant. A two-way reduction composes when each shard evaluates
+   one root subtree. At R=3072 this splits 96 leaves into two groups of 48.
+2. **Multiply-add discipline.** Leaf chains and the weight-gradient fold
+   use FP32 FMA. Triton uses ``tl.fma``, native CUDA uses ``__fmaf_rn``,
+   and this reference uses ``torch.addcmul``. The primitive tests compare
+   the reference against ``libm fmaf`` on the tested toolchains.
 3. **bias.** Added once per output element, in fp32, after the complete K
    tree; then the single output cast. Never inside a leaf chain or tree node.
 4. **S-dim reductions** (parameter gradients only) use an ascending-row fp32
@@ -35,12 +32,11 @@ The forward uses ``R = K`` (3072 -> 96 leaves) and ``dx`` uses ``R = N`` under
 the mid-split tree; ``dW`` reduces over the row dim S with an ascending-row
 left fold (contract c-prime, shared with ``db``).
 
-This module is the bit-exactness gold: the tree is evaluated with explicit
-torch elementwise ops only (no matmul, no implicit reductions), so it is
-bit-identical on every device and is the FP32 CPU reference that the Triton
-and CUDA backends are compared against byte for byte. The tree combine and
-finalize helpers are shared with those backends so the reference and the
-accelerated paths execute the *same* host-side merge code by construction.
+The reference computes on the input device using PyTorch elementwise ops.
+Triton shares the Python tree helper for merging leaves within a chunk and
+the helper for bias and the final cast. Its merges within and across chunks
+operate on GPU tensors. Native CUDA evaluates the tree, bias and cast in
+the device kernel.
 """
 
 from __future__ import annotations
@@ -109,12 +105,8 @@ def _leaf_sum_fp32(a_f: torch.Tensor, b_f: torch.Tensor, leaf_index: int) -> tor
 
     Every step is ONE fused multiply-add with a single rounding:
     ``acc = torch.addcmul(acc, a_col, b_col)`` (broadcast outer product).
-    ``torch.addcmul`` is a true correctly-rounded FP32 FMA on the pinned
-    toolchains -- verified against the ``libm fmaf`` oracle (IEEE 754
-    correctly-rounded by specification) on the double-rounding counterexample
-    and on random samples, CPU and CUDA (see tests). This matches the device
-    backends' explicit ``fma_rn`` chains bit for bit with no intermediate
-    double rounding anywhere.
+    The primitive tests compare ``torch.addcmul`` with ``libm fmaf`` on
+    rounding counterexamples and on sampled inputs.
     """
     k0 = leaf_index * LEAF_WIDTH
     k1 = min(k0 + LEAF_WIDTH, a_f.size(1))
@@ -127,10 +119,9 @@ def _leaf_sum_fp32(a_f: torch.Tensor, b_f: torch.Tensor, leaf_index: int) -> tor
 def tree_gemm_fp32(a_f: torch.Tensor, b_f: torch.Tensor) -> torch.Tensor:
     """``a_f @ b_f.T`` for 2-D fp32 inputs under the frozen K-dim tree.
 
-    ``a_f`` is ``[S, R]`` and ``b_f`` is ``[M, R]``; the reduction runs over
-    ``R`` (which may be the forward K, the backward N, or the backward S with
-    a short tail leaf). Used by the forward, ``dx``, and ``dW`` alike so all
-    three share one tree definition.
+    ``a_f`` is ``[S, R]`` and ``b_f`` is ``[M, R]``. Forward reduces over
+    R=K and ``dx`` reduces over R=N. The weight gradient uses a separate
+    ascending-row fold over S.
     """
     if a_f.dim() != 2 or b_f.dim() != 2:
         raise ValueError(
@@ -149,8 +140,7 @@ def _dw_left_fold_reference(g_f: torch.Tensor, x_f: torch.Tensor) -> torch.Tenso
     """dW by the ascending-row left fold, one correctly-rounded FMA per row.
 
     Same single-rounding primitive as ``_leaf_sum_fp32``: the fold accumulates
-    ``dw = torch.addcmul(dw, g_row, x_row)`` per row in ascending order,
-    matching the device backends' ``__fmaf_rn`` fold bit for bit.
+    ``dw = torch.addcmul(dw, g_row, x_row)`` per row in ascending order.
     """
     dw = torch.zeros(g_f.size(1), x_f.size(1), device=g_f.device, dtype=torch.float32)
     for row in range(g_f.size(0)):

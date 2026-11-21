@@ -8,14 +8,12 @@ Wraps the correctness-anchor kernels in ``csrc/cuda/gemm/attn_out_bias_gemm.cu``
 
 - forward: one thread per output element evaluates the full frozen tree
   (32-wide ascending-k FMA chains + mid-split merges), adds bias once in fp32
-  and performs the single RNE cast at the store -- no partials, memory O(S*N).
+  and writes the result directly, with one RNE cast for bf16 output.
 - ``dx`` reuses the same tree kernel on ``(dY, W.T)``; ``dW`` runs the
   ascending-row left-fold kernel (contract c-prime); ``db`` uses the shared
   ``row_local_bias_fp32`` left fold.
-- One correctly-rounded FP32 FMA discipline on both sides (kernels use
-  ``__fmaf_rn``; the reference uses ``torch.addcmul``, an oracle-verified
-  correctly-rounded FMA), so this backend matches the reference byte for
-  byte in BOTH dtypes -- no tolerance path.
+- Strict-math builds include the native bindings. Leaf chains and the
+  weight-gradient fold use ``__fmaf_rn`` for FP32 fused multiply-add.
 """
 
 from __future__ import annotations

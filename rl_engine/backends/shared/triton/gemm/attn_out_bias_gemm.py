@@ -6,26 +6,17 @@
 
 Design (see docs/operators/attn-out-bias-gemm.md):
 
-- The forward and ``dx`` reduce over a fixed 3072 dim under the mid-split
-  tree. A leaf kernel computes 32-step ascending-k fp32 chains for an output
-  tile; leaves are evaluated in chunks and combined on the host by the SAME
-  tree code the FP32 CPU reference uses (``tree_from_leaf_evaluator``).
-  Chunked depth-first evaluation bounds peak memory to about
-  ``(CHUNK + log2(leaves))`` output tiles instead of materialising all 96
-  partial planes at once (~2 GB at the largest acceptance tier instead of
-  8.1 GB, and bitwise-identical by construction: the tree is the same).
-- ``dW`` reduces over the row dim S with the ascending-row LEFT FOLD
-  (contract c-prime): a dedicated kernel accumulates one correctly-rounded
-  FMA per row into a single [N, K] fp32 accumulator -- no partials, memory
-  independent of S.
-- One correctly-rounded FP32 FMA discipline on BOTH sides: these kernels use
-  explicit ``tl.fma`` and the torch reference uses
-  ``torch.addcmul`` (an oracle-verified correctly-rounded FP32 FMA), so every
-  backend matches the reference byte for byte in BOTH dtypes -- no tolerance
-  path. ``tl.sum`` (unspecified tree order) and ``tl.dot``/mma (unspecified
-  internal accumulation tree) remain forbidden.
-- Bias is added once in fp32 after the complete tree and the output is cast
-  once (RNE) -- via the shared ``finalize_tree_output`` host helper.
+- Forward reduces over K and ``dx`` over N. Each leaf accumulates up to
+  32 products with ``tl.fma`` in ascending index order. K=N=3072 in the
+  Qwen-Image projection.
+- Python schedules chunks of up to 12 leaves. Within each chunk it uses
+  ``tree_from_leaf_evaluator`` to merge leaf planes. The outer recursion
+  combines chunk results in the same mid-split order. All of these tensor
+  additions run on the GPU.
+- Each ``dW`` program owns an output tile and accumulates one FP32 FMA per
+  row in ascending order. The tile accumulator size is independent of S.
+- ``finalize_tree_output`` adds optional bias in fp32 after the complete
+  tree and casts once to the output dtype.
 """
 
 from __future__ import annotations
@@ -167,9 +158,8 @@ def triton_tree_gemm(a_f: torch.Tensor, b_f: torch.Tensor) -> torch.Tensor:
     """``a_f @ b_f.T`` under the frozen mid-split tree (chunked DFS combine).
 
     Both inputs must be 2-D fp32 CUDA tensors sharing the reduction dim; the
-    tree reduction runs over that dim. Leaf chunks are combined through the
-    shared reference tree code, so the result is bitwise-identical to the
-    CPU reference by construction.
+    tree reduction runs over that dim. The chunked evaluation preserves
+    the reference's mid-split addition order.
     """
     _require_triton()
     if a_f.dim() != 2 or b_f.dim() != 2 or a_f.size(1) != b_f.size(1):
@@ -278,7 +268,7 @@ class _AttnOutBiasGemmTritonFunction(torch.autograd.Function):
 
 
 class TritonAttnOutBiasGemmOp:
-    """Triton backend: leaf chunks on device, shared tree combine on host."""
+    """GPU leaf kernels and GPU tensor additions scheduled from Python."""
 
     op_class = "reduction"
     is_batch_invariant = True

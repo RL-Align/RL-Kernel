@@ -255,9 +255,8 @@ OP_SPECS = {
     "attn_out_bias_gemm": OperatorSpec(
         name="attn_out_bias_gemm",
         op_class="reduction",
-        # Same-tree gold: the reference evaluates the frozen 32-leaf mid-split
-        # tree with explicit elementwise ops (no matmul), so the byte-for-byte
-        # bar from issue #386 is reached against THIS gold, not torch.matmul.
+        # The reference splits the reduction into leaves of up to 32 elements
+        # and combines them in the frozen mid-split order.
         gold_path="rl_engine.reference.gemm.attn_out_bias_gemm." "NativeAttnOutBiasGemmOp",
         gold_method="forward_fp32",
         candidate_paths={

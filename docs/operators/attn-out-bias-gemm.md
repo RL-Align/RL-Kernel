@@ -13,15 +13,12 @@ parallel variant). The numeric contract version is
   (short tail allowed); each leaf is an ascending-k fp32 chain from `+0.0`;
   leaves merge through a mid-split tree `T(l, r) = T(l, m) + T(m, r)`. The
   tree depends only on the reduction length, so row outputs are
-  batch-invariant by construction, and a contiguous half-K split composes
-  (WS2 TP-row friendly).
-- **Multiply-add discipline**: one correctly-rounded FP32 FMA on BOTH sides
-  of every multiply-into-add site -- device backends use explicit intrinsics
-  (`tl.fma` / `__fmaf_rn`) and the FP32 reference uses
-  `torch.addcmul` (a correctly-rounded single-rounding FP32 FMA, verified
-  against the `libm fmaf` oracle). One discipline, one set of bits: every
-  backend matches the reference byte for byte in BOTH dtypes, with no
-  tolerance path.
+  batch-invariant. Two partial sums reproduce the root addition when the
+  partition follows its left and right subtrees. For K=3072 there are 96
+  leaves and the root splits them into two groups of 48 at K offset 1536.
+- **Multiply-add discipline**. The leaf chains and `dW` fold use FP32 FMA.
+  Triton uses `tl.fma`, native CUDA uses `__fmaf_rn`, and the reference
+  uses `torch.addcmul`. Tests compare the reference primitive with `libm fmaf`.
 - **RNE everywhere**; bias is added once in fp32 after the complete tree;
   the single fp32-to-output-dtype cast happens at the final store. No
   split-K, no atomics, no tensor-core mma, no fast-math, no TF32.
@@ -41,27 +38,28 @@ out = op(x, weight, bias=bias)                              # [*lead, 3072]
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Triton (leaf chunks + shared host tree combine) | `TritonAttnOutBiasGemmOp` | — | Supported (default on CUDA) |
+| Triton (leaf chunks + device tensor additions) | `TritonAttnOutBiasGemmOp` | — | Supported (default on CUDA) |
 | CUDA (per-thread full tree) | `CudaAttnOutBiasGemmOp` | `_C.attn_out_bias_gemm_cuda_forward`, `_C.attn_out_tree_gemm_cuda`, `_C.attn_out_dw_left_fold_cuda` | Supported |
 | PyTorch same-tree reference | `NativeAttnOutBiasGemmOp` | — | Gold + CPU fallback |
 
-ROCm dispatches Triton then PyTorch. CUDA builds with fast-math or unverified
-NVCC math flags also omit the native attn-out bindings to preserve the frozen
-FP32 contract.
+ROCm dispatches Triton then PyTorch. The build includes the native attn-out
+CUDA bindings only with strict math flags. For example, `--use_fast_math`
+enables flush-to-zero. An FP32 FMA of `2^-126 * 0.5 + 0` then produces
+zero, while strict math preserves the exactly representable `2^-127`.
 
 ## Tensor Contract
 
 | Argument | Shape | Dtype | Requirements |
 | --- | --- | --- | --- |
-| `x` | `[*lead, 3072]` | bf16 / fp32 | already rounded to the input dtype by the caller |
-| `weight` | `[3072, 3072]` | same as `x` | HF `[out, in]` convention |
-| `bias` | `[3072]` | same as `x` | added once, in fp32, after the tree |
-| return | `[*lead, 3072]` | same as `x` | single RNE cast at the output |
+| `x` | `[*lead, K]` | bf16 / fp32 | already rounded to the input dtype by the caller |
+| `weight` | `[N, K]` | same as `x` | HF `[out, in]` convention |
+| `bias` (optional) | `[N]` | same as `x` | added once in fp32 when supplied |
+| return | `[*lead, N]` | same as `x` | single RNE cast at the output |
 
-Empty batches are supported. Public operators reject zero input/output
-feature dimensions and require matching bf16/fp32 input, weight and bias
-dtypes, with a one-dimensional bias. Low-level tree GEMM helpers define
-an empty reduction as a zero dot product. Backward computes only the
+Qwen-Image uses K=N=3072. Public operators accept positive K and N,
+including rectangular weights and empty batches. All input tensors must
+share a device. Low-level tree GEMM helpers define an empty reduction as
+a zero dot product. Backward computes only the
 gradients requested by autograd, including when projection weights are frozen.
 
 ## Dispatch Behavior
@@ -73,22 +71,21 @@ gradients requested by autograd, including when projection weights are frozen.
 
 ## Accuracy
 
-The acceptance structure is star-shaped with a single gold: the FP32 CPU
-same-tree reference (explicit elementwise ops, no matmul, no implicit
-reductions, bit-identical on every device).
+The PyTorch reference evaluates the tree with elementwise operations on the
+input device. In the dedicated tests it also serves as an FP32 CPU reference.
 
-- **bf16 and fp32 inputs**: every backend matches the reference byte for
-  byte on the tested RTX 5090 configurations. For AMD, both Triton kernels
-  compile offline for `gfx942` with FP32 fused multiply-add instructions.
-  Bitwise acceptance on AMD hardware still requires a device run.
-- **batch invariance**: bitwise (`torch.equal` plus a dtype-bitcast
-  assertion on the logical elements) across batch composition, leading
-  shapes, padding, and repeat runs, for outputs and `dx` alike.
-- **Acceptance is bitwise and only bitwise**: forward and backward, both
-  dtypes, logical-element bit patterns (the harness in
-  `tests/ops/gemm/test_attn_out_bias_gemm.py`: shape, dtype, dtype-bitcast; zero
-  tolerance). A result that differs in any bit fails acceptance regardless
-  of any other verdict; error statistics are diagnostics only.
+- **Device comparisons.** At K=N=3072 the shape sweep compares CUDA and
+  Triton outputs directly in bf16 and fp32. At S=1, 7 and 300 it also
+  compares native CUDA directly with the CPU reference. Both Triton kernels
+  compile offline for AMD `gfx942`. AMD bitwise results await a device run.
+- **Batch invariance.** Tests compare output rows across changes in batch
+  composition, leading shape, padding and repeated runs. The reference
+  gradient test compares `dx` for a row slice with the same upstream rows
+  from the full batch.
+- **Bitwise acceptance.** Forward and gradient checks compare logical
+  elements. The dedicated harness checks shape and dtype, materialises
+  contiguous tensors and calls `torch.equal` on integer views (`int16` for
+  bf16 and `int32` for fp32).
 - The generic gtest matrix enforces the same bar for this operator
   (`bitwise_strict` in `rl_engine/validation/operators/operator_specs.py`): the
   forward pass criterion is the gold cast ONCE to the output dtype, compared
@@ -105,16 +102,21 @@ python benchmarks/benchmark_attn_out_bias_gemm.py --dtype bf16
 python benchmarks/benchmark_attn_out_bias_gemm.py --rows 512,4096,6889 --backward
 ```
 
-Measured on RTX 5090 (sm_120), bf16, torch 2.13.0+cu130 (re-measured on the
-refactored base): Triton leaf-chunk forward 1.9 ms at S=512, 17.5 ms at
-S=4096, 41 ms at S=6889 (26.5x / 21.1x / 16.1x vs the reference);
-forward+backward 7.1 / 72.1 / 152.5 ms (16.8x / 12.3x / 10.0x); peak
-allocated memory
-0.17 / 1.05 / 1.71 GiB forward and 0.24 / 1.31 / 2.07 GiB forward+backward
-(the backward tree partials plus dW dominate the extra footprint). The CUDA
-per-thread kernel trades speed (about 3-7x slower across tiers and modes)
-for O(S*N) memory (no partial planes). The Triton path bounds partials to `(12 + log2(96))` output tiles
-via chunked depth-first combination.
+The commands above report average elapsed time and speedup relative to the
+PyTorch reference running on the same GPU. Recorded RTX 5090 results
+(sm_120, bf16, torch 2.13.0+cu130) are listed below. The memory columns
+give the separately reported peak allocated GPU memory.
+
+| Rows | Triton forward | Speedup | Forward + backward | Speedup | Peak forward | Peak forward + backward |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 512 | 1.9 ms | 26.5× | 7.1 ms | 16.8× | 0.17 GiB | 0.24 GiB |
+| 4096 | 17.5 ms | 21.1× | 72.1 ms | 12.3× | 1.05 GiB | 1.31 GiB |
+| 6889 | 41 ms | 16.1× | 152.5 ms | 10.0× | 1.71 GiB | 2.07 GiB |
+
+The native CUDA kernel was about 3–7× slower than Triton across these tiers
+and modes. Each CUDA forward thread computes one output element and writes
+it directly. Triton computes up to 12 full FP32 leaf planes per chunk and
+combines the chunks depth first.
 
 ## Tests
 
@@ -144,13 +146,10 @@ elements) required by the issue acceptance list.
 
 ## Known Limitations
 
-- The Triton forward materialises leaf partial planes per chunk; peak extra
-  memory is 1.71 GiB forward / 2.07 GiB forward+backward (allocated) at the
-  largest acceptance tier (S=6889). Streamed or
-  in-kernel tree combination is future work.
+- The Triton forward materialises leaf planes in GPU memory. Streaming
+  those partials or combining them inside the kernel is future work.
 - Tensor-core (mma) paths are excluded on purpose: PTX does not specify the
   internal accumulation tree of `mma.sync`, so the reduction tree cannot be
   frozen. Any future mma path must re-pass the bit-equality harness and
   revise the contract first.
-- WS2 (TP-row) sharding is reserved in the design (contiguous half-K tree
-  composition) but not implemented in WS1.
+- WS2 TP-row sharding at the root split is planned for a later implementation.
