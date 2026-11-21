@@ -133,8 +133,10 @@ def benchmark_muse_glimmer(warmup, iters, trace_out):
         f"{iters} timed iterations. Mean milliseconds per call. Training includes forward, "
         "dX and dW. Each named projection runs independently.",
         "",
-        "| Nodes | Phase | M | K | N | Native ms | CUDA ms | Triton ms | CUDA/native "
-        "| Triton/native |",
+        "Native time is 1x. A value above 1x means the strict backend took longer.",
+        "",
+        "| Nodes | Phase | M | K | N | Native ms | Strict CUDA ms | Strict Triton ms "
+        "| CUDA time / native time | Triton time / native time |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     trace = []
