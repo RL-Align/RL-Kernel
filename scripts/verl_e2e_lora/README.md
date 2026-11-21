@@ -274,7 +274,10 @@ Recorded (2026-11-20 / 21; means over steps 3 to the end, seconds per step):
   in almost every step), so `gen` / longest response is the decode-step latency at small
   batch. Of E3's 50 ms over BL2, the rollout's batch invariance is about 30 ms (E3 against
   A3); the rest is the stack (DP 8 attention with the MoE's static EP exchange against
-  vLLM's TP 8, and our modules). The design doc tracks the profile.
+  vLLM's TP 8, and our modules). Most of those 30 ms turned out to be vLLM's BI mode
+  capping NCCL at one channel, which the plugin now undoes (after these runs): in the
+  server alone, BI then costs 12-14 % over BI off. The profile is in the design doc,
+  section 10.3.
 - Learning: AIME-2024 (greedy, 30 problems): BL2 0.608 -> 0.558 over 50 steps; E3 between
   0.633 and 0.767, 0.667 at step 100. The two runs' learning rates differ after step 3
   (50- against 100-step cosine), and one problem is 0.033. A3: 0.649, 0.685, 0.705, 0.671
