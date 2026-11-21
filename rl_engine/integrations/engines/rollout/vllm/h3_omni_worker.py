@@ -211,6 +211,43 @@ class H3OmniWorkerExtension:
         return results
 
     @_all_ranks
+    def rlk_h3_record_native(self, record_dir: str, record_calls: tuple[int, ...] = (0,)) -> int:
+        """Validation only, on an unbound engine: rank 0 saves the kwargs and outputs of vLLM-Omni's
+        own DiT for calls ``record_calls``, to compare with the binding (``native`` stage)."""
+
+        from vllm.distributed.parallel_state import get_tp_group
+
+        if self._rlk_h3 is not None:
+            raise RuntimeError(
+                "the H3 rollout DiT is bound; record the native DiT on its own engine"
+            )
+        transformer = self._rlk_pipeline().transformer
+        if get_tp_group().rank_in_group != 0:
+            return 0
+        out = Path(record_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        native = transformer.forward
+        seen = {"n": 0}
+
+        def forward(*args, **kwargs):
+            video, audio = native(*args, **kwargs)
+            n = seen["n"]
+            seen["n"] += 1
+            if n in record_calls:
+                torch.save(
+                    {
+                        "omni_kwargs": _to_cpu(kwargs),
+                        "video": video.detach().cpu(),
+                        "audio": audio.detach().cpu(),
+                    },
+                    out / f"call{n}.pt",
+                )
+            return video, audio
+
+        transformer.forward = forward
+        return len(record_calls)
+
+    @_all_ranks
     def rlk_h3_lora_digests(self) -> dict[str, str]:
         from rl_engine.validation.models import h3_lora
 

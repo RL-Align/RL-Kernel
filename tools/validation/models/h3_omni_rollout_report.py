@@ -20,6 +20,10 @@ Three stages, each writing ``<out>/<stage>.json``:
     Loads the whole model on one GPU (``Grid(1, 1)``, the canonical run of #701 / #732 / #733)
     with the same LoRA and replays every saved call: the outputs must equal the rollout's.
 
+``native`` (``--tp`` GPUs, reported only)
+    vLLM-Omni's own DiT, unbound, on request A: its outputs against a B = 0 engine run's saved
+    calls (``--compare-calls``) on the same inputs.
+
 ``actor`` (CPU, verl-omni installed)
     Feeds each saved call's vLLM-Omni kwargs through verl-omni's rollout storage
     (``MiniMaxH3PipelineWithLogProb._layout_outputs``) and actor input builder
@@ -66,12 +70,10 @@ def _write(path: Path, data: dict) -> None:
 # --- engine --------------------------------------------------------------------------------------
 
 
-async def _engine(args) -> dict[str, Any]:
-    import copy
-
+def _make_engine(args):
     from vllm_omni.entrypoints.async_omni import AsyncOmni
 
-    engine = AsyncOmni(
+    return AsyncOmni(
         model=str(args.engine_model or args.checkpoint),
         trust_remote_code=True,
         num_gpus=args.tp,
@@ -86,6 +88,35 @@ async def _engine(args) -> dict[str, Any]:
         stage_init_timeout=args.init_timeout,
         init_timeout=args.init_timeout,
     )
+
+
+async def _run_request(engine, args, rid: str, key: str, seed: int):
+    """One T2VA request of ``--steps`` steps at the stage's size; returns its last output."""
+
+    import copy
+
+    p = copy.deepcopy(engine.default_sampling_params_list)
+    d = p[0]
+    d.width, d.height, d.fps = args.width, args.height, 24
+    d.num_inference_steps, d.seed = args.steps, seed
+    d.extra_args = {
+        "task": "t2va",
+        "duration": args.duration,
+        "aspect_ratio": "16:9",
+        "flow_shift": 12.0,
+        "audio_flow_shift": 3.0,
+    }
+    last = None
+    async for out in engine.generate(prompt=PROMPTS[key], request_id=rid, sampling_params_list=p):
+        if out.finished:
+            last = out
+    if last is None:
+        raise RuntimeError(f"{rid} finished without an output")
+    return last
+
+
+async def _engine(args) -> dict[str, Any]:
+    engine = _make_engine(args)
     report: dict[str, Any] = {
         "tp": args.tp,
         "checkpoint": "MiniMax-H3 (released)",
@@ -112,30 +143,8 @@ async def _engine(args) -> dict[str, Any]:
         if args.lora_rank:
             report["lora"] = await _lora_sync(engine, args)
 
-        def params(seed: int):
-            p = copy.deepcopy(engine.default_sampling_params_list)
-            d = p[0]
-            d.width, d.height, d.fps = args.width, args.height, 24
-            d.num_inference_steps, d.seed = args.steps, seed
-            d.extra_args = {
-                "task": "t2va",
-                "duration": args.duration,
-                "aspect_ratio": "16:9",
-                "flow_shift": 12.0,
-                "audio_flow_shift": 3.0,
-            }
-            return p
-
-        async def one(rid: str, key: str, seed: int):
-            last = None
-            async for out in engine.generate(
-                prompt=PROMPTS[key], request_id=rid, sampling_params_list=params(seed)
-            ):
-                if out.finished:
-                    last = out
-            if last is None:
-                raise RuntimeError(f"{rid} finished without an output")
-            return last
+        def one(rid: str, key: str, seed: int):
+            return _run_request(engine, args, rid, key, seed)
 
         timings = {}
         for rid, key, seed in (("A-alone", "A", 11), ("B-alone", "B", 22)):
@@ -305,6 +314,59 @@ def _flat(results: Any) -> list:
     return out
 
 
+# --- native (acceptance 6: reported, not a gate) ---------------------------------------------
+
+
+async def _native(args) -> dict[str, Any]:
+    """vLLM-Omni's own DiT (the P/P path) on request A's first calls, against this binding's
+    outputs for the same inputs from ``--compare-calls`` (a B = 0 engine run: B = 0 gives the base
+    projections exactly). Measured, not a gate."""
+
+    from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+
+    engine = _make_engine(args)
+    try:
+        await _rpc(
+            engine,
+            "rlk_h3_record_native",
+            kwargs=dict(
+                record_dir=str(args.out / "native-calls"),
+                record_calls=tuple(range(args.record_calls)),
+            ),
+        )
+        await _run_request(engine, args, "A-alone", "A", 11)
+    finally:
+        engine.shutdown()
+    rows = []
+    for path in sorted((args.out / "native-calls").glob("call*.pt"), key=lambda p: int(p.stem[4:])):
+        nat = torch.load(path, weights_only=False)
+        ours = torch.load(args.compare_calls / path.name, weights_only=False)
+        same_inputs = all(
+            torch.equal(nat["omni_kwargs"][k], ours["omni_kwargs"][k])
+            for k in ("x", "audio_x", "img_position_ids", "unique_timesteps", "inverse_indices")
+            if isinstance(ours["omni_kwargs"].get(k), torch.Tensor)
+        )
+        v, a = om.diffusers_to_omni(ours["video"], ours["audio"], ours["omni_kwargs"])
+        row: dict[str, Any] = {"call": path.stem, "same_inputs": same_inputs}
+        for name, mine, theirs in (("video", v, nat["video"]), ("audio", a, nat["audio"])):
+            d = (mine.double() - theirs.double()).abs()
+            row[name] = {
+                "bitwise": bool(torch.equal(mine, theirs)),
+                "elements_differing": int((mine != theirs).sum()),
+                "elements": int(mine.numel()),
+                "max_abs": float(d.max()),
+                "rel_l2": float(d.norm() / theirs.double().norm()),
+            }
+        rows.append(row)
+        print(json.dumps(row))
+    return {
+        "tp": args.tp,
+        "engine": "vLLM-Omni native DiT (enforce_eager, step mode, as the engine stage)",
+        "compared_with": "this binding, LoRA B = 0",
+        "calls": rows,
+    }
+
+
 # --- canonical -----------------------------------------------------------------------------------
 
 
@@ -449,7 +511,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("stage", choices=("engine", "canonical", "actor"))
+    ap.add_argument("stage", choices=("engine", "canonical", "actor", "native"))
     ap.add_argument("--checkpoint", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument(
@@ -473,10 +535,17 @@ def main() -> None:
     ap.add_argument("--lora-b-zero", action="store_true")
     ap.add_argument("--max-text-len", type=int, default=1024)
     ap.add_argument("--init-timeout", type=float, default=3600.0)
+    ap.add_argument(
+        "--compare-calls",
+        type=Path,
+        help="native: the calls/ of a B = 0 engine run to compare with",
+    )
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     if args.stage == "engine":
         report = asyncio.run(_engine(args))
+    elif args.stage == "native":
+        report = asyncio.run(_native(args))
     elif args.stage == "canonical":
         report = _canonical(args)
     else:
