@@ -403,7 +403,10 @@ class PPOTrainingWorker:
         names; this is checked on the first call. A parameter no rank has a gradient for stays
         without one, as at TP1, so the optimizer skips it. If any rank has one, a rank without a
         local contribution reduces zeros, so the collective sequence stays aligned across the
-        group.
+        group. Those zeros are created only where the worker owns the buffers (``.grad``,
+        ``gradients is None``). With a ``PPOGradientState`` the buffers belong to the framework's
+        optimizer, which the worker cannot extend, so its adapter must provide every ``partial``
+        buffer that any rank uses; a missing one raises on every rank.
         """
         world = dist.get_world_size(self.group)
         if world == 1:
@@ -427,7 +430,10 @@ class PPOTrainingWorker:
             if not used or buffers[index] is not None:
                 continue
             if gradients is not None:
-                error = "partial-layout optimizer gradient buffer is missing"
+                error = (
+                    "partial-layout optimizer gradient buffer is missing on this rank while "
+                    "another rank has one; the PPOGradientState must provide every partial buffer"
+                )
                 break
             parameter = self.parameters[index][0]
             parameter.grad = torch.zeros_like(parameter)

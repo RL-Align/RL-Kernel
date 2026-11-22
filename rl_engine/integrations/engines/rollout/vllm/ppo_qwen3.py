@@ -74,6 +74,9 @@ def install_weights(worker, filename, version):
     parameter must match its expected shard exactly, else ``ValueError``. On success sets
     ``worker.ppo_actor_version = version`` and returns this rank's acknowledgment dict (rank,
     tp, version, verified_tensors, installed_sha256, peak_allocated_bytes).
+    ``peak_allocated_bytes`` is ``torch.cuda.max_memory_allocated()`` of the vLLM worker
+    process since it started (model load and KV cache included), not of this installation:
+    the peak statistics are not reset here, so that vLLM's own memory accounting is left alone.
     """
     from vllm.distributed import (
         get_tensor_model_parallel_rank,
