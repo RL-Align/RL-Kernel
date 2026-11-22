@@ -156,8 +156,10 @@ def test_backward_against_fp32_golden(refiner_weights):
         }
         hidden = hidden0.detach().to(dtype).clone().requires_grad_()
         ctx = {"weights": weights, "prefix": f"{hr.PREFIX}.{block}", "hidden": hidden}
-        out = hr.run_graph(mode, ctx, ops)[hr.OUTPUT]
-        out.backward(grad_out.to(out.dtype))
+        # the GEMM rows' weight gradients need a canonical session (opened when they are bound)
+        with hb.gemm_session(ops if mode == "candidate" else None):
+            out = hr.run_graph(mode, ctx, ops)[hr.OUTPUT]
+            out.backward(grad_out.to(out.dtype))
         return {"hidden": hidden.grad, **{n: weights[n].grad for n in leaves}}
 
     cand = grads("candidate", torch.bfloat16)
