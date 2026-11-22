@@ -57,6 +57,16 @@ def test_user_site_copy_of_an_environment_package_is_reported(tmp_path):
     assert user_site_shadowing([env_site], user_site) == []
 
 
+def test_user_site_installers_are_not_shadowing(tmp_path):
+    """pip and wheel in both places (any pip install --user) do not block a run;
+    setuptools still does, because torch's JIT extension builds import it."""
+    env_site, user_site = tmp_path / "site-packages", tmp_path / "user-site"
+    for name in ("pip", "wheel", "setuptools"):
+        _fake_distribution(env_site, name, "1.0")
+        _fake_distribution(user_site, name, "2.0")
+    assert user_site_shadowing([env_site, user_site], user_site) == ["setuptools"]
+
+
 def test_identity_refuses_a_shadowing_user_site(tmp_path, monkeypatch):
     import qwen3_next_runtime as runtime
 
@@ -73,3 +83,20 @@ def test_identity_refuses_a_shadowing_user_site(tmp_path, monkeypatch):
         assert failure_kind(error) == "environment_mismatch"
     else:
         raise AssertionError("a shadowing user site must be refused")
+
+
+def test_probe_keeps_the_child_refusal_and_its_failure_kind(tmp_path):
+    """A refusing probe interpreter surfaces as environment_mismatch with its message."""
+    import qwen3_next_runtime as runtime
+
+    message = "RuntimeError: environment_mismatch: the user site-packages shadows apache-tvm-ffi"
+    fake = tmp_path / "python"
+    fake.write_text(f"#!/bin/sh\necho '{message}' >&2\nexit 1\n")
+    fake.chmod(0o755)
+    try:
+        runtime.probe_environment(fake)
+    except runtime.ProcessFailure as error:
+        assert "shadows apache-tvm-ffi" in str(error)
+        assert failure_kind(error) == "environment_mismatch"
+    else:
+        raise AssertionError("a refusing probe must raise")
