@@ -161,6 +161,45 @@ def test_clip_scales_like_pytorch(max_norm):
 
 
 @CUDA
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_low_precision_gradients_keep_a_small_coefficient(dtype):
+    """The FP32 coefficient multiplies the gradients, as torch's clip does. Here it is about
+    8.6e-9, below FP16's smallest subnormal: cast to FP16 first, it would zero every gradient."""
+
+    n = 1 << 20
+    params = []
+    for _ in range(3):
+        p = torch.nn.Parameter(torch.zeros(n, device="cuda", dtype=dtype))
+        p.grad = torch.full((n,), 32768.0, device="cuda", dtype=dtype)
+        params.append(p)
+    total = clip_grad_norm_exact_(params, 0.5)
+    assert total == pytest.approx(32768.0 * (3 * n) ** 0.5, rel=1e-12)
+    coef = torch.clamp(
+        torch.tensor(0.5) / (torch.tensor(total, dtype=torch.float32) + 1e-6), max=1.0
+    )
+    assert coef.to(torch.float16) == 0  # what the old cast did to it
+    want = (torch.full((n,), 32768.0, dtype=dtype).float() * coef).to(dtype).cuda()
+    for p in params:
+        assert p.grad.abs().min() > 0
+        assert torch.equal(p.grad, want)
+
+
+@CUDA
+@pytest.mark.parametrize("shape", [(64, 32), (5,), ()])
+def test_one_tensor_is_one_parameter(shape):
+    """A bare Tensor is one parameter (torch accepts it too), not an iterable of its rows."""
+
+    [alone] = _params(12, shapes=(shape,))
+    [listed] = _params(12, shapes=(shape,))
+    total = clip_grad_norm_exact_(alone, 0.5)
+    assert (
+        total == clip_grad_norm_exact_([listed], 0.5) == exact_norm([_params(12, (shape,))[0].grad])
+    )
+    assert total > 0
+    assert torch.equal(alone.grad, listed.grad)
+
+
+@CUDA
 def test_clip_leaves_a_non_finite_norm_to_the_caller():
     params = _params(10)
     params[1].grad[0] = float("nan")

@@ -16,8 +16,13 @@ Targets the verl-omni H3 recipe: ``sde_type="cps"``, ``noise_level=0.8``
 The contract makes every number a function of the *sample*, never of how samples are batched:
 
 * FP32 elementwise ops in exactly the order above (separate roundings, no fused contraction);
-* ``eps`` comes from ``step_noise(seed, step, sample_id, modality, shape)``, a per-sample
-  generator, not one stream consumed in batch order;
+* the batch-invariant ``eps`` is ``step_noise(seed, step, sample_id, modality, shape)``, a
+  per-sample generator, not one stream consumed in batch order (the strict runtime draws it so);
+  :func:`h3_sample_previous_step`, the drop-in for verl-omni's ``sample_h3_transition``, takes
+  ``noise=`` for such draws and otherwise draws from the caller's ``generator`` in batch order,
+  as the scheduler does, so a stock rollout keeps its own noise; the drawn ``x_prev`` then
+  depends on the batch position (as in the scheduler), while its log-prob, and the score of any
+  stored ``x_prev``, depend only on the sample;
 * the log-prob mean uses a fixed-order FP32 row reduction (``h3-row-mean-v1``: fixed-size chunks,
   then their sums), each sample's row independent of the batch;
 * ``noise_level == 0`` (a non-selected step) gives ``std == 0``, ``x_prev == mean`` and
@@ -146,6 +151,7 @@ def h3_sample_previous_step(
     noise_level: float = NOISE_LEVEL,
     sde_type: str = SDE_TYPE,
     generator: torch.Generator | None = None,
+    noise: torch.Tensor | None = None,
     prev_sample: torch.Tensor | None = None,
     return_log_prob: bool = True,
 ):
@@ -161,9 +167,13 @@ def h3_sample_previous_step(
     * the flow-matching model output is ``-h3_velocity`` (the H3 velocity's sign convention);
     * ``sigma`` and ``sigma_prev`` broadcast per sample, ``std_dev_t`` has shape ``(B, 1, ...)``
       and ``sqrt_dt`` shape ``(B,)``;
-    * when sampling, the noise is ``randn(model_output.shape)`` drawn from ``generator`` (on the
-      generator's device, then moved to the sample's device), as Diffusers' ``randn_tensor`` does
-      for one generator, so a rollout draws exactly the scheduler's noise;
+    * when sampling without ``noise``, the noise is ``randn(model_output.shape)`` drawn from
+      ``generator`` (on the generator's device, then moved to the sample's device), as Diffusers'
+      ``randn_tensor`` does for one generator, so a rollout draws exactly the scheduler's noise.
+      That stream is consumed in batch order: a sample's draw depends on its batch position;
+    * ``noise`` (FP32 standard normal of the sample's shape, e.g. one :func:`step_noise` per
+      sample, stacked) replaces that draw, so ``x_prev`` is independent of the batch too; it
+      excludes ``generator`` and ``prev_sample``;
     * ``prev_sample`` and ``prev_sample_mean`` are the scheduler's element-wise arithmetic in the
       same order; only the log-prob mean differs: it is :func:`fixed_order_mean` (independent of
       the batch), not ``Tensor.mean``.
@@ -183,8 +193,15 @@ def h3_sample_previous_step(
     sigma, sigma_prev = _step_sigmas(sigmas, sigma_index, sample.shape[0], sample.ndim)
     sigma = sigma.to(sample.device)
     sigma_prev = sigma_prev.to(sample.device)
-    noise = None
-    if prev_sample is None:
+    if noise is not None:
+        if generator is not None or prev_sample is not None:
+            raise ValueError("noise= excludes generator= and prev_sample=")
+        if noise.shape != sample.shape:
+            raise ValueError(
+                f"noise has shape {tuple(noise.shape)}, the sample {tuple(sample.shape)}"
+            )
+        noise = noise.float().to(sample.device)
+    elif prev_sample is None:
         rand_device = generator.device if generator is not None else sample.device
         noise = torch.randn(
             model_output.shape, generator=generator, device=rand_device, dtype=torch.float32
