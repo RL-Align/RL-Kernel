@@ -103,8 +103,18 @@ def test_a_diffusers_comparison_counts_only_against_the_pinned_source(tmp_path, 
     for name in ("__init__.py", "modular_pipelines/__init__.py", "image_processor.py"):
         (package / name).write_text("")
     (package / "modular_pipelines" / "minimax_h3" / "__init__.py").write_text("")
-    for name in [m for m in sys.modules if m == "diffusers" or m.startswith("diffusers.")]:
-        monkeypatch.delitem(sys.modules, name)
+
+    def ours(name):
+        return name == "diffusers" or name.startswith("diffusers.")
+
+    # monkeypatch would restore the real modules but keep the stand-in ones imported below, so
+    # every diffusers entry is saved and put back by hand, whether Diffusers was imported or not.
+    saved = {m: sys.modules.pop(m) for m in [m for m in sys.modules if ours(m)]}
     monkeypatch.syspath_prepend(str(tmp_path))
-    source = tool.provider_source_sha256()
-    assert source is not None and source != tool.PROVIDER_SOURCE_SHA256
+    try:
+        source = tool.provider_source_sha256()
+        assert source is not None and source != tool.PROVIDER_SOURCE_SHA256
+    finally:
+        for name in [m for m in sys.modules if ours(m)]:
+            del sys.modules[name]
+        sys.modules.update(saved)
