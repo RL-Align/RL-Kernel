@@ -594,12 +594,46 @@ def _load_benchmark():
     return bench
 
 
-def test_benchmark_rejects_negative_counts_before_any_work(tmp_path):
+def test_benchmark_rejects_negative_counts_before_any_work(tmp_path, capsys):
+    """The count validator itself refuses (argparse, exit code 2, the flag named), not a later
+    prerequisite such as the CUDA check, which also exits."""
+
     bench = _load_benchmark()
     for flag in ("--repeats", "--warmup"):
-        with pytest.raises(SystemExit):
+        with pytest.raises(SystemExit) as exit_info:
             bench.main(["--checkpoint", str(tmp_path), flag, "-1", "--out", str(tmp_path / "x")])
+        assert exit_info.value.code == 2
+        assert f"argument {flag}: must be >= 0, got -1" in capsys.readouterr().err
     assert not (tmp_path / "x").exists()
+
+
+def test_benchmark_cold_start_input_is_per_run_and_removed(tmp_path, monkeypatch):
+    """The workers' input lives in a directory of its own run, under an ``--out`` parent that
+    may not exist yet, and is removed when a worker fails."""
+
+    import subprocess
+
+    bench = _load_benchmark()
+    written = []
+
+    def fake_inputs(strict, frames, offset, path):
+        torch.save({"encode": torch.zeros(1), "decode": torch.zeros(1)}, path)
+        written.append(path)
+        return path
+
+    def worker(cmd, **kwargs):
+        assert Path(cmd[cmd.index("--cold-start-input") + 1]) == written[-1]
+        assert torch.load(written[-1], weights_only=True)["encode"].numel() == 1
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="worker failed")
+
+    monkeypatch.setattr(bench, "cold_start_inputs", fake_inputs)
+    monkeypatch.setattr(subprocess, "run", worker)
+    scratch = tmp_path / "new" / "out"  # does not exist yet
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="worker failed"):
+            bench.cold_start([], ["ours"], None, 121, 0, scratch)
+    assert written[0] != written[1] and written[0].parent != written[1].parent
+    assert scratch.is_dir() and not any(scratch.iterdir())
 
 
 def test_benchmark_batch8_last_reads_the_final_slot():

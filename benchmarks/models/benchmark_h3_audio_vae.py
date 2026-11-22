@@ -373,7 +373,7 @@ def cold_start_worker(args: argparse.Namespace) -> int:
     name, kind = args.cold_start_worker
     ckpt = av.AudioVAECheckpoint.read(args.checkpoint, verify_sha256=av.pinned_audio_vae_sha256())
     (p,) = build_paths(args, ckpt, "cuda", only=name)
-    x = torch.load(args.cold_start_input)[kind].to("cuda")
+    x = torch.load(args.cold_start_input, weights_only=True)[kind].to("cuda")
     fn = p.encode if kind == "encode" else p.decode
     outs = [fn(x) for _ in range(3)]
     result = {
@@ -397,11 +397,24 @@ def cold_start(
 
     TorchScript's profiling executor re-fuses scripted functions after the first calls and keeps
     that state per process, so a fresh model instance in a used process is not a cold start.
+
+    The workers' input is written to a directory of this invocation alone (created under
+    ``scratch``, which is created if needed), removed when this returns or raises.
     """
+
+    import tempfile
+
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="h3-audio-vae-cold-start-", dir=scratch) as tmp:
+        inputs = cold_start_inputs(strict, frames, offset, Path(tmp) / "inputs.pt")
+        return _cold_start_workers(argv, names, inputs)
+
+
+def _cold_start_workers(argv: list[str], names: list[str], inputs: Path) -> dict[str, Any]:
+    """Run each path's worker on ``inputs``, one fresh process per path and direction."""
 
     import subprocess
 
-    inputs = cold_start_inputs(strict, frames, offset, scratch / "cold-start-inputs.pt")
     out: dict[str, Any] = {}
     for name in names:
         out[name] = {}
@@ -427,7 +440,6 @@ def cold_start(
             out[name][f"{kind}_first_vs_third_max_abs"] = res["first_vs_third_max_abs"]
             out[name][f"{kind}_first_vs_third_bitwise"] = res["first_vs_third_bitwise"]
         print(f"[cold start] {name:<10} {out[name]}", flush=True)
-    inputs.unlink()
     return out
 
 
