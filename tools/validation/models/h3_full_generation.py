@@ -9,6 +9,7 @@ are replayed from disk and verified (see ``h3_generation_resume``), never recomp
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import functools
 import json
@@ -211,12 +212,27 @@ def main():
                     return _plain(*a, **kw)
 
             pipe.transformer.forward = variant_forward
+        noise_calls = {"row": 0, "provider": 0}
+        noise_context = contextlib.nullcontext(noise_calls)
+        if args.candidate:
+            # the anchors' noise mix on its row (bitwise the provider's; a mixed-dtype call stays
+            # on the provider, see h3_conditioning_noise)
+            from rl_engine.runtime.registry import KernelRegistry
+            from rl_engine.validation.models import h3_conditioning_noise
+
+            try:
+                mix = KernelRegistry().get_op("conditioning_noise_mix", device="cuda")
+            except RuntimeError:
+                mix = None
+            if type(mix).__name__ == "ConditioningNoiseMixCudaOp":
+                noise_context = h3_conditioning_noise.bind(pipe.scheduler, mix)
         uninstall = run.install(pipe.transformer, make_output)
         handle = pipe.transformer.register_forward_hook(capture, with_kwargs=True)
         started = time.perf_counter()
         try:
             with (
                 torch.inference_mode(),
+                noise_context as noise_calls,
                 full_model_execution(
                     pipe.transformer, candidate=args.candidate, trace=trace, ops=ops
                 ),
@@ -283,6 +299,7 @@ def main():
             seed=seed,
             preflight=args.preflight,
             trace=final_trace,
+            conditioning_noise_mix=dict(noise_calls),
             steps=run.recorded,
             resume=run.summary(),
             seconds=time.perf_counter() - started,
