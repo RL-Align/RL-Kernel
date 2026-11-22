@@ -27,6 +27,7 @@ import torch
 
 from rl_engine.reference.gemm.attn_out_bias_gemm import (
     ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
+    AttnOutBiasGemmBackend,
     NativeAttnOutBiasGemmOp,
     finalize_tree_output,
     num_leaves,
@@ -38,7 +39,7 @@ try:
     import triton
     import triton.language as tl
 
-    _TRITON_AVAILABLE = True
+    _TRITON_AVAILABLE = torch.version.cuda is not None
 except ImportError:  # pragma: no cover - Triton is an optional backend
     _TRITON_AVAILABLE = False
 
@@ -75,7 +76,7 @@ if _TRITON_AVAILABLE:
         n_mask = n_offs < Q
 
         for leaf in range(leaf_lo, leaf_hi):
-            k0 = leaf.to(tl.int64) * 32
+            k0 = tl.cast(leaf, tl.int64) * 32
             k1 = tl.minimum(k0 + 32, R)
             acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
             for k in range(k0, k1):
@@ -111,8 +112,9 @@ if _TRITON_AVAILABLE:
         k_mask = k_offs < K
         acc = tl.zeros((BLOCK_N, BLOCK_K), dtype=tl.float32)
         for s in range(0, S):
-            g_vec = tl.load(g_ptr + s.to(tl.int64) * N + n_offs, mask=n_mask, other=0.0)
-            x_vec = tl.load(x_ptr + s.to(tl.int64) * K + k_offs, mask=k_mask, other=0.0)
+            row = tl.cast(s, tl.int64)
+            g_vec = tl.load(g_ptr + row * N + n_offs, mask=n_mask, other=0.0)
+            x_vec = tl.load(x_ptr + row * K + k_offs, mask=k_mask, other=0.0)
             acc = tl.fma(g_vec[:, None], x_vec[None, :], acc)
         dst = dw_ptr + n_offs[:, None] * K + k_offs[None, :]
         tl.store(dst, acc, mask=n_mask[:, None] & k_mask[None, :])
@@ -120,7 +122,7 @@ if _TRITON_AVAILABLE:
 
 def _require_triton() -> None:
     if not _TRITON_AVAILABLE:
-        raise RuntimeError("Triton is not available for attn_out_bias_gemm")
+        raise RuntimeError("NVIDIA CUDA Triton is not available for attn_out_bias_gemm")
 
 
 def _tile_grid(row_tiles: int, col_tiles: int) -> tuple[int, int, int]:
@@ -169,8 +171,8 @@ def triton_tree_gemm(a_f: torch.Tensor, b_f: torch.Tensor) -> torch.Tensor:
         )
     if not a_f.is_cuda or not b_f.is_cuda:
         raise ValueError("triton_tree_gemm requires CUDA tensors")
-    a_c = a_f.contiguous()
-    b_c = b_f.contiguous()
+    a_c = a_f.resolve_neg().contiguous()
+    b_c = b_f.resolve_neg().contiguous()
     if a_c.size(1) == 0 or a_c.size(0) == 0 or b_c.size(0) == 0:
         return torch.zeros(a_c.size(0), b_c.size(0), device=a_c.device, dtype=torch.float32)
     leaves = num_leaves(a_c.size(1))
@@ -203,8 +205,8 @@ def triton_dw_left_fold(g_f: torch.Tensor, x_f: torch.Tensor) -> torch.Tensor:
             f"expected [S, N] and [S, K] fp32 inputs, got "
             f"{tuple(g_f.shape)} and {tuple(x_f.shape)}"
         )
-    g_c = g_f.contiguous()
-    x_c = x_f.contiguous()
+    g_c = g_f.resolve_neg().contiguous()
+    x_c = x_f.resolve_neg().contiguous()
     rows, out_n = g_c.shape
     in_k = x_c.shape[1]
     dw = torch.empty(out_n, in_k, device=g_c.device, dtype=torch.float32)
@@ -263,13 +265,15 @@ class _AttnOutBiasGemmTritonFunction(torch.autograd.Function):
             kernel_id=ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
             impl="triton_leaf_chunks_shared_tree_combine",
             family="triton",
+            node_metadata=ctx.metadata,
         )
         return grad_x, grad_w, grad_b
 
 
-class TritonAttnOutBiasGemmOp:
+class TritonAttnOutBiasGemmOp(AttnOutBiasGemmBackend):
     """GPU leaf kernels and GPU tensor additions scheduled from Python."""
 
+    backend_id = "triton"
     op_class = "reduction"
     is_batch_invariant = True
     backward_impl = "triton_leaf_chunks_shared_tree_combine"

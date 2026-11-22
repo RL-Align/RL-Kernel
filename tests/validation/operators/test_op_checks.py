@@ -795,3 +795,27 @@ def test_strict_finite_results_preserve_zero_sign_and_subnormal_bits(dtype, inte
     assert exact.passed
     assert not changed_zero_sign.passed
     assert not flushed_subnormal.passed
+
+
+def test_default_backward_order_runs_candidate_before_reference():
+    args = _spec_args("rms_norm")
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    candidate = make_candidate(args)
+    calls = []
+
+    def observed(fn, side):
+        def run(**inputs):
+            result = fn(**inputs)
+            result.register_hook(lambda grad: calls.append(side))
+            return result
+
+        return run
+
+    report = run_operator_suite(
+        args.op,
+        candidates=[replace(candidate, fn=observed(candidate.fn, "candidate"))],
+        cases=[replace(case, gold_fn=observed(case.gold_fn, "reference"))],
+        check_grad=True,
+    )
+    assert report.passed
+    assert calls == ["candidate", "reference"]

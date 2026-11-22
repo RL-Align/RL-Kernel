@@ -171,7 +171,6 @@ torch::Tensor attn_out_bias_gemm_cuda_forward(
     const int blocks = checked_blocks(total, threads);
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
-    const float* bias_ptr = bias.has_value() ? bias->data_ptr<float>() : nullptr;
     // The caller decides the output dtype (bf16 => the single final RNE cast
     // happens in-kernel at the store; fp32 => no cast).
     auto out = torch::empty(
@@ -179,6 +178,13 @@ torch::Tensor attn_out_bias_gemm_cuda_forward(
     if (total == 0) {
         return out;  // zero-row/grid-0 launches are invalid; skip synchronously
     }
+    // Raw kernel pointers must see logical values, including PyTorch's negative-view bit.
+    x = x.resolve_neg();
+    weight = weight.resolve_neg();
+    if (bias.has_value()) {
+        bias = bias->resolve_neg();
+    }
+    const float* bias_ptr = bias.has_value() ? bias->data_ptr<float>() : nullptr;
     if (bf16_out) {
         attn_out_bias_gemm_fwd_kernel<nv_bf16><<<blocks, threads, 0, stream>>>(
             x.data_ptr<float>(), weight.data_ptr<float>(), bias_ptr,
@@ -212,6 +218,8 @@ torch::Tensor attn_out_tree_gemm_cuda(torch::Tensor a, torch::Tensor b) {
         return out;
     }
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    a = a.resolve_neg();
+    b = b.resolve_neg();
     attn_out_bias_gemm_fwd_kernel<float><<<blocks, threads, 0, stream>>>(
         a.data_ptr<float>(), b.data_ptr<float>(), nullptr, out.data_ptr<float>(), rows, cols,
         reduction, leaves);
@@ -238,6 +246,8 @@ torch::Tensor attn_out_dw_left_fold_cuda(torch::Tensor grad, torch::Tensor x) {
         return dw;
     }
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    grad = grad.resolve_neg();
+    x = x.resolve_neg();
     attn_out_dw_left_fold_kernel<<<blocks, threads, 0, stream>>>(
         grad.data_ptr<float>(), x.data_ptr<float>(), dw.data_ptr<float>(), rows, out_dim, in_dim);
     C10_CUDA_KERNEL_LAUNCH_CHECK();

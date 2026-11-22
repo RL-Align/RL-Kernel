@@ -18,7 +18,8 @@ parallel variant). The numeric contract version is
   leaves and the root splits them into two groups of 48 at K offset 1536.
 - **Multiply-add discipline**. The leaf chains and `dW` fold use FP32 FMA.
   Triton uses `tl.fma`, native CUDA uses `__fmaf_rn`, and the reference
-  uses `torch.addcmul`. Tests compare the reference primitive with `libm fmaf`.
+  uses an exact FP64 product and a compensated sum with round-to-odd before narrowing
+  on CPU, and `torch.addcmul` on CUDA. Tests compare the primitive with `libm fmaf`.
 - **RNE everywhere**; bias is added once in fp32 after the complete tree;
   the single fp32-to-output-dtype cast happens at the final store. No
   split-K, no atomics, no tensor-core mma, no fast-math, no TF32.
@@ -42,7 +43,7 @@ out = op(x, weight, bias=bias)                              # [*lead, 3072]
 | CUDA (per-thread full tree) | `CudaAttnOutBiasGemmOp` | `_C.attn_out_bias_gemm_cuda_forward`, `_C.attn_out_tree_gemm_cuda`, `_C.attn_out_dw_left_fold_cuda` | Supported |
 | PyTorch same-tree reference | `NativeAttnOutBiasGemmOp` | — | Gold + CPU fallback |
 
-ROCm dispatches Triton then PyTorch. The build includes the native attn-out
+The NVIDIA CUDA build includes the native attn-out
 CUDA bindings only with strict math flags. For example, `--use_fast_math`
 enables flush-to-zero. An FP32 FMA of `2^-126 * 0.5 + 0` then produces
 zero, while strict math preserves the exactly representable `2^-127`.
@@ -66,18 +67,19 @@ gradients requested by autograd, including when projection weights are frozen.
 
 - CUDA: Triton -> CUDA -> PyTorch (Triton leaf chunks are the product path;
   the CUDA per-thread kernel is the memory-light correctness anchor)
-- ROCm: Triton -> PyTorch
 - CPU: PyTorch
 
 ## Accuracy
 
 The PyTorch reference evaluates the tree with elementwise operations on the
 input device. In the dedicated tests it also serves as an FP32 CPU reference.
+CPU forward and backward require gradual underflow to preserve subnormal bits.
+If denormal flushing is enabled, the reference raises an error. Disable it with
+`torch.set_flush_denormal(False)` before execution and CPU worker initialization.
 
 - **Device comparisons.** At K=N=3072 the shape sweep compares CUDA and
   Triton outputs directly in bf16 and fp32. At S=1, 7 and 300 it also
-  compares native CUDA directly with the CPU reference. Both Triton kernels
-  compile offline for AMD `gfx942`. AMD bitwise results await a device run.
+  compares native CUDA directly with the CPU reference.
 - **Batch invariance.** Tests compare output rows across changes in batch
   composition, leading shape, padding and repeated runs. The reference
   gradient test compares `dx` for a row slice with the same upstream rows

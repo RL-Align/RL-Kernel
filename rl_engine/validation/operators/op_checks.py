@@ -255,25 +255,37 @@ def _run_case_backward(
         grad.to(device=output.device, dtype=output.dtype)
         for grad, output in zip(grad_outputs, candidate_outputs, strict=True)
     ]
-    candidate_grads = _backward_grads(
-        candidate_outputs,
-        candidate_inputs,
-        case.grad_input_names,
-        grad_outputs=shared_upstreams,
-    )
-    gold_grads = _backward_grads(
-        gold_graph_outputs,
-        gold_inputs,
-        case.grad_input_names,
-        grad_outputs=_match_grad_outputs(shared_upstreams, gold_graph_outputs),
-    )
-    output_checks = _compare_case_outputs(
+
+    def candidate_backward() -> list[torch.Tensor]:
+        return _backward_grads(
+            candidate_outputs,
+            candidate_inputs,
+            case.grad_input_names,
+            grad_outputs=shared_upstreams,
+        )
+
+    def reference_backward() -> list[torch.Tensor]:
+        return _backward_grads(
+            gold_graph_outputs,
+            gold_inputs,
+            case.grad_input_names,
+            grad_outputs=_match_grad_outputs(shared_upstreams, gold_graph_outputs),
+        )
+
+    if case.gold_backward_fn is not None and case.bitwise_strict:
+        # The frozen reference records the same operator kind. Keep the candidate event last.
+        gold_grads = reference_backward()
+        candidate_grads = candidate_backward()
+    else:
+        candidate_grads = candidate_backward()
+        gold_grads = reference_backward()
+    forward_check = _compare_case_outputs(
         candidate,
         case,
         contract,
         candidate_outputs,
         gold_outputs,
-    ).outputs
+    )
     # Gradient thresholds come from the independent gradient_accuracy judgment
     # (#267); they must not silently inherit forward_accuracy rows.
     if "judgments" in contract:
@@ -300,6 +312,7 @@ def _run_case_backward(
             ),
             judgment="gradient_accuracy",
         )
+    output_checks = forward_check.outputs
     grad_checks = [
         _compare_output(
             candidate_grad,
@@ -327,6 +340,11 @@ def _run_case_backward(
                 grad_checks, candidate_grads, gold_grads, strict=True
             )
         ]
+    trace = forward_check.backend_trace
+    if case.bitwise_strict and trace is not None and len(candidate_outputs) == 1:
+        metadata = getattr(candidate_outputs[0].grad_fn, "metadata", None)
+        if isinstance(metadata, dict) and "backward_backend" in metadata:
+            trace["backward_backend"] = metadata["backward_backend"]
     checks = [*output_checks, *grad_checks]
     return CaseCheck(
         case_name=case.name,
@@ -334,7 +352,7 @@ def _run_case_backward(
         op_class=case.op_class,
         passed=all(output.passed for output in checks),
         outputs=checks,
-        backend_trace=dict(candidate.fn.trace) if hasattr(candidate.fn, "trace") else None,
+        backend_trace=trace,
     )
 
 

@@ -25,6 +25,7 @@ import torch
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.reference.gemm.attn_out_bias_gemm import (
     ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
+    AttnOutBiasGemmBackend,
     NativeAttnOutBiasGemmOp,
 )
 from rl_engine.utils.logger import logger
@@ -85,13 +86,15 @@ class _AttnOutBiasGemmCudaFunction(torch.autograd.Function):
             kernel_id=ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
             impl="cuda_per_thread_tree_fma",
             family="cuda",
+            node_metadata=ctx.metadata,
         )
         return grad_x, grad_w, grad_b
 
 
-class CudaAttnOutBiasGemmOp:
+class CudaAttnOutBiasGemmOp(AttnOutBiasGemmBackend):
     """CUDA backend: per-thread full tree forward, tree dx, left-fold dW."""
 
+    backend_id = "cuda"
     op_class = "reduction"
     is_batch_invariant = True
     backward_impl = "cuda_per_thread_tree_fma"

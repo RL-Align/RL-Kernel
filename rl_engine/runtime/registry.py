@@ -719,10 +719,6 @@ class KernelRegistry:
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
-                "attn_out_bias_gemm": [
-                    OpBackend.TRITON_ATTN_OUT_BIAS_GEMM,
-                    OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM,
-                ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
                     OpBackend.PYTORCH_BATCH_INVARIANT_LOGP,
@@ -811,7 +807,6 @@ class KernelRegistry:
                 "silu": [OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "adaln_modulation": [OpBackend.PYTORCH_ADALN_MODULATION],
-                "attn_out_bias_gemm": [OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
@@ -1155,13 +1150,28 @@ class KernelRegistry:
         """Select the best legacy operator for the requested device."""
 
         platform = self._platform_for_device(device)
-        candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
+        platform_ops = self._priority_map.get(platform, {})
+        if op_type == "attn_out_bias_gemm":
+            requested = torch.device(device).type if device is not None else platform
+            if platform == "cpu" and requested == "cpu":
+                # The CPU gold is callable directly without exporting it to NPU's inherited map.
+                candidates = [OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM]
+            elif platform == "cuda":
+                candidates = platform_ops[op_type]
+            else:
+                raise RuntimeError(
+                    "attn_out_bias_gemm requires NVIDIA CUDA or a CPU reference: "
+                    f"{requested} ({platform})"
+                )
+        else:
+            candidates = platform_ops.get(op_type, [OpBackend.PYTORCH_NATIVE])
+        trace_selection = op_type in {"joint_attn_softmax", "attn_out_bias_gemm"}
         rejected: list[str] = []
 
         for backend in candidates:
             op_instance = self._get_or_create_backend(backend)
             if op_instance is not None:
-                if op_type == "joint_attn_softmax":
+                if trace_selection:
                     # The backend is cached; keep this dispatch trace local to
                     # the selection without changing its class-level metadata.
                     selected = copy(op_instance)
@@ -1175,7 +1185,7 @@ class KernelRegistry:
                     }
                     return selected
                 return op_instance
-            if op_type == "joint_attn_softmax":
+            if trace_selection:
                 rejected.append(f"{backend.name}: backend could not be loaded or instantiated")
 
         raise RuntimeError(f"No functional backend found for {op_type} on {platform}")

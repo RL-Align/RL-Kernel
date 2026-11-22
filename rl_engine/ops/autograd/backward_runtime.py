@@ -18,7 +18,11 @@ def record_backward(
     kernel_id: str,
     impl: str,
     family: str,
+    node_metadata: dict[str, Any] | None = None,
 ) -> None:
+    if node_metadata is not None:
+        # The node belongs to this invocation even when another backward runs later.
+        node_metadata["backward_backend"] = {"family": family, "impl": impl, "kernel_id": kernel_id}
     with _LOCK:
         previous = _EVENTS.get(kind)
         count = 1 if previous is None else int(previous["execution_count"]) + 1

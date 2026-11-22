@@ -21,7 +21,7 @@ Frozen numeric contract (issue #386, contract version
    one root subtree. At R=3072 this splits 96 leaves into two groups of 48.
 2. **Multiply-add discipline.** Leaf chains and the weight-gradient fold
    use FP32 FMA. Triton uses ``tl.fma``, native CUDA uses ``__fmaf_rn``,
-   and this reference uses ``torch.addcmul``. The primitive tests compare
+   and the CPU reference uses a compensated FP64 sum rounded to FP32. Tests compare
    the reference against ``libm fmaf`` on the tested toolchains.
 3. **bias.** Added once per output element, in fp32, after the complete K
    tree; then the single output cast. Never inside a leaf chain or tree node.
@@ -41,7 +41,8 @@ the device kernel.
 
 from __future__ import annotations
 
-from typing import Callable, Optional, Sequence
+from types import MappingProxyType
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 import torch
 
@@ -100,19 +101,55 @@ def finalize_tree_output(
     return tree_sum.to(output_dtype)
 
 
+def _require_gradual_underflow(values: torch.Tensor) -> None:
+    """Check on each CPU invocation because denormal handling is thread-local."""
+    if values.device.type == "cpu":
+        tiny = torch.tensor(torch.finfo(torch.float32).tiny, dtype=torch.float32, device="cpu")
+        if (tiny * 0.5).item() == 0.0:
+            raise RuntimeError(
+                "attn_out_bias_gemm CPU reference requires gradual underflow; call "
+                "torch.set_flush_denormal(False) before execution and CPU worker initialization"
+            )
+
+
+def _fma_fp32(acc: torch.Tensor, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """One FP32 rounding of a*b + acc for FP32 operands."""
+    if acc.device.type != "cpu":
+        return torch.addcmul(acc, a, b)
+
+    # A binary32 product is exactly representable in binary64, including at
+    # the extremes of the binary32 exponent range.
+    product = a.double() * b.double()
+    addend = acc.double()
+    total = product + addend
+    with torch.no_grad():
+        # FastTwoSum recovers the error of the binary64 addition when the
+        # larger-magnitude operand is subtracted first.
+        product_larger = product.abs() >= addend.abs()
+        residual = torch.where(
+            product_larger, (product - total) + addend, (addend - total) + product
+        )
+        # Round-to-odd before narrowing: an inexact sum with an even low bit
+        # moves one binary64 ulp toward the exact value. This puts it on the
+        # correct side of every binary32 midpoint, including the overflow tie.
+        even = (total.view(torch.int64) & 1) == 0
+        adjust = even & ((residual > 0) | (residual < 0))
+        direction = torch.copysign(torch.full_like(total, float("inf")), residual)
+        step = torch.nextafter(total, direction) - total
+    # Keep the differentiable sum and the sign of an unadjusted exact zero.
+    return torch.where(adjust, total + step, total).float()
+
+
 def _leaf_sum_fp32(a_f: torch.Tensor, b_f: torch.Tensor, leaf_index: int) -> torch.Tensor:
     """One leaf of ``a_f @ b_f.T`` (both fp32): ascending-k correctly-rounded FMA chain.
 
-    Every step is ONE fused multiply-add with a single rounding:
-    ``acc = torch.addcmul(acc, a_col, b_col)`` (broadcast outer product).
-    The primitive tests compare ``torch.addcmul`` with ``libm fmaf`` on
-    rounding counterexamples and on sampled inputs.
+    Each broadcast outer-product step uses the same FP32 FMA primitive as dW.
     """
     k0 = leaf_index * LEAF_WIDTH
     k1 = min(k0 + LEAF_WIDTH, a_f.size(1))
     acc = torch.zeros(a_f.size(0), b_f.size(0), device=a_f.device, dtype=torch.float32)
     for k in range(k0, k1):
-        acc = torch.addcmul(acc, a_f[:, k].unsqueeze(1), b_f[:, k].unsqueeze(0))
+        acc = _fma_fp32(acc, a_f[:, k].unsqueeze(1), b_f[:, k].unsqueeze(0))
     return acc
 
 
@@ -129,6 +166,7 @@ def tree_gemm_fp32(a_f: torch.Tensor, b_f: torch.Tensor) -> torch.Tensor:
         )
     if a_f.size(1) != b_f.size(1):
         raise ValueError(f"reduction dims must match: a has {a_f.size(1)}, b has {b_f.size(1)}")
+    _require_gradual_underflow(a_f)
     if a_f.size(1) == 0:
         return torch.zeros(a_f.size(0), b_f.size(0), device=a_f.device, dtype=torch.float32)
     return tree_from_leaf_evaluator(
@@ -140,11 +178,11 @@ def _dw_left_fold_reference(g_f: torch.Tensor, x_f: torch.Tensor) -> torch.Tenso
     """dW by the ascending-row left fold, one correctly-rounded FMA per row.
 
     Same single-rounding primitive as ``_leaf_sum_fp32``: the fold accumulates
-    ``dw = torch.addcmul(dw, g_row, x_row)`` per row in ascending order.
+    ``dw = _fma_fp32(dw, g_row, x_row)`` per row in ascending order.
     """
     dw = torch.zeros(g_f.size(1), x_f.size(1), device=g_f.device, dtype=torch.float32)
     for row in range(g_f.size(0)):
-        dw = torch.addcmul(dw, g_f[row].unsqueeze(1), x_f[row].unsqueeze(0))
+        dw = _fma_fp32(dw, g_f[row].unsqueeze(1), x_f[row].unsqueeze(0))
     return dw
 
 
@@ -161,8 +199,9 @@ def attn_out_bias_gemm_reference_backward(
     ``dx = dY @ W`` reduces over ``R = N`` under the mid-split tree (same
     K-dim rule as the forward). ``dW = dY.T @ x`` reduces over the row dim S
     with the **ascending-row left fold** (contract c-prime), one correctly-
-    rounded FMA per row (torch.addcmul, same primitive as the leaf chains).
+    rounded FMA per row (same primitive as the leaf chains).
     """
+    _require_gradual_underflow(grad_output)
     g_f = grad_output.reshape(-1, grad_output.size(-1)).float()
     dx = None
     dw = None
@@ -217,11 +256,29 @@ class _AttnOutBiasGemmTreeFunction(torch.autograd.Function):
             kernel_id=ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
             impl="pytorch_tree_reference",
             family="pytorch",
+            node_metadata=ctx.metadata,
         )
         return grad_x, grad_w, grad_b
 
 
-class NativeAttnOutBiasGemmOp:
+class AttnOutBiasGemmBackend:
+    """Selection metadata for a concrete backend with no internal fallback."""
+
+    backend_id: str
+    provenance: Mapping[str, Any] = MappingProxyType({})
+
+    @property
+    def trace(self) -> dict[str, Any]:
+        selection = self.provenance
+        return {
+            "actual_backend": self.backend_id,
+            "fallback": False,
+            "fallback_reason": "; ".join(selection.get("prior_rejections", ())) or None,
+            **selection,
+        }
+
+
+class NativeAttnOutBiasGemmOp(AttnOutBiasGemmBackend):
     """FP32-CPU bit-exactness gold and PyTorch dispatch backend.
 
     ``forward`` returns the input dtype (single RNE cast at the output, after
@@ -230,6 +287,7 @@ class NativeAttnOutBiasGemmOp:
     that row and the weights, so batch invariance holds bitwise.
     """
 
+    backend_id = "pytorch"
     op_class = "reduction"
     is_batch_invariant = True
     backward_impl = "pytorch_tree_reference"
@@ -251,6 +309,8 @@ class NativeAttnOutBiasGemmOp:
 
     @staticmethod
     def _check_inputs(x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor]) -> None:
+        if x.device.type != "cpu" and not (x.is_cuda and torch.version.cuda is not None):
+            raise ValueError("attn_out_bias_gemm requires NVIDIA CUDA tensors or a CPU reference")
         if x.dim() < 1:
             raise ValueError(f"x must be at least 1-D [*lead, K], got shape {tuple(x.shape)}")
         if weight.dim() != 2:
