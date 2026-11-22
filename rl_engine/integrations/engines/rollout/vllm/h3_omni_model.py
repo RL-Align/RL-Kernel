@@ -368,6 +368,7 @@ class H3OmniModelBinding:
     record: Callable[[Mapping[str, Any], dict, tuple], None] | None = None
     calls: int = 0
     digests: list[dict[str, Any]] = field(default_factory=list)
+    record_errors: list[str] = field(default_factory=list)  # rank 0's failed captures
 
     def __post_init__(self) -> None:
         if self.grid.cp != 1:
@@ -430,6 +431,12 @@ def check_engine_config(od_config: Any, *, tp: int) -> list[str]:
                 reasons.append(f"{name} {getattr(par, name)} != 1 (the rollout grid is TP only)")
         if int(getattr(par, "pipeline_parallel_size", 1) or 1) != 1:
             reasons.append("pipeline parallelism splits the DiT")
+        if int(getattr(par, "data_parallel_size", 1) or 1) != 1:
+            # the bound blocks index their rows by the global rank and assemble them over it
+            reasons.append(
+                f"data_parallel_size {par.data_parallel_size} != 1 (the rows are owned by WORLD "
+                "ranks, so the rollout process group must be the TP group alone)"
+            )
         if getattr(par, "use_hsdp", False):
             reasons.append("HSDP shards the DiT weights")
     cache = getattr(od_config, "cache_backend", None)
@@ -475,6 +482,12 @@ class H3OmniModelHandle:
     _previous: Any = _ABSENT
 
     def remove(self) -> None:
+        """Give vLLM-Omni its own DiT call back; refused once its weights were released."""
+        if self.released:
+            raise RuntimeError(
+                f"vLLM-Omni's DiT weights were released ({self.released} bytes): its own forward "
+                "cannot run again; restart the engine instead"
+            )
         if self._previous is _ABSENT:
             self.transformer.__dict__.pop("forward", None)
         else:
@@ -497,6 +510,7 @@ class H3OmniModelHandle:
             "engine_parameter_bytes_released": self.released,
             "calls": self.binding.calls,
             "lora": bool(getattr(self.binding.model.transformer_blocks[0], pm.LORA_ATTR, None)),
+            "record_errors": list(self.binding.record_errors),
         }
 
 
@@ -520,6 +534,16 @@ def release_engine_weights(transformer: torch.nn.Module) -> int:
                     else empty
                 )
     return freed
+
+
+def disable_engine_dit(transformer: torch.nn.Module, reason: str) -> None:
+    """After a failed install that released the weights: every later DiT call raises ``reason``
+    instead of running vLLM-Omni's forward on ``meta`` tensors."""
+
+    def forward(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(f"this engine has no usable DiT ({reason}); restart it")
+
+    transformer.forward = forward
 
 
 def install_h3_omni_model(
