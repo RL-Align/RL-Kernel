@@ -32,7 +32,7 @@ class _Identity(nn.Module):
     def __init__(self, dtype):
         super().__init__()
         self.weight = nn.Parameter(torch.zeros(1, dtype=dtype), requires_grad=False)
-        self.linear_1 = self
+        object.__setattr__(self, "linear_1", self)  # not a submodule (``.cuda()`` would recurse)
 
     def forward(self, x, *args):
         return x
@@ -151,3 +151,56 @@ def test_bind_refuses_a_forward_wrapped_on_the_instance():
         with hpf.bind(model, NativePackedIndexCopyOp()):
             pass
     assert model.forward(1) is None
+
+
+needs_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+
+
+def _run_cuda(forward, model):
+    leaves, kwargs = _inputs()
+    leaves = [leaf.detach().cuda().requires_grad_() for leaf in leaves]
+    kwargs = {k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in kwargs.items()}
+    video, audio = forward(model, *leaves, **kwargs)
+    upstream = torch.Generator().manual_seed(3)
+    loss = (video * torch.randn(video.shape, generator=upstream).cuda()).sum() + (
+        audio * torch.randn(audio.shape, generator=upstream).cuda()
+    ).sum()
+    grads = torch.autograd.grad(loss, leaves)
+    return (video, audio, *grads)
+
+
+@needs_cuda
+@pytest.mark.parametrize("variant", ["weight", "parameter"])
+@pytest.mark.parametrize("text_dtype", [torch.bfloat16, torch.float32])
+def test_the_cuda_row_is_bitwise_the_providers(variant, text_dtype):
+    """The registry's CUDA ``packed_index_copy`` (what ``h3_full_model`` binds), on a GPU."""
+
+    from rl_engine.backends.cuda.packing.packed_index_copy import PackedIndexCopyCudaOp
+    from rl_engine.runtime.registry import KernelRegistry
+
+    op = KernelRegistry().get_op("packed_index_copy", device="cuda")
+    assert isinstance(op, PackedIndexCopyCudaOp)
+    model = _Model(text_dtype).cuda()
+    provider = inspect.unwrap(MODEL.forward)
+    ours = inspect.unwrap(hpf._packed_forward(MODEL, op, variant))
+    for got, want in zip(_run_cuda(ours, model), _run_cuda(provider, model), strict=True):
+        assert _bitwise(got, want)
+
+
+@needs_cuda
+def test_the_full_model_binds_the_cuda_row_and_reports_it():
+    from rl_engine.validation.models import h3_full_model as hfm
+
+    if hpf.forward_source_sha256(MODEL) not in hpf.KNOWN_FORWARDS:
+        pytest.skip("unknown provider forward")
+    model = _Model().cuda()
+    model.__class__ = type("_Bound", (MODEL,), {})
+    want = _run_cuda(inspect.unwrap(MODEL.forward), model)
+    trace = hfm.FullModelTrace()
+    with hfm._packed_rows(model, trace):
+        assert "forward" in model.__dict__
+        got = _run_cuda(lambda m, *a, **k: m.forward(*a, **k), model)
+    assert "forward" not in model.__dict__
+    assert trace.packed_bindings == {"packed_index_copy": "row", "packed_index_select": "reference"}
+    for g, w in zip(got, want, strict=True):
+        assert _bitwise(g, w)
