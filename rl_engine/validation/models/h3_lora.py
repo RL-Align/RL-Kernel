@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Seeded H3 LoRA for the parallel harness (``h3-parallel-lora-v1``).
+"""Seeded H3 LoRA for the parallel harness (``h3-parallel-lora-v2``).
 
 ``make_block_lora`` draws one block's full LoRA from a seed: for each of the six targets of the
 verl-omni H3 recipe, ``A (r, K) ~ N(0, 1/r)`` (peft's ``gaussian`` init) and ``B (N, r)`` zero

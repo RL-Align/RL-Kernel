@@ -10,7 +10,7 @@ fixed-order kernels so rollout reads the same bits as the strict training graph:
 
 * ``qkv_proj`` / ``fc1``: ``h3-projection-gemm-v1`` over the fused rows (a column of a fused
   projection equals the same column computed alone, so fused == separate bitwise);
-* ``out_proj`` / ``fc2``: the canonical 8-unit row-parallel reduction of ``h3-parallel-v1``
+* ``out_proj`` / ``fc2``: the canonical 8-unit row-parallel reduction of ``h3-parallel-v2``
   (``tp`` ranks with a deterministic collective, ``tp=1`` alone), one BF16 rounding.
 
 H3's four projections have no bias, and the patched forward computes ``x @ W.T`` and returns
@@ -30,7 +30,6 @@ from dataclasses import dataclass, field
 import torch
 
 from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
-from rl_engine.backends.shared.triton.gemm import h3_projection as g
 
 LINEAR_NAMES = {"qkv_proj": "column", "fc1": "column", "out_proj": "row", "fc2": "row"}
 # The four projections of a transformer block or a token-refiner block, by module path (an outer
@@ -73,12 +72,12 @@ class H3RolloutHandle:
         }
 
 
-def _wrap(module, kind, collective, tp):
+def _wrap(module, kind, collective, tp, column_kernel="projection"):
     def forward(x):
         shape = x.shape
         flat = x.reshape(-1, shape[-1]).contiguous()
-        if kind == "column":
-            out = g.gemm(flat, module.weight, b_t=True)
+        if kind == "column":  # qkv_proj on h3_qkv_gemm's kernel, fc1 (gate/up) on its row's
+            out = par.KERNELS[column_kernel](flat, module.weight, b_t=True)
         else:
             out = par.row_parallel_linear(flat, module.weight, collective, tp)
         return out.view(*shape[:-1], out.shape[-1]), None
@@ -138,6 +137,9 @@ def install_h3_rollout(
     handle = H3RolloutHandle(skipped=skipped)
     for name, module, kind in selected:
         handle._restore.append((module, module.__dict__.get("forward", _ABSENT)))
-        module.forward = _wrap(module, kind, collective, tp)
+        leaf = name.rsplit(".", 1)[-1]
+        module.forward = _wrap(
+            module, kind, collective, tp, "fixed" if leaf == "fc1" else "projection"
+        )
         handle.patched.append(name)
     return handle
