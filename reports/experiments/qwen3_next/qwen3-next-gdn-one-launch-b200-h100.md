@@ -9,7 +9,7 @@ ZIP SHA-256: `004df9ff369680300d0e39adbbcbfe910b333db289a625d9aba5d1fb1045aa97`.
 | Run | Commit |
 |---|---|
 | Real-model chain and timings | `213a9bcd` (the fix `63d46013` merged with the speed test's first commits; their benchmark files do not touch the strict path) |
-| EP4 chain | `cac263f1` (`213a9bcd` plus a commit that changes only the speed test's stock arms) |
+| EP4 chain | `213a9bcd` merged locally with `9eea76a2`, a commit that changes only the speed test's stock arms (tree `11834e36`; the run directories are named after that local merge) |
 | Local B200 bit check | this PR's head `ae913959` |
 | Timings before the fix | `f5100979` |
 
