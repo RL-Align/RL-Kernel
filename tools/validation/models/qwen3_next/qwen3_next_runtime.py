@@ -138,6 +138,13 @@ def _distribution_names(root):
     }
 
 
+# Installers that no stage imports. A user-site copy of these (left by any ``pip install
+# --user``) changes nothing the chain runs, so it does not count as shadowing. setuptools
+# is not exempt: torch.utils.cpp_extension imports it for JIT builds, which the stages
+# allow (TORCH_EXTENSIONS_DIR).
+NOT_IMPORTED_INSTALLERS = frozenset({"pip", "wheel"})
+
+
 def user_site_shadowing(roots, user_site):
     """Distributions in the user site that also exist in another installation root.
 
@@ -145,7 +152,8 @@ def user_site_shadowing(roots, user_site):
     so its copy is the one imported while the environment's copy is the one a
     reader of the identity would expect. Two copies of one package can also both be
     loaded: a user-site ``apache-tvm-ffi`` next to the environment's made FlashInfer
-    abort at import (``__ffi_repr__ already registered``).
+    abort at import (``__ffi_repr__ already registered``). Installers no stage imports
+    (``NOT_IMPORTED_INSTALLERS``) are not reported.
     """
     user_site = Path(user_site)
     if user_site not in roots:
@@ -154,7 +162,7 @@ def user_site_shadowing(roots, user_site):
     for root in roots:
         if root != user_site:
             others |= _distribution_names(root)
-    return sorted((_distribution_names(user_site) & others) - {""})
+    return sorted((_distribution_names(user_site) & others) - {""} - NOT_IMPORTED_INSTALLERS)
 
 
 def current_identity():
@@ -232,12 +240,24 @@ def current_identity():
 
 
 def probe_environment(python):
+    """Return the stage interpreter's identity, from ``qwen3_next_runtime.py --json``.
+
+    A refusal in the child (for example ``environment_mismatch`` for a shadowing user site)
+    is raised here as a ``ProcessFailure`` that keeps the child's message and its failure
+    kind, instead of a bare non-zero exit status.
+    """
     command = [interpreter_path(python), str(Path(__file__).absolute()), "--json"]
     env = os.environ.copy()
     env.pop("PYTHONHOME", None)
     env.pop("PYTHONPATH", None)
-    output = subprocess.check_output(command, text=True, env=env, timeout=180)
-    return json.loads(output)
+    result = subprocess.run(command, text=True, env=env, timeout=180, capture_output=True)
+    if result.returncode:
+        tail = result.stderr[-8192:]
+        raise ProcessFailure(
+            f"environment probe exited with {result.returncode}:\n{tail}",
+            failure_kind=failure_kind(text=tail),
+        )
+    return json.loads(result.stdout)
 
 
 def verify_environment(expected, *, require_venv=False):
