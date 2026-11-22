@@ -152,7 +152,7 @@ def _check_refiner_parts(index: int, parts_by_target: dict) -> None:
         raise ValueError(f"refiner {index}: targets {sorted(parts_by_target)} != {sorted(SHAPES)}")
     for target, parts in parts_by_target.items():
         k, n = SHAPES[target]
-        r = parts["A"].shape[0]
+        r = parts["A"].shape[0] if "A" in parts else 0
         if set(parts) != {"A", "B"} or parts["A"].shape != (r, k) or parts["B"].shape != (n, r):
             raise ValueError(f"refiner {index} {target}: not a whole ({r}, {k}) / ({n}, {r}) LoRA")
 
@@ -329,6 +329,11 @@ def install_lora_shards(
             )
         for index, parts_by_target in enumerate(refiner):
             _check_refiner_parts(index, parts_by_target)
+        refiner_ranks = {p["A"].shape[0] for by_target in refiner for p in by_target.values()}
+        if refiner_ranks != ranks:
+            raise ValueError(
+                f"refiner LoRA ranks {sorted(refiner_ranks)} != the blocks' rank {sorted(ranks)}"
+            )
     previous = [block.__dict__.get(pm.LORA_ATTR) for block in blocks]
     previous_refiner = [b.__dict__.get(REFINER_ATTR) for b in refiner_blocks(model)]
     for block, parts_by_target in zip(blocks, shards):

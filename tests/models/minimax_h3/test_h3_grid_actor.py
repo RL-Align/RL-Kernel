@@ -239,6 +239,20 @@ class TestRefinerLoRA:
         with pytest.raises(ValueError, match="whole"):
             h3_lora._set_refiner(model, bad, 2.0, "cpu")
 
+    def test_refuses_a_refiner_lora_of_another_or_zero_rank(self):
+        model = _model()
+        before = h3_lora.lora_digests(model)
+        shards = [
+            h3_lora.shard_block_lora(h3_lora.make_block_lora(i, rank=R), 4, 1) for i in range(2)
+        ]
+        for rank in (R // 2, 0):
+            loras = [h3_lora.make_refiner_lora(i, rank=rank) for i in range(2)]
+            with pytest.raises(ValueError, match="refiner LoRA ranks"):
+                h3_lora.install_lora_shards(
+                    model, shards, 4, 1, scale=2.0, device="cpu", refiner=loras
+                )
+        assert h3_lora.lora_digests(model) == before  # refused before anything was installed
+
     def test_without_a_lora_the_linear_is_unchanged(self):
         model = _Model()
         block = model.token_refiner.refiner_blocks[0]
