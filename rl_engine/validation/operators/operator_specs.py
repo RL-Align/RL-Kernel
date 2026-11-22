@@ -286,6 +286,40 @@ OP_SPECS = {
         },
         grad_input_names=("gate", "up"),
     ),
+    "final_logit_softcap": OperatorSpec(
+        name="final_logit_softcap",
+        op_class="elementwise",
+        gold_path=(
+            "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap."
+            "NativeFinalLogitSoftcapOp"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap."
+                "NativeFinalLogitSoftcapOp"
+            ),
+            "triton": (
+                "rl_engine.kernels.ops.triton.activation.final_logit_softcap."
+                "TritonFinalLogitSoftcapOp"
+            ),
+        },
+        grad_input_names=("x",),
+    ),
+    "conditioning_noise_mix": OperatorSpec(
+        name="conditioning_noise_mix",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.conditioning.conditioning_noise_mix."
+        "NativeConditioningNoiseMixOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.conditioning.conditioning_noise_mix."
+            "NativeConditioningNoiseMixOp",
+            "cuda": "rl_engine.backends.cuda.conditioning.conditioning_noise_mix."
+            "ConditioningNoiseMixCudaOp",
+        },
+        grad_input_names=("sample", "noise"),
+    ),
     "batch_invariant_logp": OperatorSpec(
         name="batch_invariant_logp",
         op_class="logprob",
@@ -425,6 +459,17 @@ OP_SPECS = {
             "pytorch": "rl_engine.validation.operators.operator_specs.GtestPackOp",
         },
         grad_input_names=("x",),
+    ),
+    "packed_index_copy": OperatorSpec(
+        name="packed_index_copy",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+            "cuda": "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp",
+        },
+        grad_input_names=("text", "video", "audio"),
     ),
     "video_patch_pack_unpack": OperatorSpec(
         name="video_patch_pack_unpack",

@@ -22,4 +22,5 @@ Useful pages:
 - [Repository Layout and Ownership](../architecture/repository-layout.md)
 - [Documentation Guide](documentation.md)
 - [Testing](testing.md)
+- [Automated PR Review](ocr-review.md)
 - [Runtime Dispatch](../architecture/runtime-dispatch.md)

@@ -241,6 +241,11 @@ def deterministic_rope_apply_token_major_rocm(
 ) -> torch.Tensor: ...
 def det_gemm_sm90_compiled() -> bool: ...
 def det_gemm_fwd(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor: ...
+def det_gemm_fwd_fp32(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor: ...
+def det_gemm_accum_fwd_fp32(
+    a: torch.Tensor,
+    b: torch.Tensor,
+) -> torch.Tensor: ...
 def det_gemm_fwd_rhs_transposed(
     a: torch.Tensor,
     bt: torch.Tensor,
@@ -248,6 +253,12 @@ def det_gemm_fwd_rhs_transposed(
 def det_gemm_da(dc: torch.Tensor, b: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_db(a: torch.Tensor, dc: torch.Tensor) -> torch.Tensor: ...
 def det_gemm_db_transposed(a: torch.Tensor, dc: torch.Tensor) -> torch.Tensor: ...
+def det_gemm_validate_launch(
+    m: int,
+    n: int,
+    k: int,
+    max_grid_x: int,
+) -> int: ...
 def silu_forward(x: torch.Tensor) -> torch.Tensor: ...
 def silu_backward(dy: torch.Tensor, x: torch.Tensor) -> torch.Tensor: ...
 def swiglu_forward(gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor: ...
@@ -255,6 +266,15 @@ def swiglu_backward(
     dy: torch.Tensor,
     gate: torch.Tensor,
     up: torch.Tensor,
+) -> list[torch.Tensor]: ...
+def conditioning_noise_mix_forward(
+    sample: torch.Tensor,
+    timestep: torch.Tensor,
+    noise: torch.Tensor,
+) -> torch.Tensor: ...
+def conditioning_noise_mix_backward(
+    grad: torch.Tensor,
+    timestep: torch.Tensor,
 ) -> list[torch.Tensor]: ...
 def rmsnorm_forward(
     x: torch.Tensor,
@@ -325,6 +345,21 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+def packed_index_copy_forward(
+    text: torch.Tensor,
+    video: torch.Tensor,
+    audio: torch.Tensor,
+    text_indices: torch.Tensor,
+    video_indices: torch.Tensor,
+    audio_indices: torch.Tensor,
+    sequence_length: int,
+) -> torch.Tensor: ...
+def packed_index_copy_backward(
+    grad: torch.Tensor,
+    text_indices: torch.Tensor,
+    video_indices: torch.Tensor,
+    audio_indices: torch.Tensor,
+) -> list[torch.Tensor]: ...
 
 # MiniMax-H3 kernels (RFC #420). These exist only in a build that compiles the H3 sources: not on
 # ROCm, and not with KERNEL_ALIGN_USE_FAST_MATH=1 or relaxed NVCC_*_FLAGS (build_tools/extensions.py

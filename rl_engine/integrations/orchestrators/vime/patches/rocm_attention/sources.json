@@ -14,6 +14,12 @@
     "patch_applies_and_recreates_tree": true
   },
   "vllm": {
+    "upstream_repository": "https://github.com/vllm-project/vllm.git",
+    "upstream_base": "b22afe45ac797ae58e67a7a3ad79ee5714024420",
+    "base_patch": "vllm-base.patch",
+    "base_patch_sha256": "3f619f75851770f8d7c660c73a999fa1254856d428a785f51f1a78dd4728e6fa",
+    "base_tree": "bea570245d926776ac49d2749f64881e7d209698",
+    "base_patch_applies_and_recreates_tree": true,
     "base": "11d76fc7259b3c1d70e2043b7513226aec9a665a",
     "commit": "1d813359776761b7631e192e2240e4012879a559",
     "tree": "c0bd64859e1ee1e1268732fef0f0541da5c80f13",

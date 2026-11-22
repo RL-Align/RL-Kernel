@@ -142,3 +142,84 @@ def test_block_backward(h3_block_weights_cuda, ops):
     assert report["leaves"]["hidden"]["batch_row_bitwise_equal"]
     assert report["first_grad_repeat_drift"] is None
     assert report["first_grad_batch_drift"] is None
+
+
+def test_qkv_nodes_share_one_combined_row_call():
+    """``q_proj`` / ``k_proj`` / ``v_proj`` call the ``h3_qkv_gemm`` row once, so the block's
+    input gradient is the row's fused backward; a copied context recomputes."""
+
+    calls = []
+
+    class _Ops:
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            """Record the keys of a fused QKV call and return the three projections."""
+            calls.append(logical_keys.shape)
+            return tuple(flat @ w.t() for w in (wq, wk, wv))
+
+    nodes = {n.name: n for n in h3_block.NODES}
+    weights = {f"{h3_block.BLOCK}.{w}": torch.randn(4, 6) for w in h3_block.QKV_WEIGHTS}
+    ctx = h3_block.evaluation_ctx({"weights": weights})
+    x = torch.randn(1, 3, 6)
+    outs = [nodes[n].candidate(_Ops, ctx, x) for n in ("q_proj", "k_proj", "v_proj")]
+    assert len(calls) == 1 and calls[0] == (3, 2)
+    for out, w in zip(outs, h3_block.QKV_WEIGHTS):
+        assert torch.equal(
+            out, (x.reshape(3, 6) @ weights[f"{h3_block.BLOCK}.{w}"].t()).view(1, 3, 4)
+        )
+    other = {**ctx, "weights": {k: v.clone() for k, v in weights.items()}}
+    nodes["k_proj"].candidate(_Ops, other, x)
+    nodes["q_proj"].candidate(_Ops, ctx, torch.randn(1, 3, 6))
+    assert len(calls) == 3
+
+
+def test_each_graph_evaluation_makes_its_own_fused_qkv_call():
+    """Two evaluations with the same ``ctx`` and inputs, or with other ops, each make their own
+    combined call: a repeat check never compares an evaluation with its own cached outputs."""
+
+    calls = []
+
+    class _Ops:
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            """Record a fused QKV call and return the three projections."""
+            calls.append(_Ops)
+            return tuple(flat @ w.t() for w in (wq, wk, wv))
+
+    class _OtherOps(_Ops):
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            """The same projections under another operator set."""
+            calls.append(_OtherOps)
+            return tuple(flat @ w.t() for w in (wq, wk, wv))
+
+    nodes = {n.name: n for n in h3_block.NODES}
+    weights = {f"{h3_block.BLOCK}.{w}": torch.randn(4, 6) for w in h3_block.QKV_WEIGHTS}
+    ctx = {"weights": weights}
+    x = torch.randn(1, 3, 6)
+    provider = {"norm1": x}
+    for _ in range(2):  # what ``run_isolated`` does per evaluation, with the same inputs
+        run = h3_block.evaluation_ctx(ctx)
+        first = [nodes[n].candidate(_Ops, run, provider["norm1"]) for n in ("q_proj", "k_proj")]
+    assert calls == [_Ops, _Ops] and h3_block.FUSED_QKV_CACHE not in ctx
+    second = nodes["q_proj"].candidate(_Ops, run, x)
+    assert len(calls) == 2 and torch.equal(second, first[0])  # one evaluation shares its call
+    nodes["v_proj"].candidate(_OtherOps, run, x)  # other ops on the same inputs recompute
+    assert calls[-1] is _OtherOps
+
+
+def test_fused_qkv_refuses_a_ctx_that_is_not_one_evaluation():
+    """A caller's own ``ctx`` (not made by ``evaluation_ctx``) is refused, and gains no cache."""
+
+    class _Ops:
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            """Never reached: the ctx is refused first."""
+            raise AssertionError("no call for a refused ctx")
+
+    nodes = {n.name: n for n in h3_block.NODES}
+    weights = {f"{h3_block.BLOCK}.{w}": torch.randn(4, 6) for w in h3_block.QKV_WEIGHTS}
+    ctx = {"weights": weights}
+    with pytest.raises(ValueError, match="evaluation_ctx"):
+        nodes["q_proj"].candidate(_Ops, ctx, torch.randn(1, 3, 6))
+    assert h3_block.FUSED_QKV_CACHE not in ctx
