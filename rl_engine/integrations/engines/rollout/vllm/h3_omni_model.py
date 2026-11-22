@@ -455,6 +455,24 @@ def check_engine_config(od_config: Any, *, tp: int) -> list[str]:
     return reasons
 
 
+def check_process_world(tp: int) -> list[str]:
+    """Why the default process group cannot run the bound DiT (empty: it can).
+
+    The bound blocks index and assemble their rows by global rank, so every process must be in
+    the rollout's TP group: WORLD == TP. This also refuses vLLM-Omni data parallelism (more
+    processes than TP) on paths that have no engine config to read it from.
+    """
+
+    import torch.distributed as dist
+
+    if dist.is_available() and dist.is_initialized() and dist.get_world_size() != tp:
+        return [
+            f"world size {dist.get_world_size()} != TP {tp}: the bound blocks own rows by global "
+            "rank"
+        ]
+    return []
+
+
 def check_engine_transformer(transformer: torch.nn.Module) -> list[str]:
     """Why vLLM-Omni's DiT module cannot be replaced by the bound DiT (empty: it can)."""
 
@@ -555,7 +573,7 @@ def install_h3_omni_model(
 ) -> H3OmniModelHandle:
     """Replace vLLM-Omni's DiT call with ``binding``. Every refusal is raised before any change."""
 
-    reasons = check_engine_transformer(transformer)
+    reasons = check_engine_transformer(transformer) + check_process_world(binding.grid.tp)
     if od_config is not None:
         reasons += check_engine_config(od_config, tp=binding.grid.tp)
     if reasons:

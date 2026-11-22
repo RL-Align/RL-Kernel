@@ -322,6 +322,20 @@ class TestInstall:
         with pytest.raises(RuntimeError):
             om.install_h3_omni_model(t, _Binding())
 
+    def test_a_direct_install_checks_the_world_size(self, monkeypatch):
+        """Without ``od_config`` (no engine config to read DP from) WORLD == TP is still checked."""
+
+        import torch.distributed as dist
+
+        monkeypatch.setattr(dist, "is_initialized", lambda: True)
+        monkeypatch.setattr(dist, "get_world_size", lambda group=None: 8)  # DP2 x TP4
+        t = MiniMaxH3DiTModel()
+        with pytest.raises(RuntimeError, match="world size 8 != TP 4"):
+            om.install_h3_omni_model(t, _Binding())
+        assert "forward" not in t.__dict__
+        monkeypatch.setattr(dist, "get_world_size", lambda group=None: 4)
+        om.install_h3_omni_model(t, _Binding()).remove()
+
     def test_release_moves_the_engine_weights_to_meta(self):
         t = MiniMaxH3DiTModel()
         handle = om.install_h3_omni_model(t, _Binding(), release_weights=True)
