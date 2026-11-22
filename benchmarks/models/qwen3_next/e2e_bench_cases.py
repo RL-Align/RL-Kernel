@@ -133,12 +133,11 @@ def arm_environment(base, arm):
     ``base`` is ``qwen3_next_run.stage_environment`` of the certified l2 stage. A native arm
     drops the certificate and the strict runtime knobs (``QWEN_SHARED_PROFILE_RESULT``,
     ``TRITON_F32_DEFAULT``, ``VLLM_USE_V2_MODEL_RUNNER``; ``VLLM_BATCH_INVARIANT`` only for
-    ``native_bi``), so vLLM's and Triton's numerics are their defaults. Both arms keep the
-    stage's host settings:
-
-    - ``OMP_NUM_THREADS`` / ``MKL_NUM_THREADS`` 16;
-    - ``CUDA_DEVICE_MAX_CONNECTIONS=1``, which stock Megatron needs at TP > 1;
-    - ``VLLM_PLUGINS=""``, which keeps RL-Kernel's own vLLM plugin out of the stock engine.
+    ``native_bi``), so vLLM's and Triton's numerics are their defaults. The stock vLLM arms
+    also drop ``CUDA_DEVICE_MAX_CONNECTIONS``, which the stage sets for Megatron, so vLLM runs
+    with the CUDA default. The stock VIME arm keeps it: stock Megatron refuses TP > 1 without
+    it. All arms keep the stage's host settings (``OMP_NUM_THREADS`` / ``MKL_NUM_THREADS`` 16)
+    and ``VLLM_PLUGINS=""``, which keeps RL-Kernel's own vLLM plugin out of the stock engine.
     """
     env = dict(base)
     if arm == STRICT_ARM:
@@ -147,6 +146,8 @@ def arm_environment(base, arm):
         return env
     for name in ("QWEN_SHARED_PROFILE_RESULT", "TRITON_F32_DEFAULT", "VLLM_USE_V2_MODEL_RUNNER"):
         env.pop(name, None)
+    if arm in ROLLOUT_ARMS:
+        env.pop("CUDA_DEVICE_MAX_CONNECTIONS", None)
     env["VLLM_BATCH_INVARIANT"] = "1" if arm == "native_bi" else "0"
     return env
 

@@ -69,11 +69,20 @@ def test_native_arms_drop_the_strict_runtime(arm, invariant):
         "QWEN_SHARED_PROFILE_RESULT": "/run/result.json",
         "TRITON_F32_DEFAULT": "ieee",
         "VLLM_USE_V2_MODEL_RUNNER": "0",
+        "CUDA_DEVICE_MAX_CONNECTIONS": "1",
         "PATH": "/bin",
     }
     env = cases.arm_environment(base, arm)
     assert env == {"VLLM_BATCH_INVARIANT": invariant, "PATH": "/bin"}
     assert base["QWEN_SHARED_PROFILE_RESULT"] == "/run/result.json"
+
+
+def test_stock_vime_keeps_megatron_connection_limit():
+    """Stock Megatron refuses TP > 1 without CUDA_DEVICE_MAX_CONNECTIONS=1; stock vLLM runs
+    at the CUDA default."""
+    base = {"VLLM_BATCH_INVARIANT": "1", "CUDA_DEVICE_MAX_CONNECTIONS": "1", "PATH": "/bin"}
+    assert cases.arm_environment(base, "native")["CUDA_DEVICE_MAX_CONNECTIONS"] == "1"
+    assert "CUDA_DEVICE_MAX_CONNECTIONS" not in cases.arm_environment(base, "native_eager")
 
 
 def test_arm_order_alternates_between_rounds():
