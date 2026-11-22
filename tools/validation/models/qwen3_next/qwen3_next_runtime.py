@@ -232,12 +232,24 @@ def current_identity():
 
 
 def probe_environment(python):
+    """Return the stage interpreter's identity, from ``qwen3_next_runtime.py --json``.
+
+    A refusal in the child (for example ``environment_mismatch`` for a shadowing user site)
+    is raised here as a ``ProcessFailure`` that keeps the child's message and its failure
+    kind, instead of a bare non-zero exit status.
+    """
     command = [interpreter_path(python), str(Path(__file__).absolute()), "--json"]
     env = os.environ.copy()
     env.pop("PYTHONHOME", None)
     env.pop("PYTHONPATH", None)
-    output = subprocess.check_output(command, text=True, env=env, timeout=180)
-    return json.loads(output)
+    result = subprocess.run(command, text=True, env=env, timeout=180, capture_output=True)
+    if result.returncode:
+        tail = result.stderr[-8192:]
+        raise ProcessFailure(
+            f"environment probe exited with {result.returncode}:\n{tail}",
+            failure_kind=failure_kind(text=tail),
+        )
+    return json.loads(result.stdout)
 
 
 def verify_environment(expected, *, require_venv=False):

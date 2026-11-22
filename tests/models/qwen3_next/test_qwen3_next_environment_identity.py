@@ -73,3 +73,20 @@ def test_identity_refuses_a_shadowing_user_site(tmp_path, monkeypatch):
         assert failure_kind(error) == "environment_mismatch"
     else:
         raise AssertionError("a shadowing user site must be refused")
+
+
+def test_probe_keeps_the_child_refusal_and_its_failure_kind(tmp_path):
+    """A refusing probe interpreter surfaces as environment_mismatch with its message."""
+    import qwen3_next_runtime as runtime
+
+    message = "RuntimeError: environment_mismatch: the user site-packages shadows apache-tvm-ffi"
+    fake = tmp_path / "python"
+    fake.write_text(f"#!/bin/sh\necho '{message}' >&2\nexit 1\n")
+    fake.chmod(0o755)
+    try:
+        runtime.probe_environment(fake)
+    except runtime.ProcessFailure as error:
+        assert "shadows apache-tvm-ffi" in str(error)
+        assert failure_kind(error) == "environment_mismatch"
+    else:
+        raise AssertionError("a refusing probe must raise")
