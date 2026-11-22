@@ -33,7 +33,7 @@ MUTED = "#6f6e69"
 SURFACE = "#fcfcfb"
 COLORS = {
     "strict": "#2a78d6",
-    "native": "#eb6834",
+    "native": "#7b4fc4",
     "native_graph": "#eb6834",
     "native_eager": "#f29a62",
     "native_bi": "#a5461b",
@@ -89,6 +89,22 @@ def panel(axis, phase, results, workload):
         axis.spines[side].set_visible(False)
 
 
+def layout_line(report):
+    """Each arm's parallel layout, from the replay phase's ``layouts`` when the report has it."""
+    layouts = report["phases"].get("replay", {}).get("layouts")
+    if not layouts:
+        return f"TP4 EP{report['topology']['ep']}"
+
+    def text(layout):
+        sp = " + SP" if layout.get("sp") else ""
+        return f"TP{layout['tp']}{sp}, EP{layout['ep']}, ETP{layout['etp']}, DP{layout['dp']}"
+
+    return (
+        f"RL-Kernel strict: {text(layouts['strict'])}; "
+        f"stock VIME replay and training: {text(layouts['native'])}"
+    )
+
+
 def render(report_path):
     report = json.loads(Path(report_path).read_text())
     phases = [phase for phase in ("rollout", "replay", "train") if phase in report["phases"]]
@@ -108,14 +124,20 @@ def render(report_path):
         for handle, label in zip(*axis.get_legend_handles_labels()):
             handles.setdefault(label, handle)
             labels[label] = label
-    figure.legend(handles.values(), labels.values(), loc="lower center", ncol=5, frameon=False)
+    refused = {
+        LABELS[row["arm"]]
+        for phase in report["phases"].values()
+        for row in phase.get("unsupported", [])
+    }
+    names = [f"{label} (refused, not measured)" if label in refused else label for label in labels]
+    figure.legend(handles.values(), names, loc="lower center", ncol=3, frameon=False)
     gpus = ", ".join(report["versions"].get("gpus", []))
     figure.suptitle(
-        f"Qwen3-Next-80B-A3B end-to-end, TP4 EP{report['topology']['ep']} on {gpus} at "
-        f"{report['rl_kernel_commit'][:8]}",
+        f"Qwen3-Next-80B-A3B end-to-end on {gpus} at {report['rl_kernel_commit'][:8]}\n"
+        f"{layout_line(report)}",
         color=INK,
     )
-    figure.tight_layout(rect=(0, 0.05, 1, 0.96))
+    figure.tight_layout(rect=(0, 0.09, 1, 0.93))
     output = Path(report_path).with_name("figure.png")
     figure.savefig(output, dpi=150)
     return output
