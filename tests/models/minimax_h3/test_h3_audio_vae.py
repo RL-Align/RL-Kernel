@@ -739,8 +739,9 @@ def test_benchmark_two_panel_charts_share_one_cap(tmp_path):
     seen = []
     real_close = plt.close
 
-    def close(fig):
-        seen.append([ax.get_ylim()[1] for ax in fig.axes])
+    def close(fig=None):
+        if hasattr(fig, "axes"):  # a figure; ``matplotlib.use`` may also close("all")
+            seen.append([ax.get_ylim()[1] for ax in fig.axes])
         real_close(fig)
 
     plt.close = close
