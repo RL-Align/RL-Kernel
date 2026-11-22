@@ -42,7 +42,7 @@ def _record_block(layout: str, seed: int) -> ot.OperatorTrace:
     trace = ot.OperatorTrace(
         mode="candidate", metadata={"layout": layout, "seed": seed, "block": 0}
     )
-    ctx["node_observer"] = ot.block_observer(trace, block_index=0)
+    ctx["node_observer"] = ot.block_observer(trace, block_index=0, bindings=h3_block.bindings(ops))
     with torch.no_grad():
         h3_block.run_graph("candidate", ctx, ops)
     return trace

@@ -83,6 +83,7 @@ def main() -> None:
             )
         torch.cuda.empty_cache()
 
+    bound = h3_block.bindings(ops)
     evidence = {
         "kind": "h3_one_block_replay",
         "rfc": manifest["rfc"],
@@ -95,9 +96,9 @@ def main() -> None:
             {
                 "node": n.name,
                 "inputs": list(n.inputs),
-                "rfc_row": n.binding.rfc_row,
-                "status": n.binding.status,
-                "backend": n.binding.backend,
+                "rfc_row": bound[n.name].rfc_row,
+                "status": bound[n.name].status,
+                "backend": bound[n.name].backend,
             }
             for n in h3_block.NODES
         ],

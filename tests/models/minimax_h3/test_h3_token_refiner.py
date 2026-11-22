@@ -50,7 +50,15 @@ def test_graph_is_well_formed_and_owners_are_declared():
     own = {n.name for n in hr.NODES if n.binding.rfc_row == "token_refiner_block"}
     assert own == {"residual_attn", "residual_mlp"}  # the row owns only the plain adds
     rows_with_kernels = {n.binding.rfc_row for n in hr.NODES if n.binding.status == "row"}
-    assert rows_with_kernels == {"h3_rmsnorm", "h3_qkv_gemm", "token_refiner_block"}
+    assert rows_with_kernels == {
+        "h3_rmsnorm",
+        "h3_qkv_gemm",
+        "token_refiner_block",
+        "h3_full_attention",
+        "h3_attention_o_gemm",
+        "h3_ffn_gate_up_gemm",
+        "h3_ffn_down_gemm",
+    }
 
 
 def test_refiner_has_no_adaln_and_no_rope_nodes():
@@ -94,11 +102,15 @@ def test_nodes_accuracy_repeat_batch_and_isolated(refiner_weights, block, tokens
 
 @needs_gpu
 def test_report_names_rows_status_and_backend_per_node(refiner_weights):
-    report = hr.run_refiner_case(refiner_weights, block=0, tokens=16)
+    ops = hb.CandidateOps()
+    report = hr.run_refiner_case(refiner_weights, block=0, tokens=16, ops=ops)
     assert [e["node"] for e in report["nodes"]] == list(hr.NODE_NAMES)
     by = {e["node"]: e for e in report["nodes"]}
     assert by["q_proj"]["status"] == "row" and by["q_proj"]["rfc_row"] == "h3_qkv_gemm"
-    assert by["attention"]["status"] == "interim"
+    bound = hb.bindings(ops, hr.NODES)
+    assert by["attention"]["status"] == bound["attention"].status
+    for name in hb.GEMM_ROWS:  # the rows' operators on SM90, the interim GEMM elsewhere
+        assert by[name]["status"] == ("row" if hb.gemm_rows_supported() else "interim")
     assert by["residual_attn"]["rfc_row"] == "token_refiner_block"
     assert all(len(e["candidate_sha256"]) == 64 for e in report["nodes"])
 
