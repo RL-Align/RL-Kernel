@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+
+"""``h3-parallel-v2``: the gate/up, O and down projections run their rows' fixed FP32-tile GEMM.
+
+The CPU tests pin the launch to ``FixedFP32Backend``'s (the #554 adapter that the rows'
+operators use) and the kernel each tensor-parallel path picks. The GPU tests check that the
+launch is bitwise ``FixedFP32Backend`` at the rows' TP=1 shapes, that a column shard is bitwise
+those columns, and that the FP32 partial rounds to the BF16 output.
+"""
+
+from __future__ import annotations
+
+import pytest
+import torch
+
+from rl_engine.backends.cuda.model_specific.minimax_h3 import fixed_fp32_gemm as fx
+from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
+from rl_engine.backends.shared.triton.gemm import h3_projection as g
+
+needs_gpu = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+
+
+class _Compiled:
+    hash = "h"
+    asm = {"cubin": b""}
+
+    class metadata:
+        num_warps = 4
+
+
+class _Kernel:
+    """Records the keyword options of a launch."""
+
+    def __init__(self):
+        self.launches = []
+
+    def __getitem__(self, grid):
+        def launch(*args, **kwargs):
+            self.launches.append((grid, kwargs))
+            return _Compiled()
+
+        return launch
+
+
+def test_launch_is_fixed_fp32_backends(monkeypatch):
+    pytest.importorskip("triton")
+    from rl_engine.backends.cuda.gemm import h3_projection_fp32 as adapter
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+
+    kernel = _Kernel()
+    monkeypatch.setattr(det_gemm, "_det_gemm_fp32_kernel", kernel)
+    backend = adapter.FixedFP32Backend()
+    backend.gemm(torch.zeros(3, 4, dtype=torch.bfloat16), torch.zeros(4, 5, dtype=torch.bfloat16))
+    ((_, options),) = kernel.launches
+    assert options == fx.LAUNCH
+
+
+def test_rejects_non_bf16_operands():
+    x = torch.zeros(2, 3)
+    with pytest.raises(TypeError, match="BF16"):
+        fx.gemm(x, x.t())
+
+
+def test_each_tensor_parallel_projection_uses_its_rows_kernel():
+    assert par.CONTRACT == "h3-parallel-v2"
+    assert par.KERNELS == {"projection": g.gemm, "fixed": fx.gemm}
+    import inspect
+
+    from rl_engine.validation.models import h3_sglang_rollout, h3_tp
+
+    block = inspect.getsource(h3_tp.run_tp_block_rows)
+    assert block.count('kernel="fixed"') == 1  # gate/up; Q/K/V keep the projection kernel
+    assert 'kernel="fixed"' in inspect.getsource(h3_sglang_rollout._canonical)
+    assert inspect.signature(par._units_partial).parameters["kernel"].default is fx.gemm
+
+
+@needs_gpu
+@pytest.mark.parametrize(
+    "rows, k, n", [(264, 7168, 5376), (925, 5376, 28672), (37, 14336, 5376), (1, 5376, 7168)]
+)
+def test_bitwise_the_rows_backend(rows, k, n):
+    pytest.importorskip("triton")
+    from rl_engine.backends.cuda.gemm.h3_projection_fp32 import FixedFP32Backend
+
+    gen = torch.Generator(device="cuda").manual_seed(rows)
+    x = torch.randn(rows, k, device="cuda", generator=gen).bfloat16()
+    w = (torch.randn(n, k, device="cuda", generator=gen) / k**0.5).bfloat16()
+    backend = FixedFP32Backend()
+    assert torch.equal(fx.gemm(x, w, b_t=True), backend.det_gemm_fwd_rhs_transposed(x, w))
+    grad = torch.randn(rows, n, device="cuda", generator=gen).bfloat16()
+    assert torch.equal(fx.gemm(grad, w), backend.det_gemm_fwd(grad, w))  # dX
+    assert torch.equal(fx.gemm(grad, x, a_t=True), backend.det_gemm_db_transposed(x, grad))  # dW
+    partial = fx.gemm(x, w, b_t=True, out_dtype=torch.float32)
+    assert torch.equal(partial.bfloat16(), fx.gemm(x, w, b_t=True))
+
+
+@needs_gpu
+@pytest.mark.parametrize("tp", [2, 4, 8])
+def test_column_shard_is_bitwise_those_columns(tp):
+    pytest.importorskip("triton")
+    gen = torch.Generator(device="cuda").manual_seed(tp)
+    x = torch.randn(264, 5376, device="cuda", generator=gen).bfloat16()
+    w = (torch.randn(28672, 5376, device="cuda", generator=gen) / 73).bfloat16()
+    full = fx.gemm(x, w, b_t=True)
+    shard = par.shard_gate_up(w, tp, 1)
+    hidden, gate = fx.gemm(x, shard, b_t=True).chunk(2, dim=1)
+    width = 14336 // tp
+    assert torch.equal(hidden, full[:, width : 2 * width])
+    assert torch.equal(gate, full[:, 14336 + width : 14336 + 2 * width])
+
+
+@needs_gpu
+def test_gate_up_lora_base_is_the_rows_kernel():
+    """With B = 0 a gate/up LoRA projection (``kernel="fixed"``) is the row's GEMM, by value."""
+
+    pytest.importorskip("triton")
+    from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel_lora as pl
+
+    gen = torch.Generator(device="cuda").manual_seed(9)
+    x = torch.randn(264, 5376, device="cuda", generator=gen).bfloat16()
+    hidden = (torch.randn(1792, 5376, device="cuda", generator=gen) / 73).bfloat16()
+    gate = (torch.randn(1792, 5376, device="cuda", generator=gen) / 73).bfloat16()
+    a = (torch.randn(8, 5376, device="cuda", generator=gen) / 73).bfloat16()
+    b_hidden = torch.zeros(1792, 8, device="cuda").bfloat16()
+    b_gate = torch.zeros(1792, 8, device="cuda").bfloat16()
+    outs = pl.column_parallel_lora_linear(
+        x, [hidden, gate], [(a, [b_hidden, b_gate])], 2.0, kernel="fixed"
+    )
+    for out, w in zip(outs, (hidden, gate)):
+        assert torch.equal(out.float(), fx.gemm(x, w, b_t=True).float())

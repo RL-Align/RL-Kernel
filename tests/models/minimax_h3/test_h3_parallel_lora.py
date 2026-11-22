@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""h3-parallel-lora-v1: LoRA on the H3 TP / SP / CP projections (RFC #420)."""
+"""h3-parallel-lora-v2: LoRA on the H3 TP / SP / CP projections (RFC #420)."""
 
 from __future__ import annotations
 

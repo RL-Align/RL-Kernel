@@ -26,7 +26,7 @@ provider in both runs, for GPUs the strict boundary rows do not support (they ne
 
 ``--lora-rank R`` puts a seeded LoRA (``h3_lora.make_block_lora``: A ~ N(0, 1/R), B random or,
 with ``--lora-b-zero``, zero; scale ``--lora-alpha / R``) on the six targets of every block, cut
-for each run's grid (``h3-parallel-lora-v1``), and compares every LoRA shard's gradient too
+for each run's grid (``h3-parallel-lora-v2``), and compares every LoRA shard's gradient too
 (``lora_gradients_bitwise``). The two token-refiner blocks are not on the grid and carry no LoRA
 here.
 """
