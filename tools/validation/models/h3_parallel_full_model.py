@@ -102,6 +102,37 @@ def _run(model, base, grid, sp, ops, gradients, digest_leaf, *, strict, inject=N
     }
 
 
+def shard_gradient_verdict(expected: dict, observed: dict, blocks: int, *, lora: bool) -> dict:
+    """Compare the canonical run's shard-gradient digests with the grid's.
+
+    Every block's every sharded projection (and, with ``lora``, every LoRA shard) must be in
+    both runs with the same digest: an empty or partial comparison is not a pass, and a key that
+    only one run holds is reported as missing.
+    """
+
+    missing = sorted(set(expected) ^ set(observed))
+    mismatched = sorted(k for k in set(expected) & set(observed) if expected[k] != observed[k])
+    lora_keys = sorted(k for k in expected if ".lora." in k)
+    base_keys = [k for k in expected if ".lora." not in k]
+    base_mismatched = [k for k in mismatched if ".lora." not in k]
+    lora_mismatched = [k for k in mismatched if ".lora." in k]
+    base_missing = [k for k in missing if ".lora." not in k]
+    lora_missing = [k for k in missing if ".lora." in k]
+    return {
+        "missing": missing,
+        "base_mismatched": base_mismatched,
+        "lora_mismatched": lora_mismatched,
+        "lora_keys": lora_keys,
+        "base_bitwise": not base_mismatched
+        and not base_missing
+        and len(base_keys) == blocks * len(pm.SHARDED_WEIGHTS),
+        "lora_bitwise": lora
+        and not lora_mismatched
+        and not lora_missing
+        and len(lora_keys) == blocks * h3_lora.LEAVES_PER_BLOCK,
+    }
+
+
 def _prepare(model) -> None:
     """Checkpoint the blocks and freeze the parameters: the shard leaves carry the gradients."""
     model.enable_gradient_checkpointing()
@@ -289,24 +320,14 @@ def main() -> None:
     )
     checks["block_outputs_bitwise"] = drift_forward is None
     checks["block_output_gradients_bitwise"] = drift_backward is None
-    mismatched = [
-        key for key, digest in observed["leaf_digests"].items() if digest != expected.get(key)
-    ]
-    # every block's every sharded projection (and LoRA shard), in both runs: an empty comparison
-    # is not a pass
-    per_block = len(pm.SHARDED_WEIGHTS) + (h3_lora.LEAVES_PER_BLOCK if args.lora_rank else 0)
-    shard_count = len(model.transformer_blocks) * per_block
-    base_mismatched = [k for k in mismatched if ".lora." not in k]
-    lora_mismatched = [k for k in mismatched if ".lora." in k]
-    lora_keys = [k for k in expected if ".lora." in k]
-    checks["weight_shard_gradients_bitwise"] = (
-        not base_mismatched and len(expected) == len(observed["leaf_digests"]) == shard_count
+    verdict = shard_gradient_verdict(
+        expected, observed["leaf_digests"], len(model.transformer_blocks), lora=bool(args.lora_rank)
     )
+    base_mismatched, lora_mismatched = verdict["base_mismatched"], verdict["lora_mismatched"]
+    lora_keys = verdict["lora_keys"]
+    checks["weight_shard_gradients_bitwise"] = verdict["base_bitwise"]
     if args.lora_rank:
-        checks["lora_gradients_bitwise"] = (
-            not lora_mismatched
-            and len(lora_keys) == len(model.transformer_blocks) * h3_lora.LEAVES_PER_BLOCK
-        )
+        checks["lora_gradients_bitwise"] = verdict["lora_bitwise"]
     result = {
         "rank": rank,
         "host": socket.gethostname(),
@@ -315,6 +336,7 @@ def main() -> None:
         "weight_shards_mismatched": base_mismatched[:10],
         "lora_shards_compared": len(lora_keys),
         "lora_shards_mismatched": lora_mismatched[:10],
+        "shards_missing": verdict["missing"][:10],
         "lora_bytes": lora_bytes or None,
         "first_drift_forward": drift_forward,
         "first_drift_backward": drift_backward,

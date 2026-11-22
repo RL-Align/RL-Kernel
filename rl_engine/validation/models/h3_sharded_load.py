@@ -135,6 +135,10 @@ def load_sharded_model(
                 if in_block and local in UNLOADED:
                     view = f.get_slice(name)
                     shape = tuple(view.get_shape())
+                    if shape != tuple(params[name].shape):  # the cut follows the stored shape
+                        raise ValueError(
+                            f"{name}: checkpoint shape {shape} != model {tuple(params[name].shape)}"
+                        )
                     for shard_name, (src, how) in SHARD_SOURCES.items():
                         if src == local:
                             shard = cut_shard(view, shape, how, tp, tp_rank)
