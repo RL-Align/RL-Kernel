@@ -445,6 +445,7 @@ def test_preprocessing_matches_the_tiny_diffusers_pipeline(anchors):
         assert torch.equal(getattr(layout, name), ref[name].cpu()), name
         assert getattr(layout, name).dtype == ref[name].dtype, name
     assert layout.num_condition_video_rows == ref["num_condition_video_rows"]
+    assert layout.num_condition_audio_rows == ref["num_condition_audio_rows"]
 
     plan = captured["MiniMaxH3SetTimestepsStep"]
     ours = pl.row_timestep_plan(
