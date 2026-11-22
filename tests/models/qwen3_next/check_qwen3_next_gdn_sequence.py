@@ -139,3 +139,69 @@ def test_gradients_equal_the_decode_loop():
         grads.append([tensor.grad for tensor in tensors])
     for fused, loop in zip(*grads):
         exact(fused, loop)
+
+
+def _reference_recurrence(qkv, a, b, A_log, dt_bias, state, indices, cu, *, num_k_heads):
+    """Independent FP64 PyTorch gated delta rule, written from vLLM 0.30.0's kernel.
+
+    Per token: q, k L2-normalised (eps 1e-6), q scaled by 128 ** -0.5; h *= exp(g);
+    v -= h k; v *= beta; h += v k^T; o = h q. g = -exp(A_log) softplus(a + dt_bias) and
+    beta = sigmoid(b). Key heads are shared by consecutive value heads, as in the kernel.
+    """
+    qkv, a, b = qkv.double(), a.double(), b.double()
+    A_log, dt_bias, bank = A_log.double(), dt_bias.double(), state.double()
+    tokens, heads = qkv.shape[0], bank.shape[1]
+    width = num_k_heads * 128
+    group = heads // num_k_heads
+    q_all = qkv[:, :width].reshape(tokens, num_k_heads, 128).repeat_interleave(group, 1)
+    k_all = qkv[:, width : 2 * width].reshape(tokens, num_k_heads, 128)
+    k_all = k_all.repeat_interleave(group, 1)
+    v_all = qkv[:, 2 * width :].reshape(tokens, heads, 128)
+    g = -A_log.exp() * torch.nn.functional.softplus(a + dt_bias)
+    beta = torch.sigmoid(b)
+    outputs, slots = [], {}
+    for n, (start, end) in enumerate(zip(cu.tolist(), cu.tolist()[1:])):
+        slot = int(indices[n])
+        h = bank[slot]
+        for t in range(start, end):
+            q = q_all[t] / (q_all[t].square().sum(-1, keepdim=True) + 1e-6).sqrt() * 128**-0.5
+            k = k_all[t] / (k_all[t].square().sum(-1, keepdim=True) + 1e-6).sqrt()
+            h = h * g[t].exp()[:, None, None]
+            v = (v_all[t] - (h * k[:, None, :]).sum(-1)) * beta[t][:, None]
+            h = h + v[:, :, None] * k[:, None, :]
+            outputs.append((h * q[:, None, :]).sum(-1))
+        if end > start:
+            slots[slot] = h
+    final = torch.stack([slots.get(i, bank[i]) for i in range(bank.shape[0])])
+    return torch.stack(outputs), final
+
+
+def test_gradients_match_an_independent_reference():
+    """The decode-loop gradient (used by the one-launch backward) against FP64 autograd of
+    a separate PyTorch recurrence, so a shared bug in the decode loop would be caught."""
+    lengths = (5, 0, 3)
+    tensors, indices, cu = inputs(lengths, seed=21)
+    weights = None
+    results = []
+    for function in ("fused", "reference"):
+        leaves = [tensor.detach().clone().requires_grad_() for tensor in tensors]
+        if function == "fused":
+            out, state = packed_recurrent_sequence(*leaves, indices, cu, num_k_heads=4)
+        else:
+            out, state = _reference_recurrence(*leaves, indices, cu, num_k_heads=4)
+        if weights is None:
+            generator = torch.Generator(device="cuda").manual_seed(5)
+            weights = torch.randn(
+                out.shape, device="cuda", generator=generator, dtype=torch.float64
+            )
+        loss = (out.double() * weights).sum() + state.double().square().sum() * 0.01
+        loss.backward()
+        results.append((out.detach().double(), [leaf.grad.double() for leaf in leaves]))
+    (fused_out, fused_grads), (reference_out, reference_grads) = results
+
+    def relative(x, y):
+        return float((x - y).norm() / y.norm().clamp_min(1e-30))
+
+    assert relative(fused_out, reference_out) < 1e-2
+    for fused, reference in zip(fused_grads, reference_grads):
+        assert relative(fused, reference) < 1e-2, relative(fused, reference)

@@ -272,7 +272,7 @@ def _fused_sequence(qkv, a, b, A_log, dt_bias, state, indices, boundaries, *, nu
     # Each token of sequence n stores its running state into slot indices[n]; the
     # last token's store is the final state, as after the decode loop.
     slots = indices.to(torch.int64)[:, None].expand(len(lengths), max(lengths)).contiguous()
-    output, _ = recurrent(
+    output, final_state = recurrent(
         q,
         k,
         v,
@@ -285,6 +285,10 @@ def _fused_sequence(qkv, a, b, A_log, dt_bias, state, indices, boundaries, *, nu
         ssm_state_indices=slots,
         use_qk_l2norm_in_kernel=True,
     )
+    # vLLM 0.30.0 returns initial_state itself when inplace_final_state is set; a version
+    # that returned a separate tensor would leave new_state stale, so refuse it.
+    if final_state.data_ptr() != new_state.data_ptr():
+        raise RuntimeError("fused GDN recurrence did not update the state bank in place")
     return output.reshape(tokens, heads, 128), new_state
 
 
