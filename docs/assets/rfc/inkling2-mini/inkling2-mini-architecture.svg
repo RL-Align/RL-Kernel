@@ -18,7 +18,7 @@
 </style><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#60806d"/></marker><marker id="dasharrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#809c8e"/></marker></defs>
 <rect width="1600" height="1220" fill="white"/>
 <text x="80" y="59" class="title" text-anchor="start">Inkling 2 Mini — RL-Kernel train / rollout consistency map</text>
-<text x="80" y="87" class="sub" text-anchor="start">CUDA + ROCm | VIME Native vs VIME + RL-Kernel | Text-first, then full image-text parity</text>
+<text x="80" y="87" class="sub" text-anchor="start">CUDA + ROCm | Miles Native vs Miles + RL-Kernel | TorchTitan + SGLang</text>
 <rect class="dash" x="85" y="142" width="334" height="73" rx="11"/>
 <text x="252" y="172" class="label" text-anchor="middle">Text input</text>
 <text x="252" y="197" class="small" text-anchor="middle">token IDs, positions and masks</text>
@@ -96,5 +96,5 @@
 <text x="800.5" y="1096" class="label" text-anchor="middle">Selected-token logprob</text>
 <text x="800.5" y="1124" class="small" text-anchor="middle">fixed vocab reduction | exact compare</text>
 <path class="line" d="M800 1026L800 1062" marker-end="url(#arrow)"/>
-<text x="85" y="1193" class="foot" text-anchor="start">WS1: exact per-visit arithmetic   |   WS2: TP / EP / CP determinism   |   Target: zero bit mismatch + competitive throughput</text>
+<text x="85" y="1193" class="foot" text-anchor="start">Miles TorchTitan FSDP2 + EP   |   SGLang Rollout   |   WS1 / WS2 strict parity   |   Native-speed target</text>
 </svg>
