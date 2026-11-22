@@ -322,6 +322,20 @@ class TestInstall:
         with pytest.raises(RuntimeError):
             om.install_h3_omni_model(t, _Binding())
 
+    def test_a_direct_install_checks_the_world_size(self, monkeypatch):
+        """Without ``od_config`` (no engine config to read DP from) WORLD == TP is still checked."""
+
+        import torch.distributed as dist
+
+        monkeypatch.setattr(dist, "is_initialized", lambda: True)
+        monkeypatch.setattr(dist, "get_world_size", lambda group=None: 8)  # DP2 x TP4
+        t = MiniMaxH3DiTModel()
+        with pytest.raises(RuntimeError, match="world size 8 != TP 4"):
+            om.install_h3_omni_model(t, _Binding())
+        assert "forward" not in t.__dict__
+        monkeypatch.setattr(dist, "get_world_size", lambda group=None: 4)
+        om.install_h3_omni_model(t, _Binding()).remove()
+
     def test_release_moves_the_engine_weights_to_meta(self):
         t = MiniMaxH3DiTModel()
         handle = om.install_h3_omni_model(t, _Binding(), release_weights=True)
@@ -759,9 +773,15 @@ class TestRolloutReportGates:
             (calls / f"call{n}.pt").write_bytes(b"old")
         assert tool._fresh_dir(calls) == calls and not list(calls.glob("call*.pt"))
         video = torch.arange(4.0)
-        torch.save({"video": video}, calls / "call0.pt")
+        torch.save({"video": video, "audio": torch.zeros(2)}, calls / "call0.pt")
         args = SimpleNamespace(out=tmp_path)
-        listed = [{"call": "call0", "video_digest": om.tensor_digest(video)}]
+        listed = [
+            {
+                "call": "call0",
+                "video_digest": om.tensor_digest(video),
+                "sha256": tool._file_sha256(calls / "call0.pt"),
+            }
+        ]
         ((path, rec),) = tool._listed_captures(args, {"pass": True, "captures": listed})
         assert path == calls / "call0.pt" and torch.equal(rec["video"], video)
         with pytest.raises(RuntimeError, match="not a passing"):
@@ -770,9 +790,15 @@ class TestRolloutReportGates:
             tool._listed_captures(args, {"pass": True})
         with pytest.raises(RuntimeError, match="missing"):
             tool._listed_captures(args, {"pass": True, "captures": listed + [{"call": "call1"}]})
+        torch.save({"video": video, "audio": torch.ones(2)}, calls / "call0.pt")  # same video
+        with pytest.raises(RuntimeError, match="does not match"):
+            tool._listed_captures(args, {"pass": True, "captures": listed})
         torch.save({"video": video + 1}, calls / "call0.pt")  # a later run's capture
         with pytest.raises(RuntimeError, match="does not match"):
             tool._listed_captures(args, {"pass": True, "captures": listed})
+        without_sha = [{k: v for k, v in listed[0].items() if k != "sha256"}]
+        with pytest.raises(RuntimeError, match="does not match"):  # an engine.json before sha256
+            tool._listed_captures(args, {"pass": True, "captures": without_sha})
 
     def test_an_engine_run_removes_the_earlier_reports(self, tmp_path):
         from tools.validation.models import h3_omni_rollout_report as tool

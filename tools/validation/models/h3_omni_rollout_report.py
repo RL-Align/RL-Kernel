@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import time
 from pathlib import Path
@@ -144,11 +145,16 @@ def _invalidate_reports(out: Path) -> None:
         (out / name).unlink(missing_ok=True)
 
 
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _listed_captures(args, engine: dict[str, Any]) -> list[tuple[Path, dict[str, Any]]]:
     """The captures a passing engine run listed in ``engine.json``, loaded, and only those.
 
-    Each one's video digest must equal the manifest's, so a replay never pairs a capture with a
-    report of another run.
+    Each file's sha256 must equal the manifest's, so a replay never pairs a capture with a report
+    of another run, nor reads a capture whose inputs, kwargs or audio were replaced (the video
+    digest alone would not see those). The video digest is checked too.
     """
 
     from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
@@ -164,6 +170,8 @@ def _listed_captures(args, engine: dict[str, Any]) -> list[tuple[Path, dict[str,
         raise RuntimeError(f"captures listed in engine.json are missing: {missing}")
     loaded = []
     for c, path in zip(listed, paths):
+        if c.get("sha256") is None or _file_sha256(path) != c["sha256"]:
+            raise RuntimeError(f"{path.name} does not match engine.json: rerun the engine stage")
         rec = torch.load(path, weights_only=True)
         if om.tensor_digest(rec["video"]) != c.get("video_digest"):
             raise RuntimeError(f"{path.name} does not match engine.json: rerun the engine stage")
@@ -238,7 +246,14 @@ async def _engine(args) -> dict[str, Any]:
     for path in sorted(calls_dir.glob("call*.pt"), key=lambda p: int(p.stem[4:])):
         rec = torch.load(path, weights_only=True)
         digest = om.tensor_digest(rec["video"])
-        captures.append({"call": path.stem, "video_digest": digest, "in_run": digest in run_videos})
+        captures.append(
+            {
+                "call": path.stem,
+                "video_digest": digest,
+                "sha256": _file_sha256(path),  # the whole capture: inputs, kwargs, both outputs
+                "in_run": digest in run_videos,
+            }
+        )
     report["captures"] = captures
     report["record_errors"] = [e for r in ranks for e in r.get("record_errors", [])]
     report["pass"] = bool(

@@ -97,7 +97,6 @@ class H3OmniWorkerExtension:
         model runs the actor's LoRA only).
         """
 
-        import torch.distributed as dist
         from vllm.distributed.parallel_state import get_tp_group
 
         from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
@@ -114,11 +113,7 @@ class H3OmniWorkerExtension:
             reasons = om.check_engine_transformer(pipeline.transformer)
             if od_config is not None:
                 reasons += om.check_engine_config(od_config, tp=tp)
-            if dist.is_initialized() and dist.get_world_size() != tp:
-                reasons.append(
-                    f"world size {dist.get_world_size()} != TP {tp}: the bound blocks own rows "
-                    "by global rank"
-                )
+            reasons += om.check_process_world(tp)
             if reasons:
                 raise RuntimeError("cannot bind the H3 rollout DiT: " + "; ".join(reasons))
             _preflight_checkpoint(transformer_dir)
