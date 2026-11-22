@@ -699,3 +699,44 @@ class TestInstallLifecycle:
             parallel_config=SimpleNamespace(tensor_parallel_size=4, data_parallel_size=1)
         )
         assert om.check_engine_config(ok, tp=4) == []
+
+
+class TestRolloutReportGates:
+    """The G3 tool's gates: every batched call has its alone twin; replays read this run only."""
+
+    def test_every_batched_call_needs_an_alone_twin(self):
+        from tools.validation.models.h3_omni_rollout_report import batch_twins
+
+        def call(inputs, n):
+            return {"inputs": inputs, "num_requests": n}
+
+        ok = [call("a", 1), call("b", 1), call("a", 2), call("b", 2)]
+        assert batch_twins(ok) == (2, 2)
+        drifted = [
+            call("a", 1),
+            call("b", 1),
+            call("a", 2),
+            call("b'", 2),
+        ]  # B's batched input differs
+        assert batch_twins(drifted) == (2, 1)
+        assert batch_twins([call("a", 1)]) == (0, 0)
+
+    def test_replays_read_only_this_runs_listed_captures(self, tmp_path):
+        from types import SimpleNamespace
+
+        from tools.validation.models import h3_omni_rollout_report as tool
+
+        calls = tmp_path / "calls"
+        calls.mkdir()
+        for n in range(3):  # an earlier run's captures
+            (calls / f"call{n}.pt").write_bytes(b"old")
+        assert tool._fresh_dir(calls) == calls and not list(calls.glob("call*.pt"))
+        (calls / "call0.pt").write_bytes(b"new")
+        args = SimpleNamespace(out=tmp_path)
+        assert tool._listed_captures(args, {"captures": [{"call": "call0"}]}) == [
+            calls / "call0.pt"
+        ]
+        with pytest.raises(RuntimeError, match="lists no captures"):
+            tool._listed_captures(args, {})
+        with pytest.raises(RuntimeError, match="missing"):
+            tool._listed_captures(args, {"captures": [{"call": "call0"}, {"call": "call1"}]})

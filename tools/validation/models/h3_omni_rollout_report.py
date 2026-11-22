@@ -115,7 +115,41 @@ async def _run_request(engine, args, rid: str, key: str, seed: int):
     return last
 
 
+def batch_twins(calls: list[dict[str, Any]]) -> tuple[int, int]:
+    """``(batched, with_twin)``: request calls made in a batch, and those of them whose input
+    digest also ran alone (the batch-invariance pairs). Every batched call needs a twin."""
+
+    alone = {c["inputs"] for c in calls if c["num_requests"] == 1}
+    batched = [c for c in calls if c["num_requests"] > 1]
+    return len(batched), sum(c["inputs"] in alone for c in batched)
+
+
+def _fresh_dir(path: Path) -> Path:
+    """An empty capture directory for this run (captures of an earlier run are removed)."""
+
+    path.mkdir(parents=True, exist_ok=True)
+    for old in path.glob("call*.pt"):
+        old.unlink()
+    return path
+
+
+def _listed_captures(args, engine: dict[str, Any]) -> list[Path]:
+    """The captures this run's engine stage recorded (``engine.json``), and only those."""
+
+    listed = engine.get("captures") or []
+    if not listed:
+        raise RuntimeError("engine.json lists no captures of this run: rerun the engine stage")
+    paths = [args.out / "calls" / f"{c['call']}.pt" for c in listed]
+    missing = [str(p) for p in paths if not p.exists()]
+    if missing:
+        raise RuntimeError(f"captures listed in engine.json are missing: {missing}")
+    return paths
+
+
 async def _engine(args) -> dict[str, Any]:
+    from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+
+    calls_dir = _fresh_dir(args.out / "calls")
     engine = _make_engine(args)
     report: dict[str, Any] = {
         "tp": args.tp,
@@ -131,7 +165,7 @@ async def _engine(args) -> dict[str, Any]:
                 transformer_dir=str(args.checkpoint / "transformer"),
                 strict_boundaries=args.strict_boundaries,
                 release_weights=args.release_weights,
-                record_dir=str(args.out / "calls"),
+                record_dir=str(calls_dir),
                 record_calls=tuple(range(args.record_calls)),
             ),
         )
@@ -163,25 +197,33 @@ async def _engine(args) -> dict[str, Any]:
     report["calls_per_rank"] = [len(c) for c in calls]
     report["ranks_agree"] = all(c == calls[0] for c in calls)
     by_input: dict[str, set] = {}
-    batched = 0
     for c in calls[0]:
         by_input.setdefault(c["inputs"], set()).add((c["video"], c["audio"]))
-        batched += c["num_requests"] > 1
+    batched, pairs = batch_twins(calls[0])
     report["request_calls"] = len(calls[0])
     report["request_calls_in_batches"] = batched
     report["distinct_inputs"] = len(by_input)
     report["same_inputs_same_outputs"] = all(len(v) == 1 for v in by_input.values())
-    pairs = 0
-    seen_alone = {c["inputs"] for c in calls[0] if c["num_requests"] == 1}
-    for c in calls[0]:
-        if c["num_requests"] > 1 and c["inputs"] in seen_alone:
-            pairs += 1
     report["batched_calls_with_an_alone_twin"] = pairs
+    report["batched_calls_without_an_alone_twin"] = batched - pairs
+    # this run's captures (rank 0's), each one of the outputs every rank reported
+    run_videos = {c["video"] for c in calls[0]}
+    captures = []
+    for path in sorted(calls_dir.glob("call*.pt"), key=lambda p: int(p.stem[4:])):
+        rec = torch.load(path, weights_only=True)
+        digest = om.tensor_digest(rec["video"])
+        captures.append({"call": path.stem, "video_digest": digest, "in_run": digest in run_videos})
+    report["captures"] = captures
+    report["record_errors"] = [e for r in ranks for e in r.get("record_errors", [])]
     report["pass"] = bool(
         report["ranks_agree"]
         and report["same_inputs_same_outputs"]
-        and pairs > 0
+        and batched > 0
+        and pairs == batched  # every batched call has its alone twin
         and len(calls) == args.tp
+        and len(captures) == args.record_calls
+        and all(c["in_run"] for c in captures)
+        and not report["record_errors"]
         and (not args.lora_rank or report["lora"]["pass"])
     )
     return report
@@ -339,8 +381,8 @@ async def _native(args) -> dict[str, Any]:
         engine.shutdown()
     rows = []
     for path in sorted((args.out / "native-calls").glob("call*.pt"), key=lambda p: int(p.stem[4:])):
-        nat = torch.load(path, weights_only=False)
-        ours = torch.load(args.compare_calls / path.name, weights_only=False)
+        nat = torch.load(path, weights_only=True)
+        ours = torch.load(args.compare_calls / path.name, weights_only=True)
         same_inputs = all(
             torch.equal(nat["omni_kwargs"][k], ours["omni_kwargs"][k])
             for k in ("x", "audio_x", "img_position_ids", "unique_timesteps", "inverse_indices")
@@ -397,8 +439,8 @@ def _canonical(args) -> dict[str, Any]:
     installed = _flat(engine.get("install") or [])
     strict = bool(installed[0]["strict_boundaries"]) if installed else args.strict_boundaries
     rows = []
-    for path in sorted((args.out / "calls").glob("call*.pt"), key=lambda p: int(p.stem[4:])):
-        rec = torch.load(path, weights_only=False)
+    for path in _listed_captures(args, engine):
+        rec = torch.load(path, weights_only=True)
         inputs = {
             k: (v.cuda() if isinstance(v, torch.Tensor) else v) for k, v in rec["inputs"].items()
         }
@@ -428,7 +470,10 @@ def _canonical(args) -> dict[str, Any]:
         "strict_boundaries": strict,
         "lora": lora,
         "calls": rows,
-        "pass": bool(rows) and all(r["video_bitwise"] and r["audio_bitwise"] for r in rows),
+        "pass": bool(rows)
+        and all(
+            r["video_bitwise"] and r["audio_bitwise"] and r["in_rollout_digests"] for r in rows
+        ),
     }
 
 
@@ -445,9 +490,10 @@ def _actor(args) -> dict[str, Any]:
         MiniMaxH3PipelineWithLogProb,
     )
 
+    engine = json.loads((args.out / "engine.json").read_text())
     rows = []
-    for path in sorted((args.out / "calls").glob("call*.pt"), key=lambda p: int(p.stem[4:])):
-        rec = torch.load(path, weights_only=False)
+    for path in _listed_captures(args, engine):
+        rec = torch.load(path, weights_only=True)
         k, mine = rec["omni_kwargs"], rec["inputs"]
         img = k["img_pos_info"]["position_ids"].long()
         aud = k["audio_pos_info"]["position_ids"].long()
