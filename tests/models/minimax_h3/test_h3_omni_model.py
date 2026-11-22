@@ -686,6 +686,32 @@ class TestInstallLifecycle:
         assert binding.record_errors and binding.record_errors[0].startswith("call0:")
         assert ext._rlk_h3.report()["record_errors"] == binding.record_errors
 
+    def test_a_failed_input_copy_is_reported_and_the_next_call_recorded(
+        self, monkeypatch, tmp_path
+    ):
+        class _NoCopy(torch.Tensor):
+            def cpu(self, *args, **kwargs):
+                raise RuntimeError("copy failed")
+
+        ext = self._ext(monkeypatch, [], tp_rank=0)
+        ext.rlk_h3_install("ckpt", record_dir=str(tmp_path), record_calls=(0, 1))
+        binding = ext._rlk_h3.binding
+        out = (torch.zeros(1), torch.zeros(1))
+        binding.record({}, {"x": torch.zeros(1).as_subclass(_NoCopy)}, out)
+        assert binding.record_errors == ["call0: RuntimeError: copy failed"]
+        binding.record({}, {"x": torch.zeros(1)}, out)
+        assert (tmp_path / "call1.pt").exists() and len(binding.record_errors) == 1
+
+    def test_a_record_dir_that_cannot_be_made_is_a_gathered_refusal(self, monkeypatch, tmp_path):
+        (tmp_path / "file").write_bytes(b"")
+        ext = self._ext(monkeypatch, [], tp_rank=0)
+        dit = ext.model_runner.pipeline.transformer
+        with pytest.raises(RuntimeError, match="no rank changed"):
+            ext.rlk_h3_install(
+                "ckpt", release_weights=True, record_dir=str(tmp_path / "file" / "calls")
+            )
+        assert ext._rlk_h3 is None and not dit.w.is_meta  # refused before the release
+
     def test_data_parallelism_is_refused(self):
         from types import SimpleNamespace
 
@@ -724,6 +750,7 @@ class TestRolloutReportGates:
     def test_replays_read_only_this_runs_listed_captures(self, tmp_path):
         from types import SimpleNamespace
 
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
         from tools.validation.models import h3_omni_rollout_report as tool
 
         calls = tmp_path / "calls"
@@ -731,12 +758,27 @@ class TestRolloutReportGates:
         for n in range(3):  # an earlier run's captures
             (calls / f"call{n}.pt").write_bytes(b"old")
         assert tool._fresh_dir(calls) == calls and not list(calls.glob("call*.pt"))
-        (calls / "call0.pt").write_bytes(b"new")
+        video = torch.arange(4.0)
+        torch.save({"video": video}, calls / "call0.pt")
         args = SimpleNamespace(out=tmp_path)
-        assert tool._listed_captures(args, {"captures": [{"call": "call0"}]}) == [
-            calls / "call0.pt"
-        ]
+        listed = [{"call": "call0", "video_digest": om.tensor_digest(video)}]
+        ((path, rec),) = tool._listed_captures(args, {"pass": True, "captures": listed})
+        assert path == calls / "call0.pt" and torch.equal(rec["video"], video)
+        with pytest.raises(RuntimeError, match="not a passing"):
+            tool._listed_captures(args, {"pass": False, "captures": listed})
         with pytest.raises(RuntimeError, match="lists no captures"):
-            tool._listed_captures(args, {})
+            tool._listed_captures(args, {"pass": True})
         with pytest.raises(RuntimeError, match="missing"):
-            tool._listed_captures(args, {"captures": [{"call": "call0"}, {"call": "call1"}]})
+            tool._listed_captures(args, {"pass": True, "captures": listed + [{"call": "call1"}]})
+        torch.save({"video": video + 1}, calls / "call0.pt")  # a later run's capture
+        with pytest.raises(RuntimeError, match="does not match"):
+            tool._listed_captures(args, {"pass": True, "captures": listed})
+
+    def test_an_engine_run_removes_the_earlier_reports(self, tmp_path):
+        from tools.validation.models import h3_omni_rollout_report as tool
+
+        for name in tool.STAGE_REPORTS:
+            (tmp_path / name).write_text("{}")
+        tool._invalidate_reports(tmp_path)
+        assert not any((tmp_path / name).exists() for name in tool.STAGE_REPORTS)
+        tool._invalidate_reports(tmp_path)  # nothing to remove is fine

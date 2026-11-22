@@ -133,9 +133,28 @@ def _fresh_dir(path: Path) -> Path:
     return path
 
 
-def _listed_captures(args, engine: dict[str, Any]) -> list[Path]:
-    """The captures this run's engine stage recorded (``engine.json``), and only those."""
+STAGE_REPORTS = ("engine.json", "canonical.json", "actor.json")
 
+
+def _invalidate_reports(out: Path) -> None:
+    """An engine run starts by removing the earlier run's reports: a run that fails before it
+    writes ``engine.json`` leaves no manifest for the replays to read."""
+
+    for name in STAGE_REPORTS:
+        (out / name).unlink(missing_ok=True)
+
+
+def _listed_captures(args, engine: dict[str, Any]) -> list[tuple[Path, dict[str, Any]]]:
+    """The captures a passing engine run listed in ``engine.json``, loaded, and only those.
+
+    Each one's video digest must equal the manifest's, so a replay never pairs a capture with a
+    report of another run.
+    """
+
+    from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+
+    if engine.get("pass") is not True:
+        raise RuntimeError("engine.json is not a passing engine run: rerun the engine stage")
     listed = engine.get("captures") or []
     if not listed:
         raise RuntimeError("engine.json lists no captures of this run: rerun the engine stage")
@@ -143,12 +162,19 @@ def _listed_captures(args, engine: dict[str, Any]) -> list[Path]:
     missing = [str(p) for p in paths if not p.exists()]
     if missing:
         raise RuntimeError(f"captures listed in engine.json are missing: {missing}")
-    return paths
+    loaded = []
+    for c, path in zip(listed, paths):
+        rec = torch.load(path, weights_only=True)
+        if om.tensor_digest(rec["video"]) != c.get("video_digest"):
+            raise RuntimeError(f"{path.name} does not match engine.json: rerun the engine stage")
+        loaded.append((path, rec))
+    return loaded
 
 
 async def _engine(args) -> dict[str, Any]:
     from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
 
+    _invalidate_reports(args.out)
     calls_dir = _fresh_dir(args.out / "calls")
     engine = _make_engine(args)
     report: dict[str, Any] = {
@@ -439,8 +465,7 @@ def _canonical(args) -> dict[str, Any]:
     installed = _flat(engine.get("install") or [])
     strict = bool(installed[0]["strict_boundaries"]) if installed else args.strict_boundaries
     rows = []
-    for path in _listed_captures(args, engine):
-        rec = torch.load(path, weights_only=True)
+    for path, rec in _listed_captures(args, engine):
         inputs = {
             k: (v.cuda() if isinstance(v, torch.Tensor) else v) for k, v in rec["inputs"].items()
         }
@@ -492,8 +517,7 @@ def _actor(args) -> dict[str, Any]:
 
     engine = json.loads((args.out / "engine.json").read_text())
     rows = []
-    for path in _listed_captures(args, engine):
-        rec = torch.load(path, weights_only=True)
+    for path, rec in _listed_captures(args, engine):
         k, mine = rec["omni_kwargs"], rec["inputs"]
         img = k["img_pos_info"]["position_ids"].long()
         aud = k["audio_pos_info"]["position_ids"].long()

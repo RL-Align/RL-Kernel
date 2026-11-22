@@ -89,11 +89,12 @@ class H3OmniWorkerExtension:
         """Bind the H3 rollout DiT on every TP rank, or on none.
 
         Three phases, each gathered over the TP group before the next starts (so no rank waits on
-        one that failed): (1) checks and a checkpoint preflight: a refusal changes nothing; (2)
-        release of vLLM-Omni's DiT (``release_weights``) and the load of this rank's shards: if a
-        rank fails after a release, every rank's DiT is disabled (``disable_engine_dit``) and the
-        engine must be restarted; without a release nothing changed and a retry is safe; (3) the
-        binding, then request LoRAs are refused (the bound model runs the actor's LoRA only).
+        one that failed): (1) checks, a checkpoint preflight and rank 0's record directory: a
+        refusal changes nothing; (2) release of vLLM-Omni's DiT (``release_weights``) and the
+        load of this rank's shards: if a rank fails after a release, every rank's DiT is disabled
+        (``disable_engine_dit``) and the engine must be restarted; without a release nothing
+        changed and a retry is safe; (3) the binding, then request LoRAs are refused (the bound
+        model runs the actor's LoRA only).
         """
 
         import torch.distributed as dist
@@ -121,6 +122,8 @@ class H3OmniWorkerExtension:
             if reasons:
                 raise RuntimeError("cannot bind the H3 rollout DiT: " + "; ".join(reasons))
             _preflight_checkpoint(transformer_dir)
+            if record_dir is not None and tp_rank == 0:  # here, so a failure is gathered
+                Path(record_dir).mkdir(parents=True, exist_ok=True)
 
         _, failed = _gather(_run(check))
         if failed:
@@ -159,8 +162,7 @@ class H3OmniWorkerExtension:
         record_errors: list[str] = []
         record: Callable[..., None] | None = None
         if record_dir is not None and tp_rank == 0:
-            out = Path(record_dir)
-            out.mkdir(parents=True, exist_ok=True)
+            out = Path(record_dir)  # created in the gathered checks
             wanted = set(record_calls)
             seen = {"n": 0}
 
@@ -169,11 +171,12 @@ class H3OmniWorkerExtension:
                 seen["n"] += 1
                 if n not in wanted:
                     return
-                cpu = {
-                    k: (v.detach().cpu() if isinstance(v, torch.Tensor) else v)
-                    for k, v in inputs.items()
-                }
-                try:  # a failed save must not stop rank 0 between two requests' collectives
+                # a failed copy or save must not stop rank 0 between two requests' collectives
+                try:
+                    cpu = {
+                        k: (v.detach().cpu() if isinstance(v, torch.Tensor) else v)
+                        for k, v in inputs.items()
+                    }
                     torch.save(
                         {
                             "omni_kwargs": _to_cpu(kwargs),
