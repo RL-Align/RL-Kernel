@@ -110,3 +110,34 @@ def test_missing_keyword_control_fails_closed() -> None:
 def test_unregistered_operator_fails_closed() -> None:
     with pytest.raises(StrictRocmAttentionUnavailable, match="cannot read the Torch schema"):
         _validate_aiter_schema("mha_fwd_that_does_not_exist", ("q",))
+
+
+def test_loader_requires_mha_fwd_out_keyword(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The direct-output path calls ``mha_fwd(..., out=...)``.
+
+    An AITER build whose ``mha_fwd`` schema has no ``out`` must be rejected
+    when the ops are loaded, not with a ``TypeError`` at the first decode call.
+    """
+
+    import types
+
+    from rl_engine.backends.rocm.attention import flash_attn
+
+    schemas = {
+        "mha_fwd": _AITER_FWD_POSITIONAL_CONTRACT,  # no "out"
+        "mha_bwd": _AITER_BWD_POSITIONAL_CONTRACT + tuple(_AITER_BWD_REQUIRED_KEYWORDS),
+        "mha_batch_prefill": _AITER_BATCH_PREFILL_POSITIONAL_CONTRACT
+        + tuple(_AITER_BATCH_PREFILL_REQUIRED_KEYWORDS),
+    }
+    fake = types.SimpleNamespace(
+        mha_fwd=lambda *a, **k: None,
+        mha_bwd=lambda *a, **k: None,
+        mha_batch_prefill=lambda *a, **k: None,
+    )
+    monkeypatch.setattr(flash_attn.importlib, "import_module", lambda name: fake)
+    monkeypatch.setattr(flash_attn, "_aiter_schema_argument_names", schemas.__getitem__)
+
+    with pytest.raises(
+        StrictRocmAttentionUnavailable, match="mha_fwd is missing strict controls: out"
+    ):
+        flash_attn._load_aiter_ck_ops()
