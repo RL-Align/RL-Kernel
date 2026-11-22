@@ -1,0 +1,397 @@
+{
+ "contract_id": "h3-image-vae-f16d24-v1",
+ "latent": {
+  "canvas_multiple": 32,
+  "channels": 24,
+  "denormalize": "z * std + mean",
+  "normalize": "(z - mean) / std",
+  "patch_size": 2,
+  "spatial_factor": 16,
+  "stats_sha256": "1ccbe8e3bfa6e5e1205268e1f6682992dffb3d2b8143a9e6cdbd7963ab328f2d"
+ },
+ "output_conversion": {
+  "denormalize": "x.float() * std + mean, then clamp(0, 1)",
+  "pixel_mean": [
+   0.485,
+   0.456,
+   0.406
+  ],
+  "pixel_std": [
+   0.229,
+   0.224,
+   0.225
+  ],
+  "quantize": "(x * 255).clamp(0, 255).to(uint8), truncation",
+  "resize": "not applied here (image_canvas_contract)"
+ },
+ "pixels": {
+  "lut_sha256": "a5d9666da39858eb9c76c5c16f6e8acfc28a60422a1512245e2e2ae87715999d",
+  "mean": [
+   0.485,
+   0.456,
+   0.406
+  ],
+  "normalize": "uint8 -> float32 * fl32(1/255) -> (x - mean) / std (CUDA semantics)",
+  "std": [
+   0.229,
+   0.224,
+   0.225
+  ]
+ },
+ "reference_recipe": [
+  "crop pixels at the top left to whole 16px VAE cells",
+  "ImageNet-normalize by the pinned [3, 256] FP32 table",
+  "encode with the FP32 VAE, autocast disabled",
+  "posterior.sample(generator) with the request generator, one draw per reference",
+  "round to float16, back to float32",
+  "crop latents at the top left to whole 2x2 transformer patches",
+  "(z - latents_mean) / latents_std on the VAE device"
+ ],
+ "release": {
+  "config_sha256": "2c3c973d3b3d0eaf524c30e7e5ae75d7303453f43156a4056e3374e3ac6a45e9",
+  "files": [
+   {
+    "git_oid": "71b0fc5fd1e6c03fccc3c686f8fbb68ac7eb7739",
+    "path": "vae_diffusers/config.json",
+    "sha256": null,
+    "size": 1975
+   },
+   {
+    "git_oid": "c64bbc354967bd8e8b45bcec2f1b460cd39bbeb3",
+    "path": "vae_diffusers/diffusion_pytorch_model.safetensors",
+    "sha256": "5bb2809698c3989033f719ece2243f277fefedef1dd9a1d05f3d4136b2f93b35",
+    "size": 2336973400
+   }
+  ],
+  "fingerprint_latent_stats_sha256": "635092c92307ab524f397270c02cad641c3655ca222b2cbbfaeeb9f71eeae65d",
+  "latent_stats_sha256": "1ccbe8e3bfa6e5e1205268e1f6682992dffb3d2b8143a9e6cdbd7963ab328f2d",
+  "reference": {
+   "class": "AutoencoderKLMiniMaxH3Image",
+   "commit": "875373ac7f5856071e345a3e394c74efccc6b9e6",
+   "library": "diffusers"
+  },
+  "repo": "MiniMaxAI/MiniMax-H3-Image",
+  "revision": "8ced60068623def5b74b4d10558117cb61d6482d",
+  "subfolder": "vae_diffusers",
+  "tensor_table": {
+   "digest": "f14fc70408e03c23966ae3a671585ae327603c653370fc5b5911fdda9df79b77",
+   "parameters": 584228408,
+   "tensors": 511
+  }
+ },
+ "tiling": {
+  "plans": {
+   "1024x1024": {
+    "blend": "linear, weights 1 - i/n and i/n in the tile dtype; first the tile above (dim -2), then the tile to the left (dim -1); encode blends latent pixels, decode blends output pixels",
+    "boundary": "every non-last tile drops its trailing overlap before concatenation",
+    "cols": {
+     "length": 1024,
+     "overlaps": [
+      64,
+      64,
+      64,
+      64
+     ],
+     "sizes": [
+      256,
+      256,
+      256,
+      256,
+      256
+     ],
+     "starts": [
+      0,
+      192,
+      384,
+      576,
+      768
+     ]
+    },
+    "contract_id": "h3-image-vae-tiles-v1",
+    "latent_overlaps": [
+     [
+      4,
+      4,
+      4,
+      4
+     ],
+     [
+      4,
+      4,
+      4,
+      4
+     ]
+    ],
+    "mode": "tiled-256x256-o64x64",
+    "plan_sha256": "f6521710505f6b3a0a6692aa0b3df3dd7a8b5522e9effa9349647cdd657f1561",
+    "rows": {
+     "length": 1024,
+     "overlaps": [
+      64,
+      64,
+      64,
+      64
+     ],
+     "sizes": [
+      256,
+      256,
+      256,
+      256,
+      256
+     ],
+     "starts": [
+      0,
+      192,
+      384,
+      576,
+      768
+     ]
+    },
+    "split": "fewest tiles with every overlap >= min; slack added round-robin in 16px steps (_split_tiles)",
+    "tiles": 25
+   },
+   "1536x2688": {
+    "blend": "linear, weights 1 - i/n and i/n in the tile dtype; first the tile above (dim -2), then the tile to the left (dim -1); encode blends latent pixels, decode blends output pixels",
+    "boundary": "every non-last tile drops its trailing overlap before concatenation",
+    "cols": {
+     "length": 2688,
+     "overlaps": [
+      80,
+      80,
+      80,
+      80,
+      64,
+      64,
+      64,
+      64,
+      64,
+      64,
+      64,
+      64,
+      64
+     ],
+     "sizes": [
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256
+     ],
+     "starts": [
+      0,
+      176,
+      352,
+      528,
+      704,
+      896,
+      1088,
+      1280,
+      1472,
+      1664,
+      1856,
+      2048,
+      2240,
+      2432
+     ]
+    },
+    "contract_id": "h3-image-vae-tiles-v1",
+    "latent_overlaps": [
+     [
+      5,
+      5,
+      5,
+      5,
+      4,
+      4,
+      4
+     ],
+     [
+      5,
+      5,
+      5,
+      5,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4
+     ]
+    ],
+    "mode": "tiled-256x256-o64x64",
+    "plan_sha256": "9bec8f52af80bef1fb493f7fe571fba52cfcf64266acfd216ee0ec5a7ecc68e0",
+    "rows": {
+     "length": 1536,
+     "overlaps": [
+      80,
+      80,
+      80,
+      80,
+      64,
+      64,
+      64
+     ],
+     "sizes": [
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256
+     ],
+     "starts": [
+      0,
+      176,
+      352,
+      528,
+      704,
+      896,
+      1088,
+      1280
+     ]
+    },
+    "split": "fewest tiles with every overlap >= min; slack added round-robin in 16px steps (_split_tiles)",
+    "tiles": 112
+   },
+   "2048x2048": {
+    "blend": "linear, weights 1 - i/n and i/n in the tile dtype; first the tile above (dim -2), then the tile to the left (dim -1); encode blends latent pixels, decode blends output pixels",
+    "boundary": "every non-last tile drops its trailing overlap before concatenation",
+    "cols": {
+     "length": 2048,
+     "overlaps": [
+      80,
+      80,
+      80,
+      80,
+      80,
+      80,
+      80,
+      80,
+      64,
+      64
+     ],
+     "sizes": [
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256
+     ],
+     "starts": [
+      0,
+      176,
+      352,
+      528,
+      704,
+      880,
+      1056,
+      1232,
+      1408,
+      1600,
+      1792
+     ]
+    },
+    "contract_id": "h3-image-vae-tiles-v1",
+    "latent_overlaps": [
+     [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      4,
+      4
+     ],
+     [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      4,
+      4
+     ]
+    ],
+    "mode": "tiled-256x256-o64x64",
+    "plan_sha256": "db62910015c7d4b676aaa9649bbe1faaf0945628ded1a5cae9029b31395bccac",
+    "rows": {
+     "length": 2048,
+     "overlaps": [
+      80,
+      80,
+      80,
+      80,
+      80,
+      80,
+      80,
+      80,
+      64,
+      64
+     ],
+     "sizes": [
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256,
+      256
+     ],
+     "starts": [
+      0,
+      176,
+      352,
+      528,
+      704,
+      880,
+      1056,
+      1232,
+      1408,
+      1600,
+      1792
+     ]
+    },
+    "split": "fewest tiles with every overlap >= min; slack added round-robin in 16px steps (_split_tiles)",
+    "tiles": 121
+   }
+  },
+  "release_geometry": [
+   256,
+   256,
+   64,
+   64
+  ],
+  "untiled_mode": "untiled"
+ },
+ "tiling_contract_id": "h3-image-vae-tiles-v1"
+}
