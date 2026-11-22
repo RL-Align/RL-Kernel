@@ -57,6 +57,16 @@ def test_user_site_copy_of_an_environment_package_is_reported(tmp_path):
     assert user_site_shadowing([env_site], user_site) == []
 
 
+def test_user_site_installers_are_not_shadowing(tmp_path):
+    """pip and wheel in both places (any pip install --user) do not block a run;
+    setuptools still does, because torch's JIT extension builds import it."""
+    env_site, user_site = tmp_path / "site-packages", tmp_path / "user-site"
+    for name in ("pip", "wheel", "setuptools"):
+        _fake_distribution(env_site, name, "1.0")
+        _fake_distribution(user_site, name, "2.0")
+    assert user_site_shadowing([env_site, user_site], user_site) == ["setuptools"]
+
+
 def test_identity_refuses_a_shadowing_user_site(tmp_path, monkeypatch):
     import qwen3_next_runtime as runtime
 
