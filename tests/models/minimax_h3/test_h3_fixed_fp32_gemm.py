@@ -129,3 +129,21 @@ def test_gate_up_lora_base_is_the_rows_kernel():
     )
     for out, w in zip(outs, (hidden, gate)):
         assert torch.equal(out.float(), fx.gemm(x, w, b_t=True).float())
+
+
+needs_sm90 = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.get_device_capability() != (9, 0),
+    reason="the GEMM rows' operators run on SM90 only",
+)
+
+
+@needs_sm90
+@pytest.mark.parametrize("row", ["h3_attention_o_gemm", "h3_ffn_down_gemm", "h3_ffn_gate_up_gemm"])
+def test_tp_pieces_against_the_rows_operators(row):
+    """Gate/up forward, O / down dX and every dW shard are bitwise the rows' TP=1 operators."""
+
+    pytest.importorskip("triton")
+    from tools.validation.models import h3_gemm_rows_crosscheck as cc
+
+    result = cc.check(row, 264, seed=1)
+    assert result["pass"], result
