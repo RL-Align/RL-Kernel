@@ -118,3 +118,18 @@ def test_a_diffusers_comparison_counts_only_against_the_pinned_source(tmp_path, 
         for name in [m for m in sys.modules if ours(m)]:
             del sys.modules[name]
         sys.modules.update(saved)
+
+
+def test_rows_offer_only_the_row_modules_present(monkeypatch, capsys):
+    """Each row's module ships with its own PR: a row whose module is absent is refused by
+    ``--row`` (argparse, exit 2) instead of failing on import."""
+
+    tool = _tool()
+    present = {r for r, m in tool.ROW_MODULES.items() if (TOOL.parent / f"{m}.py").is_file()}
+    assert set(tool.ROWS) == present and present
+    for row in sorted(set(tool.ROW_MODULES) - present):
+        monkeypatch.setattr(sys, "argv", ["tool", "--row", row, "--out", "unused.json"])
+        with pytest.raises(SystemExit) as exit_info:
+            tool.main()
+        assert exit_info.value.code == 2
+        assert f"invalid choice: '{row}'" in capsys.readouterr().err
