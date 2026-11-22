@@ -83,4 +83,9 @@ Three seeds of the single-vs-batched Euler control (`reports/experiments/h3-full
   `ConditioningNoiseMixCudaOp`, which is bitwise the eager expression.
   - A call whose condition and noise differ in dtype stays on the provider, because the provider's
     expression rounds in two dtypes.
-  - `h3_full_generation.py --candidate` reports the calls as `{"row": n, "provider": m}`.
+  - The provider's rounding of a Python-float `t` depends on its version (`KNOWN_SCALE_NOISE`).
+    The pinned provider casts `t` to the sample's dtype, as the row does. Diffusers 0.43.0 keeps
+    it in double precision for `1 - t`, so there only a tensor `t` runs on the row; the pipeline's
+    `0.999` stays on the provider. An unknown `scale_noise` runs every call on the provider.
+  - `h3_full_generation.py --candidate` reports the calls as
+    `{"row": n, "provider": m, "scale_noise": variant}`.

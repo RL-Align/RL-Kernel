@@ -12,26 +12,49 @@ exactly as the eager expression does, so the mix is bitwise the provider's.
 The row computes in one dtype. When the condition and the noise differ in dtype the provider's
 expression mixes two (the products round in the condition's dtype, the sum is promoted), so
 that call stays on the provider; ``bind`` counts which calls ran where.
+
+The provider's arithmetic depends on its version (``KNOWN_SCALE_NOISE``, by the sha256 of the
+method's source). The pinned provider casts a Python-float ``t`` to the sample's dtype before
+``1 - t``, as the row does. Diffusers 0.43.0 keeps a Python-float ``t`` in double precision for
+``1 - t`` (``1 - 0.999`` then rounds to a different FP32 value), so there only a tensor ``t``
+runs on the row. An unknown ``scale_noise`` runs every call on the provider.
 """
 
 from __future__ import annotations
 
+import hashlib
+import inspect
 from contextlib import contextmanager
 
 import torch
+
+# sha256 of ``inspect.getsource`` of ``scale_noise`` -> how it rounds a Python-float ``t``.
+KNOWN_SCALE_NOISE = {
+    # diffusers@f53d552 (the pinned provider): ``t`` cast to the sample's dtype
+    "2c444def0c4570d787c180c1a10676f9362f79b3ad629b96dd6d0bd7d94181c8": "sample_dtype",
+    # diffusers 0.43.0 (the verl-omni run environment): a Python float stays double for ``1 - t``
+    "2b612801bf39a22835a23dc586f8f28f0c676e0e39075b4952bd8cf60abf64d4": "python_float_double",
+}
+
+
+def scale_noise_variant(scheduler) -> str:
+    source = inspect.getsource(inspect.unwrap(type(scheduler).scale_noise))
+    return KNOWN_SCALE_NOISE.get(hashlib.sha256(source.encode()).hexdigest(), "unknown")
 
 
 @contextmanager
 def bind(scheduler, op):
     """Route ``scheduler.scale_noise`` to ``op`` (a ``conditioning_noise_mix`` op) where bitwise.
 
-    Yields ``{"row": n, "provider": m}``, the calls each path ran. Restores the method on exit.
+    Yields ``{"row": n, "provider": m, "scale_noise": variant}``: the calls each path ran and the
+    provider version (``KNOWN_SCALE_NOISE`` or ``unknown``). Restores the method on exit.
     """
 
     if "scale_noise" in scheduler.__dict__:
         raise RuntimeError("scheduler.scale_noise is already wrapped on the instance")
     original = scheduler.scale_noise
-    calls = {"row": 0, "provider": 0}
+    variant = scale_noise_variant(scheduler)
+    calls = {"row": 0, "provider": 0, "scale_noise": variant}
 
     def scale_noise(sample, timestep, noise):
         same = (
@@ -43,6 +66,10 @@ def bind(scheduler, op):
             and sample.is_contiguous()
             and noise.is_contiguous()
             and not (isinstance(timestep, torch.Tensor) and timestep.numel() != 1)
+            and (
+                variant == "sample_dtype"
+                or (variant == "python_float_double" and isinstance(timestep, torch.Tensor))
+            )
         )
         if not same:
             calls["provider"] += 1
