@@ -430,10 +430,43 @@ def test_canonical_square_sums_one_leaf_rank_matches_smaller_tp():
         assert_bitwise(leaf, tp1[rank])
 
 
-def test_canonical_square_sums_count_a_leader_only_bias_in_leaf_zero():
-    """A sharded gradient without ``partition_dim`` (leader-only bias) no longer raises."""
-    from rl_engine.integrations.common.tp_scalar import _canonical_square_sums
+def _bias_norm_worker(rank, size, rendezvous):
+    """The canonical norm with a leader-only bias held by TP rank 1, against TP1."""
+    _init(rank, size, rendezvous, "gloo")
+    try:
+        group, single = _groups(size)
+        # Leaf 0 holds 2**28, leaf 4 holds 3 (canonical_tp=8, two elements per leaf). If the
+        # bias (3) joined rank 1's local leaf 0, i.e. global leaf 4, rounding would differ:
+        # (2**56 + 9) + 9 against 2**56 + (9 + 9).
+        full = torch.zeros(16, dtype=torch.float32)
+        full[0], full[8] = 2.0**28, 3.0
+        bias_grad = torch.tensor([3.0])
 
-    bias = torch.nn.Parameter(torch.zeros(1))
-    sums = _canonical_square_sums(torch.tensor([3.0]), bias, 4)
-    assert [float(s) for s in sums] == [9.0, 0.0, 0.0, 0.0]
+        def norm(tp_group, tp, tp_rank, leader):
+            weight = torch.nn.Parameter(torch.zeros(16 // tp))
+            weight.partition_dim, weight.partition_stride = 0, 1
+            weight.grad = _shard(full, tp_rank, tp, 0)
+            parameters = [(weight, "sharded")]
+            if tp_rank == leader:
+                bias = torch.nn.Parameter(torch.zeros(1))
+                bias.grad = bias_grad.clone()
+                parameters.insert(0, (bias, "sharded"))
+            return clip_tp_grad_norm_(
+                parameters,
+                group=tp_group,
+                max_norm=1e30,
+                device=torch.device("cpu"),
+                canonical_tp=CANONICAL_TP,
+            )
+
+        reference = norm(single, 1, 0, 0)
+        assert_bitwise(norm(group, size, rank, 1), reference)
+    finally:
+        dist.destroy_process_group()
+
+
+def test_canonical_norm_with_a_leader_only_bias_on_a_nonzero_rank_matches_tp1(tmp_path):
+    """The bias term is reduced apart from the leaves, so the leader's rank does not matter."""
+    mp.start_processes(
+        _bias_norm_worker, args=(2, str(tmp_path / "init")), nprocs=2, start_method="spawn"
+    )

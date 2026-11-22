@@ -28,6 +28,7 @@ from tests.distributed.tp.check_tp_ppo_frameworks import initialize_engine
 from tools.validation.models.qwen3_ppo.fixed_contract import (
     CONFIG,
     OPTIMIZER,
+    fixed_tp_sizes,
     identity,
     load_packet,
     load_targets,
@@ -156,9 +157,14 @@ def main():
                 for k in ("rollout_manifest_sha256", "targets_manifest_sha256")
             ):
                 raise ValueError("wrong frozen rollout/target contract")
-            # Formal runs only at the frozen matrix's TP sizes; probes may use TP1.
+            # Formal runs only at the frozen matrix's TP sizes and at their own row's sizes
+            # (fixed_tp_sizes, as fixed_matrix.sh); probes may use any of TP1/TP2/TP4.
             if size not in contract["matrix"]["tp"]:
                 raise ValueError(f"TP{size} is outside the frozen fixed-rollout matrix")
+            if size not in fixed_tp_sizes(a.framework, a.precision, a.role):
+                raise ValueError(
+                    f"TP{size} is not a size of the {a.framework} {a.precision} {a.role} row"
+                )
         verify_checkpoint(a.checkpoint)
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False

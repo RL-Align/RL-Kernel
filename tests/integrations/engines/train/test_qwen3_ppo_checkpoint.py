@@ -474,6 +474,50 @@ def test_tp_comparison_uses_the_frozen_tp_sizes(tmp_path, monkeypatch):
             compare(left, right)
 
 
+def test_a_tp4_only_row_is_refused_at_tp2(tmp_path, monkeypatch):
+    """A direct comparison follows the per-row sizes too (the Megatron BF16 actor is TP4 only)."""
+    import sys
+
+    from tools.validation.models.qwen3_ppo import compare_fixed
+    from tools.validation.models.qwen3_ppo.fixed_contract import REVISION, sha
+
+    root = tmp_path / "reference"
+    root.mkdir()
+    thresholds = root / "actor-bf16-repeat-bounds.json"
+    thresholds.write_text(
+        json.dumps({"reference_report_sha256": "unused", "bounds": {"0/loss": {"max_abs": 1.0}}})
+    )
+    manifest = tmp_path / "acceptance.json"
+    manifest.write_text(
+        json.dumps(
+            dict(
+                status="frozen",
+                model_revision=REVISION,
+                files={thresholds.name: sha(thresholds)},
+                matrix={"tp": [2, 4]},
+            )
+        )
+    )
+    runs = {
+        tp: _fixed_run(
+            tmp_path / f"tp{tp}",
+            {"0/loss": torch.tensor(tp / 10)},
+            status="fixed_candidate_complete",
+            tp=tp,
+            precision="bf16",
+            framework="megatron",
+            acceptance_manifest_sha256=sha(manifest),
+        )
+        for tp in (2, 4)
+    }
+    argv = ["compare_fixed", "--tp-comparison", "--reference", str(runs[2])]
+    argv += ["--other", str(runs[4]), "--thresholds", str(thresholds)]
+    argv += ["--acceptance-manifest", str(manifest), "--reference-root", str(root)]
+    monkeypatch.setattr(sys, "argv", argv + ["--output", str(tmp_path / "cmp.json")])
+    with pytest.raises(ValueError, match="no TP2-vs-TP4 comparison"):
+        compare_fixed.main()
+
+
 def test_fixed_evidence_rejects_corruption_and_inventory_shape(tmp_path):
     """Evidence tensors round-trip; a wrong manifest shape or altered file bytes is rejected."""
     from tools.validation.models.qwen3_ppo.fixed_contract import read_tensor, write_tensor

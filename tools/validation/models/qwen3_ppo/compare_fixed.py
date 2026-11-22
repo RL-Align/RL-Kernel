@@ -14,6 +14,7 @@ from safetensors import safe_open
 from tools.validation.models.qwen3_ppo.fixed_contract import (
     CONFIG,
     OPTIMIZER,
+    fixed_tp_sizes,
     read_tensor,
     sha,
     verify_checkpoint,
@@ -266,6 +267,18 @@ def main():
                 or left["framework"] != right["framework"]
             ):
                 raise ValueError("invalid same-precision TP comparison")
+            sizes = fixed_tp_sizes(right["framework"], right["precision"], right["role"])
+            if sizes != (left["tp"], right["tp"]):
+                raise ValueError("this row has no TP2-vs-TP4 comparison (fixed_tp_sizes)")
+        for run in (left, right):
+            if run["status"] != "fixed_candidate_complete":
+                continue
+            sizes = fixed_tp_sizes(run["framework"], run["precision"], run["role"])
+            if run.get("tp") not in sizes:
+                raise ValueError(
+                    f"TP{run.get('tp')} is not a size of the {run['framework']} "
+                    f"{run['precision']} {run['role']} row {sizes}"
+                )
     rows = {}
     control_rows: dict[str, dict] = {str(c): {} for c in a.extra_control}
     for name, item in left["artifacts"].items():

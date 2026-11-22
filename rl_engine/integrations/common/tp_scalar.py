@@ -262,17 +262,15 @@ def _canonical_square_sums(
     per ``partition_stride`` block; leaf ``i`` concatenates piece ``i`` of every
     block, so leaf contents and shapes are independent of the TP size. With
     ``canonical`` the sum runs block by block even when the rank holds one leaf,
-    as smaller TP sizes sum it. A sharded gradient without ``partition_dim`` (the
-    scalar adapter's leader-only bias) is held whole by one rank and counts in
-    leaf 0. Without ``canonical`` (canonical clipping off) a one-leaf rank sums
-    the whole shard.
+    as smaller TP sizes sum it. Without ``canonical`` (canonical clipping off) a
+    one-leaf rank sums the whole shard. A gradient without ``partition_dim`` is
+    not a canonical shard; ``clip_tp_grad_norm_`` counts it separately.
     """
     dim = getattr(parameter, "partition_dim", None)
-    if dim is None or (chunks == 1 and not canonical):
-        whole = grad.detach().to(torch.float64).square().sum()
-        return [whole] + [torch.zeros_like(whole) for _ in range(chunks - 1)]
+    if chunks == 1 and (dim is None or not canonical):
+        return [grad.detach().to(torch.float64).square().sum()]
     stride = int(getattr(parameter, "partition_stride", 1))
-    if grad.shape[dim] % (stride * chunks):
+    if dim is None or grad.shape[dim] % (stride * chunks):
         raise ValueError("canonical TP clipping requires divisible Megatron partition_dim shards")
     blocks = grad.detach().chunk(stride, dim=dim)
     sums = []
@@ -306,6 +304,13 @@ def clip_tp_grad_norm_(
     ranks with the fixed tree. With a fixed ``canonical_tp`` and identical full
     gradients the norm is bitwise identical at every TP size; ``None`` uses one
     leaf per rank.
+
+    With ``canonical_tp``, a sharded gradient without ``partition_dim`` (the scalar
+    adapter's leader-only bias) is not split into leaves: its holder sums it, in
+    parameter order, into a separate FP64 term. That term is reduced together with
+    the leaf tree (one collective of two values) and added last. One rank holds it
+    and the others contribute zero, so its reduction is exact, and the norm keeps
+    the same bits at every TP size whichever rank the leader is.
     """
     if group is None or dist.get_rank(group) < 0:
         raise ValueError("an explicit TP group containing this rank is required")
@@ -331,6 +336,8 @@ def clip_tp_grad_norm_(
     synchronize_validation(error, group=group, device=device)
     zero = torch.zeros((), dtype=torch.float64, device=device)
     leaves = [zero.clone() for _ in range(chunks)]
+    held = zero.clone()
+    canonical = canonical_tp is not None
     first_rank = dist.get_rank(group) == 0
     error = None
     try:
@@ -338,9 +345,10 @@ def clip_tp_grad_norm_(
             if grad is None:
                 continue
             if layout == "sharded":
-                sums = _canonical_square_sums(
-                    grad, parameter, chunks, canonical=canonical_tp is not None
-                )
+                if canonical and getattr(parameter, "partition_dim", None) is None:
+                    held = held + grad.detach().to(torch.float64).square().sum()
+                    continue
+                sums = _canonical_square_sums(grad, parameter, chunks, canonical=canonical)
                 for i, value in enumerate(sums):
                     leaves[i] = leaves[i] + value
             elif first_rank:
@@ -348,7 +356,11 @@ def clip_tp_grad_norm_(
     except ValueError as exc:
         error = str(exc)
     synchronize_validation(error, group=group, device=device)
-    squared = deterministic_tp_all_reduce_(balanced_tree_sum(leaves).reshape(1), group)[0]
+    if canonical:
+        totals = deterministic_tp_all_reduce_(torch.stack([balanced_tree_sum(leaves), held]), group)
+        squared = totals[0] + totals[1]
+    else:
+        squared = deterministic_tp_all_reduce_(balanced_tree_sum(leaves).reshape(1), group)[0]
     norm = squared.sqrt()
     if not torch.isfinite(norm):
         raise ValueError("non-finite TP gradient norm")

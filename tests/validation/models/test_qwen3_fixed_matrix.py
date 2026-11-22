@@ -40,6 +40,14 @@ def test_bf16_actors_and_deepspeed_bf16_critic_are_tp4_only(row):
     assert _sizes(row) == ([4] if row in TP4_ONLY else [2, 4])
 
 
+@pytest.mark.parametrize("row", ROWS)
+def test_python_row_sizes_equal_fixed_matrix_sh(row):
+    """The replay and comparison checks use the same per-row sizes as the batch scripts."""
+    from tools.validation.models.qwen3_ppo.fixed_contract import fixed_tp_sizes
+
+    assert list(fixed_tp_sizes(*row.split("-"))) == _sizes(row)
+
+
 def _stage(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     """A clean git tree holding the scripts, a python stand-in that logs every call, and an env."""
     source = tmp_path / "src"

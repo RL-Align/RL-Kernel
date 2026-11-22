@@ -18,6 +18,18 @@ OPTIMIZER = dict(lr=1e-5, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.01)
 REVISION = "b968826d9c46dd6066d109eabc6255188de91218"
 
 
+def fixed_tp_sizes(framework, precision, role):
+    """Return the training TP sizes of one fixed-rollout candidate row.
+
+    The same table as ``fixed_tp_sizes`` in ``fixed_matrix.sh``, which the batch scripts
+    source; a test keeps the two equal. TP4 only for the BF16 actors and the DeepSpeed
+    BF16 critic, TP2 and TP4 for every other row.
+    """
+    if (precision, role) == ("bf16", "actor") or (framework, precision) == ("deepspeed", "bf16"):
+        return (4,)
+    return (2, 4)
+
+
 def sha(path):
     """Return the hex SHA-256 digest of a file, read in 8 MiB chunks."""
     h = hashlib.sha256()
