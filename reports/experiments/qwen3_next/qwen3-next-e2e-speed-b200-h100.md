@@ -33,6 +33,8 @@ Each arm runs in its own processes on the same four GPUs, with the same syntheti
 | replay (forward + selected-token logprob) | RL-Kernel model and logprob in VIME, TP4 | VIME's own Qwen3-Next model at its recipe layout, TP2 + sequence parallel / EP4 / ETP1 / DP2 |
 | training (one `train_one_step`) | same as replay | same as replay |
 
+The stock arms drop the strict runtime knobs, so vLLM's and Triton's numerics are their defaults. Both arms keep the stage's host settings: `OMP_NUM_THREADS` / `MKL_NUM_THREADS` 16, `CUDA_DEVICE_MAX_CONNECTIONS=1` (stock Megatron needs it at TP > 1) and `VLLM_PLUGINS=""` (keeps RL-Kernel's own vLLM plugin out of the stock engine).
+
 Stock VIME cannot run Qwen3-Next at TP4, for two reasons:
 - Megatron's attention output gate is not narrowed when TP exceeds the 2 KV heads.
 - VIME's loader shards grouped experts only at ETP1.
@@ -58,7 +60,7 @@ Two workloads:
 | long | p512 b16 | 132.7 | 2.14 | 32.09 | 217.2 | 3.50 | 56.25 |
 | long | p512 b64 | 226.5 | 3.17 | 32.62 | 370.5 | 5.93 | 57.06 |
 
-- **Prefill** is no longer the cost: 0.18-0.71 s strict on B200 for the certified prompts.
+- **Prefill** is no longer the cost. Time to the first token (one `generate` with `max_tokens=1`: the prompt's forward and the first sample, engine overhead included) is 0.18-0.71 s strict on B200 for the certified prompts.
 - **Decode dominates:** at batch 1, strict decodes 5.1-5.6 tokens/s on B200, against stock eager's 16.2 and CUDA graphs' 300; on H100 the rates are 3.1-3.6, 9.3 and 232-238.
 - Over all shapes, strict's rollout takes 19.9-71.4× (B200) and 16.4-72.1× (H100) as long as stock with CUDA graphs, and 2.8-6.9× (B200) and 2.6-6.5× (H100) as long as eager.
 - **Consistency:**

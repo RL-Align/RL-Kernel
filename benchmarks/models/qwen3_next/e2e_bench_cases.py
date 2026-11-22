@@ -128,10 +128,17 @@ def data_parallel_share(items, rank, size):
 
 
 def arm_environment(base, arm):
-    """Strict arms keep the certified stage environment; native arms run stock settings.
+    """Strict arms keep the certified stage environment; native arms drop the strict knobs.
 
     ``base`` is ``qwen3_next_run.stage_environment`` of the certified l2 stage. A native arm
-    drops the certificate and the strict runtime knobs, so vLLM and Triton use their defaults.
+    drops the certificate and the strict runtime knobs (``QWEN_SHARED_PROFILE_RESULT``,
+    ``TRITON_F32_DEFAULT``, ``VLLM_USE_V2_MODEL_RUNNER``; ``VLLM_BATCH_INVARIANT`` only for
+    ``native_bi``), so vLLM's and Triton's numerics are their defaults. Both arms keep the
+    stage's host settings:
+
+    - ``OMP_NUM_THREADS`` / ``MKL_NUM_THREADS`` 16;
+    - ``CUDA_DEVICE_MAX_CONNECTIONS=1``, which stock Megatron needs at TP > 1;
+    - ``VLLM_PLUGINS=""``, which keeps RL-Kernel's own vLLM plugin out of the stock engine.
     """
     env = dict(base)
     if arm == STRICT_ARM:
@@ -151,6 +158,13 @@ def arm_order(phase, round_index):
 
 
 def rollout_metrics(shape, prefill_seconds, total_seconds):
+    """Rollout medians for one shape.
+
+    ``prefill_s`` is the time to the first token: one ``generate`` call with
+    ``max_tokens=1``, which runs the prompt's forward and samples from its logits (no decode
+    step), engine overhead included. ``decode_tok_per_s`` covers the remaining
+    ``response - 1`` tokens of the full call.
+    """
     prompt, batch, response = shape
     prefill = statistics.median(prefill_seconds)
     total = statistics.median(total_seconds)
