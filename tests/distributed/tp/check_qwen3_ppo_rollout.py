@@ -198,10 +198,12 @@ def run(args):
 
             For the actor, first check recomputed action logprobs against the behavior logprobs
             within the ``--thresholds`` ``behavior_logprob`` atol/rtol and record the max error.
+            The logprobs come from the worker's own ``forward`` (the DeepSpeed engine with
+            ``--framework deepspeed``), so the check covers the path that trains.
             """
             if role == "actor":
                 with torch.no_grad():
-                    actual = trainable(batch.rollout.inputs)
+                    actual = forward(batch.rollout.inputs)
                 selected = batch.rollout.action_mask
                 behavior_errors.append(
                     float((actual[selected] - batch.rollout.behavior_logps[selected]).abs().max())

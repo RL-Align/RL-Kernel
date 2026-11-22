@@ -236,16 +236,19 @@ def main():
             )
         artifacts = {}
         before = {}
+        observed_steps = 0
 
         def observe(event, update, buffers, value):
             """Check and record evidence for one ``worker.update_observer`` event.
 
             ``before_clip`` checks that changing padded token IDs leaves selected scores exact
             and that padding-ID embedding rows get zero gradient; ``after_clip`` recomputes the
-            clipped norm; ``after_step`` requires FP32 optimizer state. Rank 0 saves scores,
-            loss, gradients, both norms and the parameter update.
+            clipped norm; ``after_step`` requires FP32 optimizer state and counts the step.
+            Rank 0 saves scores, loss, gradients, both norms and the parameter update.
             """
-            nonlocal before
+            nonlocal before, observed_steps
+            if event == "after_step":
+                observed_steps += 1
             if event == "before_clip":
                 before = canonical(model, group, config, a.role)
                 with torch.no_grad():
@@ -331,6 +334,13 @@ def main():
         metrics = worker.train(batch)
         for k, v in frozen.items():
             torch.testing.assert_close(v, batch.targets()[k], atol=0, rtol=0)
+        # Every check above runs inside the observer, so a run without an observed optimizer
+        # step has checked nothing and must not count as complete.
+        if metrics["updates"] < 1 or observed_steps != metrics["updates"]:
+            raise ValueError(
+                f"expected every optimizer step to be observed: {observed_steps} observed, "
+                f"{metrics['updates']} reported"
+            )
         report.update(
             status="probe_complete" if a.probe else "fixed_candidate_complete",
             artifacts={} if a.probe else artifacts,
