@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">MiniMax-H3-Image transformer block with WS1 and WS2 boundaries</title>
+  <desc id="desc">A packed sequence enters a MiniMax-H3-Image block with per-row AdaLN, full attention, partial MM-RoPE, gated residuals, SwiGLU, and tensor and context parallel sharding.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#07111f"/><stop offset="1" stop-color="#111d31"/></linearGradient>
+    <linearGradient id="ws1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1d5d96"/><stop offset="1" stop-color="#133454"/></linearGradient>
+    <linearGradient id="ws2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5d3c92"/><stop offset="1" stop-color="#38245f"/></linearGradient>
+    <linearGradient id="ada" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#176c65"/><stop offset="1" stop-color="#103e3b"/></linearGradient>
+    <linearGradient id="out" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9b5a28"/><stop offset="1" stop-color="#603516"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000" flood-opacity=".28"/></filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#a9c8e5"/></marker>
+    <marker id="greenArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#7de0c9"/></marker>
+    <style>
+      .title{font:700 28px Inter,Arial,sans-serif;fill:#f4f8ff}.subtitle{font:400 15px Inter,Arial,sans-serif;fill:#a9bdd6}
+      .label{font:700 17px Inter,Arial,sans-serif;fill:#f4f8ff}.body{font:400 14px Inter,Arial,sans-serif;fill:#d3e2f3}
+      .small{font:400 12px Inter,Arial,sans-serif;fill:#a9bdd6}.tiny{font:400 11px Inter,Arial,sans-serif;fill:#9bb0c7}
+      .box{stroke:#6d8db2;stroke-width:1.5;rx:16}.line{stroke:#a9c8e5;stroke-width:2.5;fill:none;marker-end:url(#arrow)}.greenline{stroke:#7de0c9;stroke-width:2.5;fill:none;marker-end:url(#greenArrow)}
+      .boundary{stroke:#7ca8cf;stroke-width:2;stroke-dasharray:9 8;fill:none}.pill{stroke:#88a9ca;stroke-width:1;rx:12}
+    </style>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <text x="58" y="54" class="title">One MiniMax-H3-Image block and WS1 / WS2 boundaries</text>
+  <text x="58" y="82" class="subtitle">The block graph is inherited from H3. Image-specific state is carried by packed rows, timestep tables, spatial coordinates, and PDD output selection.</text>
+
+  <rect x="48" y="132" width="230" height="500" class="box" fill="#0c243c" filter="url(#shadow)"/>
+  <text x="74" y="168" class="label">Packed sequence</text>
+  <rect x="74" y="201" width="178" height="58" class="box" fill="#1d5d96"/><text x="92" y="226" class="body">Text rows</text><text x="92" y="246" class="small">tag = 1</text>
+  <rect x="74" y="278" width="178" height="58" class="box" fill="#5d3c92"/><text x="92" y="303" class="body">Reference rows</text><text x="92" y="323" class="small">tag = 0, t = 0.999</text>
+  <rect x="74" y="355" width="178" height="58" class="box" fill="#176c65"/><text x="92" y="380" class="body">Target rows</text><text x="92" y="400" class="small">tag = 0, t = t_i</text>
+  <rect x="74" y="447" width="178" height="132" class="box" fill="#122d45"/><text x="92" y="474" class="body">Co-sharded metadata</text><text x="92" y="498" class="small">(t,h,w) positions</text><text x="92" y="518" class="small">token tags</text><text x="92" y="538" class="small">timestep indices</text><text x="92" y="558" class="small">image/text indices</text>
+  <path d="M278 380 L330 380" class="line"/>
+
+  <rect x="330" y="110" width="940" height="550" class="boundary"/>
+  <rect x="352" y="128" width="896" height="514" class="box" fill="#0b1b2d" filter="url(#shadow)"/>
+  <text x="382" y="166" class="label">H3 transformer block</text>
+  <text x="1012" y="166" class="small">hidden size 5376 · heads 56 · head dim 128 · FFN 14336</text>
+
+  <rect x="382" y="208" width="158" height="90" class="box" fill="url(#ada)"/><text x="400" y="238" class="body">RMSNorm</text><text x="400" y="260" class="small">pre-attention</text><text x="400" y="280" class="small">exact epsilon</text>
+  <rect x="568" y="208" width="158" height="90" class="box" fill="url(#ada)"/><text x="586" y="238" class="body">AdaLN</text><text x="586" y="260" class="small">shift / scale</text><text x="586" y="280" class="small">row lookup</text>
+  <rect x="754" y="190" width="246" height="126" class="box" fill="url(#ws1)"/><text x="774" y="220" class="body">Full self-attention</text><text x="774" y="244" class="small">Q/K/V -&gt; 7168</text><text x="774" y="264" class="small">Q/K RMSNorm, epsilon 1e-5</text><text x="774" y="284" class="small">non-causal, one document</text><text x="774" y="304" class="small">O projection -&gt; 5376</text>
+  <rect x="1028" y="208" width="190" height="90" class="box" fill="url(#ws2)"/><text x="1046" y="238" class="body">MM-RoPE</text><text x="1046" y="260" class="small">(t,h,w) axes</text><text x="1046" y="280" class="small">rotate 96 / 128</text>
+  <path d="M540 253 L568 253" class="line"/><path d="M726 253 L754 253" class="line"/><path d="M1000 253 L1028 253" class="line"/>
+  <path d="M1118 298 C1118 350 466 350 466 390" class="line"/>
+
+  <rect x="382" y="390" width="158" height="90" class="box" fill="#173652"/><text x="400" y="420" class="body">Gated residual</text><text x="400" y="442" class="small">x + gate[row] * y</text><text x="400" y="462" class="small">fixed order</text>
+  <rect x="568" y="390" width="158" height="90" class="box" fill="url(#ada)"/><text x="586" y="420" class="body">RMSNorm</text><text x="586" y="442" class="small">pre-FFN</text><text x="586" y="462" class="small">exact epsilon</text>
+  <rect x="754" y="390" width="246" height="90" class="box" fill="url(#ws1)"/><text x="774" y="420" class="body">AdaLN + SwiGLU</text><text x="774" y="442" class="small">gate/up -&gt; 2 x 14336</text><text x="774" y="462" class="small">down -&gt; 5376</text>
+  <rect x="1028" y="390" width="190" height="90" class="box" fill="#173652"/><text x="1046" y="420" class="body">Gated residual</text><text x="1046" y="442" class="small">x + gate[row] * y</text><text x="1046" y="462" class="small">fixed order</text>
+  <path d="M540 435 L568 435" class="line"/><path d="M726 435 L754 435" class="line"/><path d="M1000 435 L1028 435" class="line"/>
+  <path d="M1123 480 C1123 535 466 535 466 575" class="line"/>
+  <rect x="382" y="545" width="836" height="66" class="box" fill="#182c46"/><text x="408" y="573" class="body">Next block residual stream</text><text x="408" y="595" class="small">same packed rows, same metadata alignment, next of 50 blocks</text>
+
+  <rect x="1298" y="132" width="254" height="500" class="box" fill="#202044" filter="url(#shadow)"/>
+  <text x="1324" y="168" class="label">WS2 ownership</text>
+  <rect x="1324" y="202" width="202" height="94" class="box" fill="url(#ws2)"/><text x="1342" y="232" class="body">Tensor parallel</text><text x="1342" y="254" class="small">heads / 7168 inner dim</text><text x="1342" y="274" class="small">FFN 14336 channels</text>
+  <rect x="1324" y="318" width="202" height="94" class="box" fill="url(#ws2)"/><text x="1342" y="348" class="body">Context parallel</text><text x="1342" y="370" class="small">packed rows and RoPE</text><text x="1342" y="390" class="small">Ulysses or ring attention</text>
+  <rect x="1324" y="434" width="202" height="132" class="box" fill="#3b376b"/><text x="1342" y="464" class="body">Image-specific rule</text><text x="1342" y="488" class="small">gather through selected</text><text x="1342" y="508" class="small">PDD head, then split</text><text x="1342" y="528" class="small">reference prefix from</text><text x="1342" y="548" class="small">generated suffix</text>
+  <path d="M1270 260 L1298 260" class="line"/><path d="M1270 366 L1298 366" class="line"/>
+
+  <rect x="48" y="716" width="1504" height="126" class="box" fill="#0b1b2d" filter="url(#shadow)"/>
+  <text x="76" y="752" class="label">Strict boundaries</text>
+  <rect x="76" y="776" width="420" height="42" class="pill" fill="#153454"/><text x="96" y="803" class="small">WS1: arithmetic, casts, reduction order, row invariance</text>
+  <rect x="536" y="776" width="420" height="42" class="pill" fill="#38245f"/><text x="556" y="803" class="small">WS2: logical ownership, collectives, metadata co-sharding</text>
+  <rect x="996" y="776" width="520" height="42" class="pill" fill="#603516"/><text x="1016" y="803" class="small">Output: six PDD heads, image-row gather, target-only scheduler update</text>
+</svg>
