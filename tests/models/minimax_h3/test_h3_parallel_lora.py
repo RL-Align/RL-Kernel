@@ -292,9 +292,13 @@ class TestShardGradientVerdict:
         return shard_gradient_verdict(expected, observed, 2, lora=lora)
 
     def test_equal_runs_pass(self):
+        from rl_engine.validation.models import h3_parallel_model as pm
+
         d = self._digests()
         v = self._verdict(d, dict(d))
         assert v["base_bitwise"] and v["lora_bitwise"] and not v["missing"]
+        assert v["base_compared"] == 2 * len(pm.SHARDED_WEIGHTS)
+        assert v["lora_compared"] == 2 * h3_lora.LEAVES_PER_BLOCK
 
     @pytest.mark.parametrize("side", ["expected", "observed"])
     def test_a_lora_shard_missing_from_either_run_fails(self, side):
@@ -303,6 +307,9 @@ class TestShardGradientVerdict:
         (expected if side == "expected" else observed).pop(gone)
         v = self._verdict(expected, observed)
         assert not v["lora_bitwise"] and v["base_bitwise"] and v["missing"] == [gone]
+        full = self._verdict(self._digests(), self._digests())
+        assert v["lora_compared"] == full["lora_compared"] - 1
+        assert v["base_compared"] == full["base_compared"]
 
     def test_a_differing_digest_fails_and_is_named(self):
         expected, observed = self._digests(), self._digests()
