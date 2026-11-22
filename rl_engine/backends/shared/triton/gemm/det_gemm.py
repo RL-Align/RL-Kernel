@@ -1071,6 +1071,16 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         block_m = min(128, triton.next_power_of_2(m))
         block_n = 32 if block_m == 128 else 64
         groups, pack, column_first = leaves, 1, False
+
+    # On Hopper, merging more adjacent FFN outputs per block speeds up workspace reads.
+    root_block = 32
+    if (
+        column_first
+        and (k, n) in ((6656, 19968), (19968, 6656))
+        and torch.cuda.get_device_capability(a.device)[0] == 9
+    ):
+        root_block = 128
+
     # Only subtree roots cross the kernel boundary. Reuse their buffer
     # across column chunks, taking the last chunk's width as its row stride.
     column_limit = _MAX_TREE_WORKSPACE_ELEMENTS // (m * groups)
@@ -1097,7 +1107,7 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             STATIC_M=96 if column_first else 0,
             num_warps=2 if block_m == 1 else 4,
         )
-        _fixed_projection_root_kernel[(triton.cdiv(m * chunk_n, 32),)](
+        _fixed_projection_root_kernel[(triton.cdiv(m * chunk_n, root_block),)](
             workspace,
             result if first == 0 else result[:, first:],
             m,
@@ -1105,7 +1115,7 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             n,
             groups,
             groups.bit_length() - 1,
-            BLOCK=32,
+            BLOCK=root_block,
         )
     return result
 
