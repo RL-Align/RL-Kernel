@@ -326,6 +326,7 @@ def get_extensions():
                 ]
             )
         else:
+            cuda_sources.append("csrc/cuda/rope/multi_axis_rope.cu")
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             if adaln_cuda_enabled:
