@@ -490,6 +490,65 @@ def test_target_shapes_invariance(name, gemm, shape):
     ), f"{name}: batch-invariance broken at shape {shape}"
 
 
+@pytest.mark.cuda_only
+def test_cuda_scalar_tree_handles_deep_k():
+    """K=14336 used to overflow the 1 KB device stack of the recursive tree."""
+    torch.manual_seed(11)
+    # N=65 fails the SM90 N%BN == 0 gate, so the scalar tree runs on every
+    # build; the SM90 path deliberately uses 32-wide leaves and is only
+    # compared against itself by the batch-invariance suites.
+    M, K, N = 1, 14336, 65
+    a = _rand(M, K)
+    b = _rand(K, N)
+    out = deterministic_gemm(a, b)
+    torch.cuda.synchronize()
+    assert torch.isfinite(out).all()
+    thresholds = load_contract()["accuracy"]["default"]["reduction"]["bfloat16"]
+    torch.testing.assert_close(out, _k_tree_gemm(a, b), **thresholds)
+
+
+@pytest.mark.cuda_only
+def test_cuda_scalar_tree_handles_vocab_sized_k():
+    """K=262144 (Gemma 4 vocab) is the deepest tree any model reaches."""
+    torch.manual_seed(12)
+    M, K, N = 64, 262144, 8
+    b = _rand(K, N)
+    row = _rand(1, K)
+    big = _rand(M, K)
+    big[0] = row[0]
+    out = deterministic_gemm(row, b)
+    big_out = deterministic_gemm(big, b)
+    torch.cuda.synchronize()
+    assert torch.equal(out[0], big_out[0])
+    # The invariance check alone would accept a traversal error shared by both
+    # calls; compare against the canonical midpoint tree as well.
+    thresholds = load_contract()["accuracy"]["default"]["reduction"]["bfloat16"]
+    torch.testing.assert_close(out, _k_tree_gemm(row, b), **thresholds)
+
+
+@pytest.mark.cuda_only
+def test_cuda_scalar_tree_uses_64bit_operand_index():
+    """M*K above INT_MAX used to wrap the linear operand index."""
+    M, K, N = 65537, 32800, 1  # 65537 * 32800 = 2_149_613_600 > 2**31 - 1
+    required = M * K * torch.bfloat16.itemsize + 512 * 2**20
+    free, _ = torch.cuda.mem_get_info()
+    if free < required:
+        pytest.skip(f"needs {required / 2**30:.1f} GiB free for an operand with M*K > 2**31")
+    torch.manual_seed(13)
+    a = _rand(M, K)
+    b = _rand(K, N)
+    out = deterministic_gemm(a, b)
+    torch.cuda.synchronize()
+    assert torch.isfinite(out).all()
+    # Compare against the canonical midpoint tree, not an exact FP64 dot
+    # product: at K=32800 the kernel's BF16 rounding at every internal node is
+    # part of the contract, and an FP64 reference would fail it spuriously. A
+    # wrapped linear index reads the wrong operand rows and still fails here.
+    expected = _k_tree_gemm(a[-1:], b)
+    thresholds = load_contract()["accuracy"]["default"]["reduction"]["bfloat16"]
+    torch.testing.assert_close(out[-1:], expected, **thresholds)
+
+
 @pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
 def test_triton_ragged_tiles_mask_all_axes():
     """Non-multiple M/N/K tiles must not read or write past tensor bounds."""
