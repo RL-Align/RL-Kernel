@@ -44,7 +44,14 @@ if str(REPO) not in sys.path:
 
 from rl_engine.models.minimax_h3 import packed_layout as pl  # noqa: E402
 
-ROWS = {"fl2va": "h3_fl2va_report", "ref2va": "h3_ref2va_report"}
+# Each row's module ships with its own PR (FL2VA #724, Ref2VA #725), so only the rows whose module
+# is next to this file are offered: ``--row`` refuses the others instead of failing on import.
+ROW_MODULES = {"fl2va": "h3_fl2va_report", "ref2va": "h3_ref2va_report"}
+ROWS = {
+    row: module
+    for row, module in ROW_MODULES.items()
+    if (Path(__file__).resolve().parent / f"{module}.py").is_file()
+}
 
 # The Diffusers files the references run, at the pin (pl.PROVIDER_REVISION). Hashing the files
 # works for a git checkout and a source archive alike; an installed release (0.43.0, say) has
