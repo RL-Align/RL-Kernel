@@ -83,6 +83,39 @@ take the larger of the two per tensor. Cross-precision bounds compare the FP32 r
 both the BF16 repeat and the BF16 implementation control.
 Relative L2 errors are also reported. Same-precision TP comparisons use independent
 same-precision repeat bounds. No candidate result may establish or widen a bound.
+
+FP32 parameter updates have a second way to pass (`compare_fixed.explained_update`). This rule
+was added after the first H100 candidate run; see the amendment note below. AdamW's first step
+moves a weight by about `lr * g_c / (|g_c| + eps)`, with `g_c` the clipped gradient. Where `|g_c|`
+is near `eps`, that is linear in the gradient, with a slope of up to `lr / (eps * grad_norm)`: about
+13 at this configuration's grad norm of 77. So a gradient difference that is well inside its own
+bound can move one element's update past a bound frozen from controls that barely disturbed that
+element.
+
+An FP32 update tensor over its bound therefore still passes if, at every element, the two runs'
+update difference equals the AdamW step difference recomputed in FP64 from their own recorded
+gradients and grad norms, within two FP32 ulps of the weight. Two ulps covers two roundings per run
+per step: decoupled decay, then the step. The recomputation uses the AdamW recurrence over both
+updates, with the weights before each step taken from the checkpoint plus the run's own recorded
+updates.
+
+Gradients, norms, losses and scores keep their frozen bounds, and they are checked as before. BF16
+rows (cross-precision bounds) and parameters missing from the checkpoint, such as the critic's
+score head, keep the frozen bound only. Each comparison lists every tensor that used this path
+under `explained_updates`.
+
+Weight decay (`lr * weight_decay = 1e-7`) is about one FP32 ulp per step. Neither this rule nor
+the 1e-7 update floor can resolve it elementwise.
+
+Amendment note (2026-11-22): the H100 candidate at `19b62661` failed one of 1604 tensors for the
+Megatron FP32 actor at TP4. It was `0/update/model.layers.17.post_attention_layernorm.weight`,
+at 2.29 times its bound, while that tensor's gradient was at 0.30 times its own bound. A CPU
+diagnosis of the frozen tensors explains it:
+- Element 3486 has a clipped gradient of 0.46 `eps`.
+- At TP4 its update differs by -7.749e-07; AdamW predicts -7.931e-07 from the gradient difference.
+- The same element has the largest update difference at TP2 and in the implementation control.
+
+The frozen bounds and the reference are unchanged. Only the candidate stage is rerun.
 Large per-parameter evidence stays outside Git; the committed manifests anchor its
 hashes. Missing inputs, tampering, invalid tensor inventories and skipped GPU stages
 are failures, not completed qualification. The batch scripts also run without Slurm; the

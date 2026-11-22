@@ -45,13 +45,14 @@ for engine in megatron deepspeed; do
         if [[ "$precision" == bf16 ]]; then bounds="$reference_root/$role-cross-precision-bounds.json"; fi
         "$python_bin" -m tools.validation.models.qwen3_ppo.compare_fixed --reference "$reference_root/$role-fp32-0" \
           --other "$run" --thresholds "$bounds" --acceptance-manifest "$acceptance_manifest" \
-          --reference-root "$reference_root" --output "$run/comparison.json"
+          --reference-root "$reference_root" --checkpoint "$checkpoint" --output "$run/comparison.json"
       done
       if [[ "$sizes" != "2 4" ]]; then continue; fi
       "$python_bin" -m tools.validation.models.qwen3_ppo.compare_fixed --tp-comparison \
         --reference "$result_dir/$engine-$precision-$role-tp2" --other "$result_dir/$engine-$precision-$role-tp4" \
         --thresholds "$reference_root/$role-$precision-repeat-bounds.json" --acceptance-manifest "$acceptance_manifest" \
-        --reference-root "$reference_root" --output "$result_dir/$engine-$precision-$role-tp-comparison.json"
+        --reference-root "$reference_root" --checkpoint "$checkpoint" \
+        --output "$result_dir/$engine-$precision-$role-tp-comparison.json"
     done
   done
   # The pretrained two-round vLLM topologies (actor, critic and vLLM on dedicated GPUs) are not

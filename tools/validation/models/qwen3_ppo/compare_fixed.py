@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Freeze independent HF error contracts or assess candidates without changing bounds."""
+
 from __future__ import annotations
 
 import argparse
@@ -7,8 +8,18 @@ import json
 from pathlib import Path
 
 import torch
+from safetensors import safe_open
 
-from tools.validation.models.qwen3_ppo.fixed_contract import read_tensor, sha
+from tools.validation.models.qwen3_ppo.fixed_contract import CONFIG, OPTIMIZER, read_tensor, sha
+
+# Each run rounds a weight at most twice per AdamW step (decoupled decay, then the step), half
+# an FP32 ulp each, so two runs that take the same step differ by at most two ulps.
+STEP_ROUNDING_ULPS = 2
+UPDATE_RULE = (
+    "an update tensor passes if its max_abs error is within its frozen bound, or, for FP32 runs, "
+    "if every element's update difference equals the AdamW step difference predicted from both "
+    f"runs' own gradients and grad norms within {STEP_ROUNDING_ULPS} FP32 ulps of the weight"
+)
 
 
 def errors(x, y):
@@ -32,6 +43,95 @@ def floor(name):
     if name.endswith("/scores"):
         return 1e-5
     return 1e-6
+
+
+def fp32_ulp(x):
+    """Return the FP32 spacing at ``|x|``, elementwise, as FP64."""
+    a = x.abs().float()
+    return (torch.nextafter(a, torch.full_like(a, float("inf"))) - a).double()
+
+
+def checkpoint_weight(checkpoint, name):
+    """Return the checkpoint tensor ``name`` as FP64, or ``None`` if the checkpoint lacks it."""
+    index = json.loads((checkpoint / "model.safetensors.index.json").read_text())["weight_map"]
+    if name not in index:
+        return None
+    with safe_open(str(checkpoint / index[name]), "pt") as f:
+        return f.get_tensor(name).double()
+
+
+def adamw_directions(root, row, name, steps):
+    """Return AdamW's FP64 directions ``m_hat / (sqrt(v_hat) + eps)`` for ``steps`` updates.
+
+    They are built from the run's own unclipped gradients of ``name`` and its grad norms,
+    clipped by ``max_grad_norm / (grad_norm + 1e-6)`` as both trainers clip.
+    """
+    (b1, b2), eps = OPTIMIZER["betas"], OPTIMIZER["eps"]
+    m = v = torch.zeros((), dtype=torch.float64)
+    out = []
+    for t in range(steps):
+        g = read_tensor(root, row["artifacts"][f"{t}/gradient/{name}"]).double()
+        norm = float(read_tensor(root, row["artifacts"][f"{t}/grad_norm"]))
+        g = g * min(1.0, CONFIG.max_grad_norm / (norm + 1e-6))
+        m = b1 * m + (1 - b1) * g
+        v = b2 * v + (1 - b2) * g * g
+        out.append((m / (1 - b1 ** (t + 1))) / ((v / (1 - b2 ** (t + 1))).sqrt() + eps))
+    return out
+
+
+def explained_update(key, p0, left_root, left, right_root, right):
+    """Return how far an update difference is from the AdamW step difference of its gradients.
+
+    ``key`` is ``"<t>/update/<name>"`` and ``p0`` the parameter before the first update, which
+    both runs start from. Both runs' weights before step ``t`` are ``p0`` plus their own
+    recorded updates. The predicted difference is
+    ``-lr * (dir_right - dir_left) - lr * weight_decay * (p_right - p_left)``; the tolerance is
+    :data:`STEP_ROUNDING_ULPS` FP32 ulps of the largest of both runs' weights before and after
+    the step. Returns ``passed``, the worst element and its residual in ulps.
+    """
+    t, name = int(key.split("/", 1)[0]), key.split("/update/", 1)[1]
+    lr, wd = OPTIMIZER["lr"], OPTIMIZER["weight_decay"]
+    d_left = adamw_directions(left_root, left, name, t + 1)[t]
+    d_right = adamw_directions(right_root, right, name, t + 1)[t]
+    p_left, p_right = p0.clone(), p0.clone()
+    for s in range(t):
+        p_left += read_tensor(left_root, left["artifacts"][f"{s}/update/{name}"]).double()
+        p_right += read_tensor(right_root, right["artifacts"][f"{s}/update/{name}"]).double()
+    u_left = read_tensor(left_root, left["artifacts"][key]).double()
+    u_right = read_tensor(right_root, right["artifacts"][key]).double()
+    predicted = -lr * (d_right - d_left) - lr * wd * (p_right - p_left)
+    residual = (u_right - u_left - predicted).abs()
+    largest = torch.stack(
+        [p_left.abs(), (p_left + u_left).abs(), p_right.abs(), (p_right + u_right).abs()]
+    ).amax(0)
+    ulps = residual / fp32_ulp(largest)
+    worst = int(ulps.flatten().argmax())
+    return dict(
+        passed=bool((ulps <= STEP_ROUNDING_ULPS).all()),
+        max_residual_ulps=float(ulps.flatten()[worst]),
+        max_residual=float(residual.max()),
+        worst_element=worst,
+        observed=float((u_right - u_left).flatten()[worst]),
+        predicted=float(predicted.flatten()[worst]),
+    )
+
+
+def assess(rows, bounds, explain):
+    """Return ``(failures, explained)`` for candidate errors ``rows`` against frozen ``bounds``.
+
+    A tensor over its bound fails unless it is an update and ``explain(name)`` returns a passing
+    :func:`explained_update` result; ``explain`` returns ``None`` where the rule does not apply.
+    """
+    failures, explained = [], {}
+    for name, value in rows.items():
+        if value["max_abs"] <= bounds[name]["max_abs"]:
+            continue
+        check = explain(name) if "/update/" in name else None
+        if check is not None:
+            explained[name] = dict(check, max_abs=value["max_abs"], bound=bounds[name]["max_abs"])
+        if check is None or not check["passed"]:
+            failures.append(name)
+    return failures, explained
 
 
 def report(root):
@@ -69,8 +169,11 @@ def main():
     floor. Each ``--extra-control`` is compared with ``--reference`` like ``--other``, and the
     bound takes the larger error per tensor. With ``--thresholds``, the other run passes or
     fails on ``max_abs`` against threshold bounds pinned in the acceptance manifest, and the
-    process exits with status 1 on any failure. Raises ``ValueError`` if ``--output`` already
-    exists.
+    process exits with status 1 on any failure. With ``--checkpoint`` and two FP32 runs, an
+    update tensor over its bound still passes if :func:`explained_update` finds its difference
+    equal to the AdamW step difference of the two runs' gradients (:data:`UPDATE_RULE`); such
+    tensors are listed under ``explained_updates``. Raises ``ValueError`` if ``--output``
+    already exists.
     """
     p = argparse.ArgumentParser()
     p.add_argument("--reference", type=Path, required=True)
@@ -81,6 +184,7 @@ def main():
     p.add_argument("--reference-root", type=Path)
     p.add_argument("--tp-comparison", action="store_true")
     p.add_argument("--extra-control", type=Path, action="append", default=[])
+    p.add_argument("--checkpoint", type=Path)
     a = p.parse_args()
     if a.output.exists():
         raise ValueError("never overwrite reference or failed comparison")
@@ -137,15 +241,23 @@ def main():
     if contract:
         if rows.keys() != contract["bounds"].keys():
             raise ValueError("threshold tensor inventory differs")
-        failures = [
-            name
-            for name, value in rows.items()
-            if value["max_abs"] > contract["bounds"][name]["max_abs"]
-        ]
+        fp32 = left.get("precision") == right.get("precision") == "fp32"
+
+        def explain(name):
+            if not (fp32 and a.checkpoint):
+                return None
+            p0 = checkpoint_weight(a.checkpoint, name.split("/update/", 1)[1])
+            if p0 is None:
+                return None
+            return explained_update(name, p0, a.reference, left, a.other, right)
+
+        failures, explained = assess(rows, contract["bounds"], explain)
         result.update(
             status="failed" if failures else "passed",
+            update_rule=UPDATE_RULE,
             errors=rows,
             failures=failures,
+            explained_updates=explained,
             thresholds_sha256=sha(a.thresholds),
         )
     else:
