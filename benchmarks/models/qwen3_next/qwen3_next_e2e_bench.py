@@ -55,8 +55,8 @@ sys.path.insert(0, str(ROOT / "tools/validation/models/qwen3_next"))
 
 from benchmarks.models.qwen3_next.e2e_bench_cases import (  # noqa: E402
     PHASES,
-    STRICT_ARM,
     STOCK_VIME_LAYOUT,
+    STRICT_ARM,
     WORKLOADS,
     actor_layout,
     actor_unsupported,
