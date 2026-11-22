@@ -191,6 +191,7 @@ def column_parallel_lora_linear(
     for w, b in zip(weights, (b for _, bs in groups for b in bs)):
         if b.shape[0] != w.shape[0]:
             raise ValueError(f"B shard rows {b.shape[0]} differ from the weight's {w.shape[0]}")
+    gather = gather and tp > 1  # one rank holds every row already
     layout = (len(weights),) + tuple(len(bs) for _, bs in groups)
     flat = [t for a, bs in groups for t in (a, *bs)]
     return _ColumnParallelLoRA.apply(
@@ -266,6 +267,7 @@ def row_parallel_lora_linear(
         raise ValueError("B must be (N, r) for w_shard (N, K/tp) and a_shard (r, K/tp)")
     if tp > 1 and collective is None:
         raise ValueError("tp > 1 needs a collective")
+    scatter = scatter and tp > 1  # one rank holds every row already
     return _RowParallelLoRA.apply(
         x.contiguous(),
         w_shard,

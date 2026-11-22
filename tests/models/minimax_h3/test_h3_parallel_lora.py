@@ -118,6 +118,40 @@ class TestOneGPU:
         assert torch.equal(y[nonzero].view(torch.int16), base[nonzero].view(torch.int16))
         assert not da.any() and db.any()
 
+    def test_sequence_parallel_flags_are_identities_at_tp1(self):
+        """At tp=1 one rank holds every row: gather / scatter must not reach the (absent)
+        collective, and the results are the unflagged ones, LoRA and base alike."""
+
+        x, w, a, b, dy = _case(256, 384, seed=7)
+
+        def run(fn, *args, **kw):
+            xs = _leaf(x)
+            leaves = [_leaf(t) for t in args]
+            out = fn(xs, *leaves, **kw)
+            y = out[0] if isinstance(out, tuple) else out
+            y.backward(dy)
+            return [y.detach(), xs.grad] + [t.grad for t in leaves if t.grad is not None]
+
+        def col(xs, al, bl, **kw):
+            return pl.column_parallel_lora_linear(xs, [w], [(al, [bl])], 2.0, **kw)
+
+        def row(xs, al, bl, **kw):
+            return pl.row_parallel_lora_linear(xs, w, al, bl, 2.0, **kw)
+
+        def base_col(xs, **kw):
+            return par.column_parallel_linear(xs, [w], **kw)
+
+        def base_row(xs, **kw):
+            return par.row_parallel_linear(xs, w, **kw)
+
+        for flag, lora_fn in (("gather", col), ("scatter", row)):
+            plain = run(lora_fn, a, b)
+            flagged = run(lora_fn, a, b, **{flag: True})
+            assert all(torch.equal(p, q) for p, q in zip(plain, flagged)), flag
+        for flag, fn in (("gather", base_col), ("scatter", base_row)):
+            plain, flagged = run(fn), run(fn, **{flag: True})
+            assert all(torch.equal(p, q) for p, q in zip(plain, flagged)), flag
+
     def test_gradients_are_the_parameter_dtype(self):
         pytest.importorskip("triton")
         x, w, a, b, dy = _case(5376, 7168, t=16)
@@ -238,3 +272,58 @@ def test_lora_block_equals_canonical_bitwise(tp, cp, sp, b_zero, h3_block_weight
                 else:
                     want = canonical if is_a else par.shard_rows(canonical, tp, tp_rank)
                 assert torch.equal(r["dw." + name].cpu(), want), (name, int(r["rank"]))
+
+
+class TestShardGradientVerdict:
+    """The G4 tool's verdict: every shard gradient in both runs, equal; no partial pass."""
+
+    def _digests(self, blocks=2):
+        from rl_engine.validation.models import h3_parallel_model as pm
+
+        keys = [f"{b}.{n}" for b in range(blocks) for n in pm.SHARDED_WEIGHTS]
+        keys += [
+            f"{b}.{n}" for b in range(blocks) for t in h3_lora.SHAPES for n in h3_lora.leaf_names(t)
+        ]
+        return {k: [i, i + 1] for i, k in enumerate(keys)}
+
+    def _verdict(self, expected, observed, lora=True):
+        from tools.validation.models.h3_parallel_full_model import shard_gradient_verdict
+
+        return shard_gradient_verdict(expected, observed, 2, lora=lora)
+
+    def test_equal_runs_pass(self):
+        from rl_engine.validation.models import h3_parallel_model as pm
+
+        d = self._digests()
+        v = self._verdict(d, dict(d))
+        assert v["base_bitwise"] and v["lora_bitwise"] and not v["missing"]
+        assert v["base_compared"] == 2 * len(pm.SHARDED_WEIGHTS)
+        assert v["lora_compared"] == 2 * h3_lora.LEAVES_PER_BLOCK
+
+    @pytest.mark.parametrize("side", ["expected", "observed"])
+    def test_a_lora_shard_missing_from_either_run_fails(self, side):
+        expected, observed = self._digests(), self._digests()
+        gone = "1.lora.ff.net.0.proj.B.gate"
+        (expected if side == "expected" else observed).pop(gone)
+        v = self._verdict(expected, observed)
+        assert not v["lora_bitwise"] and v["base_bitwise"] and v["missing"] == [gone]
+        full = self._verdict(self._digests(), self._digests())
+        assert v["lora_compared"] == full["lora_compared"] - 1
+        assert v["base_compared"] == full["base_compared"]
+
+    def test_a_differing_digest_fails_and_is_named(self):
+        expected, observed = self._digests(), self._digests()
+        observed["0.lora.attn.to_v.A"] = [0, 0]
+        observed["1.attn.to_q.weight"] = [0, 0]
+        v = self._verdict(expected, observed)
+        assert v["lora_mismatched"] == ["0.lora.attn.to_v.A"]
+        assert v["base_mismatched"] == ["1.attn.to_q.weight"]
+        assert not v["lora_bitwise"] and not v["base_bitwise"]
+
+    def test_a_missing_base_shard_or_an_empty_run_fails(self):
+        expected, observed = self._digests(), self._digests()
+        observed.pop("0.ff.gate")
+        assert not self._verdict(expected, observed)["base_bitwise"]
+        empty = self._verdict({}, {})
+        assert not empty["base_bitwise"] and not empty["lora_bitwise"]
+        assert not self._verdict(self._digests(), self._digests(), lora=False)["lora_bitwise"]

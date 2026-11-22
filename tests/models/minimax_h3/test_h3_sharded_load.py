@@ -127,3 +127,23 @@ def test_a_sharded_model_does_not_run_outside_the_grid(tiny_checkpoint):
     for module in (block.attn.to_q, block.attn.to_out[0], block.ff.net[0].proj, block.ff.net[2]):
         with pytest.raises(RuntimeError, match="parallel_model_execution"):
             module(x)  # refused before any shape check
+
+
+def test_a_projection_of_the_wrong_shape_is_refused(tiny_checkpoint, tmp_path):
+    """The shards are cut from the stored tensor, so its shape must be the model's."""
+
+    import json
+    import shutil
+
+    from safetensors.torch import load_file, save_file
+
+    root, _ = tiny_checkpoint
+    bad = tmp_path / "bad"
+    shutil.copytree(root, bad)
+    name = "transformer_blocks.0.attn.to_q.weight"
+    file = json.loads((bad / sl.INDEX).read_text())["weight_map"][name]
+    tensors = load_file(str(bad / file))
+    tensors[name] = tensors[name][:-2].clone()  # two rows short, still divisible by tp=2
+    save_file(tensors, str(bad / file), metadata={"format": "pt"})
+    with pytest.raises(ValueError, match="to_q.weight: checkpoint shape"):
+        sl.load_sharded_model(bad, 2, 0, "cpu")

@@ -420,6 +420,48 @@ class TestLoRASync:
             assert ext.rlk_h3_load_lora(source, scale=2.0)[1] == sent
             assert h3_lora.lora_digests(model) == sent
 
+    def test_zero_or_mixed_rank_adapters_are_refused(self):
+        from rl_engine.validation.models import h3_lora
+
+        zero = [
+            h3_lora.shard_block_lora(h3_lora.make_block_lora(i, rank=0), 4, 1) for i in range(2)
+        ]
+        with pytest.raises(ValueError, match="r > 0"):
+            h3_lora.install_lora_shards(self._Model(2), zero, 4, 1, scale=2.0, device="cpu")
+        mixed = self._shards(4, 1)
+        mixed[1] = h3_lora.shard_block_lora(h3_lora.make_block_lora(1, rank=4), 4, 1)
+        with pytest.raises(ValueError, match="one rank"):
+            h3_lora.install_lora_shards(self._Model(2), mixed, 4, 1, scale=2.0, device="cpu")
+
+    @pytest.mark.parametrize("digests", [None, {}, ["not", "a", "mapping"]])
+    def test_a_file_without_sender_digests_is_refused_on_every_rank(
+        self, monkeypatch, tmp_path, digests
+    ):
+        from types import SimpleNamespace
+
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_worker as wk
+        from rl_engine.validation.models import h3_lora
+
+        model = self._Model(2)
+        model.w = torch.nn.Parameter(torch.zeros(1))
+        old = h3_lora.install_lora_shards(
+            model, self._shards(4, 1, seed=5), 4, 1, scale=2.0, device="cpu"
+        )
+        torch.save({"shards": self._shards(4, 1), "digests": digests}, tmp_path / "rank1.pt")
+        ext = wk.H3OmniWorkerExtension()
+        ext._rlk_h3 = SimpleNamespace(
+            binding=SimpleNamespace(model=model, grid=SimpleNamespace(tp=4, tp_rank=1))
+        )
+
+        def gather(mine):  # this rank is 1, the others accept theirs
+            failed = {} if mine["ok"] else {1: mine["error"]}
+            return [None, mine.get("result"), None, None], failed
+
+        monkeypatch.setattr(wk, "_gather", gather)
+        with pytest.raises(RuntimeError, match="no rank changed"):
+            ext.rlk_h3_load_lora(str(tmp_path / "rank{rank}.pt"), scale=2.0)
+        assert h3_lora.lora_digests(model) == old
+
     def test_shards_of_another_rank_layout_are_refused(self):
         from rl_engine.validation.models import h3_lora
 
@@ -514,3 +556,229 @@ def test_bound_call_is_the_models_call(full_model, with_lora, vllm_sdpa):
         torch.backends.cuda.enable_cudnn_sdp(cudnn)
         for block in model.transformer_blocks:
             block.__dict__.pop(pm.LORA_ATTR, None)
+
+
+# --- CPU: install / remove lifecycle of the worker extension -------------------------------------
+
+
+class TestInstallLifecycle:
+    """``rlk_h3_install`` binds every TP rank or none; a released DiT is never run again."""
+
+    class MiniMaxH3DiTModel(torch.nn.Module):  # the name check_engine_transformer accepts
+        def __init__(self):
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.ones(3))
+
+        def forward(self, **kwargs):
+            return self.w * 2
+
+    class _Bound(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.transformer_blocks = torch.nn.ModuleList([torch.nn.Identity()])
+            self.p = torch.nn.Parameter(torch.zeros(2))
+
+    class _Manager:
+        def __init__(self):
+            self.calls = []
+
+        def set_request_adapter(self, request, scale=1.0):
+            self.calls.append((request, scale))
+
+    def _ext(self, monkeypatch, failures, tp_rank=1, load_error=None):
+        import sys
+        from types import ModuleType, SimpleNamespace
+
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_worker as wk
+        from rl_engine.validation.models import h3_sharded_load as sl
+
+        group = SimpleNamespace(world_size=4, rank_in_group=tp_rank, device_group=None)
+        ps = ModuleType("vllm.distributed.parallel_state")
+        ps.get_tp_group = lambda: group
+        for name in ("vllm", "vllm.distributed"):
+            monkeypatch.setitem(sys.modules, name, sys.modules.get(name) or ModuleType(name))
+        monkeypatch.setitem(sys.modules, "vllm.distributed.parallel_state", ps)
+        grid = SimpleNamespace(tp=4, tp_rank=tp_rank, cp=1, attention="h3_full", tp_collective=None)
+        monkeypatch.setattr(om, "tp_grid_from_group", lambda *a, **k: grid)
+        monkeypatch.setattr(wk, "_preflight_checkpoint", lambda d: 1)
+
+        def load(*args, **kwargs):
+            if load_error:
+                raise OSError(load_error)
+            return self._Bound()
+
+        monkeypatch.setattr(sl, "load_sharded_model", load)
+        phases = iter(failures)  # the other ranks' failures, per gathered phase
+
+        def gather(mine):
+            failed = dict(next(phases, {}))
+            if not mine["ok"]:
+                failed[tp_rank] = mine["error"]
+            return [mine.get("result")] * 4, failed
+
+        monkeypatch.setattr(wk, "_gather", gather)
+        ext = wk.H3OmniWorkerExtension()
+        ext.model_runner = SimpleNamespace(
+            pipeline=SimpleNamespace(transformer=self.MiniMaxH3DiTModel(), od_config=None)
+        )
+        ext.lora_manager = self._Manager()
+        return ext
+
+    def test_a_refusal_on_any_rank_changes_nothing(self, monkeypatch):
+        ext = self._ext(monkeypatch, [{2: "RuntimeError: cannot bind"}])
+        dit = ext.model_runner.pipeline.transformer
+        with pytest.raises(RuntimeError, match="no rank changed"):
+            ext.rlk_h3_install("ckpt", release_weights=True)
+        assert ext._rlk_h3 is None and "forward" not in dit.__dict__ and not dit.w.is_meta
+
+    def test_a_failed_load_without_release_can_be_retried(self, monkeypatch):
+        ext = self._ext(monkeypatch, [{}, {3: "OSError: missing shard"}])
+        dit = ext.model_runner.pipeline.transformer
+        with pytest.raises(RuntimeError, match="no rank changed"):
+            ext.rlk_h3_install("ckpt", release_weights=False)
+        assert ext._rlk_h3 is None and "forward" not in dit.__dict__ and not dit.w.is_meta
+        ext2 = self._ext(monkeypatch, [])
+        assert len(ext2.rlk_h3_install("ckpt")) == 4  # a retry binds
+
+    @pytest.mark.parametrize("where", ["here", "another rank"])
+    def test_a_failed_load_after_release_disables_the_dit(self, monkeypatch, where):
+        if where == "here":
+            ext = self._ext(monkeypatch, [{}, {}], load_error="bad checkpoint")
+        else:
+            ext = self._ext(monkeypatch, [{}, {0: "OSError: bad checkpoint"}])
+        dit = ext.model_runner.pipeline.transformer
+        with pytest.raises(RuntimeError, match="restart the engine"):
+            ext.rlk_h3_install("ckpt", release_weights=True)
+        assert ext._rlk_h3 is None and dit.w.is_meta
+        with pytest.raises(RuntimeError, match="no usable DiT"):
+            dit()  # not vLLM-Omni's forward on meta tensors
+
+    def test_bound_engine_refuses_request_lora_and_remove_after_release(self, monkeypatch):
+        ext = self._ext(monkeypatch, [])
+        dit = ext.model_runner.pipeline.transformer
+        replies = ext.rlk_h3_install("ckpt", release_weights=True)
+        assert len(replies) == 4 and replies[1]["engine_parameter_bytes_released"] == 12
+        manager = ext.lora_manager
+        manager.set_request_adapter(None)  # deactivating is fine
+        assert manager.calls == [(None, 1.0)]
+        with pytest.raises(ValueError, match="request LoRA"):
+            manager.set_request_adapter(object(), 1.0)
+        with pytest.raises(RuntimeError, match="released"):
+            ext.rlk_h3_remove()
+        assert ext._rlk_h3 is not None and dit.__dict__["forward"] is not None  # nothing changed
+
+    def test_remove_without_release_restores_everything(self, monkeypatch):
+        ext = self._ext(monkeypatch, [])
+        dit = ext.model_runner.pipeline.transformer
+        ext.rlk_h3_install("ckpt", release_weights=False)
+        ext.rlk_h3_remove()
+        assert ext._rlk_h3 is None and "forward" not in dit.__dict__
+        assert "set_request_adapter" not in ext.lora_manager.__dict__
+        assert torch.equal(dit(), torch.full((3,), 2.0))
+
+    def test_a_failed_capture_is_reported_not_raised(self, monkeypatch, tmp_path):
+        ext = self._ext(monkeypatch, [], tp_rank=0)
+        ext.rlk_h3_install("ckpt", record_dir=str(tmp_path), record_calls=(0,))
+        (tmp_path / "call0.pt").mkdir()  # torch.save cannot write there
+        binding = ext._rlk_h3.binding
+        binding.record({}, {"x": torch.zeros(1)}, (torch.zeros(1), torch.zeros(1)))
+        assert binding.record_errors and binding.record_errors[0].startswith("call0:")
+        assert ext._rlk_h3.report()["record_errors"] == binding.record_errors
+
+    def test_a_failed_input_copy_is_reported_and_the_next_call_recorded(
+        self, monkeypatch, tmp_path
+    ):
+        class _NoCopy(torch.Tensor):
+            def cpu(self, *args, **kwargs):
+                raise RuntimeError("copy failed")
+
+        ext = self._ext(monkeypatch, [], tp_rank=0)
+        ext.rlk_h3_install("ckpt", record_dir=str(tmp_path), record_calls=(0, 1))
+        binding = ext._rlk_h3.binding
+        out = (torch.zeros(1), torch.zeros(1))
+        binding.record({}, {"x": torch.zeros(1).as_subclass(_NoCopy)}, out)
+        assert binding.record_errors == ["call0: RuntimeError: copy failed"]
+        binding.record({}, {"x": torch.zeros(1)}, out)
+        assert (tmp_path / "call1.pt").exists() and len(binding.record_errors) == 1
+
+    def test_a_record_dir_that_cannot_be_made_is_a_gathered_refusal(self, monkeypatch, tmp_path):
+        (tmp_path / "file").write_bytes(b"")
+        ext = self._ext(monkeypatch, [], tp_rank=0)
+        dit = ext.model_runner.pipeline.transformer
+        with pytest.raises(RuntimeError, match="no rank changed"):
+            ext.rlk_h3_install(
+                "ckpt", release_weights=True, record_dir=str(tmp_path / "file" / "calls")
+            )
+        assert ext._rlk_h3 is None and not dit.w.is_meta  # refused before the release
+
+    def test_data_parallelism_is_refused(self):
+        from types import SimpleNamespace
+
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+
+        config = SimpleNamespace(
+            parallel_config=SimpleNamespace(tensor_parallel_size=4, data_parallel_size=2)
+        )
+        assert any("data_parallel_size" in r for r in om.check_engine_config(config, tp=4))
+        ok = SimpleNamespace(
+            parallel_config=SimpleNamespace(tensor_parallel_size=4, data_parallel_size=1)
+        )
+        assert om.check_engine_config(ok, tp=4) == []
+
+
+class TestRolloutReportGates:
+    """The G3 tool's gates: every batched call has its alone twin; replays read this run only."""
+
+    def test_every_batched_call_needs_an_alone_twin(self):
+        from tools.validation.models.h3_omni_rollout_report import batch_twins
+
+        def call(inputs, n):
+            return {"inputs": inputs, "num_requests": n}
+
+        ok = [call("a", 1), call("b", 1), call("a", 2), call("b", 2)]
+        assert batch_twins(ok) == (2, 2)
+        drifted = [
+            call("a", 1),
+            call("b", 1),
+            call("a", 2),
+            call("b'", 2),
+        ]  # B's batched input differs
+        assert batch_twins(drifted) == (2, 1)
+        assert batch_twins([call("a", 1)]) == (0, 0)
+
+    def test_replays_read_only_this_runs_listed_captures(self, tmp_path):
+        from types import SimpleNamespace
+
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+        from tools.validation.models import h3_omni_rollout_report as tool
+
+        calls = tmp_path / "calls"
+        calls.mkdir()
+        for n in range(3):  # an earlier run's captures
+            (calls / f"call{n}.pt").write_bytes(b"old")
+        assert tool._fresh_dir(calls) == calls and not list(calls.glob("call*.pt"))
+        video = torch.arange(4.0)
+        torch.save({"video": video}, calls / "call0.pt")
+        args = SimpleNamespace(out=tmp_path)
+        listed = [{"call": "call0", "video_digest": om.tensor_digest(video)}]
+        ((path, rec),) = tool._listed_captures(args, {"pass": True, "captures": listed})
+        assert path == calls / "call0.pt" and torch.equal(rec["video"], video)
+        with pytest.raises(RuntimeError, match="not a passing"):
+            tool._listed_captures(args, {"pass": False, "captures": listed})
+        with pytest.raises(RuntimeError, match="lists no captures"):
+            tool._listed_captures(args, {"pass": True})
+        with pytest.raises(RuntimeError, match="missing"):
+            tool._listed_captures(args, {"pass": True, "captures": listed + [{"call": "call1"}]})
+        torch.save({"video": video + 1}, calls / "call0.pt")  # a later run's capture
+        with pytest.raises(RuntimeError, match="does not match"):
+            tool._listed_captures(args, {"pass": True, "captures": listed})
+
+    def test_an_engine_run_removes_the_earlier_reports(self, tmp_path):
+        from tools.validation.models import h3_omni_rollout_report as tool
+
+        for name in tool.STAGE_REPORTS:
+            (tmp_path / name).write_text("{}")
+        tool._invalidate_reports(tmp_path)
+        assert not any((tmp_path / name).exists() for name in tool.STAGE_REPORTS)
+        tool._invalidate_reports(tmp_path)  # nothing to remove is fine
