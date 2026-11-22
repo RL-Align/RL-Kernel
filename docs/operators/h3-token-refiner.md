@@ -15,9 +15,9 @@ residual_attn -> norm2 -> gate_up -> swiglu -> down -> residual_mlp
 The row owns the two residual adds (`residual_attn`, `residual_mlp`, FP32 add of the
 BF16 operands rounded once to BF16) and the graph itself; every other node is bound to
 the operator that already exists for it: `h3_rmsnorm`, `h3_qkv_gemm` (Q/K/V, from the
-[projection rows](h3-projection-rows.md)) and the still-`interim` stand-ins for attention,
-SwiGLU and the O/gate_up/down GEMMs (claimed by other contributors; they are replaced when
-those rows land, without changing the graph).
+[projection rows](h3-projection-rows.md)), attention (`H3FullAttentionOp`, #553), the
+O/gate_up/down GEMM rows (#554, #535; SM90 only, the interim GEMM elsewhere) and the still-`interim`
+SwiGLU, which is replaced when its row lands, without changing the graph.
 
 ## Entry Points
 
@@ -53,8 +53,8 @@ without weights). On H100 (Hopper) 15 passed. Tokens 1, 64 and 257 per block, bo
 
 ## Limits
 
-Attention, the O/gate_up/down GEMMs and SwiGLU are `interim` until their rows land, so a
-refiner trace is not yet strict-clean (`assert_strict` reports exactly those nodes).
+SwiGLU and the QK norm are `interim` until their rows land, and so are the O/gate_up/down GEMMs off
+SM90; a refiner trace is not yet strict-clean (`assert_strict` reports exactly those nodes).
 Fail-closed strict mode is therefore enforced per node by the trace, not by the block.
 
 ## Hopper evidence (H100)

@@ -82,6 +82,7 @@ class FullModelTrace:
         self.execution_order = []
         self._events = set()
         self.boundary_bindings = {}
+        self.ops = None  # the candidate ops: ``validate`` reports the bindings they ran
 
     def record_event(self, name):
         if name not in self._events:
@@ -153,10 +154,8 @@ class FullModelTrace:
             calls=dict(self.calls),
             backward_calls=dict(self.backward_calls),
             bindings={
-                n.name: dict(
-                    rfc_row=n.binding.rfc_row, status=n.binding.status, backend=n.binding.backend
-                )
-                for n in h3_block.NODES
+                name: dict(rfc_row=b.rfc_row, status=b.status, backend=b.backend)
+                for name, b in h3_block.bindings(self.ops).items()
             },
             boundary_binding=(
                 "strict rows + provider" if self.boundary_bindings else "provider/reference"
@@ -468,6 +467,10 @@ def full_model_execution(
                 raise CandidateBindingError(str(exc)) from exc
         if hasattr(ops, "backends"):
             trace.actual_backends = require_candidate_cuda(ops)
+        trace.ops = ops
+    # the block / refiner GEMM rows reduce weight gradients in a canonical session (as the keyed
+    # boundaries do); one session per context, so run each step in its own context
+    gemm_context = _canonical_session(True) if candidate and h3_block.binds_gemm_rows(ops) else None
     boundary_context = (
         _strict_boundaries(model, trace, ops, frozenset(native_boundaries))
         if strict_boundaries
@@ -475,7 +478,11 @@ def full_model_execution(
     )
     exc_info: tuple = (None, None, None)
     boundary_entered = False  # exit the boundary context only if its ``__enter__`` returned
+    gemm_entered = False
     try:
+        if gemm_context is not None:
+            gemm_context.__enter__()
+            gemm_entered = True
         if boundary_context is not None:
             boundary_context.__enter__()
             boundary_entered = True
@@ -504,6 +511,7 @@ def full_model_execution(
                         temb=temb,
                         index=adaln_indices,
                         rope=rotary_emb,
+                        parameter_prefix=f"transformer_blocks.{_block_index}",
                         provider_nodes=frozenset(provider_nodes),
                         node_observer=lambda name: trace.candidate_calls.update(
                             [f"block.{_block_index}.{name}"]
@@ -542,6 +550,8 @@ def full_model_execution(
             block.forward = original
         if boundary_context is not None and boundary_entered:
             boundary_context.__exit__(*exc_info)
+        if gemm_context is not None and gemm_entered:
+            gemm_context.__exit__(*exc_info)
 
 
 # --- Numerics shared with the generation runner --------------------------------------------------
