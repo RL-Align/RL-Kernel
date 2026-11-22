@@ -18,7 +18,7 @@
 </style><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#60806d"/></marker><marker id="dasharrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#809c8e"/></marker></defs>
 <rect width="1600" height="1330" fill="white"/>
 <text x="80" y="58" class="title" text-anchor="start">One Inkling 2 Mini decoder visit — strict operator boundaries</text>
-<text x="80" y="86" class="sub" text-anchor="start">Runtime identity: physical layer + pass + logical visit + layer type; arrows denote validation boundaries, not kernel fusion choices.</text>
+<text x="80" y="86" class="sub" text-anchor="start">TorchTitan train / SGLang rollout | physical layer + loop pass + logical visit + layer type</text>
 <rect class="dash" x="522" y="130" width="556" height="82" rx="11"/>
 <text x="800" y="160" class="label" text-anchor="middle">Input hidden state [T, 2304]</text>
 <text x="800" y="185" class="small" text-anchor="middle">from prelude / attention-residual state</text>
@@ -85,5 +85,5 @@
 <rect class="dash" x="559" y="1261" width="482" height="52" rx="11"/>
 <text x="800" y="1291" class="label" text-anchor="middle">WS1 per-visit first-drift trace</text>
 <path class="line" d="M800 1223L800 1261" marker-end="url(#arrow)"/>
-<text x="81" y="1319" class="foot" text-anchor="start">WS2: TP / EP / CP / SP rank ownership and communication preserve the same WS1 arithmetic contract.</text>
+<text x="81" y="1319" class="foot" text-anchor="start">WS2: FSDP2 / EP (plus supported TP / CP) and SGLang rollout preserve the WS1 strict arithmetic contract.</text>
 </svg>
