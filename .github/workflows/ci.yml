@@ -82,6 +82,12 @@ jobs:
             tests/models/minimax_h3/test_h3_full_ensemble_rule.py \
             tests/models/minimax_h3/test_h3_generation_resume.py
 
+      - name: Run shared index selection (CPU-safe)
+        run: |
+          python -m pytest -q \
+            tests/ops/embedding/test_index_select.py \
+            tests/benchmarks/test_index_select_benchmark.py
+
       - name: Run Mocked Hardware Discovery Tests
         run: |
           python -m pytest tests/runtime/test_dispatch.py -v

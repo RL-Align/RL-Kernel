@@ -101,6 +101,33 @@ def test_random_packed_index_copy_inputs_are_seeded_and_valid(dtype):
         assert not torch.equal(first[modality], changed[modality])
 
 
+@pytest.mark.parametrize("shape,dim", [((2, 7, 32), 1), ((7, 32), 0), ((7, 4, 8), 0), ((2, 7), -1)])
+def test_index_select_validation_entry(shape, dim):
+    """Run WS1 through the public API using the supplied axis and unsorted indices."""
+    from rl_engine.validation.operators.op_checks import run_operator_suite
+
+    args = _args(
+        op="index_select",
+        candidate="pytorch",
+        select_shape=shape,
+        select_dim=dim,
+        input_mode="random",
+    )
+    inputs = make_operator_inputs("index_select", args, torch.float32, torch.device("cpu"))
+    assert inputs["x"].shape == shape
+    assert inputs["dim"] == dim
+    assert inputs["unique_indices"] is True
+    assert inputs["index"].tolist() == [6, 4, 2, 0]
+    assert operator_shape_name("index_select", args) == f"{'x'.join(map(str, shape))}-dim{dim}"
+    report = run_operator_suite(
+        "index_select",
+        candidates=[make_candidate(args)],
+        cases=[make_operator_case(args, torch.float32, torch.device("cpu"))],
+        check_grad=True,
+    )
+    assert report.passed
+
+
 @pytest.mark.parametrize(
     "op_name",
     [

@@ -36,6 +36,7 @@ nav:
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
+      - operators/index-select.md
       - operators/final-logit-softcap.md
       - MiniMax-H3:
         - operators/h3-qwen3vl-layer50-contract.md

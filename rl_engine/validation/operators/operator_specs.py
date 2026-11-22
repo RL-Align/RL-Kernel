@@ -82,6 +82,18 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight", "bias"),
     ),
+    "index_select": OperatorSpec(
+        name="index_select",
+        op_class="reduction",
+        gold_path="rl_engine.reference.embedding.index_select.NativeIndexSelectOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.embedding.index_select.NativeIndexSelectOp",
+            "triton": "rl_engine.backends.shared.triton.embedding.index_select.TritonIndexSelectOp",
+        },
+        # The integer indices and selection mode only route the gradient back to x.
+        grad_input_names=("x",),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",

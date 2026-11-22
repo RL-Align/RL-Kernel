@@ -34,6 +34,7 @@ Every operator page should include:
 - [Matmul](matmul.md)
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
+- [Shared Index Select (H3 / BAGEL)](index-select.md)
 - [Final Logit Softcap](final-logit-softcap.md)
 - [MiniMax-H3 Timestep Sinusoid](h3-timestep-sinusoid.md)
 - [MiniMax-H3 FP32 Timestep MLP](h3-timestep-mlp.md)
