@@ -205,9 +205,16 @@ class H3OmniWorkerExtension:
             _restore_request_lora(self)
             if loaded["released"]:
                 om.disable_engine_dit(pipeline.transformer, f"rlk_h3_install failed: {failed}")
-            elif handle is not None:
+                raise RuntimeError(
+                    f"rlk_h3_install failed to bind on TP ranks {failed} after vLLM-Omni's DiT "
+                    "was released; every rank's DiT is disabled, restart the engine"
+                )
+            if handle is not None:
                 handle.remove()
-            raise RuntimeError(f"rlk_h3_install failed to bind on TP ranks {failed}")
+            raise RuntimeError(
+                f"rlk_h3_install failed to bind on TP ranks {failed}; every rank keeps "
+                "vLLM-Omni's DiT, the install can be retried"
+            )
         return results
 
     @_all_ranks
