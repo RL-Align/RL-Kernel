@@ -111,6 +111,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_VIDEO_PATCH_PACK_UNPACK = (
         "rl_engine.reference.packing.video_patch_pack_unpack.NativeVideoPatchPackUnpackOp"
     )
+    PYTORCH_NATIVE_PACKED_INDEX_COPY = (
+        "rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp"
+    )
+    CUDA_PACKED_INDEX_COPY = (
+        "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp"
+    )
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
     MUSA_DET_GEMM = "rl_engine.backends.musa.gemm.det_gemm.MusaDetGemmOp"
@@ -183,8 +189,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    PYTORCH_NATIVE_CONDITIONING_NOISE_MIX = (
+        "rl_engine.reference.conditioning.conditioning_noise_mix.NativeConditioningNoiseMixOp"
+    )
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
     CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
+    CUDA_CONDITIONING_NOISE_MIX = (
+        "rl_engine.backends.cuda.conditioning.conditioning_noise_mix.ConditioningNoiseMixCudaOp"
+    )
     ASCEND_SWIGLU = "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp"
     ASCEND_SILU = "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp"
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
@@ -329,6 +341,27 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory="rl_engine.ops.gemm.h3_projections.H3AttentionOGemmOp",
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="h3_attention_o_gemm-candidate-v1",
+            is_smoke_only=True,
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_ffn_down_gemm",
+            backend_id="rlkernel.h3_ffn_down.triton.fp32_tiles.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={"world_size": (1,), "tensor_parallel_size": (1,)},
+            determinism_or_alignment_properties={
+                "arithmetic": "bf16_mma_fp32_accumulation_ordered_fp32_adds_bf16_epilogue",
+                "shape": "14336_to_5376",
+                "weight_gradient_order": "canonical_logical_keys",
+                "gpu_qualified": False,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=("rl_engine.ops.gemm.h3_ffn_down.H3FFNDownGemmOp"),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-down-triton-fp32-tiles-candidate-v1",
+            # Strict production resolution remains gated until runtime qualification.
             is_smoke_only=True,
         ),
         OperatorBackendDescriptor(
@@ -892,6 +925,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [OpBackend.CUDA_PACKED_INDEX_COPY],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "video_input_projection_fp32": [OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32],
@@ -917,6 +951,7 @@ class KernelRegistry:
                     OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
                     OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
                 ],
+                "conditioning_noise_mix": [OpBackend.CUDA_CONDITIONING_NOISE_MIX],
                 # Default dispatch logic for new operators
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rope": [
@@ -997,6 +1032,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
@@ -1024,6 +1060,7 @@ class KernelRegistry:
                     OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
                     OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
                 ],
+                "conditioning_noise_mix": [],
             },
             "musa": {
                 "logp": [
@@ -1056,6 +1093,7 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "det_gemm": [OpBackend.MUSA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
@@ -1086,6 +1124,7 @@ class KernelRegistry:
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
+                "conditioning_noise_mix": [],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -1105,6 +1144,7 @@ class KernelRegistry:
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [OpBackend.PYTORCH_NATIVE_PACKED_INDEX_COPY],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
@@ -1125,6 +1165,7 @@ class KernelRegistry:
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
+                "conditioning_noise_mix": [OpBackend.PYTORCH_NATIVE_CONDITIONING_NOISE_MIX],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
@@ -1185,9 +1226,12 @@ class KernelRegistry:
             OpBackend.ASCEND_SILU,
             OpBackend.PYTORCH_NATIVE_SILU,
         ]
+        self._priority_map["npu"]["packed_index_copy"] = []
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,
         ]
+        self._priority_map["npu"]["conditioning_noise_mix"] = []
+
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
