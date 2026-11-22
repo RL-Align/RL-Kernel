@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1220" viewBox="0 0 1600 1220">
+<defs><style>
+.title{font:700 27px Arial,Helvetica,sans-serif;fill:#1f3b2f}
+.sub{font:15px Arial,Helvetica,sans-serif;fill:#506458}
+.label{font:700 18px Arial,Helvetica,sans-serif;fill:#1f3b2f}
+.small{font:15px Arial,Helvetica,sans-serif;fill:#496253}
+.tiny{font:13px Arial,Helvetica,sans-serif;fill:#506458}
+.green{font:700 16px Arial,Helvetica,sans-serif;fill:#16754f}
+.wlabel{font:700 18px Arial,Helvetica,sans-serif;fill:white}
+.wsmall{font:14px Arial,Helvetica,sans-serif;fill:#ecf6f0}
+.foot{font:700 14px Arial,Helvetica,sans-serif;fill:#16754f}
+.box{fill:#fff;stroke:#7b9b88;stroke-width:1.5}
+.dash{fill:#fff;stroke:#84a695;stroke-width:1.5;stroke-dasharray:7 5}
+.panel{fill:#f8fbf9;stroke:#7b9b88;stroke-width:1.5}
+.core{fill:#16754f;stroke:#16754f;stroke-width:1.5}
+.line{stroke:#60806d;stroke-width:1.5;fill:none}
+.dline{stroke:#809c8e;stroke-width:1.5;stroke-dasharray:6 5;fill:none}
+</style><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#60806d"/></marker><marker id="dasharrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#809c8e"/></marker></defs>
+<rect width="1600" height="1220" fill="white"/>
+<text x="80" y="59" class="title" text-anchor="start">Inkling 2 Mini — RL-Kernel train / rollout consistency map</text>
+<text x="80" y="87" class="sub" text-anchor="start">CUDA + ROCm | VIME Native vs VIME + RL-Kernel | Text-first, then full image-text parity</text>
+<rect class="dash" x="85" y="142" width="334" height="73" rx="11"/>
+<text x="252" y="172" class="label" text-anchor="middle">Text input</text>
+<text x="252" y="197" class="small" text-anchor="middle">token IDs, positions and masks</text>
+<rect class="dash" x="1180" y="142" width="334" height="73" rx="11"/>
+<text x="1347" y="172" class="label" text-anchor="middle">Image input</text>
+<text x="1347" y="197" class="small" text-anchor="middle">pixel values</text>
+<rect class="box" x="85" y="254" width="334" height="92" rx="11"/>
+<text x="252" y="288" class="label" text-anchor="middle">Token embedding</text>
+<text x="252" y="316" class="small" text-anchor="middle">hidden 2304 | valid vocab 200058</text>
+<rect class="box" x="1180" y="254" width="334" height="92" rx="11"/>
+<text x="1347" y="288" class="label" text-anchor="middle">Vision encoder</text>
+<text x="1347" y="316" class="small" text-anchor="middle">23-layer ViT | hidden 1024</text>
+<rect class="box" x="1180" y="375" width="334" height="92" rx="11"/>
+<text x="1347" y="409" class="label" text-anchor="middle">Vision adapter</text>
+<text x="1347" y="437" class="small" text-anchor="middle">patch 20 | 2x2 merge + projection</text>
+<rect class="box" x="571" y="443" width="458" height="92" rx="11"/>
+<text x="800" y="477" class="label" text-anchor="middle">Text / vision embedding merge</text>
+<text x="800" y="505" class="small" text-anchor="middle">identical positions, masks and pixel processing</text>
+<path class="line" d="M252 215L252 254" marker-end="url(#arrow)"/>
+<path class="line" d="M1347 215L1347 254" marker-end="url(#arrow)"/>
+<path class="line" d="M1347 346L1347 375" marker-end="url(#arrow)"/>
+<path class="line" d="M419 300 C508 300 512 489 571 489" marker-end="url(#arrow)"/>
+<path class="line" d="M1180 420 C1105 420 1100 489 1029 489" marker-end="url(#arrow)"/>
+<rect class="box" x="85" y="628" width="300" height="210" rx="11"/>
+<text x="235" y="662" class="label" text-anchor="middle">PRELUDE | stored 0–5</text>
+<text x="235" y="690" class="small" text-anchor="middle">6 visits | once only</text>
+<text x="235" y="714" class="small" text-anchor="middle">AttnRes + hybrid attention + MoE</text>
+<rect class="panel" x="461" y="574" width="678" height="306" rx="14"/>
+<text x="800" y="610" class="green" text-anchor="middle">LOOP CORE | stored layers 6–17</text>
+<text x="800" y="638" class="small" text-anchor="middle">12 shared physical layers × 3 passes = 36 logical visits</text>
+<text x="800" y="664" class="tiny" text-anchor="middle">Each pass restarts from the same prelude state</text>
+<rect class="box" x="482" y="709" width="196" height="125" rx="11"/>
+<text x="580" y="743" class="label" text-anchor="middle">PASS 1</text>
+<text x="580" y="771" class="small" text-anchor="middle">12 logical visits</text>
+<text x="580" y="795" class="small" text-anchor="middle">no previous message</text>
+<text x="580" y="822" class="tiny" text-anchor="middle">own KV + conv cache</text>
+<rect class="box" x="702" y="709" width="196" height="125" rx="11"/>
+<text x="800" y="743" class="label" text-anchor="middle">PASS 2</text>
+<text x="800" y="771" class="small" text-anchor="middle">12 logical visits</text>
+<text x="800" y="795" class="small" text-anchor="middle">reads pass-1 blocks</text>
+<text x="800" y="822" class="tiny" text-anchor="middle">own KV + conv cache</text>
+<rect class="box" x="922" y="709" width="196" height="125" rx="11"/>
+<text x="1020" y="743" class="label" text-anchor="middle">PASS 3</text>
+<text x="1020" y="771" class="small" text-anchor="middle">12 logical visits</text>
+<text x="1020" y="795" class="small" text-anchor="middle">reads pass-2 blocks</text>
+<text x="1020" y="822" class="tiny" text-anchor="middle">own KV + conv cache</text>
+<rect class="box" x="1211" y="628" width="300" height="210" rx="11"/>
+<text x="1361" y="662" class="label" text-anchor="middle">CODA | stored 18–23</text>
+<text x="1361" y="690" class="small" text-anchor="middle">6 visits | once only</text>
+<text x="1361" y="714" class="small" text-anchor="middle">continues from pass 3</text>
+<path class="line" d="M800 535L800 552L235 552L235 628" marker-end="url(#arrow)"/>
+<path class="line" d="M385 731L461 731" marker-end="url(#arrow)"/>
+<path class="line" d="M385 698L421 698L421 688L1020 688" />
+<path class="line" d="M580 688L580 709" marker-end="url(#arrow)"/>
+<path class="line" d="M800 688L800 709" marker-end="url(#arrow)"/>
+<path class="line" d="M1020 688L1020 709" marker-end="url(#arrow)"/>
+<path class="dline" d="M678 767L702 767" marker-end="url(#dasharrow)"/>
+<path class="dline" d="M898 767L922 767" marker-end="url(#dasharrow)"/>
+<text x="690" y="750" class="tiny" text-anchor="middle">msg</text>
+<text x="911" y="750" class="tiny" text-anchor="middle">msg</text>
+<path class="line" d="M1139 731L1211 731" marker-end="url(#arrow)"/>
+<rect class="box" x="85" y="927" width="414" height="110" rx="11"/>
+<text x="292" y="961" class="label" text-anchor="middle">Hybrid relative attention</text>
+<text x="292" y="989" class="small" text-anchor="middle">5 local : 1 global | Q24 / KV8 / D128</text>
+<text x="292" y="1013" class="small" text-anchor="middle">local window 1024 | relative bias + sink</text>
+<rect class="box" x="1101" y="927" width="413" height="110" rx="11"/>
+<text x="1307.5" y="961" class="label" text-anchor="middle">MoE + per-visit state</text>
+<text x="1307.5" y="989" class="small" text-anchor="middle">128 routed experts | top-8 | short conv k4</text>
+<text x="1307.5" y="1013" class="small" text-anchor="middle">shared weights, isolated visit caches</text>
+<rect class="core" x="570" y="930" width="460" height="96" rx="11"/>
+<text x="800" y="964" class="wlabel" text-anchor="middle">Output / LM head</text>
+<text x="800" y="992" class="wsmall" text-anchor="middle">valid vocab, FP32 softcap 30</text>
+<path class="line" d="M1361 838L1361 896L800 896L800 930" marker-end="url(#arrow)"/>
+<rect class="dash" x="632" y="1062" width="337" height="86" rx="11"/>
+<text x="800.5" y="1096" class="label" text-anchor="middle">Selected-token logprob</text>
+<text x="800.5" y="1124" class="small" text-anchor="middle">fixed vocab reduction | exact compare</text>
+<path class="line" d="M800 1026L800 1062" marker-end="url(#arrow)"/>
+<text x="85" y="1193" class="foot" text-anchor="start">WS1: exact per-visit arithmetic   |   WS2: TP / EP / CP determinism   |   Target: zero bit mismatch + competitive throughput</text>
+</svg>
