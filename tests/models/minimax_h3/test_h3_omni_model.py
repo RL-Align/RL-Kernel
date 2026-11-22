@@ -652,8 +652,24 @@ class TestInstallLifecycle:
         with pytest.raises(RuntimeError, match="no rank changed"):
             ext.rlk_h3_install("ckpt", release_weights=False)
         assert ext._rlk_h3 is None and "forward" not in dit.__dict__ and not dit.w.is_meta
-        ext2 = self._ext(monkeypatch, [])
-        assert len(ext2.rlk_h3_install("ckpt")) == 4  # a retry binds
+        assert len(ext.rlk_h3_install("ckpt")) == 4  # a retry on the same worker binds
+        assert ext._rlk_h3 is not None and dit.__dict__["forward"] is not None
+
+    @pytest.mark.parametrize("release", [False, True])
+    def test_a_failed_bind_says_whether_to_retry_or_restart(self, monkeypatch, release):
+        """Check, load and bind are gathered in turn; here another rank fails the bind."""
+
+        ext = self._ext(monkeypatch, [{}, {}, {2: "RuntimeError: report failed"}])
+        dit = ext.model_runner.pipeline.transformer
+        with pytest.raises(RuntimeError, match="restart the engine" if release else "be retried"):
+            ext.rlk_h3_install("ckpt", release_weights=release)
+        assert ext._rlk_h3 is None and dit.w.is_meta == release
+        if release:
+            with pytest.raises(RuntimeError, match="no usable DiT"):
+                dit()
+        else:
+            assert "forward" not in dit.__dict__
+            assert len(ext.rlk_h3_install("ckpt")) == 4  # and it can
 
     @pytest.mark.parametrize("where", ["here", "another rank"])
     def test_a_failed_load_after_release_disables_the_dit(self, monkeypatch, where):
@@ -799,6 +815,21 @@ class TestRolloutReportGates:
         without_sha = [{k: v for k, v in listed[0].items() if k != "sha256"}]
         with pytest.raises(RuntimeError, match="does not match"):  # an engine.json before sha256
             tool._listed_captures(args, {"pass": True, "captures": without_sha})
+
+    def test_captures_are_hashed_as_loaded_and_compared_by_bytes(self, tmp_path):
+        from tools.validation.models import h3_omni_rollout_report as tool
+
+        path = tmp_path / "call0.pt"
+        torch.save({"audio": torch.tensor([0.0, 1.0])}, path)
+        rec, sha256 = tool._load_capture(path)
+        assert sha256 == tool._file_sha256(path) and torch.equal(
+            rec["audio"], torch.tensor([0.0, 1.0])
+        )
+        # torch.equal says these are equal; their bytes are not (the sign of zero)
+        assert torch.equal(torch.tensor([-0.0]), torch.tensor([0.0]))
+        assert not tool._same_bytes(torch.tensor([-0.0]), torch.tensor([0.0]))
+        assert not tool._same_bytes(torch.zeros(2), torch.zeros(2, dtype=torch.float64))
+        assert tool._same_bytes(torch.tensor([1.0, -0.0]), torch.tensor([1.0, -0.0]))
 
     def test_an_engine_run_removes_the_earlier_reports(self, tmp_path):
         from tools.validation.models import h3_omni_rollout_report as tool

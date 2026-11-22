@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import io
 import json
 import time
 from pathlib import Path
@@ -149,6 +150,22 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _load_capture(path: Path) -> tuple[dict[str, Any], str]:
+    """A capture and the sha256 of the bytes it was loaded from (one read: no file swap between
+    the two)."""
+
+    data = path.read_bytes()
+    return torch.load(io.BytesIO(data), weights_only=True), hashlib.sha256(data).hexdigest()
+
+
+def _same_bytes(a: torch.Tensor, b: torch.Tensor) -> bool:
+    """Bitwise: dtype, shape and bytes (``torch.equal`` compares values, so ``-0.0 == 0.0``)."""
+
+    from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+
+    return om.tensor_digest(a) == om.tensor_digest(b)
+
+
 def _listed_captures(args, engine: dict[str, Any]) -> list[tuple[Path, dict[str, Any]]]:
     """The captures a passing engine run listed in ``engine.json``, loaded, and only those.
 
@@ -170,9 +187,9 @@ def _listed_captures(args, engine: dict[str, Any]) -> list[tuple[Path, dict[str,
         raise RuntimeError(f"captures listed in engine.json are missing: {missing}")
     loaded = []
     for c, path in zip(listed, paths):
-        if c.get("sha256") is None or _file_sha256(path) != c["sha256"]:
+        rec, sha256 = _load_capture(path)
+        if c.get("sha256") is None or sha256 != c["sha256"]:
             raise RuntimeError(f"{path.name} does not match engine.json: rerun the engine stage")
-        rec = torch.load(path, weights_only=True)
         if om.tensor_digest(rec["video"]) != c.get("video_digest"):
             raise RuntimeError(f"{path.name} does not match engine.json: rerun the engine stage")
         loaded.append((path, rec))
@@ -244,13 +261,13 @@ async def _engine(args) -> dict[str, Any]:
     run_videos = {c["video"] for c in calls[0]}
     captures = []
     for path in sorted(calls_dir.glob("call*.pt"), key=lambda p: int(p.stem[4:])):
-        rec = torch.load(path, weights_only=True)
+        rec, sha256 = _load_capture(path)
         digest = om.tensor_digest(rec["video"])
         captures.append(
             {
                 "call": path.stem,
                 "video_digest": digest,
-                "sha256": _file_sha256(path),  # the whole capture: inputs, kwargs, both outputs
+                "sha256": sha256,  # the whole capture (inputs, kwargs, both outputs), as loaded
                 "in_run": digest in run_videos,
             }
         )
@@ -425,7 +442,7 @@ async def _native(args) -> dict[str, Any]:
         nat = torch.load(path, weights_only=True)
         ours = torch.load(args.compare_calls / path.name, weights_only=True)
         same_inputs = all(
-            torch.equal(nat["omni_kwargs"][k], ours["omni_kwargs"][k])
+            _same_bytes(nat["omni_kwargs"][k], ours["omni_kwargs"][k])
             for k in ("x", "audio_x", "img_position_ids", "unique_timesteps", "inverse_indices")
             if isinstance(ours["omni_kwargs"].get(k), torch.Tensor)
         )
@@ -434,7 +451,7 @@ async def _native(args) -> dict[str, Any]:
         for name, mine, theirs in (("video", v, nat["video"]), ("audio", a, nat["audio"])):
             d = (mine.double() - theirs.double()).abs()
             row[name] = {
-                "bitwise": bool(torch.equal(mine, theirs)),
+                "bitwise": _same_bytes(mine, theirs),
                 "elements_differing": int((mine != theirs).sum()),
                 "elements": int(mine.numel()),
                 "max_abs": float(d.max()),
@@ -496,8 +513,8 @@ def _canonical(args) -> dict[str, Any]:
             {
                 "call": path.stem,
                 "rows": int(inputs["token_tags"].numel()),
-                "video_bitwise": bool(torch.equal(video.cpu(), rec["video"])),
-                "audio_bitwise": bool(torch.equal(audio.cpu(), rec["audio"])),
+                "video_bitwise": _same_bytes(video, rec["video"]),
+                "audio_bitwise": _same_bytes(audio, rec["audio"]),
                 "video_digest": om.tensor_digest(video),
                 "in_rollout_digests": om.tensor_digest(video)
                 in {c["video"] for c in engine["ranks"][0]["digests"]},
@@ -583,7 +600,7 @@ def _actor(args) -> dict[str, Any]:
         diffs = []
         for key in MODEL_KEYS:
             a, b = actor[key].cpu(), mine[key]
-            if a.dtype != b.dtype or a.shape != b.shape or not torch.equal(a, b):
+            if not _same_bytes(a, b):
                 diffs.append(
                     f"{key}: actor {a.dtype} {tuple(a.shape)} vs rollout {b.dtype} {tuple(b.shape)}"
                 )
