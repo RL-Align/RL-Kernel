@@ -639,7 +639,36 @@ def _legacy_readable(read: Any) -> bool:
     return True
 
 
-def _save_tf32_state() -> tuple[Any, Any]:
+_FP32_PRECISION_NODES = (
+    "",
+    "cuda.matmul",
+    "cudnn",
+    "cudnn.conv",
+    "cudnn.rnn",
+    "mkldnn",
+    "mkldnn.matmul",
+    "mkldnn.conv",
+    "mkldnn.rnn",
+)
+
+
+def _fp32_precision_node(path: str) -> Any:
+    node: Any = torch.backends
+    for part in filter(None, path.split(".")):
+        node = getattr(node, part, None)
+    return node if node is not None and hasattr(node, "fp32_precision") else None
+
+
+def _raw_fp32_precision() -> dict[str, str]:
+    """Every backend's own ``fp32_precision`` string, ``"none"`` (inherit) included."""
+
+    if not _has_fp32_precision_api():
+        return {}
+    nodes = ((path, _fp32_precision_node(path)) for path in _FP32_PRECISION_NODES)
+    return {path: node.fp32_precision for path, node in nodes if node is not None}
+
+
+def _save_tf32_state() -> tuple[Any, Any, dict[str, str]]:
     """The caller's full FP32 precision state for cuBLAS and cuDNN, per backend.
 
     Each backend is saved, set and restored through the API its current state is readable
@@ -650,6 +679,11 @@ def _save_tf32_state() -> tuple[Any, Any]:
     ``get_float32_matmul_precision()`` raises (PyTorch 2.13). A backend the caller configured
     with the per-backend API (where the legacy getter raises) keeps that API: writing the
     other one would mix the two.
+
+    On PyTorch with ``fp32_precision`` the raw per-backend strings are saved as well: restoring
+    the legacy matmul precision writes an explicit value (``"highest"`` -> ``"ieee"``) into
+    backends that inherited (``"none"``), which would stop them following their parent after
+    the scope. ``_restore_tf32_state`` puts those strings back.
     """
 
     matmul = torch.backends.cuda.matmul
@@ -666,13 +700,13 @@ def _save_tf32_state() -> tuple[Any, Any]:
             _cudnn_op("conv").fp32_precision,
             _cudnn_op("rnn").fp32_precision,
         )
-    return matmul_state, cudnn_state
+    return matmul_state, cudnn_state, _raw_fp32_precision()
 
 
-def _set_tf32(state: tuple[Any, Any], allow: bool) -> None:
+def _set_tf32(state: tuple[Any, Any, dict[str, str]], allow: bool) -> None:
     """Set TF32 on or off for cuBLAS and cuDNN, each through the API ``state`` recorded."""
 
-    matmul_state, cudnn_state = state
+    matmul_state, cudnn_state, _ = state
     value = "tf32" if allow else "ieee"
     if matmul_state[0] == "legacy":
         torch.backends.cuda.matmul.allow_tf32 = allow
@@ -685,8 +719,8 @@ def _set_tf32(state: tuple[Any, Any], allow: bool) -> None:
         _cudnn_op("rnn").fp32_precision = value
 
 
-def _restore_tf32_state(state: tuple[Any, Any]) -> None:
-    matmul_state, cudnn_state = state
+def _restore_tf32_state(state: tuple[Any, Any, dict[str, str]]) -> None:
+    matmul_state, cudnn_state, raw = state
     if matmul_state[0] == "legacy":
         torch.set_float32_matmul_precision(matmul_state[1])
     else:
@@ -696,6 +730,11 @@ def _restore_tf32_state(state: tuple[Any, Any]) -> None:
     else:
         _cudnn_op("conv").fp32_precision = cudnn_state[1]
         _cudnn_op("rnn").fp32_precision = cudnn_state[2]
+    # a backend that inherited before the scope inherits again (parents first)
+    for path, value in raw.items():
+        node = _fp32_precision_node(path)
+        if node is not None and node.fp32_precision != value:
+            node.fp32_precision = value
 
 
 @contextlib.contextmanager

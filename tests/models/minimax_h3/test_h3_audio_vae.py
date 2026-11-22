@@ -323,13 +323,41 @@ def test_execution_scope_restores_float32_matmul_precision(restore_precision, st
 
     torch.set_float32_matmul_precision(start)
     before = _precision_state()
-    with contextlib.suppress(RuntimeError):
+    raw = av._raw_fp32_precision()
+    entered = []
+    # only the body's own error is expected; an error from the scope's setup or teardown fails
+    expect = pytest.raises(RuntimeError, match="^inside the scope$") if raises else None
+    with expect or contextlib.nullcontext():
         with av.execution_scope(av.STRICT_ENCODE):
             assert not torch.backends.cuda.matmul.allow_tf32
+            entered.append(True)
             if raises:
                 raise RuntimeError("inside the scope")
+    assert entered == [True]
     assert torch.get_float32_matmul_precision() == start
     assert _precision_state() == before
+    assert av._raw_fp32_precision() == raw
+
+
+@pytest.mark.skipif(not av._has_fp32_precision_api(), reason="needs the fp32_precision API")
+@pytest.mark.parametrize(
+    "setup",
+    [
+        "",  # PyTorch's defaults: matmul inherits ("none")
+        "torch.backends.cudnn.conv.fp32_precision = 'none'",
+        "torch.backends.fp32_precision = 'tf32'; torch.backends.cudnn.rnn.fp32_precision = 'none'",
+    ],
+)
+def test_execution_scope_keeps_inheriting_backends_inheriting(restore_precision, setup):
+    """Restoring the legacy ``"highest"`` writes ``"ieee"`` into backends that inherited; the
+    scope puts every backend's own ``fp32_precision`` (``"none"`` included) back."""
+
+    exec(setup)
+    raw = av._raw_fp32_precision()
+    for policy in (av.STRICT_ENCODE, av.STRICT_DECODE):
+        with av.execution_scope(policy):
+            pass
+    assert av._raw_fp32_precision() == raw
 
 
 @pytest.mark.skipif(not av._has_fp32_precision_api(), reason="needs the fp32_precision API")
