@@ -49,6 +49,9 @@ jobs:
     if: vars.OCR_REVIEW_ENABLED != 'false' && github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # The pinned npm CLI must not self-replace between the action's config and review steps.
+      OCR_NO_UPDATE: '1'
     steps:
       - name: Check model configuration
         id: config
