@@ -885,6 +885,24 @@ class AudioDecoding:
     waveform_sha256: str
 
 
+def _inexact_upsamples(model: nn.Module) -> list[str]:
+    """Decoder upsampling layers whose output is not exactly ``stride x`` their input length.
+
+    A ``ConvTranspose1d`` gives ``(L - 1) * stride - 2 * padding + kernel + output_padding``
+    samples: ``L * stride`` only when ``kernel - stride == 2 * padding`` and there is no output
+    padding. With ``padding = (kernel - stride) // 2`` an odd ``kernel - stride`` (e.g. kernel 8,
+    stride 5) adds one sample per layer, which the hop (the stride product) does not show.
+    """
+
+    bad = []
+    for name, m in model.named_modules():
+        if isinstance(m, nn.ConvTranspose1d):
+            k, st, pad, out_pad = m.kernel_size[0], m.stride[0], m.padding[0], m.output_padding[0]
+            if k - st != 2 * pad or out_pad != 0 or m.dilation[0] != 1:
+                bad.append(f"{name} (kernel {k}, stride {st}, padding {pad})")
+    return bad
+
+
 class H3AudioVAEContract:
     """Strict stereo encode/decode around a loaded :class:`H3AudioVAE`.
 
@@ -910,6 +928,12 @@ class H3AudioVAEContract:
             raise ValueError(
                 f"the H3 audio VAE contract needs a {HOP_LENGTH}-sample hop, "
                 f"got {getattr(model, 'hop_length', None)}"
+            )
+        inexact = _inexact_upsamples(model)
+        if inexact:
+            raise ValueError(
+                "the H3 audio VAE contract needs every decoder upsample to give exactly "
+                f"rate x length samples (T latents -> T * {HOP_LENGTH}); these do not: {inexact}"
             )
         self.latents_mean, self.latents_std = validate_latent_stats(latents_mean, latents_std)
         self.model = model.eval()

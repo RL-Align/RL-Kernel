@@ -268,6 +268,12 @@ def test_contract_rejects_bad_inputs(tiny_model, tiny_stats, contract):
     assert other_hop.hop_length == 640
     with pytest.raises(ValueError, match="800-sample hop"):
         av.H3AudioVAEContract(other_hop.eval(), *tiny_stats)
+    # the right hop, but kernel 8 / stride 5 gives 5L + 1 samples in the first upsample
+    odd = av.H3AudioVAE(**TINY, decoder_kernel_sizes=(8, 9, 4, 4, 4, 4, 4))
+    assert odd.hop_length == 800
+    assert odd.decode(torch.zeros(1, 32, 3)).shape[-1] == (5 * 3 + 1) * 160 != 3 * 800
+    with pytest.raises(ValueError, match=r"ups\.0\.0 \(kernel 8, stride 5"):
+        av.H3AudioVAEContract(odd.eval(), *tiny_stats)
     with pytest.raises(ValueError):
         tiny_model.encode_mean(torch.zeros(2, 800))
 
