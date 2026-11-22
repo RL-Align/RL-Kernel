@@ -24,8 +24,14 @@ def test_leader_only_parameter_moves_after_the_shared_ones():
 
 
 def test_layouts_agree_on_the_common_prefix_only():
-    shared = [(0, 8), (8, 4)]
-    assert _layouts_agree([[shared + [(12, 1)]], [shared]])
+    shared = [("w", 0, 8), ("head.weight", 8, 4)]
+    assert _layouts_agree([[shared + [("bias", 12, 1)]], [shared]])
     # A one-element parameter in front shifts every shared offset on the leader.
-    assert not _layouts_agree([[[(0, 1), (1, 8), (9, 4)]], [shared]])
+    assert not _layouts_agree([[[("bias", 0, 1), ("w", 1, 8), ("head.weight", 9, 4)]], [shared]])
     assert not _layouts_agree([[shared], [shared, shared]])
+
+
+def test_equal_sized_shared_parameters_in_swapped_places_do_not_agree():
+    first = [("a", 0, 4), ("b", 4, 4)]
+    swapped = [("b", 0, 4), ("a", 4, 4)]
+    assert not _layouts_agree([[first], [swapped]])

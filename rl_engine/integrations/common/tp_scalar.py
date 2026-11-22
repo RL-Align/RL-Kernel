@@ -254,19 +254,25 @@ class TPScalarExecutor:
 
 
 def _canonical_square_sums(
-    grad: torch.Tensor, parameter: torch.nn.Parameter, chunks: int
+    grad: torch.Tensor, parameter: torch.nn.Parameter, chunks: int, canonical: bool = True
 ) -> list[torch.Tensor]:
     """FP64 squared sums of a sharded gradient's canonical leaves, in leaf order.
 
     The shard is cut along Megatron's ``partition_dim`` into ``chunks`` pieces
     per ``partition_stride`` block; leaf ``i`` concatenates piece ``i`` of every
-    block, so leaf contents and shapes are independent of the TP size.
+    block, so leaf contents and shapes are independent of the TP size. With
+    ``canonical`` the sum runs block by block even when the rank holds one leaf,
+    as smaller TP sizes sum it. A sharded gradient without ``partition_dim`` (the
+    scalar adapter's leader-only bias) is held whole by one rank and counts in
+    leaf 0. Without ``canonical`` (canonical clipping off) a one-leaf rank sums
+    the whole shard.
     """
-    if chunks == 1:
-        return [grad.detach().to(torch.float64).square().sum()]
     dim = getattr(parameter, "partition_dim", None)
+    if dim is None or (chunks == 1 and not canonical):
+        whole = grad.detach().to(torch.float64).square().sum()
+        return [whole] + [torch.zeros_like(whole) for _ in range(chunks - 1)]
     stride = int(getattr(parameter, "partition_stride", 1))
-    if dim is None or grad.shape[dim] % (stride * chunks):
+    if grad.shape[dim] % (stride * chunks):
         raise ValueError("canonical TP clipping requires divisible Megatron partition_dim shards")
     blocks = grad.detach().chunk(stride, dim=dim)
     sums = []
@@ -332,7 +338,10 @@ def clip_tp_grad_norm_(
             if grad is None:
                 continue
             if layout == "sharded":
-                for i, value in enumerate(_canonical_square_sums(grad, parameter, chunks)):
+                sums = _canonical_square_sums(
+                    grad, parameter, chunks, canonical=canonical_tp is not None
+                )
+                for i, value in enumerate(sums):
                     leaves[i] = leaves[i] + value
             elif first_rank:
                 leaves[0] = leaves[0] + grad.detach().to(torch.float64).square().sum()

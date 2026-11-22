@@ -14,9 +14,14 @@ building blocks are in `rl_engine/integrations/common/weights.py` and
    `position_ids`) with dynamic shapes from one source rank. Use a group that
    contains the rollout leader and every rank of the Reward TP group.
 2. **TP forward.** Each TP rank runs `TPScalarExecutor.rewards()` on the same
-   tokens. Rewards are pooled at the last valid token **before** any
-   communication, so a `local_sum` model needs one fixed-tree all-reduce of `B`
-   scalars (the v0.1.0 reduction tree; `DeterministicCollective` on CUDA). No hidden states or vocabulary logits are gathered.
+   tokens. Its input and output checks raise on every rank if they fail on
+   any one (a small validation collective). Rewards are pooled at the last
+   valid token **before** the head payload is communicated, so a `local_sum`
+   model moves only `B` scalars: one fixed-tree
+   all-reduce on CUDA (`DeterministicCollective`, the v0.1.0 reduction tree),
+   or, for CPU and FP64 tensors, an all-gather followed by the same tree summed
+   locally. At TP=1 there is no head collective. No hidden states or vocabulary
+   logits are gathered.
 3. **Rewards back to rollout.** The TP leader broadcasts the `[B]` rewards with
    another `TensorPacketBridge` whose group contains the TP leader and the
    rollout ranks.

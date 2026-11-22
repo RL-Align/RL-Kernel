@@ -16,11 +16,11 @@ learned reward model or PPO convergence.
 
 BF16 training clips the optimizer's actual FP32 gradient buffers. Megatron uses
 FP32 masters and accumulates microbatches into FP32 before clipping; DeepSpeed
-uses its BF16 optimizer's FP32 accumulation views. DP=1 and ZeRO=0 are required;
+uses its BF16 optimizer's FP32 accumulation views. DP=1 is required, with ZeRO-0 for DeepSpeed FP32 and ZeRO-1 for DeepSpeed BF16 (DeepSpeed 0.19.7 gives `BF16_Optimizer` FP32 gradient buffers only at ZeRO-1, which partitions nothing at DP=1);
 FP16 loss scaling remains rejected. Microbatch loss weights count valid action
 tokens, so unequal completion lengths do not bias gradient accumulation.
 
-The historical teacher-forced HF calibration completed in job 1106655. It is
+The historical teacher-forced HF calibration completed earlier. It is
 not sampler or PPO evidence. The formal fixed-rollout reference below collects
 real vLLM output and independently computes HF PPO targets and updates. Its
 artifacts and thresholds must be published before formal candidate execution;

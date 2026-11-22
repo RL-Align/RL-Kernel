@@ -374,6 +374,14 @@ class PPOTrainingWorker:
         self.backward = backward or torch.Tensor.backward
         self.step = step or optimizer.step
         self.parameters = [(named[name], layout) for name, layout in parameter_layouts.items()]
+        # Partial gradients are summed across TP in name order, so the pairing of buffers in the
+        # collectives does not depend on the order each rank's caller listed its parameters.
+        self._partial = sorted(
+            (name, index)
+            for index, (name, layout) in enumerate(parameter_layouts.items())
+            if layout == "partial"
+        )
+        self._partial_names_checked = False
 
     def _observe(self, observer, event, update, gradients, value, device):
         """Call ``observer`` if set and raise any rank's observer failure on the whole TP group."""
@@ -391,25 +399,44 @@ class PPOTrainingWorker:
     ) -> None:
         """Sum ``partial`` gradients over TP in the buffers that clipping and step consume.
 
-        A rank without a local contribution reduces zeros, so the collective
-        sequence stays aligned across the group.
+        Gradients are summed in parameter-name order. Every rank must hold the same ``partial``
+        names; this is checked on the first call. A parameter no rank has a gradient for stays
+        without one, as at TP1, so the optimizer skips it. If any rank has one, a rank without a
+        local contribution reduces zeros, so the collective sequence stays aligned across the
+        group.
         """
-        if dist.get_world_size(self.group) == 1:
+        world = dist.get_world_size(self.group)
+        if world == 1:
+            return
+        if not self._partial_names_checked:
+            names: list[object] = [None] * world
+            dist.all_gather_object(names, [name for name, _ in self._partial], group=self.group)
+            if any(other != names[0] for other in names[1:]):
+                raise ValueError("partial-layout parameters differ across TP ranks")
+            self._partial_names_checked = True
+        if not self._partial:
             return
         buffers = [p.grad for p, _ in self.parameters] if gradients is None else list(gradients)
+        order = [index for _, index in self._partial]
+        present = torch.tensor(
+            [int(buffers[index] is not None) for index in order], dtype=torch.int32, device=device
+        )
+        dist.all_reduce(present, op=dist.ReduceOp.MAX, group=self.group)
         error = None
-        for index, ((parameter, layout), grad) in enumerate(zip(self.parameters, buffers)):
-            if layout != "partial" or grad is not None:
+        for index, used in zip(order, present.tolist()):
+            if not used or buffers[index] is not None:
                 continue
             if gradients is not None:
                 error = "partial-layout optimizer gradient buffer is missing"
                 break
+            parameter = self.parameters[index][0]
             parameter.grad = torch.zeros_like(parameter)
             buffers[index] = parameter.grad
         synchronize_validation(error, group=self.group, device=device)
         with torch.no_grad():
-            for (_, layout), grad in zip(self.parameters, buffers):
-                if layout == "partial" and grad is not None:
+            for index, used in zip(order, present.tolist()):
+                grad = buffers[index]
+                if used and grad is not None:
                     deterministic_tp_all_reduce_(grad, self.group)
 
     def train(self, batch: PPOBatch) -> dict[str, float | int]:

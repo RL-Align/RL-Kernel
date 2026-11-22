@@ -358,3 +358,82 @@ def test_nccl_partial_gradients_keep_tp_replicas_identical(tmp_path, precision):
         nprocs=2,
         start_method="spawn",
     )
+
+
+def _partial_sync_worker(rank, size, rendezvous, case):
+    """Drive ``_synchronize_partial_gradients`` on gloo with stand-in worker state."""
+    from types import SimpleNamespace
+
+    _init(rank, size, rendezvous, "gloo")
+    try:
+        group = dist.new_group(list(range(size)))
+        a, b = torch.nn.Parameter(torch.ones(3)), torch.nn.Parameter(torch.ones(3))
+        layouts = {"q_norm": "partial", "k_norm": "partial"}
+        if case == "different-names" and rank == 1:
+            layouts = {"q_norm": "partial", "other_norm": "partial"}
+        names = list(layouts)
+        if case == "different-order" and rank == 1:
+            names = names[::-1]
+        params = {"q_norm": a, "k_norm": b, "other_norm": b}
+        state = SimpleNamespace(
+            group=group,
+            parameters=[(params[n], layouts[n]) for n in names],
+            _partial=sorted((n, i) for i, n in enumerate(names)),
+            _partial_names_checked=False,
+        )
+        sync = PPOTrainingWorker._synchronize_partial_gradients
+        if case == "different-names":
+            with pytest.raises(ValueError, match="differ across TP ranks"):
+                sync(state, None, torch.device("cpu"))
+            return
+        if case == "unused":
+            # No rank used k_norm; rank 0 alone used q_norm.
+            a.grad = torch.full((3,), 2.0) if rank == 0 else None
+            sync(state, None, torch.device("cpu"))
+            assert b.grad is None
+            assert torch.equal(a.grad, torch.full((3,), 2.0))
+            return
+        # different-order: each rank lists the two names in another order; gradients are
+        # still summed name by name.
+        a.grad = torch.full((3,), float(1 + rank))
+        b.grad = torch.full((3,), float(10 * (1 + rank)))
+        sync(state, None, torch.device("cpu"))
+        assert torch.equal(a.grad, torch.full((3,), 3.0))
+        assert torch.equal(b.grad, torch.full((3,), 30.0))
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.parametrize("case", ["unused", "different-order", "different-names"])
+def test_partial_gradients_follow_names_and_global_presence(tmp_path, case):
+    """Unused everywhere stays unused (as at TP1); order and names do not depend on the caller."""
+    mp.start_processes(
+        _partial_sync_worker,
+        args=(2, str(tmp_path / "init"), case),
+        nprocs=2,
+        start_method="spawn",
+    )
+
+
+def test_canonical_square_sums_one_leaf_rank_matches_smaller_tp():
+    """With canonical clipping a one-leaf rank sums stride blocks as TP1 does; whole-shard
+    summing would differ in the last bit for this gradient."""
+    from rl_engine.integrations.common.tp_scalar import _canonical_square_sums
+
+    x = 1.5 * 2**27
+    full = torch.tensor([x, 0, 0, 0, 1.75, 1.75, 0, 0], dtype=torch.float32)
+    parameter = torch.nn.Parameter(torch.zeros(8))
+    parameter.partition_dim, parameter.partition_stride = 0, 2
+    tp1 = _canonical_square_sums(full, parameter, 2)  # canonical_tp=2 at TP1: two leaves
+    for rank in range(2):
+        (leaf,) = _canonical_square_sums(_shard(full, rank, 2, 0, stride=2), parameter, 1)
+        assert_bitwise(leaf, tp1[rank])
+
+
+def test_canonical_square_sums_count_a_leader_only_bias_in_leaf_zero():
+    """A sharded gradient without ``partition_dim`` (leader-only bias) no longer raises."""
+    from rl_engine.integrations.common.tp_scalar import _canonical_square_sums
+
+    bias = torch.nn.Parameter(torch.zeros(1))
+    sums = _canonical_square_sums(torch.tensor([3.0]), bias, 4)
+    assert [float(s) for s in sums] == [9.0, 0.0, 0.0, 0.0]

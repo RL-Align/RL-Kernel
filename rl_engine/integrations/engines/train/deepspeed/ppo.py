@@ -111,7 +111,8 @@ def _shared_first(named, names_by_rank) -> list[torch.nn.Parameter]:
 def _layouts_agree(layouts_by_rank) -> bool:
     """Whether every rank has the same groups and the same layout on their common prefix.
 
-    A layout is one list of ``(element offset, numel)`` per BF16 flat group.
+    A layout is one list of ``(parameter name, element offset, numel)`` per BF16 flat group,
+    so two equal-sized shared parameters in swapped places do not agree.
     """
     first = layouts_by_rank[0]
     for other in layouts_by_rank[1:]:
@@ -239,8 +240,12 @@ def _bf16_gradient_state(engine, group: dist.ProcessGroup) -> PPOGradientState:
         for actual, expected in zip(masters, optimizer.fp32_groups_flat_partition)
     ):
         raise ValueError("DeepSpeed optimizer does not own the expected FP32 masters")
+    names = {id(p): name for name, p in engine.named_parameters()}
     layout = [
-        [((p.data_ptr() - flat.data_ptr()) // p.element_size(), p.numel()) for p in params]
+        [
+            (names[id(p)], (p.data_ptr() - flat.data_ptr()) // p.element_size(), p.numel())
+            for p in params
+        ]
         for flat, params in zip(optimizer.bf16_groups_flat, optimizer.bf16_groups)
     ]
     layouts: list[object] = [None] * dist.get_world_size(group)

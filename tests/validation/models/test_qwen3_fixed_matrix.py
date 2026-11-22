@@ -96,6 +96,19 @@ def test_probe_runs_each_row_at_its_sizes(tmp_path, sizes, expected):
     assert set(_launches(calls, probe=True)) == expected
 
 
+def test_probe_summary_lists_launches_that_wrote_no_report(tmp_path):
+    """A launch that fails before its checker makes the output directory still gets a row."""
+    source, _, env = _stage(tmp_path)
+    args = [str(source), "python", "overlay", "ckpt", "ref", str(tmp_path / "out")]
+    subprocess.run(
+        ["bash", str(source / SCRIPTS / "probe_trainer_memory.sh"), *args], check=True, env=env
+    )
+    (summary,) = (tmp_path / "out").glob("probe-*/summary.tsv")
+    rows = summary.read_text().splitlines()[1:]
+    assert len(rows) == len(ROWS)
+    assert all("\tno report (launch rc=0" in row for row in rows)
+
+
 def test_candidate_skips_tp2_of_tp4_only_rows_and_their_tp_comparison(tmp_path):
     source, calls, env = _stage(tmp_path)
     args = [

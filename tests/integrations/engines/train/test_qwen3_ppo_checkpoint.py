@@ -430,7 +430,10 @@ def test_tp_comparison_uses_the_frozen_tp_sizes(tmp_path, monkeypatch):
     root = tmp_path / "reference"
     root.mkdir()
     thresholds = root / "actor-fp32-repeat-bounds.json"
-    thresholds.write_text(json.dumps({"bounds": {"0/loss": {"max_abs": 1.0}}}))
+    # A frozen bounds file always records the reference it was frozen against.
+    thresholds.write_text(
+        json.dumps({"reference_report_sha256": "unused", "bounds": {"0/loss": {"max_abs": 1.0}}})
+    )
     manifest = tmp_path / "acceptance.json"
     manifest.write_text(
         json.dumps(

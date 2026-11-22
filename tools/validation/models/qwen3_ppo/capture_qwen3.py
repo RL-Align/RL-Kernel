@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Freeze actual vLLM TP2 sampler output with exact per-rank checkpoint checks."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -26,7 +27,9 @@ def main():
     a.output.mkdir(parents=True, exist_ok=False)
     report = identity()
     report["checkpoint_manifest_sha256"] = verify_checkpoint(a.checkpoint)
-    thresholds = json.loads(a.calibration.read_text())
+    # Parse and hash the same bytes, so the recorded digest is of the calibration actually used.
+    calibration_bytes = a.calibration.read_bytes()
+    thresholds = json.loads(calibration_bytes)
     weights = {}
     index = json.loads((a.checkpoint / "model.safetensors.index.json").read_text())
     for name in sorted(set(index["weight_map"].values())):
@@ -56,7 +59,7 @@ def main():
         report.update(
             rollout_sha256=sha(a.output / "rollout.pt"),
             weight_packet_sha256=sha(path),
-            calibration_sha256=sha(a.calibration),
+            calibration_sha256=hashlib.sha256(calibration_bytes).hexdigest(),
             installation=response,
             sampler_runtime=client.runtime,
             sampler_events=client.timings,

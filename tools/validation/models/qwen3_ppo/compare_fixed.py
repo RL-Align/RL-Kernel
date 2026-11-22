@@ -4,13 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 import torch
 from safetensors import safe_open
 
-from tools.validation.models.qwen3_ppo.fixed_contract import CONFIG, OPTIMIZER, read_tensor, sha
+from tools.validation.models.qwen3_ppo.fixed_contract import (
+    CONFIG,
+    OPTIMIZER,
+    read_tensor,
+    sha,
+    verify_checkpoint,
+)
 
 # Each run rounds a weight at most twice per AdamW step (decoupled decay, then the step), half
 # an FP32 ulp each, so two runs that take the same step differ by at most two ulps.
@@ -134,6 +141,37 @@ def assess(rows, bounds, explain):
     return failures, explained
 
 
+def load_contract(path):
+    """Return ``(bounds contract, SHA-256)`` of the thresholds file, both from one read.
+
+    Raises ``ValueError`` unless the file is a frozen bounds contract: a JSON object with a
+    non-empty ``bounds`` mapping and the ``reference_report_sha256`` it was frozen against.
+    """
+    raw = Path(path).read_bytes()
+    contract = json.loads(raw)
+    if (
+        not isinstance(contract, dict)
+        or not isinstance(contract.get("bounds"), dict)
+        or not contract["bounds"]
+        or "reference_report_sha256" not in contract
+    ):
+        raise ValueError("thresholds file is not a frozen bounds contract")
+    return contract, hashlib.sha256(raw).hexdigest()
+
+
+def expected_thresholds(other, *, tp_comparison):
+    """Return the acceptance-manifest name of the bounds file a comparison must use.
+
+    Against the HF FP32 reference: an FP32 run uses ``<role>-fp32-repeat-bounds.json`` and a
+    BF16 run ``<role>-cross-precision-bounds.json``. A same-precision TP comparison uses
+    ``<role>-<precision>-repeat-bounds.json``.
+    """
+    role, precision = other["role"], other["precision"]
+    if tp_comparison or precision == "fp32":
+        return f"{role}-{precision}-repeat-bounds.json"
+    return f"{role}-cross-precision-bounds.json"
+
+
 def report(root):
     """Return ``root/report.json``; raise ``ValueError`` unless it is a completed fixed run."""
     row = json.loads((root / "report.json").read_text())
@@ -188,24 +226,26 @@ def main():
     a = p.parse_args()
     if a.output.exists():
         raise ValueError("never overwrite reference or failed comparison")
-    if a.thresholds and a.extra_control:
+    if a.thresholds is not None and a.extra_control:
         raise ValueError("controls establish tolerances; candidates are compared one at a time")
     left, right = report(a.reference), report(a.other)
     extra = [report(c) for c in a.extra_control]
     for control in [right, *extra]:
         same_inputs(left, control)
-    if not a.thresholds and any(
+    if a.thresholds is None and any(
         r["status"] != "fixed_reference_complete" for r in [left, right, *extra]
     ):
         raise ValueError("only independent HF controls may establish tolerances")
-    contract = json.loads(a.thresholds.read_text()) if a.thresholds else None
+    contract, thresholds_sha256 = (
+        load_contract(a.thresholds) if a.thresholds is not None else (None, None)
+    )
     if (
-        contract
+        contract is not None
         and not a.tp_comparison
         and contract["reference_report_sha256"] != sha(a.reference / "report.json")
     ):
         raise ValueError("thresholds refer to a different reference")
-    if contract:
+    if contract is not None:
         if not a.acceptance_manifest or not a.reference_root:
             raise ValueError("candidate comparison requires committed acceptance manifest")
         from tools.validation.models.qwen3_ppo.fixed_contract import verify_reference
@@ -213,8 +253,9 @@ def main():
         frozen = verify_reference(a.reference_root, a.acceptance_manifest, metadata_only=True)
         if right.get("acceptance_manifest_sha256") != sha(a.acceptance_manifest):
             raise ValueError("candidate did not record this acceptance manifest")
-        if sha(a.thresholds) not in frozen["files"].values():
-            raise ValueError("thresholds not pinned in acceptance manifest")
+        expected = expected_thresholds(right, tp_comparison=a.tp_comparison)
+        if frozen["files"].get(expected) != thresholds_sha256:
+            raise ValueError(f"thresholds are not the pinned {expected}")
         if a.tp_comparison:
             tp = frozen["matrix"]["tp"]
             if (
@@ -242,10 +283,15 @@ def main():
         if rows.keys() != contract["bounds"].keys():
             raise ValueError("threshold tensor inventory differs")
         fp32 = left.get("precision") == right.get("precision") == "fp32"
+        checkpoint_verified = []
 
         def explain(name):
             if not (fp32 and a.checkpoint):
                 return None
+            if not checkpoint_verified:
+                # The checkpoint's weights set the tolerance, so it must be the pinned one.
+                verify_checkpoint(a.checkpoint)
+                checkpoint_verified.append(True)
             p0 = checkpoint_weight(a.checkpoint, name.split("/update/", 1)[1])
             if p0 is None:
                 return None
@@ -258,7 +304,7 @@ def main():
             errors=rows,
             failures=failures,
             explained_updates=explained,
-            thresholds_sha256=sha(a.thresholds),
+            thresholds_sha256=thresholds_sha256,
         )
     else:
         controls = [rows, *control_rows.values()]
@@ -283,7 +329,7 @@ def main():
                 for path, control in zip(a.extra_control, extra)
             ]
     a.output.write_text(json.dumps(result, indent=2) + "\n")
-    if contract and failures:
+    if contract is not None and failures:
         raise SystemExit(1)
 
 

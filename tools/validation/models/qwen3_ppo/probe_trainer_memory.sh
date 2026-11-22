@@ -54,13 +54,20 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-total = None
+# One row per attempted launch (steps.txt), so a launch that failed before its checker made
+# the output directory is listed too.
+attempts = {}
+for line in (root / "steps.txt").read_text().splitlines():
+    path, sep, rc = line.rpartition(" rc=")
+    if sep and rc.isdigit():
+        attempts[Path(path).name] = int(rc)
 lines = ["run\tstatus\tpeak_allocated_gib_per_rank\tseconds\terror"]
-for run in sorted(p for p in root.iterdir() if p.is_dir()):
-    ranks = sorted(run.glob("rank*.json"))
+for name in sorted(attempts):
+    run = root / name
+    ranks = sorted(run.glob("rank*.json")) if run.is_dir() else []
     rows = [json.loads(r.read_text()) for r in ranks]
     if not rows:
-        lines.append(f"{run.name}\tno report\t\t\t")
+        lines.append(f"{name}\tno report (launch rc={attempts[name]}, see {name}.log)\t\t\t")
         continue
     peaks = ",".join(f'{r.get("peak_allocated_bytes", 0) / 2**30:.1f}' for r in rows)
     first = rows[0]

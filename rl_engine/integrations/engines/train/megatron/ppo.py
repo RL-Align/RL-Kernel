@@ -166,7 +166,8 @@ class MegatronPolicyAdapter(torch.nn.Module):
     def forward(self, inputs: TPModelInputs) -> torch.Tensor:
         """Return FP32 logprobs of each next input token as a ``[B, S-1]`` tensor.
 
-        Vocabulary entries at or beyond ``real_vocab_size`` are excluded.
+        Vocabulary entries at or beyond ``real_vocab_size`` are excluded. Positions whose next
+        token is not attended are zero.
         """
         from rl_engine.contracts.operators.logprob import (
             LogprobContract,
@@ -188,10 +189,13 @@ class MegatronPolicyAdapter(torch.nn.Module):
         batch, width, local_vocab = logits.shape[0], logits.shape[1] - 1, logits.shape[-1]
         padded = local_vocab * world
         local_logits = logits[:, :-1].float().reshape(batch * width, local_vocab)
+        # A row is active where its target token is attended, so a padding ID outside the real
+        # vocabulary at a masked position is not scored; inactive rows return zero.
+        active = tuple(bool(v) for v in inputs.attention_mask[:, 1:].reshape(-1).tolist())
         contract = LogprobContract(
             role=LogprobRole.TRAIN,
             dtype=LogprobDType.FP32,
-            mask=MaskSpec(num_tokens=batch * width, active_mask=(True,) * (batch * width)),
+            mask=MaskSpec(num_tokens=batch * width, active_mask=active),
             sharding=ShardingSpec(
                 tp_rank=rank,
                 tp_world_size=world,

@@ -156,6 +156,9 @@ def main():
                 for k in ("rollout_manifest_sha256", "targets_manifest_sha256")
             ):
                 raise ValueError("wrong frozen rollout/target contract")
+            # Formal runs only at the frozen matrix's TP sizes; probes may use TP1.
+            if size not in contract["matrix"]["tp"]:
+                raise ValueError(f"TP{size} is outside the frozen fixed-rollout matrix")
         verify_checkpoint(a.checkpoint)
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
