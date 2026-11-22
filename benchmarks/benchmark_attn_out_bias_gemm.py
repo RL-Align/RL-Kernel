@@ -4,7 +4,7 @@
 """Benchmark for the Qwen-Image attn-out bias GEMM (contract
 ``attn-out-bias-gemm-tree-v1``).
 
-Compares the FP32 tree reference against the Triton leaf-chunk backend and
+Compares the FP32 tree reference against the Triton per-tile tree backend and
 the CUDA per-thread-tree backend (forward and forward+backward) across the
 selected token counts. The reference runs on the same GPU. The benchmark
 reports mean elapsed time and speedup relative to the reference.

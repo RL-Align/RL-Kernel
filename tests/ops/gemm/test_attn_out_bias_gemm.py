@@ -729,12 +729,16 @@ def _spec_forward_row(x_row, w_rows, bias_row, dtype):
 class TestFmaPrimitive:
     """Rule gate 1: the reference primitive must BE a correctly-rounded FMA."""
 
-    def test_cpu_fma_boundary_bits(self):
+    @pytest.mark.parametrize(
+        "device", ["cpu"] + (["cuda"] if torch.version.cuda and torch.cuda.is_available() else [])
+    )
+    def test_fma_boundary_bits(self, device):
         near_one = 1 + 2**-12
         largest = torch.finfo(torch.float32).max
         triples = [
             (sign * near_one, near_one, tail * 2.0**-60) for sign in (-1, 1) for tail in (-1, 1)
         ] + [
+            (1 + 2**-23, 1 - 2**-23, -1.0),
             (-0.0, 1.0, -0.0),
             (-0.0, 1.0, +0.0),
             (-(2.0**-126), 2.0**-24, 0.0),
@@ -744,7 +748,8 @@ class TestFmaPrimitive:
         ]
         a, b, c = torch.tensor(triples, dtype=torch.float32).T
         expected = torch.tensor([_LIBM.fmaf(x, y, z) for x, y, z in triples], dtype=torch.float32)
-        assert torch.equal(_fma_fp32(c, a, b).view(torch.int32), expected.view(torch.int32))
+        got = _fma_fp32(c.to(device), a.to(device), b.to(device))
+        assert torch.equal(got.cpu().view(torch.int32), expected.view(torch.int32))
 
     def test_fma_passes_reported_midband_counterexample(self):
         # For a = b = 1+2^-12 the exact product is the FP32 midpoint
@@ -947,3 +952,22 @@ def test_triton_grid_spans_wide_output():
     expected = values.view(1, width)
     assert torch.equal(triton_tree_gemm(one, values.view(width, 1)), expected)
     assert torch.equal(triton_dw_left_fold(one, expected), expected)
+
+
+@requires_triton_cuda
+def test_triton_tree_workspace():
+    from rl_engine.backends.shared.triton.gemm.attn_out_bias_gemm import triton_tree_gemm
+
+    # Seven leaves with a short tail exercise uneven splits at multiple depths.
+    a = torch.randn(256, 201, device="cuda")
+    b = torch.randn(512, 201, device="cuda")
+    reference = tree_gemm_fp32(a.cpu(), b.cpu())
+    triton_tree_gemm(a, b)
+    torch.cuda.synchronize()
+    before = torch.cuda.memory_allocated()
+    torch.cuda.reset_peak_memory_stats()
+    result = triton_tree_gemm(a, b)
+    torch.cuda.synchronize()
+    peak = torch.cuda.max_memory_allocated() - before
+    assert peak <= result.numel() * result.element_size()
+    assert_bitwise_equal(result, reference, "uneven Triton tree")

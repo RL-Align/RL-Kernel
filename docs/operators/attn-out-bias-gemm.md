@@ -19,7 +19,7 @@ parallel variant). The numeric contract version is
 - **Multiply-add discipline**. The leaf chains and `dW` fold use FP32 FMA.
   Triton uses `tl.fma`, native CUDA uses `__fmaf_rn`, and the reference
   uses an exact FP64 product and a compensated sum with round-to-odd before narrowing
-  on CPU, and `torch.addcmul` on CUDA. Tests compare the primitive with `libm fmaf`.
+  on both CPU and CUDA. Tests compare the primitive with `libm fmaf` on both devices.
 - **RNE everywhere**; bias is added once in fp32 after the complete tree;
   the single fp32-to-output-dtype cast happens at the final store. No
   split-K, no atomics, no tensor-core mma, no fast-math, no TF32.
@@ -39,7 +39,7 @@ out = op(x, weight, bias=bias)                              # [*lead, 3072]
 
 | Backend | Wrapper | Native symbol | Status |
 | --- | --- | --- | --- |
-| Triton (leaf chunks + device tensor additions) | `TritonAttnOutBiasGemmOp` | — | Supported (default on CUDA) |
+| Triton (per-tile tree) | `TritonAttnOutBiasGemmOp` | — | Supported (default on CUDA) |
 | CUDA (per-thread full tree) | `CudaAttnOutBiasGemmOp` | `_C.attn_out_bias_gemm_cuda_forward`, `_C.attn_out_tree_gemm_cuda`, `_C.attn_out_dw_left_fold_cuda` | Supported |
 | PyTorch same-tree reference | `NativeAttnOutBiasGemmOp` | — | Gold + CPU fallback |
 
@@ -65,7 +65,7 @@ gradients requested by autograd, including when projection weights are frozen.
 
 ## Dispatch Behavior
 
-- CUDA: Triton -> CUDA -> PyTorch (Triton leaf chunks are the product path;
+- CUDA: Triton -> CUDA -> PyTorch (the Triton per-tile tree is the product path;
   the CUDA per-thread kernel is the memory-light correctness anchor)
 - CPU: PyTorch
 
@@ -107,20 +107,31 @@ python benchmarks/benchmark_attn_out_bias_gemm.py --rows 512,4096,6889 --backwar
 ```
 
 The commands above report average elapsed time and speedup relative to the
-PyTorch reference running on the same GPU. Recorded RTX 5090 results
-(sm_120, bf16, torch 2.13.0+cu130) are listed below. The memory columns
-give the separately reported peak allocated GPU memory.
+PyTorch reference running on the same GPU. The comparison below measures
+the change from the leaf-chunk implementation in `1ebd373` to the per-tile
+tree on one RTX 5090 (sm_120, PyTorch 2.13.0+cu130, bf16 with bias,
+K=N=3072). Each timing averages ten iterations after three warm-ups.
+Peak allocated memory is the increase above the live inputs, measured on
+a separate synchronized iteration. Backward requests all three gradients.
 
-| Rows | Triton forward | Speedup | Forward + backward | Speedup | Peak forward | Peak forward + backward |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 512 | 1.9 ms | 26.5× | 7.1 ms | 16.8× | 0.17 GiB | 0.24 GiB |
-| 4096 | 17.5 ms | 21.1× | 72.1 ms | 12.3× | 1.05 GiB | 1.31 GiB |
-| 6889 | 41 ms | 16.1× | 152.5 ms | 10.0× | 1.71 GiB | 2.07 GiB |
+| Rows | Forward ms, old → new | Forward peak MiB, old → new | Forward + backward ms, old → new | Forward + backward peak MiB, old → new |
+| ---: | ---: | ---: | ---: | ---: |
+| 512 | 2.04 → 1.45 | 156 → 48 | 9.78 → 7.04 | 201 → 66 |
+| 4096 | 29.73 → 9.86 | 996 → 132 | 87.06 → 47.70 | 1104 → 180 |
+| 6889 | 31.92 → 19.60 | 1650.61 → 201.84 | 115.69 → 91.32 | 1807.71 → 278.19 |
 
-The native CUDA kernel was about 3–7× slower than Triton across these tiers
-and modes. Each CUDA forward thread computes one output element and writes
-it directly. Triton computes up to 12 full FP32 leaf planes per chunk and
-combines the chunks depth first.
+For contiguous FP32 inputs, the Triton tree helper allocates only the
+FP32 output tensor. Each program keeps one left tile per active tree level
+and writes its final tile directly. The public operator also converts bf16
+inputs to FP32 and handles bias and the output cast.
+
+The earlier bf16 measurements against the former CUDA PyTorch reference
+(`torch.addcmul`, commit `1ebd373`) recorded forward speedups of 26.5×,
+21.1× and 16.1× at 512, 4096 and 6889 rows, respectively. The corresponding
+forward + backward speedups were 16.8×, 12.3× and 10.0×. The current CUDA
+reference uses compensated FP64 arithmetic for single-rounding accuracy.
+At S=7 and K=N=3072 its FP32 forward took 581 ms, up from 44 ms with
+`addcmul` (one warm-up and three timed iterations on the same RTX 5090).
 
 ## Tests
 
@@ -139,7 +150,7 @@ views (`int16` for bf16, `int32` for fp32).
 ## Implementation Files
 
 - `rl_engine/reference/gemm/attn_out_bias_gemm.py` — FP32 same-tree reference (gold)
-- `rl_engine/backends/shared/triton/gemm/attn_out_bias_gemm.py` — Triton leaf-chunk backend
+- `rl_engine/backends/shared/triton/gemm/attn_out_bias_gemm.py` — Triton per-tile tree backend
 - `rl_engine/backends/cuda/gemm/attn_out_bias_gemm.py` — CUDA backend wrapper
 - `csrc/cuda/gemm/attn_out_bias_gemm.cu` — CUDA kernels
 - `rl_engine/runtime/registry.py`
@@ -149,8 +160,6 @@ views (`int16` for bf16, `int32` for fp32).
 
 ## Known Limitations
 
-- The Triton forward materialises leaf planes in GPU memory. Streaming
-  those partials or combining them inside the kernel is future work.
 - Tensor-core (mma) paths are excluded on purpose: PTX does not specify the
   internal accumulation tree of `mma.sync`, so the reduction tree cannot be
   frozen. Any future mma path must re-pass the bit-equality harness and

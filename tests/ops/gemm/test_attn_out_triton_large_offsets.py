@@ -25,16 +25,18 @@ def kernels():
     return module
 
 
-def test_leaf_store_beyond_int32(kernels):
-    # Launch only the first tile, but use the real stride between planes.
-    p, q, r = 32768, 32769, 96
-    a = torch.ones((p, r), device="cuda", dtype=torch.float32)
-    b = torch.ones((q, r), device="cuda", dtype=torch.float32)
-    out = torch.empty((3, p, q), device="cuda", dtype=torch.float32)
-    tile = out[:, :32, :64]
+def test_tree_stores_beyond_int32(kernels):
+    # The final row starts beyond INT_MAX. Launch just the first column tile.
+    p, q = 32769, 65537
+    a = torch.ones((p, 1), device="cuda", dtype=torch.float32)
+    b = torch.ones((q, 1), device="cuda", dtype=torch.float32)
+    out = torch.empty((p, q), device="cuda", dtype=torch.float32)
+    tile = out[-1, :64]
     tile.fill_(-1)
-    kernels._tree_gemm_leaf_kernel[(1, 1)](a, b, out, p, q, r, 0, 3, BLOCK_M=32, BLOCK_N=64)
-    assert torch.equal(tile, torch.full_like(tile, 32))
+    kernels._tree_gemm_kernel[((p + 31) // 32, 1)](
+        a, b, out, p, q, 1, 1, DEPTH=0, BLOCK_M=32, BLOCK_N=64
+    )
+    assert torch.equal(tile, torch.ones_like(tile))
 
 
 @pytest.mark.parametrize("wide_input", ["grad", "x"])

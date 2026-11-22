@@ -9,10 +9,8 @@ Design (see docs/operators/attn-out-bias-gemm.md):
 - Forward reduces over K and ``dx`` over N. Each leaf accumulates up to
   32 products with ``tl.fma`` in ascending index order. K=N=3072 in the
   Qwen-Image projection.
-- Python schedules chunks of up to 12 leaves. Within each chunk it uses
-  ``tree_from_leaf_evaluator`` to merge leaf planes. The outer recursion
-  combines chunk results in the same mid-split order. All of these tensor
-  additions run on the GPU.
+- Each program evaluates the full mid-split tree for its output tile.
+  It retains one left tile per active level and stores only the final tile.
 - Each ``dW`` program owns an output tile and accumulates one FP32 FMA per
   row in ascending order. The tile accumulator size is independent of S.
 - ``finalize_tree_output`` adds optional bias in fp32 after the complete
@@ -31,7 +29,6 @@ from rl_engine.reference.gemm.attn_out_bias_gemm import (
     NativeAttnOutBiasGemmOp,
     finalize_tree_output,
     num_leaves,
-    tree_from_leaf_evaluator,
 )
 from rl_engine.utils.logger import logger
 
@@ -46,47 +43,91 @@ except ImportError:  # pragma: no cover - Triton is an optional backend
 _BLOCK_M = 32
 _BLOCK_N = 64
 _NUM_WARPS = 4
-_LEAF_CHUNK = 12  # leaves per kernel launch; bounds partial-plane memory
 
 if _TRITON_AVAILABLE:
 
     @triton.jit
-    def _tree_gemm_leaf_kernel(
-        a_ptr,
-        b_ptr,
-        partials_ptr,
-        P,
-        Q,
+    def _tree_tile(
+        a_rows,
+        b_rows,
+        m_mask,
+        n_mask,
         R,
-        leaf_lo,
-        leaf_hi,
+        lo,
+        hi,
+        DEPTH: tl.constexpr,
         BLOCK_M: tl.constexpr,
         BLOCK_N: tl.constexpr,
     ):
-        """Ascending-k chains for leaves ``[leaf_lo, leaf_hi)`` of one tile.
+        result = tl.full((BLOCK_M, BLOCK_N), 0, tl.float32)
+        if DEPTH == 0:
+            # After floor(log2(leaves)) splits each range has one or two leaves.
+            for leaf in range(lo, hi):
+                k0 = leaf.to(tl.int64) * 32
+                acc = tl.full((BLOCK_M, BLOCK_N), 0, tl.float32)
+                for k in range(k0, tl.minimum(k0 + 32, R)):
+                    a = tl.load(a_rows + k, mask=m_mask, other=0.0)
+                    b = tl.load(b_rows + k, mask=n_mask, other=0.0)
+                    acc = tl.fma(a[:, None], b[None, :], acc)
+                if leaf == lo:
+                    result = acc
+                else:
+                    result += acc
+        else:
+            mid = lo + (hi - lo) // 2
+            for child in range(2):
+                part = _tree_tile(
+                    a_rows,
+                    b_rows,
+                    m_mask,
+                    n_mask,
+                    R,
+                    tl.where(child == 0, lo, mid),
+                    tl.where(child == 0, mid, hi),
+                    DEPTH - 1,
+                    BLOCK_M,
+                    BLOCK_N,
+                )
+                if child == 0:
+                    result = part
+                else:
+                    result += part
+        return result
 
-        ``a`` is [P, R] and ``b`` is [Q, R] row-major fp32; partials are
-        written as contiguous [leaf_hi - leaf_lo, P, Q] planes.
-        """
+    @triton.jit
+    def _tree_gemm_kernel(
+        a_ptr,
+        b_ptr,
+        out_ptr,
+        P,
+        Q,
+        R,
+        leaves,
+        DEPTH: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        BLOCK_N: tl.constexpr,
+    ):
         pid_m = tl.program_id(0).to(tl.int64)
         pid_n = tl.program_id(1).to(tl.int64) + tl.program_id(2).to(tl.int64) * tl.num_programs(1)
-        m_offs = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-        n_offs = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
-        m_mask = m_offs < P
-        n_mask = n_offs < Q
-
-        for leaf in range(leaf_lo, leaf_hi):
-            k0 = tl.cast(leaf, tl.int64) * 32
-            k1 = tl.minimum(k0 + 32, R)
-            acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)
-            for k in range(k0, k1):
-                a_vec = tl.load(a_ptr + m_offs * R + k, mask=m_mask, other=0.0)
-                b_vec = tl.load(b_ptr + n_offs * R + k, mask=n_mask, other=0.0)
-                # One FP32 rounding per multiply-add in the ascending-k leaf chain.
-                acc = tl.fma(a_vec[:, None], b_vec[None, :], acc)
-            plane = tl.cast(leaf - leaf_lo, tl.int64) * P * Q
-            dst = partials_ptr + plane + m_offs[:, None] * Q + n_offs[None, :]
-            tl.store(dst, acc, mask=m_mask[:, None] & n_mask[None, :])
+        m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+        n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+        tile = _tree_tile(
+            a_ptr + m * R,
+            b_ptr + n * R,
+            m < P,
+            n < Q,
+            R,
+            0,
+            leaves,
+            DEPTH,
+            BLOCK_M,
+            BLOCK_N,
+        )
+        tl.store(
+            out_ptr + m[:, None] * Q + n[None, :],
+            tile,
+            mask=(m[:, None] < P) & (n[None, :] < Q),
+        )
 
     @triton.jit
     def _dw_left_fold_kernel(
@@ -131,38 +172,8 @@ def _tile_grid(row_tiles: int, col_tiles: int) -> tuple[int, int, int]:
     return row_tiles, triton.cdiv(col_tiles, slabs), slabs
 
 
-def _launch_leaf_chunk(
-    a_c: torch.Tensor, b_c: torch.Tensor, leaf_lo: int, leaf_hi: int
-) -> torch.Tensor:
-    rows_p, reduction = a_c.shape
-    cols_q = b_c.shape[0]
-    partials = torch.empty(
-        leaf_hi - leaf_lo, rows_p, cols_q, device=a_c.device, dtype=torch.float32
-    )
-    grid = _tile_grid(triton.cdiv(rows_p, _BLOCK_M), triton.cdiv(cols_q, _BLOCK_N))
-    _tree_gemm_leaf_kernel[grid](
-        a_c,
-        b_c,
-        partials,
-        rows_p,
-        cols_q,
-        reduction,
-        leaf_lo,
-        leaf_hi,
-        BLOCK_M=_BLOCK_M,
-        BLOCK_N=_BLOCK_N,
-        num_warps=_NUM_WARPS,
-    )
-    return partials
-
-
 def triton_tree_gemm(a_f: torch.Tensor, b_f: torch.Tensor) -> torch.Tensor:
-    """``a_f @ b_f.T`` under the frozen mid-split tree (chunked DFS combine).
-
-    Both inputs must be 2-D fp32 CUDA tensors sharing the reduction dim; the
-    tree reduction runs over that dim. The chunked evaluation preserves
-    the reference's mid-split addition order.
-    """
+    """Compute the frozen mid-split tree in each output tile on the GPU."""
     _require_triton()
     if a_f.dim() != 2 or b_f.dim() != 2 or a_f.size(1) != b_f.size(1):
         raise ValueError(
@@ -177,24 +188,24 @@ def triton_tree_gemm(a_f: torch.Tensor, b_f: torch.Tensor) -> torch.Tensor:
         return torch.zeros(a_c.size(0), b_c.size(0), device=a_c.device, dtype=torch.float32)
     leaves = num_leaves(a_c.size(1))
 
-    def solve(lo: int, hi: int) -> torch.Tensor:
-        if hi - lo <= _LEAF_CHUNK:
-            planes = _launch_leaf_chunk(a_c, b_c, lo, hi)
-            # planes are indexed locally 0..(hi-lo-1); the evaluator passes
-            # indices in that same local range. The explicit del bounds the
-            # partial-plane lifetime to the combine (closure cells otherwise
-            # keep the chunk alive up the DFS spine).
-            result = tree_from_leaf_evaluator(lambda index: planes[index], hi - lo)
-            del planes
-            return result
-        mid = lo + (hi - lo) // 2
-        left = solve(lo, mid)
-        right = solve(mid, hi)
-        result = left + right
-        del left, right
-        return result
-
-    return solve(0, leaves)
+    rows, reduction = a_c.shape
+    cols = b_c.size(0)
+    out = torch.empty((rows, cols), dtype=torch.float32, device=a_c.device)
+    grid = _tile_grid(triton.cdiv(rows, _BLOCK_M), triton.cdiv(cols, _BLOCK_N))
+    _tree_gemm_kernel[grid](
+        a_c,
+        b_c,
+        out,
+        rows,
+        cols,
+        reduction,
+        leaves,
+        DEPTH=leaves.bit_length() - 1,
+        BLOCK_M=_BLOCK_M,
+        BLOCK_N=_BLOCK_N,
+        num_warps=_NUM_WARPS,
+    )
+    return out
 
 
 def triton_dw_left_fold(g_f: torch.Tensor, x_f: torch.Tensor) -> torch.Tensor:
@@ -263,7 +274,7 @@ class _AttnOutBiasGemmTritonFunction(torch.autograd.Function):
         record_backward(
             "attn_out_bias_gemm",
             kernel_id=ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
-            impl="triton_leaf_chunks_shared_tree_combine",
+            impl="triton_tile_tree_fma",
             family="triton",
             node_metadata=ctx.metadata,
         )
@@ -271,16 +282,16 @@ class _AttnOutBiasGemmTritonFunction(torch.autograd.Function):
 
 
 class TritonAttnOutBiasGemmOp(AttnOutBiasGemmBackend):
-    """GPU leaf kernels and GPU tensor additions scheduled from Python."""
+    """Tile-local forward and dx trees, with an ascending-row dW fold."""
 
     backend_id = "triton"
     op_class = "reduction"
     is_batch_invariant = True
-    backward_impl = "triton_leaf_chunks_shared_tree_combine"
+    backward_impl = "triton_tile_tree_fma"
 
     def __init__(self) -> None:
         _require_triton()
-        logger.info("TritonAttnOutBiasGemmOp ready (leaf chunks + shared tree combine).")
+        logger.info("TritonAttnOutBiasGemmOp ready (per-tile tree).")
 
     def __call__(
         self,

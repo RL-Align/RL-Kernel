@@ -21,7 +21,7 @@ Frozen numeric contract (issue #386, contract version
    one root subtree. At R=3072 this splits 96 leaves into two groups of 48.
 2. **Multiply-add discipline.** Leaf chains and the weight-gradient fold
    use FP32 FMA. Triton uses ``tl.fma``, native CUDA uses ``__fmaf_rn``,
-   and the CPU reference uses a compensated FP64 sum rounded to FP32. Tests compare
+   and the PyTorch reference uses a compensated FP64 sum rounded to FP32. Tests compare
    the reference against ``libm fmaf`` on the tested toolchains.
 3. **bias.** Added once per output element, in fp32, after the complete K
    tree; then the single output cast. Never inside a leaf chain or tree node.
@@ -33,9 +33,8 @@ the mid-split tree; ``dW`` reduces over the row dim S with an ascending-row
 left fold (contract c-prime, shared with ``db``).
 
 The reference computes on the input device using PyTorch elementwise ops.
-Triton shares the Python tree helper for merging leaves within a chunk and
-the helper for bias and the final cast. Its merges within and across chunks
-operate on GPU tensors. Native CUDA evaluates the tree, bias and cast in
+Triton computes the tree per output tile and shares the helper for bias and
+the final cast. Native CUDA evaluates the tree, bias and cast in
 the device kernel.
 """
 
@@ -114,8 +113,6 @@ def _require_gradual_underflow(values: torch.Tensor) -> None:
 
 def _fma_fp32(acc: torch.Tensor, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """One FP32 rounding of a*b + acc for FP32 operands."""
-    if acc.device.type != "cpu":
-        return torch.addcmul(acc, a, b)
 
     # A binary32 product is exactly representable in binary64, including at
     # the extremes of the binary32 exponent range.
