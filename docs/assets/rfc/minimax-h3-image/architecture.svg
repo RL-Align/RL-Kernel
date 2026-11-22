@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="860" viewBox="0 0 1600 860" role="img" aria-labelledby="title desc">
+  <title id="title">MiniMax-H3-Image architecture and RL-Kernel consistency boundaries</title>
+  <desc id="desc">Prompt and reference images are encoded, packed with target image latents, processed by the H3 single stream transformer and six PDD output heads, then denoised and decoded by the image VAE.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#07111f"/><stop offset="1" stop-color="#101d32"/></linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e5a98"/><stop offset="1" stop-color="#153761"/></linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#633f9b"/><stop offset="1" stop-color="#3a2865"/></linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#176b63"/><stop offset="1" stop-color="#11423f"/></linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9d5d29"/><stop offset="1" stop-color="#633819"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000" flood-opacity=".28"/></filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#9fc5e8"/></marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#7de0c9"/></marker>
+    <style>
+      .title{font:700 28px Inter,Arial,sans-serif;fill:#f4f8ff}.subtitle{font:400 15px Inter,Arial,sans-serif;fill:#a9bdd6}
+      .label{font:700 17px Inter,Arial,sans-serif;fill:#f4f8ff}.body{font:400 14px Inter,Arial,sans-serif;fill:#d3e2f3}
+      .small{font:400 12px Inter,Arial,sans-serif;fill:#a9bdd6}.tiny{font:400 11px Inter,Arial,sans-serif;fill:#9bb0c7}
+      .box{stroke:#6d8db2;stroke-width:1.5;rx:16}.line{stroke:#9fc5e8;stroke-width:2.5;fill:none;marker-end:url(#arrow)}
+      .greenline{stroke:#7de0c9;stroke-width:2.5;fill:none;marker-end:url(#arrowGreen)}.dash{stroke:#6d8db2;stroke-width:1.5;stroke-dasharray:7 7;fill:none}
+    </style>
+  </defs>
+  <rect width="1600" height="860" fill="url(#bg)"/>
+  <text x="58" y="54" class="title">MiniMax-H3-Image architecture and RL-Kernel consistency boundaries</text>
+  <text x="58" y="82" class="subtitle">One packed text/image document, a 50-layer H3 transformer, six PDD heads, and a fixed six-step latent trajectory</text>
+
+  <rect x="48" y="120" width="330" height="270" class="box" fill="#0c243c" filter="url(#shadow)"/>
+  <text x="74" y="154" class="label">Conditions and target noise</text>
+  <rect x="74" y="181" width="128" height="72" class="box" fill="url(#blue)"/>
+  <text x="90" y="210" class="body">Prompt</text><text x="90" y="232" class="small">Qwen3-VL tokens</text>
+  <rect x="222" y="181" width="128" height="72" class="box" fill="url(#purple)"/>
+  <text x="235" y="210" class="body">Reference images</text><text x="235" y="232" class="small">optional, up to 16</text>
+  <rect x="74" y="278" width="276" height="82" class="box" fill="#183b50"/>
+  <text x="91" y="308" class="body">Target image latent noise</text><text x="91" y="331" class="small">24 channels, 16x VAE compression</text><text x="91" y="349" class="small">canvas sides are multiples of 32</text>
+  <path d="M202 253 L202 278" class="line"/><path d="M286 253 L286 278" class="line"/>
+
+  <rect x="425" y="120" width="340" height="270" class="box" fill="#102b3f" filter="url(#shadow)"/>
+  <text x="451" y="154" class="label">Encoding and packed layout</text>
+  <rect x="451" y="181" width="137" height="76" class="box" fill="url(#blue)"/>
+  <text x="467" y="208" class="body">Layer 50</text><text x="467" y="231" class="small">text hidden state</text><text x="467" y="248" class="small">5120 -&gt; 5376</text>
+  <rect x="606" y="181" width="133" height="76" class="box" fill="url(#purple)"/>
+  <text x="622" y="208" class="body">Image VAE</text><text x="622" y="231" class="small">normalize refs</text><text x="622" y="248" class="small">noise at t = 0.999</text>
+  <rect x="451" y="281" width="288" height="76" class="box" fill="url(#green)"/>
+  <text x="468" y="307" class="body">One full-attention document</text>
+  <text x="468" y="329" class="small">[ text | reference rows | target rows ]</text>
+  <text x="468" y="347" class="small">tags, timestep table, indices, (t,h,w) positions</text>
+  <path d="M378 245 L425 245" class="line"/><path d="M765 245 L812 245" class="line"/>
+
+  <rect x="812" y="120" width="430" height="270" class="box" fill="#20204a" filter="url(#shadow)"/>
+  <text x="838" y="154" class="label">MiniMax-H3-Image transformer</text>
+  <rect x="838" y="181" width="378" height="60" class="box" fill="url(#purple)"/>
+  <text x="860" y="207" class="body">2-layer token refiner + 50 H3 blocks</text><text x="860" y="228" class="small">hidden 5376, 56 heads, head dim 128, FFN 14336</text>
+  <rect x="838" y="258" width="178" height="98" class="box" fill="#3b376b"/>
+  <text x="856" y="285" class="body">Full attention</text><text x="856" y="309" class="small">Q/K RMSNorm</text><text x="856" y="329" class="small">partial MM-RoPE</text><text x="856" y="349" class="small">96 / 128 rotated</text>
+  <rect x="1038" y="258" width="178" height="98" class="box" fill="#3b376b"/>
+  <text x="1056" y="285" class="body">Per-row AdaLN</text><text x="1056" y="309" class="small">image = 0, text = 1</text><text x="1056" y="329" class="small">fixed timestep table</text><text x="1056" y="349" class="small">gated residuals</text>
+  <path d="M1242 245 L1290 245" class="line"/>
+
+  <rect x="1290" y="120" width="260" height="270" class="box" fill="#3b281b" filter="url(#shadow)"/>
+  <text x="1316" y="154" class="label">PDD output</text>
+  <rect x="1316" y="182" width="208" height="74" class="box" fill="url(#orange)"/>
+  <text x="1334" y="210" class="body">Six FP32 heads</text><text x="1334" y="232" class="small">head i selected by step i</text><text x="1334" y="249" class="small">5376 -&gt; 96</text>
+  <rect x="1316" y="278" width="208" height="78" class="box" fill="#633819"/>
+  <text x="1334" y="306" class="body">Image-row gather</text><text x="1334" y="329" class="small">generated + reference rows</text><text x="1334" y="347" class="small">global indices under CP</text>
+
+  <rect x="48" y="470" width="1502" height="290" class="box" fill="#0b1b2d" filter="url(#shadow)"/>
+  <text x="76" y="505" class="label">Fixed six-step denoising and decode</text>
+  <rect x="76" y="540" width="258" height="150" class="box" fill="#183b50"/>
+  <text x="98" y="570" class="body">PDD sigma grid</text><text x="98" y="594" class="small">1.0000 -&gt; .9675 -&gt; .8875</text><text x="98" y="614" class="small">-&gt; .7500 -&gt; .5328 -&gt; .2320</text><text x="98" y="634" class="small">-&gt; 0.0000</text><text x="98" y="664" class="small">six model calls, six heads</text>
+  <rect x="380" y="540" width="258" height="150" class="box" fill="url(#green)"/>
+  <text x="402" y="570" class="body">Target-only update</text><text x="402" y="594" class="small">x_next = x_t +</text><text x="402" y="614" class="small">(sigma_i - sigma_next) * v_i</text><text x="402" y="644" class="small">FP32 velocity form</text><text x="402" y="664" class="small">reference rows stay fixed</text>
+  <rect x="684" y="540" width="258" height="150" class="box" fill="url(#purple)"/>
+  <text x="706" y="570" class="body">Trajectory evidence</text><text x="706" y="594" class="small">per-step velocity hash</text><text x="706" y="614" class="small">target latent hash</text><text x="706" y="634" class="small">reference-row hash</text><text x="706" y="664" class="small">PDD head + runtime trace</text>
+  <rect x="988" y="540" width="258" height="150" class="box" fill="url(#orange)"/>
+  <text x="1010" y="570" class="body">Image VAE decode</text><text x="1010" y="594" class="small">denormalize 24 channels</text><text x="1010" y="614" class="small">2D ViT decoder, 24 layers</text><text x="1010" y="634" class="small">tile blend, ImageNet undo</text><text x="1010" y="664" class="small">8-bit output and resize</text>
+  <rect x="1292" y="540" width="224" height="150" class="box" fill="#183b50"/>
+  <text x="1314" y="570" class="body">Output</text><text x="1314" y="598" class="small">PNG / JPEG / WebP</text><text x="1314" y="624" class="small">decoded bytes are</text><text x="1314" y="644" class="small">secondary to latent</text><text x="1314" y="664" class="small">trajectory equality</text>
+  <path d="M334 615 L380 615" class="greenline"/><path d="M638 615 L684 615" class="greenline"/><path d="M942 615 L988 615" class="greenline"/><path d="M1246 615 L1292 615" class="greenline"/>
+  <path d="M1400 390 C1400 430 210 430 210 470" class="dash" marker-end="url(#arrow)"/>
+  <text x="74" y="812" class="tiny">WS1 begins at packed arithmetic and closes exact T2I/Edit trajectories. WS2 shards rows and metadata, then gathers through the selected PDD head.</text>
+  <text x="74" y="834" class="tiny">H3 text encoder, transformer blocks, attention, AdaLN, TP/CP ownership and runtime provenance are reused from the H3 RFC after image-path qualification.</text>
+</svg>
