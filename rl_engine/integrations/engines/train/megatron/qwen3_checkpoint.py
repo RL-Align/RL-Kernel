@@ -173,8 +173,11 @@ def load_pretrained(
     """Build the native Megatron Qwen3 topology and load every real tensor strictly.
 
     The caller must verify the pinned checkpoint manifest before launching ranks.
-    Scalar heads are separately initialized; their backbones still load pretrained
-    final normalization, even though Megatron's post_process=False omits that norm.
+    Scalar heads are separately initialized. Their backbones are built with
+    ``post_process=True``, so the decoder owns the final RMSNorm, loads the pretrained
+    ``model.norm.weight`` and applies it in ``TransformerBlock.forward``. Only afterwards is
+    ``GPTModel.post_process`` cleared and the LM head deleted, so the backbone returns the
+    final-normalized hidden states that the scalar head reads.
     """
     import json
     from pathlib import Path
@@ -203,8 +206,10 @@ def load_pretrained(
         44, tp_rank=rank, ep_rank=0, etp_rank=rank, force_reset_rng=True
     )
     native_config = transformer_config(config, tp=tp, dtype=dtype)
-    # Keep post_process for scalar backbones until after loading: native Megatron
-    # otherwise omits the pretrained final RMSNorm together with the LM head.
+    # Build scalar backbones with post_process=True: built with post_process=False, the
+    # decoder would have no final RMSNorm at all (Megatron builds it only on the last
+    # stage). Clearing GPTModel.post_process after loading only skips the LM head; the
+    # decoder still applies the final norm.
     model = GPTModel(
         native_config,
         get_gpt_layer_local_spec(qk_layernorm=True, normalization="RMSNorm"),
@@ -238,6 +243,8 @@ def load_pretrained(
     model = model.to(device="cuda", dtype=dtype).eval()
     if policy:
         return MegatronPolicyAdapter(model, real_vocab_size=config["vocab_size"])
+    # GPTModel now returns the decoder output, which the decoder has already passed through
+    # its final RMSNorm; only the LM head is skipped.
     model.post_process = False
     del model.output_layer
     head = torch.nn.Linear(config["hidden_size"] // tp, 1, bias=False, device="cuda", dtype=dtype)
