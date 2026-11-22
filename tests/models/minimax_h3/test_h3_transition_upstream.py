@@ -118,6 +118,50 @@ def test_log_prob_of_a_sample_does_not_depend_on_its_batch():
         assert torch.equal(one, full[i : i + 1])
 
 
+@CUDA
+def test_sampling_log_prob_of_a_sample_does_not_depend_on_its_batch():
+    # The generator stream is consumed in batch order (as the scheduler's), so the drawn x_prev
+    # depends on the batch position; its log-prob is the score of that x_prev alone.
+    sample, velocity = _inputs("cuda", batch=4, seed=5)
+    sigmas = _grid()
+    gen = torch.Generator(device="cuda").manual_seed(6)
+    prev, log_prob, *_ = tr.h3_sample_previous_step(sample, velocity, sigmas, 2, generator=gen)
+    for i in range(4):
+        one = tr.h3_sample_previous_step(
+            sample[i : i + 1], velocity[i : i + 1], sigmas, 2, prev_sample=prev[i : i + 1]
+        )[1]
+        assert torch.equal(one, log_prob[i : i + 1])
+
+
+@CUDA
+def test_per_sample_noise_makes_the_draw_independent_of_the_batch():
+    sample, velocity = _inputs("cuda", batch=4, seed=7)
+    sigmas = _grid()
+    eps = [tr.step_noise(11, 2, i, "video", tuple(sample.shape[1:])) for i in range(4)]
+    full = tr.h3_sample_previous_step(sample, velocity, sigmas, 2, noise=torch.stack(eps))
+    for i in (3, 0):
+        one = tr.h3_sample_previous_step(
+            sample[i : i + 1], velocity[i : i + 1], sigmas, 2, noise=eps[i][None]
+        )
+        for a, b in zip(one, full):
+            assert torch.equal(a, b[i : i + 1])
+    ref = _upstream_cps(sample, velocity, sigmas, 2, 0.8, prev=full[0])
+    assert torch.equal(full[2], ref[2])
+
+
+def test_noise_excludes_generator_and_prev_sample_and_needs_the_sample_shape():
+    sample, velocity = _inputs("cpu")
+    eps = torch.zeros(sample.shape)
+    with pytest.raises(ValueError, match="excludes"):
+        tr.h3_sample_previous_step(
+            sample, velocity, _grid(), 0, noise=eps, generator=torch.Generator()
+        )
+    with pytest.raises(ValueError, match="excludes"):
+        tr.h3_sample_previous_step(sample, velocity, _grid(), 0, noise=eps, prev_sample=sample)
+    with pytest.raises(ValueError, match="shape"):
+        tr.h3_sample_previous_step(sample, velocity, _grid(), 0, noise=eps[:1])
+
+
 def test_refuses_other_sde_types_and_a_tensor_noise_level():
     sample, velocity = _inputs("cpu")
     with pytest.raises(ValueError, match="cps"):

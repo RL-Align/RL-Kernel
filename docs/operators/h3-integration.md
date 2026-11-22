@@ -25,7 +25,11 @@ x_prev = mean + std * eps        log_prob = mean over non-batch dims of -(x_prev
   `FlowMatchSDEDiscreteScheduler.sample_previous_step(sde_type="cps")` (`prev_sample_mean`, tested
   against the verl-omni checkout);
 - `eps = step_noise(seed, step, sample_id, modality, shape)`: one generator per sample (SHA-256 of
-  the key), so noise never depends on batch order or composition;
+  the key), so noise never depends on batch order or composition (the strict runtime's draw);
+- `h3_sample_previous_step` (drop-in for verl-omni's `sample_h3_transition`) takes such noise as
+  `noise=`; without it, it draws from the caller's `generator` in batch order exactly as the
+  scheduler does, so a stock rollout keeps its noise. The drawn `x_prev` then depends on the batch
+  position, as in the scheduler; its log-prob, and the score of a stored `x_prev`, do not;
 - the log-prob mean is a fixed-order row reduction per sample (`h3-row-mean-v1`: fixed 8192-element
   chunks, then their sums, an order that depends only on the row length; the scheduler's `torch.mean`
   order is shape dependent; ours agrees to FP32 rounding and is batch invariant); it is differentiable, so
