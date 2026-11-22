@@ -253,13 +253,16 @@ class H3OmniWorkerExtension:
 
         def load() -> dict[str, str]:
             sent = torch.load(source.format(rank=grid.tp_rank), weights_only=True)
+            expected = sent.get("digests") if isinstance(sent, dict) else None
+            if not isinstance(expected, dict) or not expected:
+                raise ValueError("the LoRA file holds no sender digests: it cannot be verified")
             return h3_lora.install_lora_shards(
                 handle.binding.model,
                 sent["shards"],
                 grid.tp,
                 grid.tp_rank,
                 scale=scale,
-                expected=sent["digests"],
+                expected=expected,
                 device=device,
             )
 

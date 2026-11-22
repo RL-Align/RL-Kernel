@@ -139,6 +139,9 @@ def install_lora_shards(
     blocks = list(model.transformer_blocks)
     if len(shards) != len(blocks):
         raise ValueError(f"{len(shards)} LoRA blocks for {len(blocks)} transformer blocks")
+    ranks = {p["A"].shape[0] for by_target in shards for p in by_target.values() if "A" in p}
+    if len(ranks) != 1 or min(ranks) <= 0:
+        raise ValueError(f"LoRA ranks {sorted(ranks)}: one rank r > 0 for every target is needed")
     for index, parts_by_target in enumerate(shards):
         if set(parts_by_target) != set(SHAPES):
             raise ValueError(

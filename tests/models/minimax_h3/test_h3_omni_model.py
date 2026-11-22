@@ -420,6 +420,48 @@ class TestLoRASync:
             assert ext.rlk_h3_load_lora(source, scale=2.0)[1] == sent
             assert h3_lora.lora_digests(model) == sent
 
+    def test_zero_or_mixed_rank_adapters_are_refused(self):
+        from rl_engine.validation.models import h3_lora
+
+        zero = [
+            h3_lora.shard_block_lora(h3_lora.make_block_lora(i, rank=0), 4, 1) for i in range(2)
+        ]
+        with pytest.raises(ValueError, match="r > 0"):
+            h3_lora.install_lora_shards(self._Model(2), zero, 4, 1, scale=2.0, device="cpu")
+        mixed = self._shards(4, 1)
+        mixed[1] = h3_lora.shard_block_lora(h3_lora.make_block_lora(1, rank=4), 4, 1)
+        with pytest.raises(ValueError, match="one rank"):
+            h3_lora.install_lora_shards(self._Model(2), mixed, 4, 1, scale=2.0, device="cpu")
+
+    @pytest.mark.parametrize("digests", [None, {}, ["not", "a", "mapping"]])
+    def test_a_file_without_sender_digests_is_refused_on_every_rank(
+        self, monkeypatch, tmp_path, digests
+    ):
+        from types import SimpleNamespace
+
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_worker as wk
+        from rl_engine.validation.models import h3_lora
+
+        model = self._Model(2)
+        model.w = torch.nn.Parameter(torch.zeros(1))
+        old = h3_lora.install_lora_shards(
+            model, self._shards(4, 1, seed=5), 4, 1, scale=2.0, device="cpu"
+        )
+        torch.save({"shards": self._shards(4, 1), "digests": digests}, tmp_path / "rank1.pt")
+        ext = wk.H3OmniWorkerExtension()
+        ext._rlk_h3 = SimpleNamespace(
+            binding=SimpleNamespace(model=model, grid=SimpleNamespace(tp=4, tp_rank=1))
+        )
+
+        def gather(mine):  # this rank is 1, the others accept theirs
+            failed = {} if mine["ok"] else {1: mine["error"]}
+            return [None, mine.get("result"), None, None], failed
+
+        monkeypatch.setattr(wk, "_gather", gather)
+        with pytest.raises(RuntimeError, match="no rank changed"):
+            ext.rlk_h3_load_lora(str(tmp_path / "rank{rank}.pt"), scale=2.0)
+        assert h3_lora.lora_digests(model) == old
+
     def test_shards_of_another_rank_layout_are_refused(self):
         from rl_engine.validation.models import h3_lora
 
