@@ -107,7 +107,8 @@ def shard_gradient_verdict(expected: dict, observed: dict, blocks: int, *, lora:
 
     Every block's every sharded projection (and, with ``lora``, every LoRA shard) must be in
     both runs with the same digest: an empty or partial comparison is not a pass, and a key that
-    only one run holds is reported as missing.
+    only one run holds is reported as missing. ``base_compared`` / ``lora_compared`` count the
+    keys both runs hold (the ones whose digests were actually compared).
     """
 
     missing = sorted(set(expected) ^ set(observed))
@@ -118,8 +119,11 @@ def shard_gradient_verdict(expected: dict, observed: dict, blocks: int, *, lora:
     lora_mismatched = [k for k in mismatched if ".lora." in k]
     base_missing = [k for k in missing if ".lora." not in k]
     lora_missing = [k for k in missing if ".lora." in k]
+    both = set(expected) & set(observed)
     return {
         "missing": missing,
+        "base_compared": sum(1 for k in both if ".lora." not in k),
+        "lora_compared": sum(1 for k in both if ".lora." in k),
         "base_mismatched": base_mismatched,
         "lora_mismatched": lora_mismatched,
         "lora_keys": lora_keys,
@@ -324,7 +328,6 @@ def main() -> None:
         expected, observed["leaf_digests"], len(model.transformer_blocks), lora=bool(args.lora_rank)
     )
     base_mismatched, lora_mismatched = verdict["base_mismatched"], verdict["lora_mismatched"]
-    lora_keys = verdict["lora_keys"]
     checks["weight_shard_gradients_bitwise"] = verdict["base_bitwise"]
     if args.lora_rank:
         checks["lora_gradients_bitwise"] = verdict["lora_bitwise"]
@@ -332,9 +335,9 @@ def main() -> None:
         "rank": rank,
         "host": socket.gethostname(),
         "checks": checks,
-        "weight_shards_compared": len(expected) - len(lora_keys),
+        "weight_shards_compared": verdict["base_compared"],
         "weight_shards_mismatched": base_mismatched[:10],
-        "lora_shards_compared": len(lora_keys),
+        "lora_shards_compared": verdict["lora_compared"],
         "lora_shards_mismatched": lora_mismatched[:10],
         "shards_missing": verdict["missing"][:10],
         "lora_bytes": lora_bytes or None,
