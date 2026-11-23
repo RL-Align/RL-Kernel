@@ -226,7 +226,6 @@ def main():
                 mix = None
             if type(mix).__name__ == "ConditioningNoiseMixCudaOp":
                 noise_context = h3_conditioning_noise.bind(pipe.scheduler, mix)
-        uninstall = run.install(pipe.transformer, make_output)
         handle = pipe.transformer.register_forward_hook(capture, with_kwargs=True)
         started = time.perf_counter()
         try:
@@ -237,20 +236,26 @@ def main():
                     pipe.transformer, candidate=args.candidate, trace=trace, ops=ops
                 ),
             ):
-                result = pipe(
-                    prompt=prompt.read_text(),
-                    image=Image.open(args.reference_image).convert("RGB"),
-                    num_frames=settings["num_frames"],
-                    height=settings["height"],
-                    width=settings["width"],
-                    num_inference_steps=settings["num_inference_steps"],
-                    generator=torch.Generator().manual_seed(seed),
-                    output_type="np",
-                    output=["videos", "audio", "sampling_rate"],
-                )
+                # The replay wrapper goes on top of what full_model_execution bound on the
+                # instance (the packed forward of a candidate run, which refuses to bind beneath
+                # an instance forward), and comes off before that binding does.
+                uninstall = run.install(pipe.transformer, make_output)
+                try:
+                    result = pipe(
+                        prompt=prompt.read_text(),
+                        image=Image.open(args.reference_image).convert("RGB"),
+                        num_frames=settings["num_frames"],
+                        height=settings["height"],
+                        width=settings["width"],
+                        num_inference_steps=settings["num_inference_steps"],
+                        generator=torch.Generator().manual_seed(seed),
+                        output_type="np",
+                        output=["videos", "audio", "sampling_rate"],
+                    )
+                finally:
+                    uninstall()
         finally:
             handle.remove()
-            uninstall()
             if args.provider_variant != "default":
                 pipe.transformer.forward = plain_forward
         video = np.asarray(result["videos"][0])
