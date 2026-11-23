@@ -18,13 +18,23 @@ import torch
 _CAPTURE = ContextVar("rl_kernel_sampling_support", default=None)
 _MARKER = "_rl_kernel_complete_support_capture"
 _SORT_MARKER = "_rl_kernel_sort_top_k_top_p"
-# vLLM modules that import the top-k/top-p dispatcher by name, so replacing the
-# attribute on topk_topp_sampler alone does not reach them once they are loaded.
-_DISPATCHER_IMPORTERS = (
-    "vllm.v1.sample.rejection_sampler",
-    "vllm.v1.worker.gpu.sample.states",
-    "vllm.v1.worker.gpu.sample.sampler",
-)
+
+
+def _modules_binding(function):
+    """Loaded modules whose ``apply_top_k_top_p`` global is ``function``.
+
+    vLLM modules import the dispatcher by name (in 0.30: the rejection sampler,
+    the GPU worker's ``states`` and ``sampler``, the watermarking sampler and a
+    diffusion model), so replacing the attribute on ``topk_topp_sampler`` alone
+    does not reach the ones already loaded. Reading ``__dict__`` avoids
+    triggering a module-level ``__getattr__``.
+    """
+    found = []
+    for module in list(sys.modules.values()):
+        namespace = getattr(module, "__dict__", None)
+        if isinstance(namespace, dict) and namespace.get("apply_top_k_top_p") is function:
+            found.append(module)
+    return found
 
 
 def install_sort_contract():
@@ -58,12 +68,11 @@ def install_sort_contract():
         return topk_topp_sampler.apply_top_k_top_p_pytorch(logits, k, p)
 
     setattr(sort_top_k_top_p, _SORT_MARKER, dispatcher)
-    topk_topp_sampler.apply_top_k_top_p = sort_top_k_top_p
-    # Modules loaded later bind the replaced attribute when they import it.
-    for name in _DISPATCHER_IMPORTERS:
-        module = sys.modules.get(name)
-        if module is not None and getattr(module, "apply_top_k_top_p", None) is dispatcher:
-            module.apply_top_k_top_p = sort_top_k_top_p
+    # Every loaded module that imported the dispatcher by name, including
+    # topk_topp_sampler itself. Modules loaded later bind the replacement when
+    # they import it.
+    for module in _modules_binding(dispatcher):
+        module.apply_top_k_top_p = sort_top_k_top_p
     return True
 
 

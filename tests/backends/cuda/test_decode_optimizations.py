@@ -63,35 +63,42 @@ def test_small_query_tile_is_bitwise_equal_with_shuffled_pages(batch, length, he
     assert torch.equal(result.lse, reference.lse)
 
 
+def _restore_dispatchers_after_test(monkeypatch):
+    """install_sort_contract / install_capture rebind apply_top_k_top_p in every
+    loaded module that imported it; restore all of them after the test."""
+    import sys
+
+    for module in list(sys.modules.values()):
+        namespace = getattr(module, "__dict__", None)
+        if isinstance(namespace, dict) and "apply_top_k_top_p" in namespace:
+            monkeypatch.setattr(module, "apply_top_k_top_p", namespace["apply_top_k_top_p"])
+
+
 @pytest.mark.parametrize(
     ("batch", "top_p"),
     [(1, (0.8, 1.0)), (4, (0.8, 1.0)), (64, (0.8, 1.0)), (64, (0.95, 0.95)), (8, (0.95, 0.95))],
 )
 def test_captured_full_support_matches_independent_policy(batch, top_p, monkeypatch):
-    import sys
-
     from vllm.v1.sample.ops import topk_topp_sampler as native
 
     from rl_engine.integrations.engines.rollout.vllm import sampling_support
     from rl_engine.ops.sampling.policy import sampling_keep_mask
 
-    # install_capture patches vLLM globally; restore it after this test.
-    monkeypatch.setattr(native, "apply_top_k_top_p", native.apply_top_k_top_p)
-    for name in sampling_support._DISPATCHER_IMPORTERS:
-        module = sys.modules.get(name)
-        if module is not None and hasattr(module, "apply_top_k_top_p"):
-            monkeypatch.setattr(module, "apply_top_k_top_p", module.apply_top_k_top_p)
+    _restore_dispatchers_after_test(monkeypatch)
+    # vLLM's sort, read before anything is installed (vLLM 0.16 and older:
+    # the dispatcher is the sort).
+    sort = getattr(native, "apply_top_k_top_p_pytorch", native.apply_top_k_top_p)
 
     torch.manual_seed(1234)
     logits = torch.randn(batch, 151936, device="cuda", dtype=torch.float32)
     p = torch.linspace(*top_p, batch, device="cuda")
     k = torch.full((batch,), logits.size(1), device="cuda", dtype=torch.int32)
     expected = sampling_keep_mask(logits, temperature=0.7, top_p=p, top_k=k)
+    reference = sort(logits.clone() / 0.7, k, p)
     sampling_support.install_capture()
-    original = native.apply_top_k_top_p(logits.clone() / 0.7, k, p)
     with sampling_support.capture_support(True) as support:
         result = native.apply_top_k_top_p(logits.clone() / 0.7, k, p)
-    assert torch.equal(result, original)
+    assert torch.equal(result, reference)
     assert torch.equal(support["mask"], expected)
     assert torch.equal(torch.isfinite(result), expected)
     with sampling_support.capture_support(False) as disabled:
@@ -102,17 +109,33 @@ def test_captured_full_support_matches_independent_policy(batch, top_p, monkeypa
 def test_sort_contract_reaches_the_gpu_worker_sampler(monkeypatch):
     """The worker sampler imports apply_top_k_top_p by name."""
 
+    import sys
+
     states = pytest.importorskip("vllm.v1.worker.gpu.sample.states")
     worker = pytest.importorskip("vllm.v1.worker.gpu.sample.sampler")
     from vllm.v1.sample.ops import topk_topp_sampler as native
 
     from rl_engine.integrations.engines.rollout.vllm import sampling_support
 
-    for module in (native, states, worker):
-        monkeypatch.setattr(module, "apply_top_k_top_p", module.apply_top_k_top_p)
+    if not hasattr(native, "apply_top_k_top_p_pytorch"):
+        pytest.skip("this vLLM has no Triton dispatcher; apply_top_k_top_p is the sort")
+    try:  # another by-name importer in vLLM 0.30
+        import vllm.v1.watermarking.gpu_sampler  # noqa: F401
+    except ImportError:
+        pass
+    _restore_dispatchers_after_test(monkeypatch)
+    dispatcher = native.apply_top_k_top_p
+    bound = [
+        module
+        for module in list(sys.modules.values())
+        if isinstance(getattr(module, "__dict__", None), dict)
+        and module.__dict__.get("apply_top_k_top_p") is dispatcher
+    ]
     assert sampling_support.install_sort_contract()
     assert states.apply_top_k_top_p is native.apply_top_k_top_p
-    assert worker.apply_top_k_top_p is native.apply_top_k_top_p
+    if hasattr(worker, "apply_top_k_top_p"):  # vLLM 0.17 calls it through states only
+        assert worker.apply_top_k_top_p is native.apply_top_k_top_p
+    assert all(module.apply_top_k_top_p is native.apply_top_k_top_p for module in bound)
 
     torch.manual_seed(7)
     logits = torch.randn(64, 151936, device="cuda") / 0.7

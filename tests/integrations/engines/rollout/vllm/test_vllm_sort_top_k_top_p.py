@@ -13,7 +13,15 @@ ops = pytest.importorskip("vllm.v1.sample.ops.topk_topp_sampler")
 
 from rl_engine.integrations.engines.rollout.vllm import sampling_support  # noqa: E402
 
-_IMPORTERS = sampling_support._DISPATCHER_IMPORTERS
+# Modules that import the dispatcher by name: vLLM 0.30's, plus one outside
+# vLLM, since installed modules are found by scanning sys.modules.
+_IMPORTERS = (
+    "vllm.v1.sample.rejection_sampler",
+    "vllm.v1.worker.gpu.sample.states",
+    "vllm.v1.worker.gpu.sample.sampler",
+    "vllm.v1.watermarking.gpu_sampler",
+    "rl_kernel_test_plugin.sampler",
+)
 
 
 @pytest.fixture
@@ -31,7 +39,8 @@ def fake_vllm(monkeypatch):
         return logits
 
     monkeypatch.setattr(ops, "apply_top_k_top_p", dispatcher)
-    monkeypatch.setattr(ops, "apply_top_k_top_p_pytorch", sort)
+    # raising=False: vLLM 0.16 and older have no apply_top_k_top_p_pytorch.
+    monkeypatch.setattr(ops, "apply_top_k_top_p_pytorch", sort, raising=False)
     importers = {}
     for name in _IMPORTERS:
         module = types.ModuleType(name)
