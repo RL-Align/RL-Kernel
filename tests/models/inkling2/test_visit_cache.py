@@ -43,3 +43,17 @@ def test_clear_pass_removes_only_matching_pass():
 def test_missing_state_fails_closed():
     with pytest.raises(KeyError, match="no cached state"):
         VisitStateCache().require(VisitKey(0, 0, 0))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_native_cuda_visit_state_clone_matches_source():
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+    from rl_engine.models.inkling2.visit_cache import clone_visit_state_cuda
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_visit_state_clone"):
+        pytest.skip("Inkling 2 visit-state CUDA extension is unavailable")
+    source = torch.randn(3, 4, device="cuda", dtype=torch.bfloat16)
+    clone = clone_visit_state_cuda(source)
+    assert torch.equal(clone, source)
+    clone.add_(1)
+    assert not torch.equal(clone, source)

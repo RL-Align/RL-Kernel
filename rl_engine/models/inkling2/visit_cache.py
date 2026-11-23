@@ -8,6 +8,19 @@ from dataclasses import dataclass
 import torch
 
 
+def clone_visit_state_cuda(source: torch.Tensor) -> torch.Tensor:
+    """Clone a CUDA KV or convolution state through the native copy kernel."""
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_visit_state_clone"):
+        raise RuntimeError("Inkling 2 visit-state CUDA extension is unavailable")
+    if not source.is_cuda or source.ndim == 0:
+        raise ValueError("visit state must be a non-scalar CUDA tensor")
+    if source.dtype not in (torch.float16, torch.bfloat16, torch.float32):
+        raise TypeError("native visit-state clone supports float16, bfloat16, and float32")
+    return _C.inkling2_visit_state_clone(source.contiguous())
+
+
 @dataclass(frozen=True, order=True)
 class VisitKey:
     physical_layer_id: int
@@ -27,6 +40,17 @@ class VisitStateCache:
     def __init__(self) -> None:
         self._states: dict[VisitKey, VisitState] = {}
 
+    @staticmethod
+    def _clone_state(tensor: torch.Tensor | None) -> torch.Tensor | None:
+        if tensor is None:
+            return None
+        if tensor.is_cuda:
+            from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+            if _EXT_AVAILABLE and hasattr(_C, "inkling2_visit_state_clone"):
+                return clone_visit_state_cuda(tensor)
+        return tensor.clone()
+
     def put(
         self,
         key: VisitKey,
@@ -35,8 +59,8 @@ class VisitStateCache:
         conv: torch.Tensor | None = None,
     ) -> None:
         self._states[key] = VisitState(
-            None if kv is None else kv.clone(),
-            None if conv is None else conv.clone(),
+            self._clone_state(kv),
+            self._clone_state(conv),
         )
 
     def get(self, key: VisitKey) -> VisitState | None:
@@ -44,8 +68,8 @@ class VisitStateCache:
         if state is None:
             return None
         return VisitState(
-            None if state.kv is None else state.kv.clone(),
-            None if state.conv is None else state.conv.clone(),
+            self._clone_state(state.kv),
+            self._clone_state(state.conv),
         )
 
     def require(self, key: VisitKey) -> VisitState:

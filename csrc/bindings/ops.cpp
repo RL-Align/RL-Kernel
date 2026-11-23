@@ -268,6 +268,7 @@ std::vector<torch::Tensor> swiglu_backward_cuda(
     torch::Tensor gate,
     torch::Tensor up);
 torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
+torch::Tensor inkling2_visit_state_clone(torch::Tensor source);
 std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
