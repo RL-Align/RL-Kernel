@@ -254,9 +254,11 @@ class H3OmniWorkerExtension:
         """Install the LoRA shards the actor's TP rank ``r`` saved for rollout rank ``r``.
 
         ``source`` is a path with ``{rank}``; that file holds ``{"shards": [...], "digests":
-        {...}}`` (``h3_lora.shard_block_lora`` per block and the sender's ``lora_digests``). All
-        ranks or none: if any rank's shards are refused (shape or digest), every rank keeps its
-        previous LoRA and the call raises.
+        {...}, "scale": s}`` (``h3_lora.shard_block_lora`` per block, the sender's
+        ``lora_digests`` and the scale ``alpha / r`` it trained with). ``scale`` must equal the
+        file's: the digests cover the tensors only, so a different scale would pass them and still
+        compute another LoRA. All ranks or none: if any rank's shards are refused (scale, shape or
+        digest), every rank keeps its previous LoRA and the call raises.
         """
 
         from rl_engine.validation.models import h3_lora
@@ -275,6 +277,11 @@ class H3OmniWorkerExtension:
             expected = sent.get("digests") if isinstance(sent, dict) else None
             if not isinstance(expected, dict) or not expected:
                 raise ValueError("the LoRA file holds no sender digests: it cannot be verified")
+            sent_scale = sent.get("scale")
+            if sent_scale is None or float(sent_scale) != float(scale):
+                raise ValueError(
+                    f"the LoRA file's scale {sent_scale} differs from the scale to apply {scale}"
+                )
             return h3_lora.install_lora_shards(
                 handle.binding.model,
                 sent["shards"],

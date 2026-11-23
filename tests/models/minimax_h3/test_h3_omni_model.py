@@ -407,6 +407,82 @@ class TestLoRASync:
         assert h3_lora.lora_digests(receiver) == old
         assert getattr(receiver.transformer_blocks[0], pm.LORA_ATTR)["tp_rank"] == 1
 
+    def test_a_failed_transfer_or_digest_changes_no_block(self, monkeypatch):
+        from rl_engine.validation.models import h3_lora
+
+        receiver = self._Model(2)
+        old = h3_lora.install_lora_shards(
+            receiver, self._shards(4, 1, seed=5), 4, 1, scale=2.0, device="cpu"
+        )
+        real_to, calls = torch.Tensor.to, {"n": 0}
+
+        def to(self, *args, **kwargs):  # fails in the second block's transfers
+            calls["n"] += 1
+            if calls["n"] > h3_lora.LEAVES_PER_BLOCK:
+                raise torch.cuda.OutOfMemoryError("transfer")
+            return real_to(self, *args, **kwargs)
+
+        monkeypatch.setattr(torch.Tensor, "to", to)
+        with pytest.raises(torch.cuda.OutOfMemoryError):
+            h3_lora.install_lora_shards(receiver, self._shards(4, 1), 4, 1, scale=2.0, device="cpu")
+        monkeypatch.setattr(torch.Tensor, "to", real_to)
+        assert h3_lora.lora_digests(receiver) == old
+
+        def broken(model):
+            raise RuntimeError("digest")
+
+        monkeypatch.setattr(h3_lora, "lora_digests", broken)
+        with pytest.raises(RuntimeError, match="digest"):
+            h3_lora.install_lora_shards(receiver, self._shards(4, 1), 4, 1, scale=2.0, device="cpu")
+        monkeypatch.undo()
+        assert h3_lora.lora_digests(receiver) == old
+
+    @pytest.mark.parametrize("file_scale", [None, 1.0])
+    def test_worker_sync_refuses_a_scale_other_than_the_senders(
+        self, monkeypatch, tmp_path, file_scale
+    ):
+        from types import SimpleNamespace
+
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_worker as wk
+        from rl_engine.validation.models import h3_lora
+
+        model = self._Model(2)
+        model.w = torch.nn.Parameter(torch.zeros(1))
+        shards = self._shards(4, 1)
+        sent = h3_lora.install_lora_shards(self._Model(2), shards, 4, 1, scale=2.0, device="cpu")
+        payload = {"shards": shards, "digests": sent}
+        if file_scale is not None:
+            payload["scale"] = file_scale
+        torch.save(payload, tmp_path / "rank1.pt")
+        ext = wk.H3OmniWorkerExtension()
+        ext._rlk_h3 = SimpleNamespace(
+            binding=SimpleNamespace(model=model, grid=SimpleNamespace(tp=4, tp_rank=1))
+        )
+        errors = []
+
+        def gather(mine):  # this rank only; its refusal is the failure
+            if not mine["ok"]:
+                errors.append(mine["error"])
+            return [None, mine.get("result"), None, None], ({} if mine["ok"] else {1: "x"})
+
+        monkeypatch.setattr(wk, "_gather", gather)
+        with pytest.raises(RuntimeError, match="no rank changed"):
+            ext.rlk_h3_load_lora(str(tmp_path / "rank{rank}.pt"), scale=2.0)
+        assert "scale" in errors[0]
+        assert not h3_lora.lora_digests(model)
+
+    def test_shards_without_a_are_refused_as_value_errors(self):
+        from rl_engine.validation.models import h3_lora
+
+        bad = self._shards(4, 1)
+        del bad[1]["attn.to_q"]["A"]
+        with pytest.raises(ValueError, match="have no A"):
+            h3_lora.install_lora_shards(self._Model(2), bad, 4, 1, scale=2.0, device="cpu")
+        bad = self._shards(4, 1)
+        bad[0]["ff.net.2"]["B"] = [0.0]
+        with pytest.raises(ValueError, match="not tensors"):
+            h3_lora.install_lora_shards(self._Model(2), bad, 4, 1, scale=2.0, device="cpu")
+
     @pytest.mark.parametrize("other_rank_fails", [False, True], ids=["all-ok", "rank2-refused"])
     def test_worker_sync_is_all_ranks_or_none(self, monkeypatch, tmp_path, other_rank_fails):
         from types import SimpleNamespace
@@ -421,7 +497,7 @@ class TestLoRASync:
         )
         shards = self._shards(4, 1)
         sent = h3_lora.install_lora_shards(self._Model(2), shards, 4, 1, scale=2.0, device="cpu")
-        torch.save({"shards": shards, "digests": sent}, tmp_path / "rank1.pt")
+        torch.save({"shards": shards, "digests": sent, "scale": 2.0}, tmp_path / "rank1.pt")
         ext = wk.H3OmniWorkerExtension()
         ext._rlk_h3 = SimpleNamespace(
             binding=SimpleNamespace(model=model, grid=SimpleNamespace(tp=4, tp_rank=1))

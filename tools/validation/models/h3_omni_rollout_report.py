@@ -317,7 +317,8 @@ def _save_actor_shards(args, seed: int, out: Path, tamper_rank: int | None = Non
         if r == tamper_rank:
             a = shards[17]["attn.to_v"]["A"]
             a[3, 5] = a[3, 5] + 1  # one element: BF16 + 1 always changes it
-        torch.save({"shards": shards, "digests": digests}, out / f"rank{r}.pt")
+        scale = args.lora_alpha / args.lora_rank  # the worker refuses a file of another scale
+        torch.save({"shards": shards, "digests": digests, "scale": scale}, out / f"rank{r}.pt")
     return str(out / "rank{rank}.pt")
 
 

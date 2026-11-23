@@ -141,7 +141,14 @@ def install_lora_shards(
     blocks = list(model.transformer_blocks)
     if len(shards) != len(blocks):
         raise ValueError(f"{len(shards)} LoRA blocks for {len(blocks)} transformer blocks")
-    ranks = {p["A"].shape[0] for by_target in shards for p in by_target.values() if "A" in p}
+    for index, parts_by_target in enumerate(shards):
+        for target, parts in parts_by_target.items():
+            if not isinstance(parts, dict) or "A" not in parts:
+                raise ValueError(f"block {index} {target}: the shards have no A")
+            bad = sorted(k for k, v in parts.items() if not isinstance(v, torch.Tensor))
+            if bad:
+                raise ValueError(f"block {index} {target}: {bad} are not tensors")
+    ranks = {p["A"].shape[0] for by_target in shards for p in by_target.values()}
     if len(ranks) != 1 or min(ranks) <= 0:
         raise ValueError(f"LoRA ranks {sorted(ranks)}: one rank r > 0 for every target is needed")
     for index, parts_by_target in enumerate(shards):
@@ -161,29 +168,38 @@ def install_lora_shards(
             )
             if set(parts) != set(want) or any(parts[p].shape != want[p].shape for p in want):
                 raise ValueError(f"block {index} {target}: the shards are not ({tp}, {tp_rank})'s")
-    previous = [block.__dict__.get(pm.LORA_ATTR) for block in blocks]
-    for block, parts_by_target in zip(blocks, shards):
-        setattr(
-            block,
-            pm.LORA_ATTR,
-            {
-                "tp": tp,
-                "tp_rank": tp_rank,
-                "scale": scale,
-                "tensors": {
-                    t: {p: v.to(device) for p, v in parts.items()}
-                    for t, parts in parts_by_target.items()
-                },
+    # every transfer first: a failed one (out of memory, say) changes no block
+    staged = [
+        {
+            "tp": tp,
+            "tp_rank": tp_rank,
+            "scale": scale,
+            "tensors": {
+                t: {p: v.to(device) for p, v in parts.items()}
+                for t, parts in parts_by_target.items()
             },
-        )
-    got = lora_digests(model)
-    if expected is not None and got != expected:
-        bad = sorted(k for k in set(got) | set(expected) if got.get(k) != expected.get(k))
+        }
+        for parts_by_target in shards
+    ]
+    previous = [block.__dict__.get(pm.LORA_ATTR) for block in blocks]
+
+    def restore() -> None:
         for block, old in zip(blocks, previous):
             if old is None:
                 block.__dict__.pop(pm.LORA_ATTR, None)
             else:
                 setattr(block, pm.LORA_ATTR, old)
+
+    for block, lora in zip(blocks, staged):
+        setattr(block, pm.LORA_ATTR, lora)
+    try:
+        got = lora_digests(model)
+    except BaseException:
+        restore()
+        raise
+    if expected is not None and got != expected:
+        bad = sorted(k for k in set(got) | set(expected) if got.get(k) != expected.get(k))
+        restore()
         raise RuntimeError(f"LoRA sync digest mismatch on {len(bad)} shards, e.g. {bad[:3]}")
     return got
 
