@@ -15,7 +15,7 @@ from rl_engine.backends.cuda.logprob._deterministic_autograd import (
     storage_tensor as _storage_tensor,
 )
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
-from rl_engine.ops.logprob.fused_logp import (
+from rl_engine.ops.logprob.fused_logp import (  # noqa: F401  # Public compatibility export.
     FUSED_LOGP_BWD_CHUNK_ELEMS as FUSED_LOGP_BWD_CHUNK_ELEMS,
 )
 from rl_engine.ops.logprob.fused_logp import (
@@ -23,7 +23,7 @@ from rl_engine.ops.logprob.fused_logp import (
     FusedLogpOp,
     fused_logp_backward_chunked,
 )
-from rl_engine.ops.logprob.fused_logp import (
+from rl_engine.ops.logprob.fused_logp import (  # noqa: F401  # Public compatibility export.
     fused_logp_backward_rows_per_chunk as fused_logp_backward_rows_per_chunk,
 )
 from rl_engine.utils.logger import logger
