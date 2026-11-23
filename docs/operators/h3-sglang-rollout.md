@@ -127,6 +127,10 @@ The handle is `model.rl_kernel_h3_handle`.
 
 ## Evidence
 
+These measurements were taken under `h3-parallel-v1`, before the gate/up row's fixed FP32-tile
+GEMM (`fc1`) and the O / down rows' kernel (`out_proj`, `fc2`) of `h3-parallel-v2`. They show the
+bound forwards equal to the training graph of that contract; they have not been rerun under v2.
+
 NVIDIA B200 (one GPU per TP rank), torch 2.13.0+cu130, SGLang 0.5.21 (`sglang-kernel` 0.4.7),
 pinned `MiniMax-H3@42ed227` block 0, final layer and refiner final norm loaded through SGLang's
 loader, 261 rows, a prefix of 37 rows, two timesteps. The block runs with stand-ins for its attention and
