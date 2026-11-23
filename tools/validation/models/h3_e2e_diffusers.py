@@ -3,8 +3,9 @@
 """RFC #420 ``final_e2e_diffusers_cuda``: pinned Diffusers against RL-Kernel, full trajectory.
 
 The workload is fixed by ``examples/models/minimax_h3/e2e-t2va-contract.json``: the verl-omni
-H3 T2VA recipe's rollout settings, at 256x384, 121 frames, 10 inference steps and no CFG, with
-8 cases (4 prompts x 2 seeds). Two arms run the same pinned Diffusers pipeline:
+H3 T2VA recipe's rollout settings, at 256x384, 121 requested frames (the pipeline renders 124,
+the next ``17 n + 5``), 10 inference steps and no CFG, with 8 cases (4 prompts x 2 seeds).
+Two arms run the same pinned Diffusers pipeline:
 
 * ``provider``: the pipeline as released (P);
 * ``candidate``: the same pipeline with the transformer on the RL-Kernel strict graph
@@ -82,7 +83,16 @@ def load_contract(root: Path) -> dict[str, Any]:
         raise ValueError("the contract's cases changed")
     if [c["case"] for c in cases] != list(range(len(cases))):
         raise ValueError("contract cases must be numbered 0..N-1 in order")
+    if contract["resolved_num_frames"] != resolved_frames(contract["num_frames"]):
+        raise ValueError("resolved_num_frames is not the pipeline's rounding of num_frames")
     return contract
+
+
+def resolved_frames(requested: int) -> int:
+    """The frame count the pinned pipeline renders: the video VAE needs ``17 * n + 5``, and the
+    pipeline rounds a request up to the next such count (the recipe's 121 becomes 124)."""
+
+    return 5 + 17 * math.ceil(max(requested - 5, 0) / 17)
 
 
 def select_cases(contract: dict[str, Any], spec: str | None) -> list[dict[str, Any]]:
@@ -385,7 +395,7 @@ def run_case(
     trace_sha256 = hashlib.sha256(json.dumps(trace_summary, sort_keys=True).encode()).hexdigest()
     video = np.asarray(result["videos"][0], dtype=np.float32)
     audio = np.asarray(result["audio"][0].detach().float().cpu().numpy(), dtype=np.float32)
-    want = (contract["num_frames"], contract["height"], contract["width"], 3)
+    want = (contract["resolved_num_frames"], contract["height"], contract["width"], 3)
     if video.shape != want:
         raise ValueError(f"video shape {video.shape}, expected {want}")
     finite = capture.finite() and bool(np.isfinite(video).all()) and bool(np.isfinite(audio).all())

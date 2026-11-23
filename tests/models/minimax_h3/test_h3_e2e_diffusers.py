@@ -141,3 +141,8 @@ def test_the_contract_is_sealed_and_cases_select():
     assert [c["case"] for c in e2e.select_cases(contract, "3,1")] == [3, 1]
     with pytest.raises(ValueError, match="not in the contract"):
         e2e.select_cases(contract, "99")
+
+
+@pytest.mark.parametrize(("requested", "rendered"), [(121, 124), (124, 124), (5, 5), (6, 22)])
+def test_the_rendered_frame_count_follows_the_pipeline(requested, rendered):
+    assert e2e.resolved_frames(requested) == rendered
