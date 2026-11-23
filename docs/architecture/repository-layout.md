@@ -101,6 +101,24 @@ model, engine, or platform. Existing MUSA dispatch through validated shared
 implementations is retained; a MUSA directory alone does not certify a native
 MUSA kernel. Docker images and CI jobs are added only when executable support exists.
 
+## Device-local reduction helpers
+
+Reusable embedded Triton reductions live in `backends/shared/triton/reduction`.
+The optional Gluon implementation lives alongside them in
+`backends/shared/triton/reduction/gluon.py`. Gluon is Triton's explicit-layout
+frontend, not an additional hardware platform. The shared arithmetic accepts
+the target's warp/wave width and execution settings. GPU correctness has been
+validated on H100 and A40; the reported performance measurements are from H100.
+Future device-specific algorithms may live under their platform, while
+layout tuning can reuse this shared implementation. Enclosing Gluon kernels
+require `@gluon.jit`; the upper layer chooses them explicitly instead of switching
+inside `@triton.jit`.
+Their eager fixed-order PyTorch counterparts live in `reference/reduction`, and
+shared arithmetic defaults live in `contracts/operators/ordered_reduction.py`.
+These helpers do not register standalone Tensor operators or distributed
+collectives. See [Ordered reductions](ordered-reduction.md) for the six public
+functions, caller-owned dispatch, arithmetic contract and validation boundaries.
+
 ## Where overlapping attention and GEMM implementations belong
 
 - `models/qwen3/spec.py` owns the Qwen3 topology and operator inventory. A model
