@@ -769,6 +769,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+    m.def("inkling2_visit_state_clone", &inkling2_visit_state_clone,
+          "Inkling 2 Mini native CUDA visit-state clone");
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(
