@@ -8,6 +8,9 @@ RL-Kernel is developed in the open at:
 Use GitHub issues and pull requests for bug reports, operator proposals, and documentation
 improvements.
 
+For recordings, technical talks, and supporting material, visit the
+[Talks & Resources](talks-and-resources.md) contributor knowledge hub.
+
 ## Developer meeting
 
 The community holds a weekly developer meeting on Google Meet, every Saturday
