@@ -297,3 +297,28 @@ def test_an_out_of_memory_error_while_binding_the_pack_raises(monkeypatch):
     with pytest.raises(torch.cuda.OutOfMemoryError):
         with hfm._packed_rows(_Model(), hfm.FullModelTrace()):
             pass
+
+
+def test_strided_index_views_reach_the_pack_contiguous():
+    """The provider's ``index_copy`` takes any index view; the row validates contiguous ones."""
+
+    digest = hpf.forward_source_sha256(MODEL)
+    if digest not in hpf.KNOWN_FORWARDS:
+        pytest.skip("unknown provider forward")
+    seen = []
+
+    def pack(*args):
+        seen.append([a.is_contiguous() for a in args[3:6]])
+        return NativePackedIndexCopyOp()(*args)
+
+    model = _Model()
+    leaves, kwargs = _inputs()
+    want = inspect.unwrap(MODEL.forward)(model, *leaves, **kwargs)
+    for key in ("text_indices", "video_indices", "audio_indices"):
+        index = kwargs[key]
+        kwargs[key] = torch.stack([index, index], dim=1)[:, 0]  # same values, stride 2
+        assert not kwargs[key].is_contiguous()
+    ours = inspect.unwrap(hpf._packed_forward(MODEL, pack, hpf.KNOWN_FORWARDS[digest]))
+    got = ours(model, *leaves, **kwargs)
+    assert seen == [[True, True, True]]
+    assert all(_bitwise(g, w) for g, w in zip(got, want, strict=True))
