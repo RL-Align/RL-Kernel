@@ -55,8 +55,10 @@ from rl_engine.models.minimax_h3_image import canvas as cv
 from rl_engine.models.minimax_h3_image import fingerprint as fp
 from rl_engine.models.minimax_h3_image import packed_layout as pl
 from rl_engine.models.minimax_h3_image import patch_pack as pp
+from rl_engine.models.minimax_h3_image import pdd_schedule as ps
 from rl_engine.models.minimax_h3_image import reference_conditioning as rc
 from rl_engine.models.minimax_h3_image import trajectory as tj
+from rl_engine.models.minimax_h3_image import velocity_step as vs
 
 SCHEMA_VERSION = "rlkernel.h3_image.full_chain.v1"
 CONTRACT_ID = "h3-image-phase-b-full-chain-v1"
@@ -263,30 +265,6 @@ def verify(artifact: Mapping[str, Any]) -> None:
 
 
 # --- schedule --------------------------------------------------------------------------------
-
-
-def released_sigmas() -> torch.Tensor:
-    """The seven-point grid the sampler steps on: ``1 - fp32(1 - sigma)``, then 0."""
-
-    timesteps = torch.tensor(
-        [1.0 - s for s in fp.sigma_grid()["config_sigmas"][:-1]], dtype=torch.float32
-    )
-    return torch.cat([1.0 - timesteps, torch.zeros(1)])
-
-
-def row_timestep_plan(
-    layout: pl.PackedLayout, timesteps: torch.Tensor
-) -> list[tuple[torch.Tensor, torch.Tensor]]:
-    """Per step: (sorted distinct FP32 timesteps, index of every packed row into them)."""
-
-    image_indices = layout.image_indices.cpu()
-    plan = []
-    for t in timesteps:
-        rows = torch.full((layout.sequence_length,), float(t), dtype=torch.float32)
-        rows[image_indices[: layout.num_reference_rows]] = rc.REFERENCE_NOISE_LEVEL
-        unique, inverse = torch.unique(rows, sorted=True, return_inverse=True)
-        plan.append((unique, inverse))
-    return plan
 
 
 # --- denoiser --------------------------------------------------------------------------------
@@ -510,8 +488,8 @@ def run_chain(
     *,
     vae_contract: Any,
     denoiser: ImageDenoiser,
-    scheduler: Any,
     device: torch.device | str,
+    sampler: vs.ImageVelocitySampler | None = None,
     prepared: Sequence[PreparedReference] | None = None,
     label: str = "rl-kernel",
     keep_tensors: bool = False,
@@ -520,8 +498,9 @@ def run_chain(
 ) -> ChainRun:
     """Run the H3-Image chain on RL-Kernel contracts; ``text`` comes from :func:`contract_text`.
 
-    ``scheduler`` is a ``MiniMaxH3Scheduler`` (velocity form) the run owns. ``on_step``, if
-    given, may replace the image rows after a step (drift injection in tests).
+    ``sampler`` takes the six updates (``image_velocity_step`` on the ``image_sigma_pdd_schedule``
+    grid); the default runs the PyTorch reference op, pass the Triton kernel on GPU. ``on_step``,
+    if given, may replace the image rows after a step (drift injection in tests).
     """
 
     device = torch.device(device)
@@ -592,19 +571,21 @@ def run_chain(
     )
     log.add("packed_layout", _layout_tensors(layout), {"layout": layout.artifact()})
 
-    sigmas = released_sigmas()
-    scheduler.set_timesteps(sigmas=sigmas, device=device)
-    timesteps = scheduler.timesteps
-    row_plan = row_timestep_plan(layout, timesteps.cpu())
+    sampler = sampler if sampler is not None else vs.ImageVelocitySampler(device=device)
+    if sampler.step_index != 0:
+        raise ValueError("the sampler has already been stepped; use a new one per request")
+    schedule = sampler.schedule
+    timesteps = schedule.timesteps
+    row_plan = ps.row_timestep_plan(layout, schedule)
     log.add(
         "schedule",
         {
-            "sigmas": scheduler.sigmas,
+            "sigmas": schedule.sigmas,
             "timesteps": timesteps,
             "row_timesteps": [u for u, _ in row_plan],
             "row_timestep_indices": [ix for _, ix in row_plan],
         },
-        {"released_schedule": tj.released_schedule()},
+        {"released_schedule": tj.released_schedule(), "pdd_schedule": ps.artifact(schedule)},
     )
 
     vae_mean, vae_std = vae_contract.mean, vae_contract.std
@@ -640,12 +621,10 @@ def run_chain(
     )
     r = layout.num_reference_rows
     embeds = text.prompt_embeds.to(device)
-    for i, t in enumerate(timesteps):
+    for i in range(schedule.num_model_evals):
         unique, indices = row_plan[i]
         velocity = denoiser(image_rows, embeds, layout, unique, indices, i)
-        image_rows[r:] = scheduler.step(
-            velocity[0, r:].float(), t, image_rows[r:], return_dict=False
-        )[0]
+        image_rows = sampler.step(i, velocity, image_rows, r, pdd_head=i)
         if on_step is not None:
             image_rows = on_step(i, image_rows)
         if cond is not None:
@@ -661,8 +640,11 @@ def run_chain(
     log.add(
         "denoise",
         {"final_image_rows": image_rows},
-        {"steps": [s.to_dict() for s in recorder.records]},
-        {"denoiser": getattr(denoiser, "backend_id", type(denoiser).__name__)},
+        {"steps": [s.to_dict() for s in recorder.records], "updates": sampler.records},
+        {
+            "denoiser": getattr(denoiser, "backend_id", type(denoiser).__name__),
+            "sampler": sampler.provenance(),
+        },
     )
     latents = pp.ImagePatchPacker().unpack_target(image_rows[None], r, plan.latent)
     log.add("unpack", {"latents": latents})
@@ -1023,5 +1005,5 @@ def contract_manifest() -> dict[str, Any]:
         "secondary_stages": list(SECONDARY_STAGES),
         "reference_short_edge": list(REFERENCE_SHORT_EDGE),
         "vision_short_edge": list(VISION_SHORT_EDGE),
-        "sigmas_f32_hex": [tj.f32_hex(float(s)) for s in released_sigmas()],
+        "pdd_schedule": ps.artifact(),
     }

@@ -89,7 +89,6 @@ def _run_both(request: fc.ImageRequest, device: str, **kwargs):
         text,
         vae_contract=iv.ImageVAEContract(vae, require_release=False),
         denoiser=fc.DiffusersTransformerDenoiser(transformer),
-        scheduler=_scheduler(),
         device=device,
         **kwargs,
     )
@@ -182,12 +181,13 @@ def test_schedule_and_row_timesteps_match_the_pinned_step() -> None:
     for key in ("image_indices", "text_indices", "num_reference_rows"):
         state.set(key, getattr(layout, key))
     _, state = bd.MiniMaxH3ImageSetTimestepsStep()(pipe, state)
-    ours = _scheduler()
-    ours.set_timesteps(sigmas=fc.released_sigmas())
+    from rl_engine.models.minimax_h3_image import pdd_schedule as ps
+
+    ours = ps.released_schedule()
     assert torch.equal(ours.sigmas, pipe.scheduler.sigmas)
     assert torch.equal(ours.timesteps, state.get("timesteps"))
     for (u, ix), (du, dix) in zip(
-        fc.row_timestep_plan(layout, ours.timesteps), state.get("row_timestep_plan")
+        ps.row_timestep_plan(layout, ours), state.get("row_timestep_plan")
     ):
         assert torch.equal(u, du.cpu()) and torch.equal(ix, dix.cpu())
         assert float(u[-1]) == float(torch.tensor(rc.REFERENCE_NOISE_LEVEL, dtype=torch.float32))
@@ -260,7 +260,6 @@ def test_injected_drift_is_reported_at_its_step(step) -> None:
         _text(T2I, "cpu"),
         vae_contract=iv.ImageVAEContract(vae, require_release=False),
         denoiser=fc.DiffusersTransformerDenoiser(transformer),
-        scheduler=_scheduler(),
         device="cpu",
         on_step=flip,
     )
@@ -317,6 +316,20 @@ def test_text_for_another_prompt_is_refused() -> None:
             _text(fc.ImageRequest("a dog"), "cpu"),
             vae_contract=iv.ImageVAEContract(vae, require_release=False),
             denoiser=fc.DiffusersTransformerDenoiser(transformer),
-            scheduler=_scheduler(),
             device="cpu",
         )
+
+
+@CUDA
+@pytest.mark.parametrize("request_", [T2I, EDIT2], ids=["t2i", "edit-2refs"])
+def test_chain_with_the_triton_velocity_kernel_equals_the_pinned_pipeline(request_) -> None:
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton.flow.velocity_step import H3ImageVelocityStepTritonOp
+    from rl_engine.models.minimax_h3_image import velocity_step as vs
+
+    sampler = vs.ImageVelocitySampler(op=H3ImageVelocityStepTritonOp(), device="cuda")
+    ours, theirs = _run_both(request_, "cuda", sampler=sampler)
+    report = fc.compare(ours.artifact, theirs.artifact)
+    assert report["gate"] and report["secondary_equal"], report["first_drift"]
+    denoise = {s["stage"]: s for s in ours.artifact["stages"]}["denoise"]
+    assert denoise["provenance"]["sampler"]["backend_id"] == "H3ImageVelocityStepTritonOp"

@@ -122,9 +122,11 @@ def main() -> int:
     from diffusers.schedulers.scheduling_minimax_h3 import MiniMaxH3Scheduler
     from transformers import AutoProcessor, AutoTokenizer
 
+    from rl_engine.backends.shared.triton.flow.velocity_step import H3ImageVelocityStepTritonOp
     from rl_engine.models.minimax_h3 import qwen3vl_text as q
     from rl_engine.models.minimax_h3_image import image_vae as iv
     from rl_engine.models.minimax_h3_image import text_presentation as tp
+    from rl_engine.models.minimax_h3_image import velocity_step as vs
 
     device = torch.device("cuda")
     all_fixtures = fixtures(args.root)
@@ -197,6 +199,10 @@ def main() -> int:
     def scheduler() -> Any:
         return MiniMaxH3Scheduler.from_pretrained(str(args.root / "scheduler"))
 
+    def sampler() -> Any:
+        # image_velocity_step on the image_sigma_pdd_schedule grid, Triton kernel on GPU.
+        return vs.ImageVelocitySampler(op=H3ImageVelocityStepTritonOp(), device=device)
+
     denoiser = fc.DiffusersTransformerDenoiser(transformer)
     ok = True
     for name in names:
@@ -209,8 +215,8 @@ def main() -> int:
                 text_ours,
                 vae_contract=contract,
                 denoiser=denoiser,
-                scheduler=scheduler(),
                 device=device,
+                sampler=sampler(),
                 prepared=prepared,
                 label=f"{name}:rl-kernel",
             )
@@ -248,8 +254,8 @@ def main() -> int:
                 text_ours,
                 vae_contract=contract,
                 denoiser=denoiser,
-                scheduler=scheduler(),
                 device=device,
+                sampler=sampler(),
                 prepared=prepared,
                 label=f"{name}:rl-kernel",
             )
