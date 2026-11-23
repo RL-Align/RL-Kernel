@@ -77,6 +77,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_DETERMINISTIC_LOGP = "rl_engine.kernels.ops.cuda.loss.logp.DeterministicLogpCUDAOp"
     # Deterministic standard-softmax attention (issue #147); not FlashAttention.
     CUDA_H3_FULL_ATTENTION = "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp"
+    # Deterministic rectified-flow Euler step (RFC #420 h3_ode_step).
+    CUDA_H3_ODE_STEP = "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp"
+    PYTORCH_H3_ODE_STEP = "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp"
+    TRITON_H3_ODE_STEP = "rl_engine.backends.shared.triton.flow.ode_step.H3OdeStepTritonOp"
     CUDA_DETERMINISTIC_ATTENTION = (
         "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
     )
@@ -110,6 +114,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_PACK = "rl_engine.kernels.ops.pytorch.packing.pack.NativePackOp"
     PYTORCH_VIDEO_PATCH_PACK_UNPACK = (
         "rl_engine.reference.packing.video_patch_pack_unpack.NativeVideoPatchPackUnpackOp"
+    )
+    PYTORCH_NATIVE_PACKED_INDEX_COPY = (
+        "rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp"
+    )
+    CUDA_PACKED_INDEX_COPY = (
+        "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp"
     )
     # Batch-invariant deterministic GEMM (WS1 #146)
     CUDA_DET_GEMM = "rl_engine.kernels.ops.cuda.matmul.det_gemm.DetGemmOp"
@@ -183,8 +193,14 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     ASCEND_ROPE = "rl_engine.kernels.ops.ascend.rotary_embedding.rope.RoPEAscendOp"
     PYTORCH_NATIVE_SILU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSiLUOp"
     PYTORCH_NATIVE_SWIGLU = "rl_engine.kernels.ops.pytorch.activation.swiglu.NativeSwiGLUOp"
+    PYTORCH_NATIVE_CONDITIONING_NOISE_MIX = (
+        "rl_engine.reference.conditioning.conditioning_noise_mix.NativeConditioningNoiseMixOp"
+    )
     CUDA_SILU = "rl_engine.kernels.ops.cuda.activation.swiglu.SiLUCudaOp"
     CUDA_SWIGLU = "rl_engine.kernels.ops.cuda.activation.swiglu.SwiGLUCudaOp"
+    CUDA_CONDITIONING_NOISE_MIX = (
+        "rl_engine.backends.cuda.conditioning.conditioning_noise_mix.ConditioningNoiseMixCudaOp"
+    )
     ASCEND_SWIGLU = "rl_engine.kernels.ops.ascend.activation.swiglu.SwiGLUAscendOp"
     ASCEND_SILU = "rl_engine.kernels.ops.ascend.activation.silu.SiLUAscendOp"
     TRITON_SILU = "rl_engine.kernels.ops.triton.activation.swiglu.TritonSiLUOp"
@@ -293,6 +309,65 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
+        OperatorBackendDescriptor(
+            semantic_op="h3_ffn_gate_up_gemm",
+            backend_id="rlkernel.h3_ffn_gate_up_gemm.triton.fp32_tiles.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={"world_size": (1,), "tensor_parallel_size": (1,)},
+            determinism_or_alignment_properties={
+                "cuda_sm": 90,
+                "tf32": False,
+                "gpu_qualified": False,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory="rl_engine.ops.gemm.h3_projections.H3FFNGateUpGemmOp",
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3_ffn_gate_up_gemm-candidate-v1",
+            is_smoke_only=True,
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_attention_o_gemm",
+            backend_id="rlkernel.h3_attention_o_gemm.triton.fp32_tiles.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={"world_size": (1,), "tensor_parallel_size": (1,)},
+            determinism_or_alignment_properties={
+                "cuda_sm": 90,
+                "tf32": False,
+                "gpu_qualified": False,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory="rl_engine.ops.gemm.h3_projections.H3AttentionOGemmOp",
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3_attention_o_gemm-candidate-v1",
+            is_smoke_only=True,
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_ffn_down_gemm",
+            backend_id="rlkernel.h3_ffn_down.triton.fp32_tiles.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"bfloat16"}),
+            supported_topologies={"world_size": (1,), "tensor_parallel_size": (1,)},
+            determinism_or_alignment_properties={
+                "arithmetic": "bf16_mma_fp32_accumulation_ordered_fp32_adds_bf16_epilogue",
+                "shape": "14336_to_5376",
+                "weight_gradient_order": "canonical_logical_keys",
+                "gpu_qualified": False,
+                "strict_observable": True,
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=("rl_engine.ops.gemm.h3_ffn_down.H3FFNDownGemmOp"),
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-down-triton-fp32-tiles-candidate-v1",
+            # Strict production resolution remains gated until runtime qualification.
+            is_smoke_only=True,
+        ),
         OperatorBackendDescriptor(
             semantic_op="h3_full_attention",
             backend_id="rlkernel.cuda.h3_full_attention.query_chunk.v1",
@@ -425,6 +500,98 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             version_or_build_fingerprint=(
                 "vllm-omni-b1fc5fcfa3e1a4f76c6686eaf09242f0fc6464bc-h3-adapter-v1"
             ),
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_ode_step",
+            backend_id="rlkernel.cuda.h3_ode_step.euler_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-cuda-strict-v1",
+                "accumulator_dtype": "float32",
+                "epilogue_cast": "storage_dtype",
+                "reduction": "none",
+                "sigma_layout": "per_packed_row",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.CUDA_H3_ODE_STEP.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint=("h3-euler-fp32-v1; binary profile checked at invocation"),
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_ode_step",
+            backend_id="rlkernel.triton.h3_ode_step.euler_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda", "rocm"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-triton-strict-v1",
+                "accumulator_dtype": "float32",
+                "epilogue_cast": "storage_dtype",
+                "reduction": "none",
+                "sigma_layout": "per_packed_row",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.TRITON_H3_ODE_STEP.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-euler-fp32-triton-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_ode_step",
+            backend_id="rlkernel.pytorch.h3_ode_step.euler_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            # The reference is the CPU/NPU path only: the GPU profiles keep the
+            # strict CUDA/Triton candidates and deliberately declare no reference
+            # fallback ("no silent fallback" in the operator page), so advertising
+            # CPU-only here keeps the declared capability resolvable.
+            supported_devices=frozenset({"cpu"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "torch.elementwise_euler_blend, one declared fp32 program",
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-pytorch-strict-v1",
+                "accumulator_dtype": "float32",
+                "epilogue_cast": "storage_dtype",
+                "reduction": "none",
+                "sigma_layout": "per_packed_row",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.PYTORCH_H3_ODE_STEP.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-euler-fp32-reference-v1",
         ),
         OperatorBackendDescriptor(
             semantic_op="selected_logprob",
@@ -854,7 +1021,9 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [OpBackend.CUDA_PACKED_INDEX_COPY],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "h3_ode_step": [OpBackend.CUDA_H3_ODE_STEP, OpBackend.TRITON_H3_ODE_STEP],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "video_input_projection_fp32": [OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32],
                 "video_output_projection_fp32": [OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32],
@@ -879,6 +1048,7 @@ class KernelRegistry:
                     OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
                     OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
                 ],
+                "conditioning_noise_mix": [OpBackend.CUDA_CONDITIONING_NOISE_MIX],
                 # Default dispatch logic for new operators
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rope": [
@@ -959,7 +1129,9 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "h3_ode_step": [OpBackend.TRITON_H3_ODE_STEP],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -986,6 +1158,7 @@ class KernelRegistry:
                     OpBackend.TRITON_FINAL_LOGIT_SOFTCAP,
                     OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP,
                 ],
+                "conditioning_noise_mix": [],
             },
             "musa": {
                 "logp": [
@@ -1018,7 +1191,9 @@ class KernelRegistry:
                 ],
                 "ratio_kl": [OpBackend.TRITON_RATIO_KL, OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "h3_ode_step": [OpBackend.TRITON_H3_ODE_STEP],
                 "det_gemm": [OpBackend.MUSA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -1048,6 +1223,7 @@ class KernelRegistry:
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
+                "conditioning_noise_mix": [],
             },
             "cpu": {
                 "logp": [OpBackend.PYTORCH_NATIVE],
@@ -1067,7 +1243,9 @@ class KernelRegistry:
                 "linear_logp": [OpBackend.PYTORCH_LINEAR_LOGP],
                 "ratio_kl": [OpBackend.PYTORCH_RATIO_KL],
                 "pack": [OpBackend.PYTORCH_PACK],
+                "packed_index_copy": [OpBackend.PYTORCH_NATIVE_PACKED_INDEX_COPY],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
+                "h3_ode_step": [OpBackend.PYTORCH_H3_ODE_STEP],
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
@@ -1087,6 +1265,7 @@ class KernelRegistry:
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
+                "conditioning_noise_mix": [OpBackend.PYTORCH_NATIVE_CONDITIONING_NOISE_MIX],
             },
             # Ascend NPU: op types without an entry fall back to their CPU
             # candidates (see the runtime override below), so only
@@ -1147,9 +1326,12 @@ class KernelRegistry:
             OpBackend.ASCEND_SILU,
             OpBackend.PYTORCH_NATIVE_SILU,
         ]
+        self._priority_map["npu"]["packed_index_copy"] = []
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,
         ]
+        self._priority_map["npu"]["conditioning_noise_mix"] = []
+
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
