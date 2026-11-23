@@ -437,10 +437,54 @@ def run_case(
         "audio_float32_sha256": media_digest(audio),
         "sampling_rate": int(result["sampling_rate"]),
     }
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1, default=str) + "\n")
-    if not finite:
-        raise ValueError(f"{label}: non-finite tensors or media (outputs kept in {out_dir})")
+    finish_run(out_dir, manifest)
     return manifest
+
+
+def finish_run(out_dir: Path, manifest: dict[str, Any]) -> None:
+    """Write the completion manifest of a finite run. A non-finite run writes ``failure.json``
+    instead and raises, so the next ``run`` retries it rather than skipping it as done."""
+
+    text = json.dumps(manifest, indent=1, default=str) + "\n"
+    if not manifest["finite"]:
+        (out_dir / "failure.json").write_text(text)
+        raise ValueError(
+            f"{manifest['label']}: non-finite tensors or media (outputs kept in {out_dir})"
+        )
+    (out_dir / "manifest.json").write_text(text)
+
+
+def check_resumable(
+    manifest: dict[str, Any],
+    *,
+    arm: str,
+    case: dict[str, Any],
+    strict_boundaries: bool,
+    prov: dict[str, Any],
+) -> None:
+    """A finished run is skipped only if this invocation would have produced it: the same arm,
+    case, boundaries, source commit and checkpoint check. Anything else raises."""
+
+    want = {
+        "arm": arm,
+        "case": case,
+        "strict_boundaries": strict_boundaries,
+        "source_commit": prov["source_commit"],
+        "checkpoint_hash_checked": prov["checkpoint_hash_checked"],
+    }
+    got = {
+        "arm": manifest.get("arm"),
+        "case": manifest.get("case"),
+        "strict_boundaries": manifest.get("strict_boundaries"),
+        "source_commit": manifest.get("provenance", {}).get("source_commit"),
+        "checkpoint_hash_checked": manifest.get("provenance", {}).get("checkpoint_hash_checked"),
+    }
+    differ = sorted(k for k in want if want[k] != got[k])
+    if differ:
+        raise ValueError(
+            f"{manifest.get('label')}: an existing run differs from this invocation in {differ}; "
+            "use another --output, or move it aside"
+        )
 
 
 def cmd_run(args) -> None:
@@ -471,7 +515,15 @@ def cmd_run(args) -> None:
     for case in cases:
         for repeat in range(args.repeats):
             directory = args.output / f"case{case['case']}" / f"r{repeat}"
+            strict_boundaries = args.arm == "candidate" and not args.provider_boundaries
             if (directory / "manifest.json").exists():
+                check_resumable(
+                    json.loads((directory / "manifest.json").read_text()),
+                    arm=args.arm,
+                    case=case,
+                    strict_boundaries=strict_boundaries,
+                    prov=prov,
+                )
                 print(f"{directory} done; skipping", flush=True)
                 continue
             if directory.exists():
@@ -487,7 +539,7 @@ def cmd_run(args) -> None:
                 out_dir=directory,
                 keep_tensors=not args.no_tensors,
                 prov=prov,
-                strict_boundaries=args.arm == "candidate" and not args.provider_boundaries,
+                strict_boundaries=strict_boundaries,
             )
             t, final = m["timing"], m["final_latent_sha256"]
             print(
@@ -519,7 +571,9 @@ def _rel_l2(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.linalg.norm(a.astype(np.float64) - b.astype(np.float64)) / den) if den else 0.0
 
 
-def compare_case(provider: Path, candidate: Path, case: int) -> dict[str, Any]:
+def compare_case(
+    provider: Path, candidate: Path, case: int, contract_case: dict[str, Any] | None = None
+) -> dict[str, Any]:
     from rl_engine.models.minimax_h3 import trajectory as tj
 
     def load(p: Path):
@@ -545,6 +599,17 @@ def compare_case(provider: Path, candidate: Path, case: int) -> dict[str, Any]:
         "provider": [json.loads((p / "manifest.json").read_text()) for p in p_runs],
         "candidate": [json.loads((p / "manifest.json").read_text()) for p in r_runs],
     }
+    # each folder must hold the arm it is compared as, and the contract's case
+    for arm, ms in manifests.items():
+        for m in ms:
+            if m.get("arm") != arm:
+                raise ValueError(
+                    f"case {case}: {m.get('label')} is a {m.get('arm')} run, not {arm}"
+                )
+            if contract_case is not None and m.get("case") != contract_case:
+                raise ValueError(
+                    f"case {case}: {m.get('label')} ran another case than the contract's"
+                )
     return {
         "case": case,
         "candidate_runs": len(r_runs),
@@ -570,9 +635,17 @@ def compare_case(provider: Path, candidate: Path, case: int) -> dict[str, Any]:
             "audio_rel_l2": _rel_l2(ra, pa),
         },
         "finite": all(m["finite"] for ms in manifests.values() for m in ms),
-        # final evidence needs strict boundaries and a hashed checkpoint in every candidate run
+        # final evidence: a hashed checkpoint in both arms; in every candidate run strict
+        # boundaries and both schedulers on their rows for at least one step
         "final_evidence": all(
-            m.get("strict_boundaries") and m["provenance"].get("checkpoint_hash_checked")
+            m["provenance"].get("checkpoint_hash_checked") for ms in manifests.values() for m in ms
+        )
+        and all(
+            m.get("strict_boundaries")
+            and all(
+                m.get("scheduler_rows", {}).get(name, {}).get("row", 0) > 0
+                for name in ("scheduler", "audio_scheduler")
+            )
             for m in manifests["candidate"]
         ),
         "scheduler_rows": manifests["candidate"][0]["scheduler_rows"],
@@ -619,7 +692,7 @@ def summarize(cases: list[dict[str, Any]]) -> dict[str, Any]:
 def cmd_compare(args) -> None:
     contract = load_contract(source_root())
     cases = [
-        compare_case(args.provider, args.candidate, c["case"])
+        compare_case(args.provider, args.candidate, c["case"], c)
         for c in select_cases(contract, args.cases)
     ]
     report = {"row": contract["row"], "summary": summarize(cases), "cases": cases}
@@ -635,6 +708,7 @@ def cmd_compare(args) -> None:
         s["gate_candidate_repeats_bitwise"]
         and s["gate_every_case_has_a_repeat"]
         and s["all_finite"]
+        and (s["final_evidence"] or args.allow_non_final)
     ):
         sys.exit(1)
 
@@ -671,6 +745,11 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("--candidate", type=Path, required=True)
     c.add_argument("--output", type=Path, required=True)
     c.add_argument("--cases", help="comma list of case numbers (default: all)")
+    c.add_argument(
+        "--allow-non-final",
+        action="store_true",
+        help="exit 0 for a plumbing run that is not final evidence (the report still says so)",
+    )
     args = p.parse_args(argv)
     if args.command == "run":
         if args.repeats < 1:

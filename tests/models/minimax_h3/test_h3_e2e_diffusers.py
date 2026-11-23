@@ -35,7 +35,9 @@ def _sample(capture, *, seed=0, drift_at=None, steps=10):
     return video, audio
 
 
-def _write_run(root, arm, case, repeat, *, drift_at=None, video_value=0.5):
+def _write_run(
+    root, arm, case, repeat, *, drift_at=None, video_value=0.5, hashed=True, row_steps=9
+):
     capture = e2e.StepCapture()
     video, audio = _sample(capture, seed=case, drift_at=drift_at)
     out = root / f"case{case}" / f"r{repeat}"
@@ -62,9 +64,18 @@ def _write_run(root, arm, case, repeat, *, drift_at=None, video_value=0.5):
         "seconds": 10.0,
         "timing": timer.summary(),
         "peak_allocated_bytes": 2**30,
-        "scheduler_rows": {},
+        "arm": arm,
+        "case": {"case": case},
+        "scheduler_rows": (
+            {
+                n: {"row": row_steps, "provider": 9 - row_steps}
+                for n in ("scheduler", "audio_scheduler")
+            }
+            if arm == "candidate"
+            else {}
+        ),
         "strict_boundaries": arm == "candidate",
-        "provenance": {"checkpoint_hash_checked": True},
+        "provenance": {"checkpoint_hash_checked": hashed},
         "video_float32_sha256": e2e.media_digest(v),
         "audio_float32_sha256": e2e.media_digest(a),
     }
@@ -146,3 +157,66 @@ def test_the_contract_is_sealed_and_cases_select():
 @pytest.mark.parametrize(("requested", "rendered"), [(121, 124), (124, 124), (5, 5), (6, 22)])
 def test_the_rendered_frame_count_follows_the_pipeline(requested, rendered):
     assert e2e.resolved_frames(requested) == rendered
+
+
+def test_a_folder_holding_the_other_arm_is_refused(tmp_path):
+    p, r = tmp_path / "p", tmp_path / "r"
+    _write_run(p, "candidate", 0, 0)  # a candidate run passed as the provider
+    _write_run(r, "candidate", 0, 0)
+    with pytest.raises(ValueError, match="is a candidate run, not provider"):
+        e2e.compare_case(p, r, 0)
+
+
+def test_a_run_of_another_case_is_refused(tmp_path):
+    p, r = tmp_path / "p", tmp_path / "r"
+    _write_run(p, "provider", 0, 0)
+    _write_run(r, "candidate", 0, 0)
+    with pytest.raises(ValueError, match="another case"):
+        e2e.compare_case(p, r, 0, {"case": 0, "prompt": "x", "seed": 1})
+
+
+@pytest.mark.parametrize(
+    ("provider_hashed", "row_steps", "final"),
+    [(True, 9, True), (False, 9, False), (True, 0, False)],
+)
+def test_final_evidence_needs_both_checkpoints_and_the_scheduler_rows(
+    tmp_path, provider_hashed, row_steps, final
+):
+    p, r = tmp_path / "p", tmp_path / "r"
+    _write_run(p, "provider", 0, 0, hashed=provider_hashed)
+    for repeat in (0, 1):
+        _write_run(r, "candidate", 0, repeat, row_steps=row_steps)
+    assert e2e.compare_case(p, r, 0)["final_evidence"] is final
+
+
+def test_a_non_finite_run_leaves_no_completion_manifest(tmp_path):
+    e2e.finish_run(tmp_path, {"label": "x", "finite": True})
+    assert (tmp_path / "manifest.json").exists()
+    bad = tmp_path / "bad"
+    bad.mkdir()
+    with pytest.raises(ValueError, match="non-finite"):
+        e2e.finish_run(bad, {"label": "y", "finite": False})
+    assert (bad / "failure.json").exists() and not (bad / "manifest.json").exists()
+
+
+def test_an_existing_run_resumes_only_if_this_invocation_would_produce_it():
+    case = {"case": 0, "prompt": "p", "seed": 42}
+    prov = {"source_commit": "abc", "checkpoint_hash_checked": True}
+    manifest = {
+        "label": "provider-case0-r0",
+        "arm": "provider",
+        "case": case,
+        "strict_boundaries": False,
+        "provenance": dict(prov),
+    }
+    e2e.check_resumable(manifest, arm="provider", case=case, strict_boundaries=False, prov=prov)
+    with pytest.raises(ValueError, match=r"\['arm', 'strict_boundaries'\]"):
+        e2e.check_resumable(manifest, arm="candidate", case=case, strict_boundaries=True, prov=prov)
+    with pytest.raises(ValueError, match="source_commit"):
+        e2e.check_resumable(
+            manifest,
+            arm="provider",
+            case=case,
+            strict_boundaries=False,
+            prov={**prov, "source_commit": "def"},
+        )
