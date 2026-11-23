@@ -189,3 +189,38 @@ class NativeAttentionOp:
                 yield
         finally:
             torch.backends.cuda.matmul.allow_tf32 = prev_tf32
+
+
+class H3FullAttentionReference:
+    def forward_fp32(self, q, k, v):
+        with NativeAttentionOp._strict_fp32_math(q.device.type):
+            q, k, v = (x.float().transpose(1, 2) for x in (q, k, v))
+            return ((q @ k.transpose(-1, -2) / 128**0.5).softmax(-1) @ v).transpose(1, 2)
+
+    __call__ = forward_fp32
+
+    @torch.no_grad()
+    def value_and_grad(self, q, k, v, grad_output, chunk_rows=128):
+        """FP32 explicit VJP: dS=P*(dO V^T-sum(P*dO V^T)).
+
+        Query chunks bound temporary memory; dK/dV merge GEMM partial sums.
+        This intentionally differs from the candidate's scalar reduction order.
+        """
+        if isinstance(chunk_rows, bool) or not isinstance(chunk_rows, int) or chunk_rows < 1:
+            raise ValueError("chunk_rows must be a positive integer")
+        with NativeAttentionOp._strict_fp32_math(q.device.type):
+            q, k, v, dy = (x.float().transpose(1, 2) for x in (q, k, v, grad_output))
+            out, dq = torch.empty_like(q), torch.empty_like(q)
+            dk, dv = torch.zeros_like(k), torch.zeros_like(v)
+            for start in range(0, q.shape[2], chunk_rows):
+                stop = min(start + chunk_rows, q.shape[2])
+                qt, dyt = q[:, :, start:stop], dy[:, :, start:stop]
+                p = (qt @ k.transpose(-1, -2) / 128**0.5).softmax(-1)
+                out[:, :, start:stop] = p @ v
+                dv.add_(p.transpose(-1, -2) @ dyt)
+                dp = dyt @ v.transpose(-1, -2)
+                ds = p * (dp - (p * dp).sum(-1, keepdim=True))
+                dq[:, :, start:stop] = (ds @ k) / 128**0.5
+                dk.add_((ds.transpose(-1, -2) @ qt) / 128**0.5)
+                del p, dp, ds
+            return [x.transpose(1, 2) for x in (out, dq, dk, dv)]

@@ -1,0 +1,48 @@
+{
+  "format": "h3-packed-layout-hand-written.v1",
+  "case_id": "four_rows_non_self_inverse",
+  "origin": "Hand-calculated example from docs/contracts/h3-packed-layout.md section 5; not a released-pipeline geometry.",
+  "batch_size": 1,
+  "sequence_length": 4,
+  "dtypes": {
+    "position_ids": "float64",
+    "timestep": "float32",
+    "token_tags": "int64",
+    "timestep_indices": "int64",
+    "adaln_indices": "int64",
+    "text_indices": "int64",
+    "audio_indices": "int64",
+    "video_indices": "int64"
+  },
+  "source_row_ids": {"text": ["T0"], "audio": ["A0"], "video": ["V0", "V1"]},
+  "source_payloads": {"text": [10], "audio": [20], "video": [30, 40]},
+  "source_roles": {"text": ["condition"], "audio": ["target"], "video": ["condition", "target"]},
+  "num_condition_video_rows": 1,
+  "num_condition_audio_rows": 0,
+  "timestep": [0.25, 0.5, 1.0],
+  "perm_new_to_old": [3, 0, 2, 1],
+  "inverse_old_to_new": [1, 3, 2, 0],
+  "before": {
+    "row_ids": ["T0", "A0", "V0", "V1"],
+    "packed_payload": [10, 20, 30, 40],
+    "text_indices": [0],
+    "audio_indices": [1],
+    "video_indices": [2, 3],
+    "token_tags": [1, 2, 0, 0],
+    "timestep_indices": [0, 1, 2, 0],
+    "adaln_indices": [1, 5, 6, 0],
+    "position_ids": [[0.0, 0.0, 0.0], [1.0, 0.0, -0.5], [1.0, 0.0, 0.0], [1.0, 0.0, 0.5]]
+  },
+  "after": {
+    "row_ids": ["V1", "T0", "V0", "A0"],
+    "packed_payload": [40, 10, 30, 20],
+    "text_indices": [1],
+    "audio_indices": [3],
+    "video_indices": [2, 0],
+    "token_tags": [0, 1, 0, 2],
+    "timestep_indices": [0, 0, 2, 1],
+    "adaln_indices": [0, 1, 6, 5],
+    "position_ids": [[1.0, 0.0, 0.5], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, -0.5]]
+  },
+  "expected_selected_payloads": {"video": [30, 40], "audio": [20]}
+}
