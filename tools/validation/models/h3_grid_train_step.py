@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -322,10 +323,15 @@ def main() -> None:
             "reported_here": name in first["block_grads_mismatched"],
             "mismatches_here": first["block_grad_mismatches"],
         }
+    # an infinite or NaN norm skips the optimizer step on both sides, so equal digests would
+    # then prove nothing: such a run fails
+    report["norms_finite"] = all(math.isfinite(n) for n in report["norms"])
     report["pass"] = bool(
-        report["grid_vs_canonical"]["blocks_bitwise"]
+        report["norms_finite"]
+        and report["grid_vs_canonical"]["blocks_bitwise"]
         and (not args.refiner_lora or report["grid_vs_canonical"]["refiner_bitwise"])
         and (not args.repeat or report["grid_repeat"]["blocks_bitwise"])
+        and (not (args.repeat and args.refiner_lora) or report["grid_repeat"]["refiner_bitwise"])
         and exported["file_digests_equal"]
     )
     everyone = [None] * world
