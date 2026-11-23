@@ -4,9 +4,11 @@
 """Seeded H3 LoRA for the parallel harness (``h3-parallel-lora-v1``).
 
 ``make_block_lora`` draws one block's full LoRA from a seed: for each of the six targets of the
-verl-omni H3 recipe, ``A (r, K) ~ N(0, 1/r)`` (peft's ``gaussian`` init) and ``B (N, r)`` zero
-(the recipe's init) or ``N(0, b_std)`` (to exercise the B path), stored BF16 like the recipe's
-adapters. ``shard_block_lora`` cuts this TP rank's tensors with ``parallel_lora.shard_lora``.
+verl-omni H3 recipe, ``A (r, K)`` normal with mean 0 and standard deviation ``1 / r`` (peft's
+``gaussian`` init: ``nn.init.normal_(lora_A.weight, std=1 / r)``) and ``B (N, r)`` zero (the
+recipe's init) or normal with standard deviation ``b_std`` (to exercise the B path), stored BF16
+like the recipe's adapters. ``shard_block_lora`` cuts this TP rank's tensors with
+``parallel_lora.shard_lora``.
 The draw depends only on the seed, the block index and the target, never on the grid.
 """
 
@@ -43,7 +45,7 @@ def make_block_lora(
     out = {}
     for i, (target, (k, n)) in enumerate((shapes or SHAPES).items()):
         gen = torch.Generator().manual_seed((seed * 1009 + block) * 31 + i)
-        a = torch.randn(rank, k, generator=gen) / rank
+        a = torch.randn(rank, k, generator=gen) / rank  # std 1 / r, as peft's gaussian init
         b = torch.zeros(n, rank) if b_zero else torch.randn(n, rank, generator=gen) * b_std
         out[target] = {"A": a.bfloat16().to(device), "B": b.bfloat16().to(device)}
     return out
@@ -94,6 +96,112 @@ def attach_lora(
             {"tp": tp, "tp_rank": tp_rank, "scale": alpha / rank, "tensors": tensors},
         )
     return held
+
+
+def lora_digests(model) -> dict[str, str]:
+    """``{"<block>.<target>.<part>": SHA-256 of dtype, shape and bytes}`` of every LoRA shard the
+    model holds (``attach_lora`` / ``install_lora_shards``)."""
+
+    from rl_engine.integrations.engines.rollout.vllm.h3_omni_model import tensor_digest
+    from rl_engine.validation.models import h3_parallel_model as pm
+
+    out = {}
+    for index, block in enumerate(model.transformer_blocks):
+        lora = getattr(block, pm.LORA_ATTR, None)
+        if lora is None:
+            continue
+        for target, parts in lora["tensors"].items():
+            for part, t in parts.items():
+                out[f"{index}.{target}.{part}"] = tensor_digest(t)
+    return out
+
+
+def install_lora_shards(
+    model,
+    shards: list[dict[str, dict[str, torch.Tensor]]],
+    tp: int,
+    tp_rank: int,
+    *,
+    scale: float,
+    expected: dict[str, str] | None = None,
+    device: torch.device | str = "cuda",
+) -> dict[str, str]:
+    """Put LoRA shards received from the actor's TP rank ``tp_rank`` on every block.
+
+    ``shards[i]`` is block ``i``'s ``{target: {part: tensor}}`` in ``shard_block_lora``'s layout.
+    Actor and rollout both run TP ``tp``, so the actor's rank ``r`` sends the rollout's rank ``r``
+    its own shards, without a gather. Every tensor is checked against ``shard_lora``'s shapes for
+    ``(tp, tp_rank)``; ``expected`` (the sender's ``lora_digests``) must equal the installed
+    digests exactly, else the previous LoRA is put back and the call raises. Returns the
+    installed digests.
+    """
+
+    from rl_engine.validation.models import h3_parallel_model as pm
+
+    blocks = list(model.transformer_blocks)
+    if len(shards) != len(blocks):
+        raise ValueError(f"{len(shards)} LoRA blocks for {len(blocks)} transformer blocks")
+    for index, parts_by_target in enumerate(shards):
+        for target, parts in parts_by_target.items():
+            if not isinstance(parts, dict) or "A" not in parts:
+                raise ValueError(f"block {index} {target}: the shards have no A")
+            bad = sorted(k for k, v in parts.items() if not isinstance(v, torch.Tensor))
+            if bad:
+                raise ValueError(f"block {index} {target}: {bad} are not tensors")
+    ranks = {p["A"].shape[0] for by_target in shards for p in by_target.values()}
+    if len(ranks) != 1 or min(ranks) <= 0:
+        raise ValueError(f"LoRA ranks {sorted(ranks)}: one rank r > 0 for every target is needed")
+    for index, parts_by_target in enumerate(shards):
+        if set(parts_by_target) != set(SHAPES):
+            raise ValueError(
+                f"block {index}: targets {sorted(parts_by_target)} != {sorted(SHAPES)}"
+            )
+        for target, parts in parts_by_target.items():
+            r = parts["A"].shape[0]
+            k, n = SHAPES[target]
+            want = pl.shard_lora(
+                target,
+                torch.empty(r, k, device="meta"),
+                torch.empty(n, r, device="meta"),
+                tp,
+                tp_rank,
+            )
+            if set(parts) != set(want) or any(parts[p].shape != want[p].shape for p in want):
+                raise ValueError(f"block {index} {target}: the shards are not ({tp}, {tp_rank})'s")
+    # every transfer first: a failed one (out of memory, say) changes no block
+    staged = [
+        {
+            "tp": tp,
+            "tp_rank": tp_rank,
+            "scale": scale,
+            "tensors": {
+                t: {p: v.to(device) for p, v in parts.items()}
+                for t, parts in parts_by_target.items()
+            },
+        }
+        for parts_by_target in shards
+    ]
+    previous = [block.__dict__.get(pm.LORA_ATTR) for block in blocks]
+
+    def restore() -> None:
+        for block, old in zip(blocks, previous):
+            if old is None:
+                block.__dict__.pop(pm.LORA_ATTR, None)
+            else:
+                setattr(block, pm.LORA_ATTR, old)
+
+    for block, lora in zip(blocks, staged):
+        setattr(block, pm.LORA_ATTR, lora)
+    try:
+        got = lora_digests(model)
+    except BaseException:
+        restore()
+        raise
+    if expected is not None and got != expected:
+        bad = sorted(k for k in set(got) | set(expected) if got.get(k) != expected.get(k))
+        restore()
+        raise RuntimeError(f"LoRA sync digest mismatch on {len(bad)} shards, e.g. {bad[:3]}")
+    return got
 
 
 LEAVES_PER_BLOCK = sum(len(leaf_names(t)) for t in SHAPES)  # 13

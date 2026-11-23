@@ -144,6 +144,56 @@ zero), cut for each run's grid, and every LoRA shard's gradient is compared too
 up to the sign of a zero). The two token-refiner blocks are not on the grid and carry no LoRA in the
 runner; on every rank they would run `strict_lora_linear` alike.
 
+## Rollout on the grid (`h3-omni-rollout-v1`)
+
+`rl_engine/integrations/engines/rollout/vllm/h3_omni_model.py` makes a vLLM-Omni rollout run the
+actor's model. vLLM-Omni's `MiniMaxH3DiTModel` runs its own boundary modules around its blocks
+(TP-sharded patch projections and time embedder with an FP32 all-reduce, fused Triton norms and
+RoPE), so binding its blocks or projections alone cannot give the actor's bytes. Instead
+`install_h3_omni_model` replaces the whole DiT call:
+
+- `omni_to_diffusers` turns vLLM-Omni's packed keyword arguments (`x`, `audio_x`,
+  `img_position_ids`, `unique_timesteps` / `inverse_indices`, `token_tags`, the position infos,
+  `cu_seqlens`) into the Diffusers `MiniMaxH3Transformer3DModel` inputs that verl-omni's actor
+  builds for the same request: the padding rows (tag -1) are dropped, the video / audio rows are
+  taken at their positions and `torch.unique` is redone over the real rows' timesteps. This is data
+  movement only;
+- `H3OmniModelBinding` runs the actor's model (`h3_sharded_load.load_sharded_model` for this rank,
+  LoRA from `h3_lora`) in `parallel_model_execution` on `Grid(tp, 1)`, built on vLLM's TP group
+  (`tp_grid_from_group`). Like the actor's TP x CP grid, it equals the canonical `Grid(1, 1)` run;
+- a step-mode batch (`num_requests > 1`) is split into its requests (each one's real rows and its
+  padding document), and each runs alone, so a request's output does not depend on the batch;
+- the call runs under PyTorch's default SDPA backends (`torch_default_sdpa`). Importing vLLM
+  switches cuDNN attention off for the whole process, and without the strict boundaries (Hopper
+  only) the token refiner's attention is SDPA, so the engine would otherwise run another attention
+  kernel than the actor's process: on one B200 the replay of two recorded calls differed by up to
+  0.33 before this, and matched bit for bit after;
+- the return is vLLM-Omni's: video rows times `update_mask`, audio rows times `update_audio_mask`
+  when given.
+
+The engine's blocks are never called, which also bypasses their compiled forwards, the AdaLN cache
+and block hooks. What would change the result is refused before anything changes: the reference-KV
+cache, control hints, PDD steps, FastH3 sparse (VSA) attention, VDN attention, sequence / CFG / pipeline
+parallelism, another TP size, cache backends, quantization, an engine LoRA (`lora_path`),
+full-graph compile without `enforce_eager`, and a DiT whose instance `forward` is already replaced.
+`release_weights=True` moves the engine's own DiT parameters to `meta`.
+
+`h3_omni_worker.H3OmniWorkerExtension` is a vLLM-Omni `worker_extension_cls`; through
+`collective_rpc` it installs the binding on every worker (`rlk_h3_install`), puts a LoRA on it
+(`rlk_h3_attach_seeded_lora`, or `rlk_h3_load_lora` with the actor's shards) and reads back the
+grid and a digest of every DiT output (`rlk_h3_report`). Actor and rollout both run TP4, so
+`h3_lora.install_lora_shards` takes the actor's rank `r` shards on rollout rank `r` without a
+gather and checks every shard's SHA-256 against the sender's.
+
+`tools/validation/models/h3_omni_rollout_report.py` is the G3 check: an `engine` stage (vLLM-Omni
+at TP4 with the bound DiT; requests A and B alone, then together in step mode with
+`max_num_seqs=2`, since vLLM-Omni's step scheduler runs at most `max_num_seqs` requests (default 1)
+in one DiT call; every rank's outputs
+equal, and a request's outputs in a batch equal the same inputs alone), a `canonical` stage (the
+recorded calls replayed on one GPU must give the rollout's bytes) and an `actor` stage (the recorded
+vLLM-Omni kwargs through verl-omni's rollout storage and actor input builder must give the inputs
+the binding passed to the model).
+
 ## Tests and evidence
 
 `tests/models/minimax_h3/test_h3_parallel.py`: 70 tests on 4 H100 (sharding, canonical folding for
