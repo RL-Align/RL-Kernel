@@ -206,6 +206,7 @@ def column_parallel_lora_linear(
     for w, b in zip(weights, (b for _, bs in groups for b in bs)):
         if b.shape[0] != w.shape[0]:
             raise ValueError(f"B shard rows {b.shape[0]} differ from the weight's {w.shape[0]}")
+    par.check_column_widths(weights, tp)
     gather = gather and tp > 1  # one rank holds every row already
     layout = (len(weights),) + tuple(len(bs) for _, bs in groups)
     flat = [t for a, bs in groups for t in (a, *bs)]

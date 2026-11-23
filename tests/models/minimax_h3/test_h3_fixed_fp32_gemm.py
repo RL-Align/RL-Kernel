@@ -56,6 +56,24 @@ def test_launch_is_fixed_fp32_backends(monkeypatch):
     assert options == fx.LAUNCH
 
 
+def test_the_down_rows_launch_differs_only_in_index_width(monkeypatch):
+    """#535's down backend leaves ``INDEX_64`` at the kernel's default (``False``); every other
+    option is ``fx.LAUNCH``. The index width changes no value while offsets fit in 32 bits."""
+
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton.gemm import det_gemm, h3_down_fp32_backend
+
+    kernel = _Kernel()
+    monkeypatch.setattr(det_gemm, "_det_gemm_fp32_kernel", kernel)
+    backend = h3_down_fp32_backend.FixedFP32Backend()
+    backend.gemm(torch.zeros(3, 4, dtype=torch.bfloat16), torch.zeros(4, 5, dtype=torch.bfloat16))
+    ((_, options),) = kernel.launches
+    assert "INDEX_64" not in options  # the kernel's default, False
+    defaults = {"COMPENSATED": False, "CHUNK_K": 0, "EVEN_K": False, "EVEN_N": False}
+    assert {**defaults, **options, "INDEX_64": True} == fx.LAUNCH  # the rest is fx.LAUNCH
+    assert 32768 * 14336 < 2**31  # the down row's largest operand: no 32-bit offset overflows
+
+
 def test_rejects_non_bf16_operands():
     x = torch.zeros(2, 3)
     with pytest.raises(TypeError, match="BF16"):
@@ -127,5 +145,43 @@ def test_gate_up_lora_base_is_the_rows_kernel():
     outs = pl.column_parallel_lora_linear(
         x, [hidden, gate], [(a, [b_hidden, b_gate])], 2.0, kernel="fixed"
     )
-    for out, w in zip(outs, (hidden, gate)):
+    assert len(outs) == 2  # hidden and gate, both checked
+    for out, w in zip(outs, (hidden, gate), strict=True):
         assert torch.equal(out.float(), fx.gemm(x, w, b_t=True).float())
+
+
+needs_sm90 = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.get_device_capability() != (9, 0),
+    reason="the GEMM rows' operators run on SM90 only",
+)
+
+
+@needs_sm90
+@pytest.mark.parametrize("row", ["h3_attention_o_gemm", "h3_ffn_down_gemm", "h3_ffn_gate_up_gemm"])
+def test_tp_pieces_against_the_rows_operators(row):
+    """Gate/up forward, O / down dX and every dW shard are bitwise the rows' TP=1 operators."""
+
+    pytest.importorskip("triton")
+    from tools.validation.models import h3_gemm_rows_crosscheck as cc
+
+    result = cc.check(row, 264, seed=1)
+    assert result["pass"], result
+
+
+def test_crosscheck_diff_compares_bytes_and_flags_non_finite():
+    """``-0.0`` vs ``+0.0`` is equal by value, not by bytes; a NaN gives a JSON-safe ``None``."""
+
+    import json
+
+    from tools.validation.models import h3_gemm_rows_crosscheck as cc
+
+    zero = torch.zeros(2, 3, dtype=torch.bfloat16)
+    d = cc._diff(zero, -zero)
+    assert not d["bitwise"] and d["finite"] and d["max_abs"] == 0.0
+    assert cc._diff(zero, zero.clone())["bitwise"]
+    nan = zero.clone()
+    nan[0, 0] = float("nan")
+    d = cc._diff(nan, zero)
+    assert not d["finite"] and d["max_abs"] is None
+    json.dumps(d, allow_nan=False)
+    assert not cc._diff(zero, zero.float())["bitwise"]  # another dtype is not bitwise
