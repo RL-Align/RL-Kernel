@@ -20,6 +20,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from functools import partial
+from math import prod
 from pathlib import Path
 
 import torch
@@ -36,8 +37,14 @@ SOURCE_PATHS = (
 )
 
 
-def make_inputs(shape, dim, dtype, device, seed):
-    """Select half the axis without replacement from a seeded random permutation."""
+def strided_copy(tensor):
+    """Place the same values in every other storage element on the target device."""
+    view = torch.empty((*tensor.shape, 2), dtype=tensor.dtype, device=tensor.device)[..., 0]
+    return view.copy_(tensor)
+
+
+def make_inputs(shape, dim, dtype, device, seed, *, x_contiguous=True, grad_y_contiguous=True):
+    """Keep index and logical values identical when changing x or grad_y layout."""
     generator = torch.Generator(device="cpu").manual_seed(seed)
     axis_size = shape[dim]
     count = max(1, axis_size // 2)
@@ -46,7 +53,38 @@ def make_inputs(shape, dim, dtype, device, seed):
     output_shape[dim] = count
     x = torch.randn(shape, generator=generator).to(dtype=dtype, device=device)
     grad = torch.randn(output_shape, generator=generator).to(dtype=dtype, device=device)
+    if not x_contiguous:
+        x = strided_copy(x)
+    if not grad_y_contiguous:
+        grad = strided_copy(grad)
     return x, index.to(device), grad
+
+
+def layout_cases(shape, dim):
+    """Vary x for forward, grad_y for backward, and both for combined timing."""
+    x_elements = prod(shape)
+    selected = max(1, shape[dim] // 2)
+    grad_elements = x_elements // shape[dim] * selected
+    # PyTorch considers every one-element tensor contiguous, whatever its strides.
+    x_layouts = (True, False) if x_elements > 1 else (True,)
+    grad_layouts = (True, False) if grad_elements > 1 else (True,)
+    for x_contiguous in x_layouts:
+        for grad_y_contiguous in grad_layouts:
+            phases = []
+            if grad_y_contiguous:
+                phases.append("forward")
+            if x_contiguous:
+                phases.append("backward")
+            phases.append("forward_backward")
+            yield {
+                "shape": list(shape),
+                "dim": dim,
+                "unique_indices": True,
+                "duplicate_fraction": 0.0,
+                "x_contiguous": x_contiguous,
+                "grad_y_contiguous": grad_y_contiguous,
+                "phases": phases,
+            }
 
 
 def run_vjp(op, x, index, grad):
@@ -104,7 +142,9 @@ def checks_failed(checks):
     return any(value for name, value in checks.items() if name.endswith(("mismatches", "failures")))
 
 
-def measure(op, x, index, grad, warmup, samples):
+def measure(
+    op, x, index, grad, warmup, samples, *, phases=("forward", "backward", "forward_backward")
+):
     """Include allocations, validation and scatter in the owning phase.
 
     Forward runs with autograd enabled. Backward reuses a retained forward graph;
@@ -125,6 +165,8 @@ def measure(op, x, index, grad, warmup, samples):
 
     timings = {}
     for phase, fn in (("forward", forward), ("backward", backward), ("forward_backward", combined)):
+        if phase not in phases:
+            continue
         for _ in range(warmup):
             fn()
         torch.cuda.synchronize()
@@ -241,19 +283,10 @@ def parse_args(argv=None):
 def main():
     """Validate each baseline and candidate before recording time and peak memory."""
     args = parse_args()
-    case_plan = [
-        {
-            "shape": list(shape),
-            "dim": args.dim,
-            "unique_indices": True,
-            "duplicate_fraction": args.duplicates,
-        }
-        for shape in args.shapes
-    ]
+    case_plan = [case for shape in args.shapes for case in layout_cases(shape, args.dim)]
     if args.dry_run:
-        print(
-            json.dumps({"cases": case_plan, "measurement_count": len(case_plan) * 3 * 3}, indent=2)
-        )
+        measurement_count = 3 * sum(len(case["phases"]) for case in case_plan)
+        print(json.dumps({"cases": case_plan, "measurement_count": measurement_count}, indent=2))
         return
     if not torch.cuda.is_available():
         raise RuntimeError("benchmark timing requires a CUDA or ROCm device")
@@ -281,6 +314,7 @@ def main():
             "reference": "CPU input-dtype gather and FP64 scatter-add for the input gradient",
             "comparison": "all elements; shared WS1 gradient_accuracy/reduction thresholds",
             "selection": "synthetic half-axis selection without replacement",
+            "layouts": "contiguous index; independent contiguous/stride-two x and grad_y",
         },
         "complete": False,
         "case_plan": case_plan,
@@ -291,7 +325,15 @@ def main():
     old_warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
     try:
         for case in case_plan:
-            x, index, grad = make_inputs(case["shape"], args.dim, dtype, "cuda", args.seed)
+            x, index, grad = make_inputs(
+                case["shape"],
+                args.dim,
+                dtype,
+                "cuda",
+                args.seed,
+                x_contiguous=case["x_contiguous"],
+                grad_y_contiguous=case["grad_y_contiguous"],
+            )
             duplicate_fraction_actual = 1 - index.unique().numel() / index.numel()
             if duplicate_fraction_actual != 0:
                 raise ValueError("benchmark produced repeated indices")
@@ -313,13 +355,18 @@ def main():
                     "deterministic_algorithms": deterministic,
                     "selected_count": index.numel(),
                     "duplicate_fraction_actual": duplicate_fraction_actual,
+                    "x_strides": list(x.stride()),
+                    "grad_y_strides": list(grad.stride()),
+                    "index_stride": index.stride(0),
                     "checks": checks,
                 }
                 report["results"].append(result)
                 if checks_failed(checks):
                     args.output.write_text(json.dumps(report, indent=2) + "\n")
                     raise RuntimeError(f"{name} checks failed before timing: {args.output}")
-                result["timings"] = measure(op, x, index, grad, args.warmup, args.samples)
+                result["timings"] = measure(
+                    op, x, index, grad, args.warmup, args.samples, phases=case["phases"]
+                )
                 args.output.write_text(json.dumps(report, indent=2) + "\n")
                 print(json.dumps({k: v for k, v in result.items() if k != "timings"}), flush=True)
     finally:

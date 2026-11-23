@@ -105,6 +105,7 @@ python tools/validation/operators/check_operator.py --op index_select --candidat
 python benchmarks/operators/embedding/benchmark_index_select.py --shapes 1x129x32 1x4097x96 --dim 1 --dry-run
 python benchmarks/operators/embedding/benchmark_index_select.py --shapes 1x129x32 1x38734x96 --dim 1 --dtype float32 --output reports/index-select/h3.json
 python benchmarks/operators/embedding/benchmark_index_select.py --shapes 129x3584 4097x28x128 --dim 0 --dtype bfloat16 --output reports/index-select/bagel.json
+python benchmarks/operators/embedding/report_index_select.py reports/index-select/h3.json reports/index-select/bagel.json --output-dir reports/index-select
 ```
 
 The CUDA/ROCm benchmark uses the same random selection without replacement for
@@ -119,3 +120,11 @@ The report includes device-event and synchronized wall time for forward,
 backward and combined execution, in milliseconds. Peak allocated memory is
 reported in bytes above the starting allocation for a combined call. Input
 construction, reference computation, compilation and warmup precede timing.
+
+The index vector stays contiguous. Each shape uses identical logical values for
+a contiguous tensor and a view that reads every other storage element. Forward
+varies the layout of `x`. Isolated backward varies `grad_y` on a retained graph
+built with contiguous `x`. Combined timing and peak memory cover every feasible pair of layouts.
+A one-element tensor only has a contiguous case. The JSON records the actual
+strides. The reporting command uses Matplotlib to write `summary.md` and a PNG
+per workload, with linear axes for time in µs and incremental peak memory in MiB.

@@ -9,6 +9,7 @@ import pytest
 import torch
 
 from benchmarks.operators.embedding import benchmark_index_select as benchmark
+from benchmarks.operators.embedding.report_index_select import panel_rows
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.reference.embedding.index_select import NativeIndexSelectOp
 
@@ -75,11 +76,59 @@ def test_dry_run_without_cuda(monkeypatch, capsys):
     import json
 
     monkeypatch.setattr(
-        "sys.argv", ["benchmark_index_select", "--dim", "0", "--shapes", "17x4x8", "--dry-run"]
+        "sys.argv",
+        ["benchmark_index_select", "--dim", "0", "--shapes", "17x4x8", "--dry-run"],
     )
     benchmark.main()
     plan = json.loads(capsys.readouterr().out)
-    assert plan["cases"] == [
-        {"shape": [17, 4, 8], "dim": 0, "unique_indices": True, "duplicate_fraction": 0.0}
-    ]
-    assert plan["measurement_count"] == 9
+    cases = plan["cases"]
+    assert all(case["shape"] == [17, 4, 8] and case["dim"] == 0 for case in cases)
+    assert {(c["x_contiguous"], c["grad_y_contiguous"]): c["phases"] for c in cases} == {
+        (True, True): ["forward", "backward", "forward_backward"],
+        (True, False): ["backward", "forward_backward"],
+        (False, True): ["forward", "forward_backward"],
+        (False, False): ["forward_backward"],
+    }
+    assert plan["measurement_count"] == 24  # (2 forward + 2 backward + 4 combined) × 3 backends.
+
+
+@pytest.mark.parametrize("shape", [(7, 5), (2,), (1,)])
+def test_layout_cases_preserve_values_and_match_actual_strides(shape):
+    """Check the controlled comparison, including gradients with only one element."""
+    args = shape, 0, torch.float32, "cpu", 420
+    dense_x, dense_index, dense_grad = benchmark.make_inputs(*args)
+    cases = list(benchmark.layout_cases(shape, 0))
+    assert len(cases) == (2 if dense_x.numel() > 1 else 1) * (2 if dense_grad.numel() > 1 else 1)
+    for case in cases:
+        x, index, grad = benchmark.make_inputs(
+            *args,
+            x_contiguous=case["x_contiguous"],
+            grad_y_contiguous=case["grad_y_contiguous"],
+        )
+        assert x.is_contiguous() == case["x_contiguous"]
+        assert grad.is_contiguous() == case["grad_y_contiguous"]
+        assert torch.equal(x, dense_x) and torch.equal(grad, dense_grad)
+        assert index.stride() == (1,) and torch.equal(index, dense_index)
+
+
+def test_report_groups_only_timed_phases_and_converts_units():
+    """Isolated phases use one layout label; combined time and peak use both."""
+    results = []
+    for case in benchmark.layout_cases((3, 7), 1):
+        timings = {
+            phase: {"median_wall_ms": 0.1, "median_event_ms": 0.08} for phase in case["phases"]
+        }
+        timings["incremental_peak_bytes"] = 2**20
+        results.append({**case, "implementation": "triton", "timings": timings})
+    assert panel_rows(results, "forward") == {
+        ("C", "—"): {"triton": (100, 80)},
+        ("S", "—"): {"triton": (100, 80)},
+    }
+    assert set(panel_rows(results, "backward")) == {("—", "C"), ("—", "S")}
+    for phase, values in (
+        ("forward_backward", (100, 80)),
+        ("incremental_peak_bytes", (1,)),
+    ):
+        assert panel_rows(results, phase) == {
+            (x, grad): {"triton": values} for x in ("C", "S") for grad in ("C", "S")
+        }

@@ -219,6 +219,30 @@ class TestSharedAxes:
             assert_bits(op(x, index, dim=dim, unique_indices=True), output)
         assert_bits(vjp(op, x, index, grad, dim=dim)[1], dx)
 
+    @pytest.mark.parametrize("contiguous_x", [True, False])
+    @pytest.mark.parametrize("contiguous_index", [True, False])
+    def test_input_index_and_gradient_layouts_are_independent(
+        self, backend, contiguous_x, contiguous_index
+    ):
+        op, device = self.operator(backend)
+        x = torch.arange(2 * 3 * 5 * 7 * 6, device=device, dtype=torch.float32)
+        x = x.reshape(2, 3, 5, 7, 6)[..., 1::2]
+        # Both index views select [4, 0, 2] and start at a nonzero storage offset.
+        if contiguous_index:
+            index = torch.tensor([1, 4, 0, 2], device=device)[1:]
+        else:
+            index = torch.tensor([1, 4, 1, 0, 1, 2], device=device)[1::2]
+        # Both views start out strided. Make exactly one contiguous so each
+        # launch must choose its address calculation from the tensor it reads.
+        grad = x[:, :, 1:4]
+        if contiguous_x:
+            x = x.contiguous()
+        else:
+            grad = grad.contiguous()
+        y, dx = vjp(op, x, index, grad, dim=-3)
+        assert_bits(y, x.index_select(-3, index))
+        assert_bits(dx, expected_gradient(x, index, grad, dim=-3))
+
     def test_batch_train_infer_and_row_relabeling(self, backend):
         op, device = self.operator(backend)
         x = torch.randn(3, 73, 96, device=device)

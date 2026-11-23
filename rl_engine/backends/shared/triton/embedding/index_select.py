@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import prod
 
 import torch
@@ -41,29 +42,41 @@ def _strided_offset(flat_index, SHAPE: tl.constexpr, STRIDES: tl.constexpr):
 
 
 @triton.jit
+def _load_index_row(index_ptr, position, index_stride):
+    """Read index[position]. Only a non-contiguous index view passes a stride."""
+    if index_stride is None:
+        offset = position
+    else:
+        offset = position * index_stride
+    return tl.load(index_ptr + offset).to(tl.int64)
+
+
+@triton.jit
 def _index_select_fwd_kernel(
     x_ptr,
     index_ptr,
     y_ptr,
     n_rows,
     n_selected,
+    axis_size,
     inner_size: tl.constexpr,
-    OUTER_SHAPE: tl.constexpr,
-    INNER_SHAPE: tl.constexpr,
-    X_OUTER_STRIDES: tl.constexpr,
-    X_INNER_STRIDES: tl.constexpr,
-    x_stride_axis,
+    X_IS_CONTIGUOUS: tl.constexpr,
     index_stride,
     BLOCK_SIZE: tl.constexpr,
+    OUTER_SHAPE: tl.constexpr = None,
+    INNER_SHAPE: tl.constexpr = None,
+    OUTER_STRIDES: tl.constexpr = None,
+    INNER_STRIDES: tl.constexpr = None,
+    axis_stride=None,
 ):
     """Copy a tile from an indexed slice, retaining the input's storage bits.
 
     Logically view x as [outer, axis, inner] and y as [outer, K, inner].
     Grid axis 0 distributes the outer * K logical rows, and axis 1 distributes
     the inner tiles of each row. If either axis reaches its launch limit, a
-    program advances by the grid size on that axis. Input reads use x's
-    original strides, and output writes are contiguous. The kernel copies
-    each selected element without floating-point arithmetic or an input reshape.
+    program advances by the grid size on that axis. A contiguous input uses
+    linear row and column offsets. Other views use their original strides.
+    Both paths copy the selected bits into a contiguous output.
     """
     first_row = tl.program_id(0).to(tl.int64)
     row_stride = tl.num_programs(0).to(tl.int64)
@@ -75,17 +88,20 @@ def _index_select_fwd_kernel(
     for output_row in range(first_row, row_end, row_stride):
         # y[outer, position, :] comes from x[outer, index[position], :].
         outer, position = output_row // n_selected, output_row % n_selected
-        outer_offset = _strided_offset(outer, OUTER_SHAPE, X_OUTER_STRIDES)
-        input_row = tl.load(index_ptr + position * index_stride).to(tl.int64)
+        input_row = _load_index_row(index_ptr, position, index_stride)
+        if X_IS_CONTIGUOUS:
+            x_start = (outer * axis_size + input_row) * inner_size
+        else:
+            outer_offset = _strided_offset(outer, OUTER_SHAPE, OUTER_STRIDES)
+            x_start = outer_offset + input_row * axis_stride
         for tile in range(first_tile, n_tiles, tile_stride):
             cols = tl.cast(tile, tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
             mask = cols < inner_size
-            inner_offsets = _strided_offset(cols, INNER_SHAPE, X_INNER_STRIDES)
-            value = tl.load(
-                x_ptr + outer_offset + input_row * x_stride_axis + inner_offsets,
-                mask=mask,
-                other=0,
-            )
+            if X_IS_CONTIGUOUS:
+                inner_offsets = cols
+            else:
+                inner_offsets = _strided_offset(cols, INNER_SHAPE, INNER_STRIDES)
+            value = tl.load(x_ptr + x_start + inner_offsets, mask=mask, other=0)
             tl.store(y_ptr + output_row * inner_size + cols, value, mask=mask)
 
 
@@ -98,13 +114,14 @@ def _index_select_bwd_unique_kernel(
     n_selected,
     axis_size,
     inner_size: tl.constexpr,
-    OUTER_SHAPE: tl.constexpr,
-    INNER_SHAPE: tl.constexpr,
-    GRAD_OUTER_STRIDES: tl.constexpr,
-    GRAD_INNER_STRIDES: tl.constexpr,
-    grad_y_stride_axis,
+    GRAD_Y_IS_CONTIGUOUS: tl.constexpr,
     index_stride,
     BLOCK_SIZE: tl.constexpr,
+    OUTER_SHAPE: tl.constexpr = None,
+    INNER_SHAPE: tl.constexpr = None,
+    OUTER_STRIDES: tl.constexpr = None,
+    INNER_STRIDES: tl.constexpr = None,
+    axis_stride=None,
 ):
     """Scatter a tile of grad_y into grad_x when each selected row occurs once."""
     first_row = tl.program_id(0).to(tl.int64)
@@ -116,16 +133,21 @@ def _index_select_bwd_unique_kernel(
 
     for output_row in range(first_row, row_end, row_stride):
         outer, position = output_row // n_selected, output_row % n_selected
-        outer_offset = _strided_offset(outer, OUTER_SHAPE, GRAD_OUTER_STRIDES)
-        input_row = tl.load(index_ptr + position * index_stride).to(tl.int64)
-        # Read through grad_y's upstream strides. Unique indices give each selected
-        # row of the contiguous grad_x a single writer for each tile.
-        grad_y_start = outer_offset + position * grad_y_stride_axis
+        input_row = _load_index_row(index_ptr, position, index_stride)
+        # grad_y has the output shape, so output_row is already its flat row index.
+        if GRAD_Y_IS_CONTIGUOUS:
+            grad_y_start = output_row * inner_size
+        else:
+            outer_offset = _strided_offset(outer, OUTER_SHAPE, OUTER_STRIDES)
+            grad_y_start = outer_offset + position * axis_stride
         grad_x_start = (outer * axis_size + input_row) * inner_size
         for tile in range(first_tile, n_tiles, tile_stride):
             cols = tl.cast(tile, tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
             mask = cols < inner_size
-            inner_offsets = _strided_offset(cols, INNER_SHAPE, GRAD_INNER_STRIDES)
+            if GRAD_Y_IS_CONTIGUOUS:
+                inner_offsets = cols
+            else:
+                inner_offsets = _strided_offset(cols, INNER_SHAPE, INNER_STRIDES)
             grad = tl.load(grad_y_ptr + grad_y_start + inner_offsets, mask=mask, other=0)
             # Match the reference's FP32 sum starting at +0. An upstream -0 gives +0.
             value = 0.0 + grad.to(tl.float32)
@@ -168,6 +190,64 @@ def _validate_inputs(x: Tensor, index: Tensor, dim: int) -> None:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _AxisLayout:
+    """Describe a non-contiguous source tensor around the selected dimension ``dim``.
+
+    Strides are measured in elements.
+
+    Attributes:
+        outer_shape: Sizes of the axes before ``dim``, in tensor order.
+        inner_shape: Sizes of the axes after ``dim``, in tensor order.
+        outer_strides: Strides of the axes before ``dim``, in tensor order.
+            For a strided view, this tuple is empty when selecting the first axis.
+        axis_stride: Distance between consecutive positions along ``dim``.
+            A broadcast axis can have stride zero.
+        inner_strides: Strides of the axes after ``dim``, in tensor order.
+            For a strided view, this tuple is empty when selecting the last axis.
+    """
+
+    outer_shape: tuple[int, ...]
+    inner_shape: tuple[int, ...]
+    outer_strides: tuple[int, ...]
+    axis_stride: int
+    inner_strides: tuple[int, ...]
+
+    @staticmethod
+    def kernel_kwargs(layout: _AxisLayout | None) -> dict:
+        """Return the strided kernel arguments, or an empty dict for a contiguous source."""
+        if layout is None:
+            return {}
+        return {
+            "OUTER_SHAPE": layout.outer_shape,
+            "INNER_SHAPE": layout.inner_shape,
+            "OUTER_STRIDES": layout.outer_strides,
+            "INNER_STRIDES": layout.inner_strides,
+            "axis_stride": layout.axis_stride,
+        }
+
+    @staticmethod
+    def is_contiguous(layout: _AxisLayout | None) -> bool:
+        """Return True when the entire source tensor is contiguous."""
+        return layout is None
+
+
+def _get_axis_layout(
+    tensor: Tensor, dim: int, outer_shape: tuple[int, ...], inner_shape: tuple[int, ...]
+) -> _AxisLayout | None:
+    """Return None for contiguous addressing, or the shapes and strides of the view."""
+    if tensor.is_contiguous():
+        return None
+    strides = tensor.stride()
+    return _AxisLayout(
+        outer_shape=tuple(outer_shape),
+        inner_shape=tuple(inner_shape),
+        outer_strides=strides[:dim],
+        axis_stride=strides[dim],
+        inner_strides=strides[dim:][1:],
+    )
+
+
 def _launch_index_select_fwd(x: Tensor, index: Tensor, dim: int) -> Tensor:
     """Allocate the selected shape and copy slices on the input device's stream."""
     # Start at the selected axis, then drop it. For dim=-1 the suffix is empty.
@@ -183,6 +263,7 @@ def _launch_index_select_fwd(x: Tensor, index: Tensor, dim: int) -> Tensor:
     grid_x = min(n_rows, _MAX_GRID_X)
     grid_y = min(triton.cdiv(inner_size, block_size), _MAX_GRID_Y)
     grid = (grid_x, grid_y)
+    x_layout = _get_axis_layout(x, dim, outer_shape, inner_shape)
     # The caller may have another device selected. This guard restores it after the launch.
     device_module = torch.get_device_module(x.device)
     with device_module.device(x.device):
@@ -192,14 +273,13 @@ def _launch_index_select_fwd(x: Tensor, index: Tensor, dim: int) -> Tensor:
             y,
             n_rows=n_rows,
             n_selected=n_selected,
+            axis_size=x.shape[dim],
             inner_size=inner_size,
-            OUTER_SHAPE=tuple(outer_shape),
-            INNER_SHAPE=tuple(inner_shape),
-            X_OUTER_STRIDES=x.stride()[:dim],
-            X_INNER_STRIDES=x.stride()[dim:][1:],
-            x_stride_axis=x.stride(dim),
-            index_stride=index.stride(0),
+            X_IS_CONTIGUOUS=_AxisLayout.is_contiguous(x_layout),
+            index_stride=None if index.is_contiguous() else index.stride(0),
+            num_warps=4,
             BLOCK_SIZE=block_size,
+            **_AxisLayout.kernel_kwargs(x_layout),
         )
     return y
 
@@ -222,6 +302,7 @@ def _launch_index_select_bwd(
     grid_y = min(triton.cdiv(inner_size, block_size), _MAX_GRID_Y)
     grid = (grid_x, grid_y)
     backward_kernel = _BACKWARD_KERNELS[unique_indices]
+    grad_y_layout = _get_axis_layout(grad_y, dim, outer_shape, inner_shape)
     device_module = torch.get_device_module(grad_y.device)
     with device_module.device(grad_y.device):
         backward_kernel[grid](
@@ -232,15 +313,12 @@ def _launch_index_select_bwd(
             n_selected=n_selected,
             axis_size=x_shape[dim],
             inner_size=inner_size,
-            OUTER_SHAPE=tuple(outer_shape),
-            INNER_SHAPE=tuple(inner_shape),
-            GRAD_OUTER_STRIDES=grad_y.stride()[:dim],
-            GRAD_INNER_STRIDES=grad_y.stride()[dim:][1:],
-            grad_y_stride_axis=grad_y.stride(dim),
-            index_stride=index.stride(0),
+            GRAD_Y_IS_CONTIGUOUS=_AxisLayout.is_contiguous(grad_y_layout),
+            index_stride=None if index.is_contiguous() else index.stride(0),
             BLOCK_SIZE=block_size,
             num_warps=4,
             enable_fp_fusion=False,
+            **_AxisLayout.kernel_kwargs(grad_y_layout),
         )
     return grad_x
 
