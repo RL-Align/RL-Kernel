@@ -391,3 +391,15 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+
+def inkling2_shared_weight_grad_forward(
+    gradients: torch.Tensor, shard_start: int, shard_end: int
+) -> torch.Tensor: ...
+def inkling2_shared_weight_grad_backward(
+    grad_output: torch.Tensor,
+    visits: int,
+    full_rows: int,
+    elements: int,
+    shard_start: int,
+    shard_end: int,
+) -> torch.Tensor: ...

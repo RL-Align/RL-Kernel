@@ -267,6 +267,11 @@ std::vector<torch::Tensor> swiglu_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate,
     torch::Tensor up);
+torch::Tensor inkling2_shared_weight_grad_forward(
+    torch::Tensor gradients, int64_t shard_start, int64_t shard_end);
+torch::Tensor inkling2_shared_weight_grad_backward(
+    torch::Tensor grad_output, int64_t visits, int64_t full_rows, int64_t elements,
+    int64_t shard_start, int64_t shard_end);
 torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
 std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
@@ -763,6 +768,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("silu_forward", &silu_forward, "Batch-invariant SiLU forward CUDA");
     m.def("silu_backward", &silu_backward, "Batch-invariant SiLU backward CUDA");
     m.def("swiglu_forward", &swiglu_forward, "Batch-invariant SwiGLU forward CUDA");
+    m.def("inkling2_shared_weight_grad_forward", &inkling2_shared_weight_grad_forward,
+          "Inkling 2 Mini native CUDA shared-weight gradient fold");
+    m.def("inkling2_shared_weight_grad_backward", &inkling2_shared_weight_grad_backward,
+          "Inkling 2 Mini native CUDA shared-weight gradient backward");
     m.def("swiglu_backward", &swiglu_backward, "Batch-invariant SwiGLU backward CUDA");
     m.def("swiglu_packed_forward", &swiglu_packed_forward,
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");

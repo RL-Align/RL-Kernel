@@ -34,3 +34,22 @@ def test_gradient_accumulation_remains_differentiable():
 def test_missing_visit_is_rejected():
     with pytest.raises(ValueError, match="missing"):
         accumulate_shared_weight_gradients({0: torch.ones(2, 2)})
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_native_cuda_shared_weight_gradient_matches_reference_and_backward():
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+    from rl_engine.models.inkling2.shared_weight_grad import accumulate_shared_weight_gradients_cuda
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_shared_weight_grad_forward"):
+        pytest.skip("Inkling 2 shared-weight CUDA extension is unavailable")
+    torch.manual_seed(23)
+    gradients = {
+        visit: torch.randn(4, 3, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        for visit in range(3)
+    }
+    native = accumulate_shared_weight_gradients_cuda(gradients, shard=(1, 3))
+    reference = accumulate_shared_weight_gradients(gradients, shard=(1, 3))
+    torch.testing.assert_close(native, reference, atol=2e-2, rtol=0)
+    native.float().square().mean().backward()
+    assert all(gradient.grad is not None for gradient in gradients.values())
