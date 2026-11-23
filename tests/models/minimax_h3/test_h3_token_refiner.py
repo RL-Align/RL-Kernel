@@ -107,8 +107,8 @@ def test_report_names_rows_status_and_backend_per_node(refiner_weights):
     assert [e["node"] for e in report["nodes"]] == list(hr.NODE_NAMES)
     by = {e["node"]: e for e in report["nodes"]}
     assert by["q_proj"]["status"] == "row" and by["q_proj"]["rfc_row"] == "h3_qkv_gemm"
-    bound = hb.bindings(ops, hr.NODES)
-    assert by["attention"]["status"] == bound["attention"].status
+    # what CandidateOps loaded, not hb.bindings (the function under test)
+    assert by["attention"]["status"] == ("row" if ops.attention_h3 is not None else "interim")
     for name in hb.GEMM_ROWS:  # the rows' operators on SM90, the interim GEMM elsewhere
         assert by[name]["status"] == ("row" if hb.gemm_rows_supported() else "interim")
     assert by["residual_attn"]["rfc_row"] == "token_refiner_block"
@@ -178,6 +178,7 @@ def test_operator_trace_covers_the_refiner_paths(refiner_weights):
     ops = hb.CandidateOps()
     gen = torch.Generator("cpu").manual_seed(1)
     hidden = torch.randn(1, 17, hr.HIDDEN, generator=gen).bfloat16().cuda()
+    bound = hb.bindings(ops, hr.NODES)  # what this run binds, not the static NODES table
     trace = ot.OperatorTrace(metadata={"stage": "token_refiner"})
     with torch.no_grad():
         hr.run_refiner(
@@ -186,7 +187,7 @@ def test_operator_trace_covers_the_refiner_paths(refiner_weights):
             hidden,
             ops,
             observer_factory=lambda b: ot.block_observer(
-                trace, block_index=b, stage="token_refiner"
+                trace, block_index=b, bindings=bound, stage="token_refiner"
             ),
         )
     paths = [
@@ -196,11 +197,14 @@ def test_operator_trace_covers_the_refiner_paths(refiner_weights):
     ]
     assert [c.path for c in trace.calls] == paths
     assert trace.coverage(paths=paths) == {"wrong_count": [], "unexpected": []}
-    bound = {n.name: n.binding for n in hr.NODES}
     for call in trace.calls:
         node = call.path.rsplit(".", 1)[1]
-        assert (call.status, call.row) == (bound[node].status, bound[node].rfc_row)
-    assert trace.violations(paths=paths)  # interim nodes still present
+        assert (call.status, call.row, call.backend) == (
+            bound[node].status,
+            bound[node].rfc_row,
+            bound[node].backend,
+        )
+    assert trace.violations(paths=paths)  # the hook does not observe fallback state
     assert (
         trace.violations(paths=paths, allowed_statuses=("row", "interim"), require_observed=False)
         == []

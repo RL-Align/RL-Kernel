@@ -54,7 +54,7 @@ without weights). On H100 (Hopper) 15 passed. Tokens 1, 64 and 257 per block, bo
 ## Limits
 
 SwiGLU and the QK norm are `interim` until their rows land, and so are the O/gate_up/down GEMMs off
-SM90, and attention where the `H3FullAttentionOp` extension cannot be loaded (it then runs the
+SM90 (or without Triton), and attention where the `H3FullAttentionOp` extension cannot be loaded (it then runs the
 interim `DeterministicAttentionOp`); a refiner trace is not yet strict-clean (`assert_strict`
 reports exactly those nodes).
 Fail-closed strict mode is therefore enforced per node by the trace, not by the block.
@@ -64,6 +64,7 @@ Fail-closed strict mode is therefore enforced per node by the trace, not by the 
 These outputs and figures are not part of this diff; they are on the fork's `pr_assets` branch (links in the PR description).
 `reports/experiments/h3-token-refiner-h100/report.json` (from `tools/validation/models/h3_refiner_report.py`, real block-0 weights) records per-node agreement,
 batch/repeat invariance, relative error vs FP64 and block time at 12, 257 and 925 tokens.
-Time: 3.7 ms vs 0.54 ms (12 tokens), 8.5 vs 0.62 ms (257), 32.3 vs 1.42 ms (925) for RL-Kernel vs provider. Almost all of it is the nodes
-that still run interim bindings owned by other rows (full attention, O/gate_up/down GEMMs); the rows this PR adds (QKV, norms, residual) are
-within about 2x of the provider. Replacing the interim bindings is tracked by those rows, not by this PR.
+Time: 3.7 ms vs 0.54 ms (12 tokens), 8.5 vs 0.62 ms (257), 32.3 vs 1.42 ms (925) for RL-Kernel vs provider. These timings are
+historical: they were measured when full attention and the O/gate_up/down GEMMs still ran their interim bindings, and almost all of
+the gap was those nodes; the rows this PR adds (QKV, norms, residual) were within about 2x of the provider. They have not been
+re-measured with `H3FullAttentionOp` and the #535/#554 GEMM rows bound.
