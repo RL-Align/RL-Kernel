@@ -465,3 +465,34 @@ def test_unrelated_nvcc_flags_keep_the_h3_kernels(monkeypatch) -> None:
 
     assert set(H3_BITWISE_SOURCES) <= set(extension["sources"])
     assert H3_KERNELS_DEFINE in extension["extra_compile_args"]["nvcc"]
+
+
+@pytest.mark.parametrize(
+    ("version", "standard"),
+    [
+        ("2.9.1", "c++17"),
+        ("2.10.0+cu128", "c++17"),  # 10 > 9 as numbers, not as strings
+        ("2.13.0+cu130", "c++17"),
+        ("2.14.0", "c++20"),
+        ("2.14.0+cu130", "c++20"),
+        ("2.14.0a0+git1234567", "c++20"),
+        ("3.0.0", "c++20"),
+    ],
+)
+def test_host_cxx_standard_follows_torch(version: str, standard: str) -> None:
+    # torch 2.14 headers stop with "C++20 or later compatible compiler is required".
+    assert extensions._host_cxx_standard(version) == standard
+
+
+@pytest.mark.parametrize("hip", [None, "test"])
+@pytest.mark.parametrize(
+    ("version", "standard"), [("2.13.0+cu130", "c++17"), ("2.14.0+cu130", "c++20")]
+)
+def test_host_flags_carry_one_std_from_the_torch_version(
+    monkeypatch, hip, version, standard
+) -> None:
+    _clear_nvcc_env(monkeypatch)
+    monkeypatch.setattr(torch, "__version__", version)
+    cxx = _load_extension_config(monkeypatch, hip=hip)["extra_compile_args"]["cxx"]
+
+    assert [flag for flag in cxx if flag.startswith("-std=")] == [f"-std={standard}"]
