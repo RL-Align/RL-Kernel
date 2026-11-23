@@ -63,27 +63,59 @@ def test_small_query_tile_is_bitwise_equal_with_shuffled_pages(batch, length, he
     assert torch.equal(result.lse, reference.lse)
 
 
-@pytest.mark.parametrize("batch", [1, 4, 64])
-def test_captured_full_support_matches_independent_policy(batch):
+@pytest.mark.parametrize(
+    ("batch", "top_p"),
+    [(1, (0.8, 1.0)), (4, (0.8, 1.0)), (64, (0.8, 1.0)), (64, (0.95, 0.95)), (8, (0.95, 0.95))],
+)
+def test_captured_full_support_matches_independent_policy(batch, top_p, monkeypatch):
+    import sys
+
     from vllm.v1.sample.ops import topk_topp_sampler as native
 
-    from rl_engine.integrations.engines.rollout.vllm.sampling_support import (
-        capture_support,
-        install_capture,
-    )
+    from rl_engine.integrations.engines.rollout.vllm import sampling_support
     from rl_engine.ops.sampling.policy import sampling_keep_mask
+
+    # install_capture patches vLLM globally; restore it after this test.
+    monkeypatch.setattr(native, "apply_top_k_top_p", native.apply_top_k_top_p)
+    for name in sampling_support._DISPATCHER_IMPORTERS:
+        module = sys.modules.get(name)
+        if module is not None and hasattr(module, "apply_top_k_top_p"):
+            monkeypatch.setattr(module, "apply_top_k_top_p", module.apply_top_k_top_p)
 
     torch.manual_seed(1234)
     logits = torch.randn(batch, 151936, device="cuda", dtype=torch.float32)
-    p = torch.linspace(0.8, 1.0, batch, device="cuda")
+    p = torch.linspace(*top_p, batch, device="cuda")
     k = torch.full((batch,), logits.size(1), device="cuda", dtype=torch.int32)
     expected = sampling_keep_mask(logits, temperature=0.7, top_p=p, top_k=k)
+    sampling_support.install_capture()
     original = native.apply_top_k_top_p(logits.clone() / 0.7, k, p)
-    install_capture()
-    with capture_support(True) as support:
+    with sampling_support.capture_support(True) as support:
         result = native.apply_top_k_top_p(logits.clone() / 0.7, k, p)
     assert torch.equal(result, original)
     assert torch.equal(support["mask"], expected)
-    with capture_support(False) as disabled:
+    assert torch.equal(torch.isfinite(result), expected)
+    with sampling_support.capture_support(False) as disabled:
         native.apply_top_k_top_p(logits.clone(), k, p)
     assert not disabled
+
+
+def test_sort_contract_reaches_the_gpu_worker_sampler(monkeypatch):
+    """The worker sampler imports apply_top_k_top_p by name."""
+
+    states = pytest.importorskip("vllm.v1.worker.gpu.sample.states")
+    worker = pytest.importorskip("vllm.v1.worker.gpu.sample.sampler")
+    from vllm.v1.sample.ops import topk_topp_sampler as native
+
+    from rl_engine.integrations.engines.rollout.vllm import sampling_support
+
+    for module in (native, states, worker):
+        monkeypatch.setattr(module, "apply_top_k_top_p", module.apply_top_k_top_p)
+    assert sampling_support.install_sort_contract()
+    assert states.apply_top_k_top_p is native.apply_top_k_top_p
+    assert worker.apply_top_k_top_p is native.apply_top_k_top_p
+
+    torch.manual_seed(7)
+    logits = torch.randn(64, 151936, device="cuda") / 0.7
+    p = torch.full((64,), 0.95, device="cuda")
+    expected = torch.isfinite(native.apply_top_k_top_p_pytorch(logits.clone(), None, p))
+    assert torch.equal(torch.isfinite(states.apply_top_k_top_p(logits.clone(), None, p)), expected)
