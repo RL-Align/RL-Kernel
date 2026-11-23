@@ -34,6 +34,10 @@ import torch
 from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
 
 LINEAR_NAMES = {"qkv_proj": "column", "fc1": "column", "out_proj": "row", "fc2": "row"}
+# The kernel of each column projection (h3-parallel-v2): Q/K/V on h3_qkv_gemm's projection kernel,
+# fc1 (gate/up) on its row's fixed FP32-tile GEMM. One table, so no column leaf falls back to a
+# default kernel.
+COLUMN_KERNELS = {"qkv_proj": "projection", "fc1": "fixed"}
 # The four projections of a transformer block or a token-refiner block, by module path (an outer
 # wrapper prefix is allowed). A module elsewhere that happens to share a leaf name is not touched.
 _PROJECTION_PATH = re.compile(
@@ -74,12 +78,15 @@ class H3RolloutHandle:
         }
 
 
-def _wrap(module, kind, collective, tp, column_kernel="projection"):
+def _wrap(module, leaf, collective, tp):
+    kind = LINEAR_NAMES[leaf]
+    kernel = par.kernel_of(COLUMN_KERNELS[leaf]) if kind == "column" else None
+
     def forward(x):
         shape = x.shape
         flat = x.reshape(-1, shape[-1]).contiguous()
         if kind == "column":  # qkv_proj on h3_qkv_gemm's kernel, fc1 (gate/up) on its row's
-            out = par.kernel_of(column_kernel)(flat, module.weight, b_t=True)
+            out = kernel(flat, module.weight, b_t=True)
         else:
             out = par.row_parallel_linear(flat, module.weight, collective, tp)
         return out.view(*shape[:-1], out.shape[-1]), None
@@ -139,9 +146,6 @@ def install_h3_rollout(
     handle = H3RolloutHandle(skipped=skipped)
     for name, module, kind in selected:
         handle._restore.append((module, module.__dict__.get("forward", _ABSENT)))
-        leaf = name.rsplit(".", 1)[-1]
-        module.forward = _wrap(
-            module, kind, collective, tp, "fixed" if leaf == "fc1" else "projection"
-        )
+        module.forward = _wrap(module, name.rsplit(".", 1)[-1], collective, tp)
         handle.patched.append(name)
     return handle
