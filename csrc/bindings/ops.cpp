@@ -268,6 +268,17 @@ std::vector<torch::Tensor> swiglu_backward_cuda(
     torch::Tensor gate,
     torch::Tensor up);
 torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
+torch::Tensor inkling2_attention_o_residual_forward(
+    torch::Tensor attention,
+    torch::Tensor residual,
+    torch::Tensor weight,
+    torch::Tensor bias);
+std::vector<torch::Tensor> inkling2_attention_o_residual_backward(
+    torch::Tensor dy,
+    torch::Tensor attention,
+    torch::Tensor residual,
+    torch::Tensor weight,
+    bool need_bias);
 std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
@@ -763,6 +774,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("silu_forward", &silu_forward, "Batch-invariant SiLU forward CUDA");
     m.def("silu_backward", &silu_backward, "Batch-invariant SiLU backward CUDA");
     m.def("swiglu_forward", &swiglu_forward, "Batch-invariant SwiGLU forward CUDA");
+    m.def("inkling2_attention_o_residual_forward", &inkling2_attention_o_residual_forward,
+          "Inkling 2 Mini native CUDA attention O residual forward");
+    m.def("inkling2_attention_o_residual_backward", &inkling2_attention_o_residual_backward,
+          "Inkling 2 Mini native CUDA attention O residual backward");
     m.def("swiglu_backward", &swiglu_backward, "Batch-invariant SwiGLU backward CUDA");
     m.def("swiglu_packed_forward", &swiglu_packed_forward,
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");

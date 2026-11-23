@@ -391,3 +391,17 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+
+def inkling2_attention_o_residual_forward(
+    attention: torch.Tensor,
+    residual: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+) -> torch.Tensor: ...
+def inkling2_attention_o_residual_backward(
+    dy: torch.Tensor,
+    attention: torch.Tensor,
+    residual: torch.Tensor,
+    weight: torch.Tensor,
+    need_bias: bool,
+) -> list[torch.Tensor]: ...
