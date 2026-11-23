@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+import rl_engine.backends.rocm.ffn.ffn as rocm_ffn
 import rl_engine.ops.ffn.qwen3 as ffn
 
 
@@ -148,11 +149,13 @@ def test_rollout_tp4_packed_ffn_reuses_tp8_shards(monkeypatch):
 
 @pytest.mark.parametrize("rows", [2, 64])
 def test_rocm_canonical_ffn_resolves_aot_slot_before_ipc_reduction(monkeypatch, rows):
+    # rl_engine.ops.ffn.qwen3 binds to the CUDA or ROCm backend at import time,
+    # so patching torch.version.hip here cannot reach the ROCm module through it.
     monkeypatch.setattr(torch.version, "hip", "test")
     monkeypatch.setenv("RL_KERNEL_STRICT_CANONICAL_TP", "8")
     staging, stable_output = torch.zeros(32, 4), torch.zeros(32, 4)
     monkeypatch.setitem(
-        ffn._PACKED_INFERENCE_STAGING_BY_HANDLE, 7, (987654, staging, stable_output)
+        rocm_ffn._PACKED_INFERENCE_STAGING_BY_HANDLE, 7, (987654, staging, stable_output)
     )
     observed = []
 
@@ -165,10 +168,10 @@ def test_rocm_canonical_ffn_resolves_aot_slot_before_ipc_reduction(monkeypatch, 
         return hidden.new_full((rows, 4), 3)
 
     monkeypatch.setattr(
-        ffn, "_C", SimpleNamespace(deterministic_collective_rocm_ipc_all_reduce_input=reduce)
+        rocm_ffn, "_C", SimpleNamespace(deterministic_collective_rocm_ipc_all_reduce_input=reduce)
     )
-    monkeypatch.setattr(ffn, "_canonical_packed_ffn_local_output", packed)
-    actual = ffn.qwen3_ffn_packed_inference(
+    monkeypatch.setattr(rocm_ffn, "_canonical_packed_ffn_local_output", packed)
+    actual = rocm_ffn.qwen3_ffn_packed_inference(
         torch.zeros(rows, 4),
         torch.zeros(16, 4),
         torch.zeros(4, 8),
