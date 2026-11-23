@@ -547,6 +547,10 @@ def unsupported_reason(log_text):
 
 def run_worker(manifest, base_env, script, out, phase, arm, workload, round_index, args):
     name = f"{phase}-{arm}-{workload}-round{round_index}"
+    # A process left on the GPUs (for example an engine child that outlived a timeout) would
+    # share them with this arm; record the arm as not measured instead of timing it.
+    if not wait_gpus_idle():
+        return {"error": "GPUs still busy before the worker; not measured"}
     result = out / "workers" / f"{name}.json"
     log = out / "logs" / f"{name}.log"
     command = [
@@ -589,8 +593,11 @@ def run_worker(manifest, base_env, script, out, phase, arm, workload, round_inde
 def orchestrate(args):
     from qwen3_next_run import stage_environment
 
-    manifest, identity = load_run(args.run)
     out = args.out.resolve()
+    if (out / "report.json").exists() or any((out / "workers").glob("*")):
+        # Worker files of an earlier run could be read as this run's; use a new directory.
+        raise SystemExit(f"--out {out} already holds a speed-test run")
+    manifest, identity = load_run(args.run)
     for directory in ("workers", "logs"):
         (out / directory).mkdir(parents=True, exist_ok=True)
     base_env = stage_environment(manifest, out, "bench")

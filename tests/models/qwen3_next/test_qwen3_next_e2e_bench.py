@@ -232,6 +232,25 @@ def test_worker_gets_the_run_directory_as_an_absolute_path(tmp_path, monkeypatch
     assert _option(command, "run") == str(tmp_path / "runs" / "l2")
 
 
+def test_busy_gpus_before_a_worker_mean_not_measured(tmp_path, monkeypatch):
+    monkeypatch.setattr(bench, "wait_gpus_idle", lambda: False)
+    monkeypatch.setattr(bench.subprocess, "run", lambda *a, **k: pytest.fail("worker started"))
+    args = SimpleNamespace(run=tmp_path, repeats=1, timeout=1)
+    manifest = {"python": "python", "source": str(tmp_path)}
+    record = bench.run_worker(manifest, {}, "b.py", tmp_path, "rollout", "strict", "long", 0, args)
+    assert record == {"error": "GPUs still busy before the worker; not measured"}
+
+
+@pytest.mark.parametrize("leftover", ["report.json", "workers/rollout-strict-long-round0.json"])
+def test_output_directory_of_an_earlier_run_is_refused(tmp_path, monkeypatch, leftover):
+    (tmp_path / leftover).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / leftover).write_text("{}")
+    monkeypatch.setattr(bench, "load_run", lambda run: pytest.fail("run loaded"))
+    args = SimpleNamespace(run=tmp_path, out=tmp_path)
+    with pytest.raises(SystemExit, match="already holds"):
+        bench.orchestrate(args)
+
+
 def test_engine_refusal_is_unsupported_not_a_crash():
     log = (
         "x\nERROR [multiproc_executor.py:944] RuntimeError: "
