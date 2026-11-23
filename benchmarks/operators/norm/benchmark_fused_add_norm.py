@@ -48,8 +48,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from benchmarks.profiler import PerformanceProfiler  # noqa: E402
-from rl_engine.kernels.gtest.tolerance import tolerance_contract_fingerprint  # noqa: E402
+from benchmarks.common.profiler import PerformanceProfiler  # noqa: E402
+from rl_engine.contracts.numerical import tolerance_contract_fingerprint  # noqa: E402
 from rl_engine.ops.autograd.backward_runtime import (  # noqa: E402
     reset_backward_runtime,
     snapshot_backward_runtime,
@@ -65,7 +65,10 @@ from rl_engine.reference.norm.fused_add_norm import (  # noqa: E402
 # comes from where the tests keep it. It reads the contract rows and owns the FP16
 # budget; see the sixteenth round's finding in the commit history for what happened
 # when this file had its own.
-from tests.helpers.fused_add_norm_tolerance import allowance, assert_within  # noqa: E402
+from rl_engine.validation.operators.fused_add_norm_tolerance import (  # noqa: E402
+    allowance,
+    assert_within,
+)
 
 DTYPES = {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}
 MODES = ("forward", "backward", "forward_backward")
@@ -182,7 +185,7 @@ def _check_accuracy(native, candidate, hidden, residual, post_w, pre_w, g_res, g
         errors[name] = {
             "max_abs_error": float(error.max()),
             "judgment": judgment,
-            "policy": "tests/helpers/fused_add_norm_tolerance.py",
+            "policy": "rl_engine/validation/operators/fused_add_norm_tolerance.py",
             # The allowance that actually applied at the worst element, read out of
             # the same elementwise policy the assertion used. A scalar atol and rtol
             # instead made the artifact look as though it had failed: d_post_w at

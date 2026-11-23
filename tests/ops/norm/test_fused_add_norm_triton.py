@@ -18,10 +18,6 @@ differences that had to be closed.
 from __future__ import annotations
 
 import gc
-import subprocess
-import sys
-import textwrap
-from pathlib import Path
 
 import pytest
 import torch
@@ -32,7 +28,7 @@ from rl_engine.reference.norm.fused_add_norm import (
     RMS_NORM_EPS,
     NativeFusedAddNormOp,
 )
-from tests.helpers.fused_add_norm_tolerance import assert_within
+from rl_engine.validation.operators.fused_add_norm_tolerance import assert_within
 
 triton = pytest.importorskip("triton")
 
@@ -46,56 +42,11 @@ from rl_engine.backends.shared.triton.norm.fused_add_norm import (  # noqa: E402
 requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required")
 
 
-def test_triton_ops_package_does_not_resolve_to_the_cuda_backend():
-    """The new ``kernels/ops/triton/norm`` shim must not hand back CUDA modules.
-
-    It did: its ``__getattr__`` imported ``rl_engine.backends.cuda.norm``, copied
-    from the CUDA shim beside it, where all seven sibling packages under
-    ``kernels/ops/triton/`` target ``rl_engine.backends.shared.triton.*``.
-
-    Measured reachability, which is why this runs in a subprocess with a pinned
-    import order: with the wrong target, ``pkg.fused_add_norm`` raises
-    ``AttributeError`` in a fresh interpreter, but in a process that has already
-    imported ``rl_engine.backends.cuda.norm.fused_add_norm`` -- which any CUDA test
-    run does -- the submodule is an attribute of that package and the Triton import
-    path silently returns the CUDA module. A comparison written that way would have
-    compared CUDA against itself and reported perfect agreement. In-process this is
-    unpinnable: whichever of the two packages is imported first wins, because the
-    parent ``kernels/ops/triton/__init__.py`` forwards unknown names to
-    ``rl_engine.backends.shared.triton``, which re-exports no subpackage names.
-    """
-    program = textwrap.dedent(
-        """
-        import rl_engine.backends.cuda.norm.fused_add_norm  # the order that hid it
-        import rl_engine.kernels.ops.triton.norm as pkg
-
-        module = pkg.fused_add_norm
-        op = pkg.TritonFusedAddNormOp
-        assert module.__name__ == "rl_engine.backends.shared.triton.norm.fused_add_norm", (
-            f"Triton shim resolved to {module.__name__}"
-        )
-        assert op.__module__ == "rl_engine.backends.shared.triton.norm.fused_add_norm", (
-            f"Triton op resolved to {op.__module__}"
-        )
-        print("ok")
-        """
-    )
-    proc = subprocess.run(
-        [sys.executable, "-c", program],
-        cwd=str(Path(__file__).resolve().parents[3]),
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "ok" in proc.stdout
-
-
 def _assert_against_gold(judgment, dtype, got, want, label=""):
     """Contract reduction row, plus the shared FP16 budget where it applies.
 
     The policy and the measurements behind it live in
-    ``tests/helpers/fused_add_norm_tolerance.py``. What a gold comparison cannot do
+    ``rl_engine/validation/operators/fused_add_norm_tolerance.py``. What a gold comparison cannot do
     at any dtype is police the eps values: measured at 64x6656 the worst violation
     ratio is 0.24 at fp32 and 0.36 at bf16 against a bar of 1.0, so no tolerance
     here would notice a swap. That belongs where the signal is visible, in

@@ -49,7 +49,7 @@ OP_SPECS = {
     "fused_post_norm_residual_pre_norm": OperatorSpec(
         name="fused_post_norm_residual_pre_norm",
         op_class="reduction",
-        gold_path="rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",
+        gold_path="rl_engine.reference.norm.fused_add_norm.NativeFusedAddNormOp",
         # The only entry here whose gold is ``forward``, because for this operator
         # ``forward_fp32`` is a different computation rather than ``forward`` widened.
         # The frozen semantics narrow twice -- the post-norm casts before the residual
@@ -87,10 +87,10 @@ OP_SPECS = {
         # fails if the ``1 + w`` offset, a narrowing or the eps pair moves.
         gold_method="forward",
         candidate_paths={
-            "pytorch": "rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp",
-            "triton": "rl_engine.kernels.ops.triton.norm.fused_add_norm.TritonFusedAddNormOp",
-            "cuda": "rl_engine.kernels.ops.cuda.norm.fused_add_norm.CudaFusedAddNormOp",
-            "cuda-sm90": "rl_engine.kernels.ops.cuda.norm.fused_add_norm.CudaFusedAddNormOp",
+            "pytorch": "rl_engine.reference.norm.fused_add_norm.NativeFusedAddNormOp",
+            "triton": "rl_engine.backends.shared.triton.norm.fused_add_norm.TritonFusedAddNormOp",
+            "cuda": "rl_engine.backends.cuda.norm.fused_add_norm.CudaFusedAddNormOp",
+            "cuda-sm90": "rl_engine.backends.cuda.norm.fused_add_norm.CudaFusedAddNormOp",
         },
         grad_input_names=("hidden", "residual", "post_weight", "pre_weight"),
     ),

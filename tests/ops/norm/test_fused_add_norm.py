@@ -26,7 +26,7 @@ from rl_engine.reference.norm.fused_add_norm import (
     fused_add_norm_backward,
 )
 from rl_engine.reference.norm.rms_norm import shape_invariant_meansq
-from tests.helpers.fused_add_norm_tolerance import assert_within
+from rl_engine.validation.operators.fused_add_norm_tolerance import assert_within
 
 _FP64_TOL = {"atol": 1e-6, "rtol": 1e-6}
 
@@ -594,7 +594,7 @@ def test_closed_form_backward_accumulates_the_residual_gradient_like_eager(rows,
 
     # The shared policy rather than numbers written in here: this test used to
     # hardcode 1e-1 / 2e-2, which happened to match the bf16 row and said nothing
-    # about fp16. See tests/helpers/fused_add_norm_tolerance.py.
+    # about fp16. See rl_engine/validation/operators/fused_add_norm_tolerance.py.
     lead = (0,)
 
     eager = fused_add_norm_backward(g_res, g_pre, hidden, residual, post_w, pre_w)

@@ -30,7 +30,7 @@ from rl_engine.reference.norm.fused_add_norm import (
     RMS_NORM_EPS,
     NativeFusedAddNormOp,
 )
-from tests.helpers.fused_add_norm_tolerance import assert_within
+from rl_engine.validation.operators.fused_add_norm_tolerance import assert_within
 
 requires_cuda_kernel = pytest.mark.skipif(
     not (torch.cuda.is_available() and cuda_fused_add_norm_available()),
@@ -132,7 +132,7 @@ def _assert_against_gold(output, dtype, got, want):
     """Contract reduction row, plus the shared FP16 budget where it applies.
 
     The policy and the measurements behind it live in
-    ``tests/helpers/fused_add_norm_tolerance.py``, in one place because the three
+    ``rl_engine/validation/operators/fused_add_norm_tolerance.py``, in one place because the three
     [F1] files have to agree on what FP16 is held to.
 
     The judgment comes from ``_JUDGMENTS`` keyed by the output's name rather than

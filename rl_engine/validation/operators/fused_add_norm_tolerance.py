@@ -40,8 +40,11 @@ import math
 
 import torch
 
-from rl_engine.contracts.numerical import resolve_tolerance_support
-from rl_engine.kernels.gtest.tolerance import load_contract, resolve_tolerance
+from rl_engine.contracts.numerical import (
+    load_contract,
+    resolve_tolerance,
+    resolve_tolerance_support,
+)
 
 PEAK_ULP_BUDGET = 0.25
 

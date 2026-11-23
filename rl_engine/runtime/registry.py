@@ -158,11 +158,11 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_RMS_NORM = "rl_engine.kernels.ops.triton.rmsnorm_triton.RMSNormTritonOp"
     PYTORCH_NATIVE_RMS_NORM = "rl_engine.kernels.ops.pytorch.norm.rms_norm.NativeRMSNormOp"
     # Muse-Glimmer [F1]: post-norm, residual add, pre-norm (RFC #501).
-    PYTORCH_NATIVE_FUSED_ADD_NORM = (
-        "rl_engine.kernels.ops.pytorch.norm.fused_add_norm.NativeFusedAddNormOp"
+    PYTORCH_NATIVE_FUSED_ADD_NORM = "rl_engine.reference.norm.fused_add_norm.NativeFusedAddNormOp"
+    TRITON_FUSED_ADD_NORM = (
+        "rl_engine.backends.shared.triton.norm.fused_add_norm.TritonFusedAddNormOp"
     )
-    TRITON_FUSED_ADD_NORM = "rl_engine.kernels.ops.triton.norm.fused_add_norm.TritonFusedAddNormOp"
-    CUDA_FUSED_ADD_NORM = "rl_engine.kernels.ops.cuda.norm.fused_add_norm.CudaFusedAddNormOp"
+    CUDA_FUSED_ADD_NORM = "rl_engine.backends.cuda.norm.fused_add_norm.CudaFusedAddNormOp"
 
     # Generic fallback
     TRITON_GENERIC = "rl_engine.kernels.ops.triton.generic.TritonOp"

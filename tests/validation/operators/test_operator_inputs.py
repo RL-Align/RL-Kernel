@@ -8,13 +8,13 @@ import argparse
 import pytest
 import torch
 
+from rl_engine.validation.operators.fused_add_norm_tolerance import assert_within
 from rl_engine.validation.operators.operator_inputs import make_operator_inputs, operator_shape_name
 from rl_engine.validation.operators.operator_specs import (
     make_candidate,
     make_operator_case,
     operator_names,
 )
-from tests.helpers.fused_add_norm_tolerance import assert_within
 
 
 def _args(**overrides):
