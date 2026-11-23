@@ -1051,10 +1051,10 @@ class KernelRegistry:
                     lm_head_list.insert(0, OpBackend.CUDA_SM90_LM_HEAD)
 
             # RMSNormCudaOp checks for the extension only when called, so add it
-            # only when every rmsnorm symbol is compiled in; otherwise keep native.
+            # only when the two kernels it calls are compiled in (its dW is a
+            # Python row fold, not rmsnorm_backward_dw); otherwise keep native.
             rmsnorm_compiled = _EXT_AVAILABLE and all(
-                hasattr(_C, name)
-                for name in ("rmsnorm_forward", "rmsnorm_backward_dx", "rmsnorm_backward_dw")
+                hasattr(_C, name) for name in ("rmsnorm_forward", "rmsnorm_backward_dx")
             )
             if rmsnorm_compiled:
                 rms_norm_list = self._priority_map["cuda"]["rms_norm"]

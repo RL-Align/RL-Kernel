@@ -131,14 +131,22 @@ class _FakeForwardOnlyRMSNormExtension:
     rmsnorm_forward = object()
 
 
+class _FakeNoDwRMSNormExtension:
+    """RMSNormCudaOp computes dW in Python, so rmsnorm_backward_dw is not needed."""
+
+    rmsnorm_forward = object()
+    rmsnorm_backward_dx = object()
+
+
+@pytest.mark.parametrize("extension", [_FakeRMSNormExtension(), _FakeNoDwRMSNormExtension()])
 @pytest.mark.parametrize("capability", [(8, 0), (9, 0), (10, 0)])
-def test_rms_norm_prioritizes_cuda_when_extension_symbols_exist(monkeypatch, capability):
+def test_rms_norm_prioritizes_cuda_when_extension_symbols_exist(monkeypatch, capability, extension):
     from rl_engine.backends import extension as base_module
 
     monkeypatch.setattr(registry_module.device_ctx, "device_type", "cuda")
     monkeypatch.setattr(registry_module.torch.cuda, "get_device_capability", lambda: capability)
     monkeypatch.setattr(base_module, "_EXT_AVAILABLE", True)
-    monkeypatch.setattr(base_module, "_C", _FakeRMSNormExtension())
+    monkeypatch.setattr(base_module, "_C", extension)
 
     registry = KernelRegistry()
 

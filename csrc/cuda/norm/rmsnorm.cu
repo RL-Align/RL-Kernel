@@ -256,6 +256,7 @@ void rmsnorm_forward_cuda(
     int threads = choose_threads(H);
     size_t smem = threads * sizeof(float);
 
+    const c10::cuda::CUDAGuard device_guard(x.device());
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, x.scalar_type(), "rmsnorm_forward_cuda", [&] {
@@ -288,6 +289,7 @@ void rmsnorm_backward_dx_cuda(
     int threads = choose_threads(H);
     size_t smem = threads * sizeof(float);
 
+    const c10::cuda::CUDAGuard device_guard(x.device());
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, x.scalar_type(), "rmsnorm_backward_dx_cuda", [&] {
@@ -322,6 +324,7 @@ void rmsnorm_backward_partial_dw_cuda(
     dim3 blocks(chunks, (H + RMSNORM_DW_H_TILE - 1) / RMSNORM_DW_H_TILE);
     dim3 threads(RMSNORM_DW_H_TILE);
 
+    const c10::cuda::CUDAGuard device_guard(x.device());
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, x.scalar_type(), "rmsnorm_partial_dw_cuda", [&] {
@@ -348,6 +351,7 @@ void rmsnorm_backward_reduce_dw_cuda(
     dim3 blocks((H + RMSNORM_DW_H_TILE - 1) / RMSNORM_DW_H_TILE);
     dim3 threads(RMSNORM_DW_H_TILE);
 
+    const c10::cuda::CUDAGuard device_guard(partial_dw.device());
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     rmsnorm_reduce_dw_kernel<<<blocks, threads, 0, stream>>>(
