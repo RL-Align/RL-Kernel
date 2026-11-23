@@ -84,7 +84,8 @@ def gemm(
     if k != kb:
         raise ValueError(f"reduction axes differ: {k} vs {kb}")
     if m == 0 or n == 0 or k == 0:
-        raise ValueError("the H3 GEMM rows need non-empty operands")
+        # an empty shard (no rows on this rank) or an empty reduction: the exact result, zeros
+        return torch.zeros((m, n), dtype=out_dtype, device=a.device)
     kernel, triton = _kernel()
     c = torch.empty((m, n), dtype=out_dtype, device=a.device)
     kernel[(triton.cdiv(m, BLOCK_M), triton.cdiv(n, BLOCK_N))](

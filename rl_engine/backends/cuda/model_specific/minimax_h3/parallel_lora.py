@@ -220,7 +220,7 @@ def column_parallel_lora_linear(
         cp_group,
         scale,
         layout,
-        par.KERNELS[kernel],
+        par.kernel_of(kernel),
         *weights,
         *flat,
     )

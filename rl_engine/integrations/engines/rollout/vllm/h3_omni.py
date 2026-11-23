@@ -8,8 +8,10 @@ vLLM-Omni's ``MiniMaxH3Attention`` / MLP keep fused linears: ``attn.qkv_proj`` (
 returns ``(output, bias)``. ``install_h3_rollout(model)`` replaces those four forwards with the
 fixed-order kernels so rollout reads the same bits as the strict training graph:
 
-* ``qkv_proj`` / ``fc1``: ``h3-projection-gemm-v1`` over the fused rows (a column of a fused
-  projection equals the same column computed alone, so fused == separate bitwise);
+* ``qkv_proj``: ``h3-projection-gemm-v1`` over the fused rows, and ``fc1``: the gate/up row's
+  fixed FP32-tile GEMM (``fixed_fp32_gemm``, ``h3-parallel-v2``) over the fused rows (in both, a
+  column of a fused projection equals the same column computed alone, so fused == separate
+  bitwise);
 * ``out_proj`` / ``fc2``: the canonical 8-unit row-parallel reduction of ``h3-parallel-v2``
   (``tp`` ranks with a deterministic collective, ``tp=1`` alone), one BF16 rounding.
 
@@ -77,7 +79,7 @@ def _wrap(module, kind, collective, tp, column_kernel="projection"):
         shape = x.shape
         flat = x.reshape(-1, shape[-1]).contiguous()
         if kind == "column":  # qkv_proj on h3_qkv_gemm's kernel, fc1 (gate/up) on its row's
-            out = par.KERNELS[column_kernel](flat, module.weight, b_t=True)
+            out = par.kernel_of(column_kernel)(flat, module.weight, b_t=True)
         else:
             out = par.row_parallel_linear(flat, module.weight, collective, tp)
         return out.view(*shape[:-1], out.shape[-1]), None

@@ -50,6 +50,16 @@ from rl_engine.distributed.algorithms.hierarchical import tree_add
 CONTRACT = "h3-parallel-v2"
 # Column-parallel kernels: Q/K/V keep their row's ``h3-projection-gemm-v1``; gate/up runs its row's.
 KERNELS = {"projection": g.gemm, "fixed": fx.gemm}
+
+
+def kernel_of(name: str):
+    """The column-parallel kernel ``name`` (``KERNELS``); an unknown name raises."""
+
+    if name not in KERNELS:
+        raise ValueError(f"unknown kernel {name!r}; expected one of {sorted(KERNELS)}")
+    return KERNELS[name]
+
+
 UNITS = 8  # canonical reduction units; TP sizes are the divisors 1, 2, 4, 8
 TP_SIZES = (1, 2, 4, 8)
 HEADS, HEAD_DIM = 56, 128
@@ -280,7 +290,7 @@ def column_parallel_linear(
     check_column_widths(weights, tp)
     gather = gather and tp > 1  # one rank holds every row already
     return _ColumnParallel.apply(
-        x.contiguous(), collective, tp, gather, cp_shard, cp_group, KERNELS[kernel], *weights
+        x.contiguous(), collective, tp, gather, cp_shard, cp_group, kernel_of(kernel), *weights
     )
 
 
