@@ -95,9 +95,20 @@ INTERIM_ATTENTION = "DeterministicAttentionOp(causal=False)"
 
 
 def gemm_rows_supported(device: torch.device | None = None) -> bool:
-    """Whether the GEMM rows' operators run here: they declare SM90 (H100) only."""
+    """Whether the GEMM rows' operators run here.
 
-    return torch.cuda.is_available() and torch.cuda.get_device_capability(device) == (9, 0)
+    They declare SM90 (H100) only, and both of their backends (``FixedFP32Backend`` in
+    ``h3_projection_fp32`` and ``h3_down_fp32_backend``) launch the Triton
+    ``_det_gemm_fp32_kernel``, so Triton must be importable as well.
+    """
+
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability(device) != (9, 0):
+        return False
+    try:
+        from rl_engine.backends.shared.triton.gemm import det_gemm
+    except ImportError:
+        return False
+    return bool(det_gemm._TRITON_AVAILABLE)
 
 
 def _gemm_row_op(row: str):
@@ -116,7 +127,7 @@ class CandidateOps:
     that are not available or not deterministic on every GPU this replay runs on.
 
     ``gemm_rows`` binds ``o_proj`` / ``ffn_gate_up`` / ``ffn_down``: ``"row"`` to their rows'
-    operators (``GEMM_ROW_OPS``; SM90 only, raises elsewhere), ``"interim"`` to the interim
+    operators (``GEMM_ROW_OPS``; SM90 with Triton, raises elsewhere), ``"interim"`` to the interim
     FP32-K-loop GEMM, ``"auto"`` (the default) to the rows where they run and to the interim
     GEMM otherwise. ``bindings(ops)`` states which one ran, per node.
     """
@@ -157,7 +168,7 @@ class CandidateOps:
         self.swiglu = SwiGLUCudaOp()
         self.o_gemm = self.gate_up_gemm = self.down_gemm = None
         if gemm_rows == "row" and not gemm_rows_supported():
-            raise RuntimeError("the H3 GEMM rows (#535, #554) run on SM90 only")
+            raise RuntimeError("the H3 GEMM rows (#535, #554) need SM90 and Triton")
         if gemm_rows == "row" or (gemm_rows == "auto" and gemm_rows_supported()):
             for row, attr in _GEMM_ATTRS.items():
                 setattr(self, attr, _gemm_row_op(row))
