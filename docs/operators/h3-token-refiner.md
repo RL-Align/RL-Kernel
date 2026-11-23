@@ -53,8 +53,9 @@ without weights). On H100 (Hopper) 15 passed. Tokens 1, 64 and 257 per block, bo
 
 ## Limits
 
-SwiGLU and the QK norm are `interim` until their rows land, and so are the O/gate_up/down GEMMs off
-SM90 (or without Triton), and attention where the `H3FullAttentionOp` extension cannot be loaded (it then runs the
+The block needs Triton: the interim GEMM and the GEMM rows' backends are Triton kernels, so
+`CandidateOps` cannot be built without it. SwiGLU and the QK norm are `interim` until their rows
+land, and so are the O/gate_up/down GEMMs off SM90, and attention where the `H3FullAttentionOp` extension cannot be loaded (it then runs the
 interim `DeterministicAttentionOp`); a refiner trace is not yet strict-clean (`assert_strict`
 reports exactly those nodes).
 Fail-closed strict mode is therefore enforced per node by the trace, not by the block.

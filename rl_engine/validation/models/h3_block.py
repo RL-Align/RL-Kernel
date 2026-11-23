@@ -279,8 +279,10 @@ def bindings(ops: Any, nodes=None) -> dict[str, Binding]:
     out = {}
     for node in NODES if nodes is None else nodes:
         binding = node.binding
-        if ops is not None and node.name in GEMM_ROWS and hasattr(ops, "gemm_op"):
-            op = ops.gemm_op(GEMM_ROWS[node.name])
+        if ops is not None and node.name in GEMM_ROWS:
+            # ops without ``gemm_op`` run the interim GEMM (``cand_gemm``), so report that
+            accessor = getattr(ops, "gemm_op", None)
+            op = accessor(GEMM_ROWS[node.name]) if accessor is not None else None
             if op is None:
                 binding = Binding(binding.rfc_row, "interim", INTERIM_GEMM)
         if ops is not None and node.name == "attention" and hasattr(ops, "attention_h3"):

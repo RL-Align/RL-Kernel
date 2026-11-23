@@ -330,3 +330,15 @@ def test_gemm_rows_run_their_operators_on_sm90(h3_block_weights_cuda):
     backward = h3_block.run_block_backward(h3_block_weights_cuda, layout="tiny", ops=ops)
     for leaf in ("attn.to_out.0.weight", "ff.net.0.proj.weight", "ff.net.2.weight"):
         assert backward["leaves"][leaf]["repeat_bitwise_equal"], leaf
+
+
+def test_ops_without_gemm_op_report_the_interim_gemm():
+    """``cand_gemm`` runs the interim GEMM for ops that have no ``gemm_op``: so must the report."""
+
+    class _NoAccessor:
+        attention_h3 = object()
+
+    bound = h3_block.bindings(_NoAccessor())
+    for name in h3_block.GEMM_ROWS:
+        assert (bound[name].status, bound[name].backend) == ("interim", h3_block.INTERIM_GEMM)
+    assert bound["attention"].status == "row"
