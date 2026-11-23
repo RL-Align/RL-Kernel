@@ -170,6 +170,7 @@ def row_parallel_linear(
         raise ValueError("row_parallel_linear needs x (T, K/tp) and w (N, K/tp)")
     if tp > 1 and collective is None:
         raise ValueError("tp > 1 needs a collective")
+    scatter = scatter and tp > 1  # one rank holds every row already
     return _RowParallel.apply(x.contiguous(), w_shard, collective, tp, scatter, cp_shard, cp_group)
 
 
@@ -241,6 +242,7 @@ def column_parallel_linear(
 
     if tp > 1 and collective is None:
         raise ValueError("tp > 1 needs a collective")
+    gather = gather and tp > 1  # one rank holds every row already
     return _ColumnParallel.apply(
         x.contiguous(), collective, tp, gather, cp_shard, cp_group, *weights
     )
