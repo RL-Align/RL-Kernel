@@ -1,0 +1,8 @@
+{
+  "image_sha256": "352e959e08b886406d3766cee25ebe7bbf679e6d53eeffbd1c607b8dc93e2068",
+  "image_url": "https://cdn.hailuoai.com/prod/hailuo_demo/testsets/H3_AA_I2VA/gallery/sr_v17_variants_seed42_43_20260724/inputs/4a3a90bf9100_KDmcbkhzYo5sjjxr9FqcVmWVnzb.png",
+  "prompt_reused_verbatim": true,
+  "prompt_sha256": "fba3868d31e9911a81d60c191261ec2192c827bcaa25c937660bf35aeb0b1673",
+  "source_revision": "bbee488da3baf65817f4f8826b1f6e89cc28fda7",
+  "source_suite": "tests/e2e/accuracy/minimax_h3/test_minimax_h3_i2va_ref2va_similarity.py"
+}
