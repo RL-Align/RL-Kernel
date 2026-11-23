@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """INK-10 short-convolution contract tests."""
 
+import pytest
 import torch
 
 from rl_engine.models.inkling2.short_conv import (
@@ -56,3 +57,22 @@ def test_short_conv_backward_is_defined():
     output.square().mean().backward()
     assert x.grad is not None and torch.isfinite(x.grad).all()
     assert weight.grad is not None and torch.isfinite(weight.grad).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_native_cuda_short_conv_matches_reference_and_backward():
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+    from rl_engine.models.inkling2.short_conv import causal_short_conv_cuda
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_short_conv_forward_with_state"):
+        pytest.skip("Inkling 2 CUDA extension is unavailable")
+
+    x = torch.randn(2, 7, 5, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    weight = torch.randn(5, 4, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    reference, reference_state = causal_short_conv(x, weight)
+    output, state = causal_short_conv_cuda(x, weight)
+    torch.testing.assert_close(output, reference, atol=0, rtol=0)
+    torch.testing.assert_close(state, reference_state, atol=0, rtol=0)
+    output.float().square().mean().backward()
+    assert x.grad is not None and torch.isfinite(x.grad.float()).all()
+    assert weight.grad is not None and torch.isfinite(weight.grad.float()).all()

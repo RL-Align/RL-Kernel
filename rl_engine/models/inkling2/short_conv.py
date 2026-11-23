@@ -77,3 +77,55 @@ def causal_short_conv_streams(
             inputs[name], weights[name], None if states is None else states[name]
         )
     return outputs, next_states
+
+
+class _NativeShortConvFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        x: torch.Tensor,
+        weight: torch.Tensor,
+        state: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+        if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_short_conv_forward_with_state"):
+            raise RuntimeError("Inkling 2 CUDA short-conv extension is unavailable")
+        output, next_state = _C.inkling2_short_conv_forward_with_state(
+            x.contiguous(), weight.contiguous(), state.contiguous()
+        )
+        ctx.save_for_backward(x, weight, state)
+        return output, next_state
+
+    @staticmethod
+    def backward(
+        ctx,
+        grad_output: torch.Tensor,
+        grad_next_state: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        from rl_engine.backends.extension import _C
+
+        x, weight, state = ctx.saved_tensors
+        if grad_next_state is not None and torch.any(grad_next_state != 0):
+            raise RuntimeError("native short-conv state gradients are not supported")
+        grad_x, grad_weight, grad_state = _C.inkling2_short_conv_backward(
+            grad_output.contiguous(), x, weight, state
+        )
+        return grad_x, grad_weight, grad_state
+
+
+def causal_short_conv_cuda(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    state: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Run the native CUDA INK-10 kernel with the same state contract."""
+    if not x.is_cuda or not weight.is_cuda:
+        raise ValueError("native short-conv requires CUDA tensors")
+    if state is None:
+        state = torch.zeros(
+            (x.shape[0], x.shape[2], KERNEL_SIZE - 1), device=x.device, dtype=x.dtype
+        )
+    if not state.is_cuda:
+        raise ValueError("native short-conv state must be a CUDA tensor")
+    return _NativeShortConvFunction.apply(x, weight, state)
