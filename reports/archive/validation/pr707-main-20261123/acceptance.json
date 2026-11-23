@@ -1,0 +1,81 @@
+{
+  "state": "ACCEPTED_FOR_DECLARED_INTEGRATION_SCOPE",
+  "tested_head": "4c9ee6dcce483cf99a8385ef0a4da63fd3ed6b11",
+  "baseline": "e9d52e95226b62d826f0a224bafad2cab3ed7538",
+  "image": "ghcr.io/hongleng/rl-kernel/task19-h100@sha256:96b1d479ec222ac04180ac2ec46ced417d86c992d857a4621ea332d3587e6a5f",
+  "pytest": {
+    "passed": 214,
+    "deselected": 36,
+    "skipped": 0,
+    "failed": 0,
+    "errors": 0,
+    "warnings": 65,
+    "seconds": 5.27
+  },
+  "elapsed_seconds": 11.710557699203491,
+  "node_groups": {
+    "tests.ops.test_op_accuracy": 8,
+    "tests.ops.logprob.test_deterministic_logp": 73,
+    "tests.ops.logprob.test_deterministic_logp_autograd": 65,
+    "tests.backends.cuda.test_fused_logp_chunked_backward": 67,
+    "tests.e2e.test_rl_kernel_loss_step": 1
+  },
+  "comparison_cases": 18,
+  "backward": "native fused_logp_backward; FP32 upstream, input-dtype gradient",
+  "sm90_fallback": {
+    "state": "PASS",
+    "experimental_tma_executed": false,
+    "generic_native_forward": true,
+    "native_fused_backward": true
+  },
+  "extension_sha256": "eb8e20e27e4c44bc938e62747c28c95a914d584991b0cd654f8b209b3eb80dc4",
+  "local_verifier": "PASS: all checksums, 214 exact nodes, source/binary/runtime identity, 18 native-backward comparisons and SM90 fallback",
+  "source_match": "Every tracked file in source manifest matches local integrated checkout; runner/builder/plan/Dockerfile match reviewed infra",
+  "warnings": "65 record_property / xunit2 compatibility warnings; testcase properties are retained; numerical assertions passed. MUSA availability warning is unrelated to this CUDA-only run.",
+  "scope_exclusions": [
+    "sanitizers",
+    "long-sequence workspace",
+    "multi-GPU device/stream",
+    "performance",
+    "experimental TMA",
+    "real MUSA",
+    "full #547 higher-order matrix"
+  ],
+  "image_build_url": "https://github.com/hongleng/RL-Kernel/actions/runs/45123049902",
+  "build_infrastructure_commit": "22e521e9928c41249882c9271b7142ee1d8dc9ee",
+  "native_and_build_sources_unchanged_vs_baseline": true,
+  "publication_scope": "Readable reports and raw logs, not a complete binary/runtime backup",
+  "omitted_original_members": [
+    "native.so",
+    "runner.py",
+    "builder.py",
+    "Dockerfile",
+    "SHA256SUMS"
+  ],
+  "omitted_source_location": "docker/task19-h100 at build_infrastructure_commit; exact runner/builder/Dockerfile/plan hashes are in build.json",
+  "original_archive_sha256": "dbb0e3e0c93ccb3b3c3bf4f8810af2f47c4b09184a23512a38528412396f8bb8",
+  "provenance_note": "H100 tested 4c9ee6dc against e9d52e95. The publication commit only adds evidence and updates documentation; it does not change the tested implementation.",
+  "review_files_sha256": {
+    "build.json": "2a37953268365c356c55914cae0ef9ae8f92547b9fa8998dea0967a173f6c7d1",
+    "build.log": "a1bbc68b1b8d9a58d4da9873ecb3fe73dc2217d25723d859ef1d4723a639fe4f",
+    "comparison.json": "a0e611160b7ca3b787b469add79299904cecdd88c51ba3045c74dbca893c56cd",
+    "comparison.log": "78ce3a71664c61f1a5f6ddd4d37e971b9878a0a8f0efef37f9d3f6616de86784",
+    "cpu-integration-summary.json": "7bfe68d28ab54c4d158fbc9190c3b61eb677e172d9c0081fb3e28d452094559f",
+    "cpu-integration.xml": "f6a119715808f0dd19bd841c6caf151c5e9b569f1a66a74105dc2e75fb9d6323",
+    "environment.json": "1a4544f67aec791cffa7f4f70dd3c0d3b4ca6d1105842f18a92b7bcc6ad3ce68",
+    "gpu-plan.json": "707d2d77d665206acf32bd5aec21fa5c9181505e08af43f1ed92579aaabff329",
+    "gpu.log": "f6a15f666d1ceef7e8fe20e53dd10dfec32585118a243f1f63ccba47a3eaa7b1",
+    "gpu.xml": "c59844c64c4d7069c073449432d3941c3f8c8022ede9f61b58f3d644e3c07718",
+    "nvidia-smi.txt": "617d080d63632ab78c778e425d7538d409778616bdb17318d9f69efd10673197",
+    "sm90-fallback.json": "6470cd2cad041fc9b753a94eeb798a9cf10f874ec0a3bf5b5d8de9b09b77fe32",
+    "source.json": "1b20ba57af99014a5139c7797a7ea683fc829d591955da40575442fd52ed50c6",
+    "status.json": "ed504cde99c709d7603384811647d90646c301f7c75166a82cce46fb4c3900d1"
+  },
+  "cpu_validation": {
+    "passed": 225,
+    "skipped": 550,
+    "scope": "isolated CPU tests and Python routing doubles, not native GPU validation",
+    "report": "cpu-integration.xml",
+    "summary": "cpu-integration-summary.json"
+  }
+}

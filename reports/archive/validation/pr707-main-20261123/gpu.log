@@ -1,0 +1,62 @@
+........................................................................ [ 33%]
+........................................................................ [ 67%]
+......................................................................   [100%]
+=============================== warnings summary ===============================
+tests/ops/logprob/test_deterministic_logp_autograd.py: 21 warnings
+  tests/ops/logprob/test_deterministic_logp_autograd.py:70: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("dtype", DTYPES)
+
+tests/ops/logprob/test_deterministic_logp_autograd.py: 15 warnings
+  tests/ops/logprob/test_deterministic_logp_autograd.py:82: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("dtype", DTYPES)
+
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_invalid_targets_zero_gradient[False-dtype0]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_invalid_targets_zero_gradient[False-dtype1]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_invalid_targets_zero_gradient[False-dtype2]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_invalid_targets_zero_gradient[True-dtype0]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_invalid_targets_zero_gradient[True-dtype1]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_invalid_targets_zero_gradient[True-dtype2]
+  tests/ops/logprob/test_deterministic_logp_autograd.py:107: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("dtype", DTYPES)
+
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_noncontiguous_and_empty[False-dtype0]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_noncontiguous_and_empty[False-dtype1]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_noncontiguous_and_empty[False-dtype2]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_noncontiguous_and_empty[True-dtype0]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_noncontiguous_and_empty[True-dtype1]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_noncontiguous_and_empty[True-dtype2]
+  tests/ops/logprob/test_deterministic_logp_autograd.py:121: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("dtype", DTYPES)
+
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_indexed_layout_gradient_bits[dtype0]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_indexed_layout_gradient_bits[dtype1]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_indexed_layout_gradient_bits[dtype2]
+  tests/ops/logprob/test_deterministic_logp_autograd.py:139: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("dtype", DTYPES)
+
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_out_buffer_gradient_contract[False-out]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_out_buffer_gradient_contract[False-indexed_out]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_out_buffer_gradient_contract[False-online_out]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_out_buffer_gradient_contract[False-online_indexed_out]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_out_buffer_gradient_contract[True-out]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_out_buffer_gradient_contract[True-indexed_out]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_out_buffer_gradient_contract[True-online_out]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_out_buffer_gradient_contract[True-online_indexed_out]
+  tests/ops/logprob/test_deterministic_logp_autograd.py:185: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize("method", ["out", "indexed_out", "online_out", "online_indexed_out"])
+
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_aliases_and_float64_inference[apply]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_aliases_and_float64_inference[apply_fp32]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_aliases_and_float64_inference[online_fp32]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_aliases_and_float64_inference[indexed_fp32]
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_aliases_and_float64_inference[online_indexed_fp32]
+  tests/ops/logprob/test_deterministic_logp_autograd.py:214: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    @pytest.mark.parametrize(
+
+tests/ops/logprob/test_deterministic_logp_autograd.py::test_second_order_supported
+  tests/ops/logprob/test_deterministic_logp_autograd.py:246: PytestWarning: record_property is incompatible with junit_family 'xunit2' (use 'legacy' or 'xunit1')
+    def test_second_order_supported(op):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+------- generated xml file: /workspace/task19-main-h100-evidence/gpu.xml -------
+214 passed, 36 deselected, 65 warnings in 5.27s

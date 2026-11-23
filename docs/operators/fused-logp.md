@@ -167,6 +167,19 @@ historical evidence for that revision, not hardware acceptance of the merged
 backward or deterministic-autograd paths. The old Task19 image lacks the new
 native symbols and cannot be reused as this checkout's extension.
 
+The post-integration H100 rerun on 2026-11-23 tested `4c9ee6dc` against
+`e9d52e95`: **214 passed, 36 deselected, zero skips/failures/errors**, plus all
+18 exact forward/native-backward/variant comparisons and the SM90 wrapper's
+native-backward fallback check. The complete runner took 11.71 seconds.
+[Acceptance record](../../reports/archive/validation/pr707-main-20261123/acceptance.json),
+[raw pytest log](../../reports/archive/validation/pr707-main-20261123/gpu.log),
+and [comparison report](../../reports/archive/validation/pr707-main-20261123/comparison.json)
+record this newer evidence. The 65 pytest warnings concern `record_property`
+with xunit2; testcase properties were retained and all assertions passed.
+This completes the declared single-H100 integration scope below; its exclusions
+remain unchanged.
+
+
 For a new H100 check, use one extension built from the integrated main's native
 sources with matching Torch/CUDA/ABI/flags, shared by baseline and candidate.
 A matching existing binary can be reused; otherwise build once before GPU rental.

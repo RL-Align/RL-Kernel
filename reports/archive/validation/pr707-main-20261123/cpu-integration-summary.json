@@ -1,0 +1,63 @@
+{
+  "original_head": "20414bded6476b0726e8e1d30ed02b0947988803",
+  "origin_main": "21d376d52d955633278f03d22ba35b3359dadcc0",
+  "origin_main_merge_base_from_github_compare": "063a261516febcde700c1b751b60b73b11abb427",
+  "integrated_main": "e9d52e95226b62d826f0a224bafad2cab3ed7538",
+  "integration_merge_base": "49941801f942428fd52ac5b66a1b0c070418724e",
+  "pr495_merged_commit": "445b877ea79172c8b84dc12b7bfbab8c7eebdc14",
+  "pr495_merged_head": "700e639dbc371f3fa3ef019520527033eb610786",
+  "pr234_state": "OPEN",
+  "pr234_head": "116a99e6d71010b11d88c87a7c83f29dec301d27",
+  "baseline_cpu": {
+    "passed": 126
+  },
+  "upstream_control": {
+    "passed": 49,
+    "skipped": 50
+  },
+  "initial_merge_regressions": {
+    "failed": 5,
+    "passed": 124,
+    "skipped": 50,
+    "cause": "pre-495 test assumptions for capability dispatch and invalid targets"
+  },
+  "musa_regression": {
+    "red": {
+      "failed": 3,
+      "passed": 2
+    },
+    "green": {
+      "passed": 5
+    },
+    "cause": "old MUSA fallback omitted merged main invalid-target zero-gradient and bounded chunking contract"
+  },
+  "final_cpu": {
+    "passed": 225,
+    "skipped": 550,
+    "seconds": 56.17,
+    "junit": "task19-final-integration.xml"
+  },
+  "test_runtime": {
+    "python": "3.12.12",
+    "torch": "2.12.1+cu126",
+    "extension": false,
+    "gpu_execution": false,
+    "isolation": "temporary venv symlinking existing packages, no editable .pth hooks; CUDA_VISIBLE_DEVICES empty"
+  },
+  "native_and_build_diff_vs_main": "empty",
+  "original_pr495_tests_and_runners_diff_vs_main": "empty",
+  "semantic_checks": "AST-identical main backward, shared forward/save, chunked VJP, generic variants; deterministic class unchanged except source dependency metadata",
+  "h100_decision": "targeted rerun required; old 2f685b8e/49941801 evidence does not validate integrated main; no matching extension available locally; no GPU or cloud build launched",
+  "remote_mutations": false,
+  "final_head": "4c9ee6dcce483cf99a8385ef0a4da63fd3ed6b11",
+  "static_checks": {
+    "ruff": "PASS",
+    "black": "24.4.2 PASS",
+    "isort": "5.13.2 PASS",
+    "mypy": "3 production files PASS",
+    "diff_check": "PASS"
+  },
+  "dco_signed_commit": true,
+  "integration_method": "non-fast-forward merge of upstream/main; one semantic conflict in CUDA logp.py",
+  "working_tree_clean": true
+}

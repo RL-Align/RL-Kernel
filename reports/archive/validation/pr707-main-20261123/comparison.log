@@ -1,0 +1,9 @@
+WARNING 11-23 07:53:50 [RL-Kernel]: MUSA availability check failed: No module named 'torch_musa'
+INFO 11-23 07:53:50 [RL-Kernel]: RL-Engine initialized with NVIDIA CUDA backend (Version: 12.4)
+INFO 11-23 07:53:50 [RL-Kernel]: KernelRegistry initialized for cuda
+INFO 11-23 07:53:50 [RL-Kernel]: KernelRegistry initialized for cuda
+INFO 11-23 07:53:50 [RL-Kernel]: Successfully linked to precompiled _C.fused_logp fallback kernel.
+INFO 11-23 07:53:50 [RL-Kernel]: Successfully linked to precompiled _C.fused_logp fallback kernel.
+INFO 11-23 07:53:50 [RL-Kernel]: Successfully linked to precompiled _C.fused_logp fallback kernel.
+PASS: 18 CUDA cases; exact forward, VJP and eight variant comparisons
+/workspace/task19-main-h100-evidence/comparison.json
