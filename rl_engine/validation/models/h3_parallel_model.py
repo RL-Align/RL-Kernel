@@ -42,6 +42,8 @@ CONTRACT = "h3-parallel-model-v1"
 # Attribute of a transformer block that holds this rank's stored projection shards (see
 # ``h3_sharded_load``): ``{"tp": int, "tp_rank": int, "tensors": {name: shard}}``.
 SHARDS_ATTR = "_rlk_tp_shards"
+# A block's LoRA shards: {"tp", "tp_rank", "scale", "tensors": {target: {part: tensor}}}
+LORA_ATTR = "_rlk_tp_lora"
 # Weight shards read back after a backward: name -> axis of the unsharded weight.
 SHARDED_WEIGHTS = {
     "attn.to_q.weight": 0,
@@ -200,6 +202,12 @@ def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelS
                 f"block {index} holds the shards of tp={stored['tp']} rank {stored['tp_rank']}, "
                 f"the grid is tp={grid.tp} rank {grid.tp_rank}"
             )
+        lora = getattr(self, LORA_ATTR, None)
+        if lora is not None and (lora["tp"], lora["tp_rank"]) != (grid.tp, grid.tp_rank):
+            raise ValueError(
+                f"block {index} holds the LoRA shards of tp={lora['tp']} rank {lora['tp_rank']}, "
+                f"the grid is tp={grid.tp} rank {grid.tp_rank}"
+            )
         leaves: dict[str, torch.Tensor] | None = {} if torch.is_grad_enabled() else None
         out = h3_tp.run_tp_block_rows(
             weights,
@@ -214,6 +222,8 @@ def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelS
             shard=shard,
             leaves=leaves,
             shards=None if stored is None else stored["tensors"],
+            lora=None if lora is None else lora["tensors"],
+            lora_scale=2.0 if lora is None else lora["scale"],
         )
         if state.inject is not None and state.inject[0] == index and state.inject[2] == rank:
             row = state.inject[1]  # this rank holds it (check_injection)
@@ -296,8 +306,22 @@ def exact_digest(t: torch.Tensor, *, chunk: int = DIGEST_CHUNK) -> list[int]:
 
 
 def shard_of(grad: torch.Tensor, name: str, tp: int, tp_rank: int) -> torch.Tensor:
-    """This TP rank's shard of an unsharded weight gradient, by the sharding of ``name``."""
+    """This TP rank's shard of an unsharded weight gradient, by the sharding of ``name``.
 
+    ``lora.<target>.<part>`` follows ``h3-parallel-lora-v1``: the ``A`` of a row-parallel target
+    and the ``B`` of a column-parallel one are cut; the other is held whole.
+    """
+
+    if name.startswith("lora."):
+        from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel_lora as pl
+
+        target, part = name[len("lora.") :].rsplit(".", 1)
+        if part in ("hidden", "gate"):  # ff.net.0.proj's B.hidden / B.gate
+            target, part = target[: -len(".B")], "B"
+        kind = pl.TARGETS[target]
+        if kind == "row":
+            return par.shard_cols(grad, tp, tp_rank) if part == "A" else grad
+        return grad if part == "A" else par.shard_rows(grad, tp, tp_rank)
     if SHARDED_WEIGHTS[name] == 0:
         return par.shard_rows(grad, tp, tp_rank)
     return par.shard_cols(grad, tp, tp_rank)
