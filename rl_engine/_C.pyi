@@ -391,3 +391,32 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+
+def inkling2_full_attention_forward(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    relative_bias: torch.Tensor,
+    sink: torch.Tensor,
+    output_gate: torch.Tensor,
+    query_documents: torch.Tensor,
+    key_documents: torch.Tensor,
+    causal: bool,
+    scale: float,
+) -> list[torch.Tensor]: ...
+def inkling2_full_attention_backward(
+    grad_output: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    probabilities: torch.Tensor,
+    pre_gate: torch.Tensor,
+    sink_probability: torch.Tensor,
+    relative_bias: torch.Tensor,
+    sink: torch.Tensor,
+    output_gate: torch.Tensor,
+    query_documents: torch.Tensor,
+    key_documents: torch.Tensor,
+    causal: bool,
+    scale: float,
+) -> list[torch.Tensor]: ...

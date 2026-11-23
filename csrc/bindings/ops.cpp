@@ -452,6 +452,15 @@ std::vector<torch::Tensor> deterministic_attention_backward(
     bool causal,
     double scale,
     torch::optional<torch::Tensor> key_padding_mask);
+std::vector<torch::Tensor> inkling2_full_attention_forward(
+    torch::Tensor query, torch::Tensor key, torch::Tensor value, torch::Tensor relative_bias,
+    torch::Tensor sink, torch::Tensor output_gate, torch::Tensor query_documents,
+    torch::Tensor key_documents, bool causal, double scale);
+std::vector<torch::Tensor> inkling2_full_attention_backward(
+    torch::Tensor grad_output, torch::Tensor query, torch::Tensor key, torch::Tensor value,
+    torch::Tensor probabilities, torch::Tensor pre_gate, torch::Tensor sink_probability,
+    torch::Tensor relative_bias, torch::Tensor sink, torch::Tensor output_gate,
+    torch::Tensor query_documents, torch::Tensor key_documents, bool causal, double scale);
 
 #if defined(KERNEL_ALIGN_WITH_ROCM)
 torch::Tensor deterministic_rope_apply_rocm(
@@ -778,6 +787,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "deterministic_attention_backward",
         &deterministic_attention_backward,
         "Deterministic standard softmax attention backward (dQ, dK, dV)");
+    m.def("inkling2_full_attention_forward", &inkling2_full_attention_forward,
+          "Inkling 2 Mini native CUDA full attention forward");
+    m.def("inkling2_full_attention_backward", &inkling2_full_attention_backward,
+          "Inkling 2 Mini native CUDA full attention backward");
 #if defined(KERNEL_ALIGN_WITH_ROCM)
     m.def(
         "deterministic_rope_apply_rocm",

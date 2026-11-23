@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """INK-15 full-attention contract tests."""
 
+import pytest
 import torch
 
 from rl_engine.models.inkling2.full_attention import full_attention
@@ -52,3 +53,48 @@ def test_output_gate_and_backward_are_defined():
     output.square().mean().backward()
     for tensor in (query, key, value, gate):
         assert tensor.grad is not None and torch.isfinite(tensor.grad).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_native_cuda_full_attention_matches_reference_and_backward():
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+    from rl_engine.models.inkling2.full_attention import full_attention_cuda
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_full_attention_forward"):
+        pytest.skip("Inkling 2 full attention CUDA extension is unavailable")
+    torch.manual_seed(19)
+    query = torch.randn(1, 3, 4, 5, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    key = torch.randn(1, 4, 2, 5, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    value = torch.randn(1, 4, 2, 5, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    bias = torch.randn(4, 3, 4, device="cuda", dtype=torch.float32, requires_grad=True)
+    sink = torch.randn(4, device="cuda", dtype=torch.float32, requires_grad=True)
+    gate = torch.randn(4, device="cuda", dtype=torch.float32, requires_grad=True)
+    documents_q = torch.tensor([[0, 0, 1]], device="cuda")
+    documents_k = torch.tensor([[0, 0, 1, 1]], device="cuda")
+
+    native = full_attention_cuda(
+        query,
+        key,
+        value,
+        relative_bias=bias,
+        sink=sink,
+        output_gate=gate,
+        query_documents=documents_q,
+        key_documents=documents_k,
+        causal=False,
+    )
+    reference = full_attention(
+        query,
+        key,
+        value,
+        relative_bias=bias,
+        sink=sink,
+        output_gate=gate,
+        query_documents=documents_q,
+        key_documents=documents_k,
+        causal=False,
+    )
+    torch.testing.assert_close(native, reference, atol=2e-2, rtol=0)
+    native.float().square().mean().backward()
+    assert query.grad is not None and key.grad is not None and value.grad is not None
+    assert bias.grad is not None and sink.grad is not None and gate.grad is not None
