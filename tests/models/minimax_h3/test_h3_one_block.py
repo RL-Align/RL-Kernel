@@ -342,3 +342,30 @@ def test_ops_without_gemm_op_report_the_interim_gemm():
     for name in h3_block.GEMM_ROWS:
         assert (bound[name].status, bound[name].backend) == ("interim", h3_block.INTERIM_GEMM)
     assert bound["attention"].status == "row"
+
+
+@pytest.mark.parametrize("module", ["h3_block", "h3_refiner"])
+def test_isolated_replay_runs_without_tf32_and_restores_it(monkeypatch, module):
+    """The GEMM rows refuse TF32: isolated replay turns it off, as ``run_graph`` does."""
+
+    import importlib
+    from types import SimpleNamespace
+
+    mod = importlib.import_module(f"rl_engine.validation.models.{module}")
+    seen = []
+
+    def candidate(ops, ctx, x):
+        seen.append(torch.backends.cuda.matmul.allow_tf32)
+        return x
+
+    monkeypatch.setattr(
+        mod, "NODES", [SimpleNamespace(name="n", inputs=("x",), candidate=candidate)]
+    )
+    before = torch.backends.cuda.matmul.allow_tf32
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        assert mod.run_isolated({}, None, {"x": 1}) == {"n": 1}
+        assert seen == [False]
+        assert torch.backends.cuda.matmul.allow_tf32 is True  # the caller's setting is back
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = before

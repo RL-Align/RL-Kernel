@@ -631,10 +631,12 @@ def run_isolated(
     """Each candidate node fed the provider's inputs to that node."""
 
     ctx = evaluation_ctx(ctx)
-    return {
-        node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
-        for node in NODES
-    }
+    # as in ``run_graph``: the GEMM rows refuse TF32, which a caller may have enabled
+    with strict_fp32_matmul():
+        return {
+            node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
+            for node in NODES
+        }
 
 
 def _flat(value: Any) -> list[torch.Tensor]:
