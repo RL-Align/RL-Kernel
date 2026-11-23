@@ -284,7 +284,7 @@ def provenance(root: Path, contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_pipeline(checkpoint: Path):
+def build_pipeline(checkpoint: Path, offload_margin: str = "20GB"):
     from diffusers import ComponentsManager, ModularPipeline
     from transformers import Qwen3VLProcessor
 
@@ -293,7 +293,7 @@ def build_pipeline(checkpoint: Path):
         str(checkpoint / "processor"), local_files_only=True
     )
     manager = ComponentsManager()
-    manager.enable_auto_cpu_offload(device="cuda", memory_reserve_margin="20GB")
+    manager.enable_auto_cpu_offload(device="cuda", memory_reserve_margin=offload_margin)
     pipe = ModularPipeline.from_pretrained(
         str(checkpoint), workflow="t2va", components_manager=manager
     )
@@ -461,7 +461,8 @@ def cmd_run(args) -> None:
         raise ValueError("TF32 matmul must be off")
     prov = provenance(root, contract)
     prov["checkpoint_hash_checked"] = not args.skip_checkpoint_hash
-    pipe = build_pipeline(args.checkpoint)
+    prov["offload_margin"] = args.offload_margin
+    pipe = build_pipeline(args.checkpoint, args.offload_margin)
     ops, sched_ops = None, None
     if args.arm == "candidate":
         ops, sigma_op, step_op = candidate_bindings(contract)
@@ -491,7 +492,8 @@ def cmd_run(args) -> None:
             t = m["timing"]
             print(
                 f"{m['label']}: {m['seconds']:.1f} s, transformer steady "
-                f"{t['transformer_steady']['mean_seconds']}, final {m['final_latent_sha256'][:12]}",
+                f"{t['transformer_steady']['mean_seconds']}, final video "
+                f"{m['final_latent_sha256']['video'][:12]} audio {m['final_latent_sha256']['audio'][:12]}",
                 flush=True,
             )
 
@@ -649,6 +651,11 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--cases", help="comma list of case numbers (default: all)")
     r.add_argument("--repeats", type=int, default=2, help="runs per case (default 2)")
     r.add_argument("--no-tensors", action="store_true", help="do not keep step tensors")
+    r.add_argument(
+        "--offload-margin",
+        default="20GB",
+        help="GPU memory model offload keeps free (default 20GB, as h3_full_generation)",
+    )
     r.add_argument(
         "--provider-boundaries",
         action="store_true",
