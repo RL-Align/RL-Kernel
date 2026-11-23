@@ -391,3 +391,17 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+
+def inkling2_grouped_gemm_forward(
+    tokens: torch.Tensor,
+    expert_indices: torch.Tensor,
+    expert_weights: torch.Tensor,
+    bias: torch.Tensor,
+) -> torch.Tensor: ...
+def inkling2_grouped_gemm_backward(
+    dy: torch.Tensor,
+    tokens: torch.Tensor,
+    expert_indices: torch.Tensor,
+    expert_weights: torch.Tensor,
+    need_bias: bool,
+) -> list[torch.Tensor]: ...

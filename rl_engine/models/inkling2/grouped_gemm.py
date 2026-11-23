@@ -71,3 +71,72 @@ def grouped_expert_gemm(
 
     sorted_output = torch.cat(grouped_outputs, dim=0).to(output_dtype)
     return torch.empty_like(sorted_output).index_copy(0, order, sorted_output)
+
+
+class _NativeGroupedExpertGemmFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, tokens, expert_indices, expert_weights, bias):
+        from rl_engine.backends.extension import _C
+
+        output = _C.inkling2_grouped_gemm_forward(
+            tokens.contiguous(),
+            expert_indices.contiguous(),
+            expert_weights.contiguous(),
+            bias.contiguous(),
+        )
+        ctx.save_for_backward(
+            tokens.contiguous(), expert_indices.contiguous(), expert_weights.contiguous()
+        )
+        ctx.has_bias = bias.numel() != 0
+        ctx.need_bias = ctx.needs_input_grad[3]
+        return output
+
+    @staticmethod
+    def backward(ctx, dy):
+        from rl_engine.backends.extension import _C
+
+        tokens, expert_indices, expert_weights = ctx.saved_tensors
+        d_tokens, d_weights, d_bias = _C.inkling2_grouped_gemm_backward(
+            dy.contiguous(),
+            tokens,
+            expert_indices,
+            expert_weights,
+            bool(ctx.need_bias),
+        )
+        if not ctx.has_bias or not ctx.need_bias:
+            d_bias = None
+        return d_tokens, None, d_weights, d_bias
+
+
+def grouped_expert_gemm_cuda(
+    tokens: torch.Tensor,
+    expert_indices: torch.Tensor,
+    weights: torch.Tensor,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Run the native CUDA deterministic grouped expert GEMM."""
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_grouped_gemm_forward"):
+        raise RuntimeError("Inkling 2 grouped GEMM CUDA extension is unavailable")
+    if not tokens.is_cuda or tokens.ndim != 2:
+        raise ValueError("native grouped GEMM tokens must be a 2-D CUDA tensor")
+    if expert_indices.ndim != 1 or expert_indices.numel() != tokens.shape[0]:
+        raise ValueError("expert_indices must have one entry per token")
+    if expert_indices.dtype not in (torch.int32, torch.int64):
+        raise TypeError("expert_indices must be int32 or int64")
+    if weights.ndim != 3 or weights.shape[2] != tokens.shape[1]:
+        raise ValueError("weights must have shape [experts, output, hidden]")
+    if tokens.dtype not in (torch.float16, torch.bfloat16, torch.float32):
+        raise TypeError("native grouped GEMM supports float16, bfloat16, and float32")
+    if weights.dtype != tokens.dtype:
+        raise TypeError("native grouped GEMM tokens and weights must share dtype")
+    if expert_indices.device != tokens.device or weights.device != tokens.device:
+        raise ValueError("native grouped GEMM tensors must share device")
+    if bias is None:
+        bias = torch.empty(0, device=tokens.device, dtype=tokens.dtype)
+    elif bias.shape != (weights.shape[0], weights.shape[1]):
+        raise ValueError("bias must have shape [experts, output]")
+    if bias.device != tokens.device or bias.dtype != tokens.dtype:
+        raise ValueError("native grouped GEMM tensors must share device and dtype")
+    return _NativeGroupedExpertGemmFunction.apply(tokens, expert_indices, weights, bias)
