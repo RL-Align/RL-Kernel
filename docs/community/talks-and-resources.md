@@ -27,17 +27,17 @@ stable project-facing entry point.
 
 | Date | Talk | Recording and host | Status | Related RL-Kernel docs | Context |
 | --- | --- | --- | --- | --- | --- |
-| 2026-10-20 | **RL-Kernel: Train–Rollout Consistency in LLM RL Post-Training** (Qingke Talk #160, Chinese) | [Recording (YouTube)](https://www.youtube.com/watch?v=rDly1tgf_cY) · [Qingke event page](https://www.qingkeai.online/blog/RL-Kernel) | **Historical** | [Numerical contract](../contracts/cross_config_logprob_drift_contract.md) · [Linear LogP](../operators/linear-logp.md) · [Reproduction guide](../usage/qwen3-vime-consistency.md) | Discusses v0.1.0, fixed replay, operator-level alignment, and 200-step CUDA/ROCm validation. Consult current docs for supported configurations. |
+| 2026-10-20 | **RL-Kernel: Train–Rollout Consistency in LLM RL Post-Training** (Qingke Talk #160, Li Jiajie, Chinese) | [Recording (YouTube)](https://www.youtube.com/watch?v=rDly1tgf_cY) · [Qingke event page](https://www.qingkeai.online/blog/RL-Kernel) | **Historical** | [Numerical contract](../contracts/cross_config_logprob_drift_contract.md) · [Linear LogP](../operators/linear-logp.md) · [Reproduction guide](../usage/qwen3-vime-consistency.md) | Discusses v0.1.0, fixed replay, operator-level alignment, and 200-step CUDA/ROCm validation. Consult current docs for supported configurations. |
 
 ## Slides and materials
 
-A resource does not need an accompanying recording to be useful. Link directly
+Slides shared only in private chats are not listed until a stable public link is available. A resource does not need an accompanying recording to be useful. Link directly
 to public slides, diagrams, notes, or conference materials when they help
 contributors understand a technical decision.
 
 | Date | Material | Source | Status | Related RL-Kernel docs | Context |
 | --- | --- | --- | --- | --- | --- |
-| 2026-10 | [RL-Kernel v0.1.0 presentation slides (PPTX)](https://drive.google.com/file/d/1geW-HDHSLrnhKV2gRz5q9JuSS1dCdE1z/view) | [Talk companion materials](https://princepride.github.io/live-streaming-tools/rl_kernel_train_infer_consistency/final/blog/) | **Historical** | [Train–rollout practical guide](../blog/2026-11-02-rl-kernel-practical-guide.md) · [CUDA/ROCm consistency audit](../usage/cuda-rocm-consistency-audit.md) | Versioned presentation; externally hosted and subject to the owner's sharing settings. Use current docs for installation and validation steps. |
+| 2026-09 | [RL-Kernel v0.1.0 train–rollout consistency technical article](../blog/2026-09-18-rl-kernel-amd-vime-qwen3-8b-train-rollout-bitwise-consistency.md) | RL-Kernel documentation | **Historical** | [Train–rollout practical guide](../blog/2026-11-02-rl-kernel-practical-guide.md) · [CUDA/ROCm consistency audit](../usage/cuda-rocm-consistency-audit.md) | Project-maintained written background and validation results from v0.1.0; newer instructions and supported configurations are documented separately. |
 
 ## Contributing and maintaining entries
 
