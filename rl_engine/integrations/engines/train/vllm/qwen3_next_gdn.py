@@ -361,9 +361,9 @@ def packed_recurrent_sequence(
     in ``qkv[T, D]``. ``indices[B]`` maps each sequence to a distinct positive
     cache slot; slot zero remains reserved by the decode provider. Returning
     the entire FP32 state bank makes chunk continuation and sequence reordering
-    explicit. Callers must pass that state onward without detaching it for
-    training. No rollout cache is read and no batch-invariance capability is
-    registered.
+    explicit; the caller's ``state`` is not modified. Callers must pass the
+    returned state onward without detaching it for training. No rollout cache is
+    read and no batch-invariance capability is registered.
 
     The forward runs every sequence's tokens inside one kernel launch with the
     decode kernel's per-token arithmetic, so its bits equal one decode step per
