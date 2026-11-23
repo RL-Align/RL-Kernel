@@ -185,3 +185,19 @@ def test_crosscheck_diff_compares_bytes_and_flags_non_finite():
     assert not d["finite"] and d["max_abs"] is None
     json.dumps(d, allow_nan=False)
     assert not cc._diff(zero, zero.float())["bitwise"]  # another dtype is not bitwise
+
+
+def test_an_unknown_kernel_name_raises():
+    with pytest.raises(ValueError, match="unknown kernel 'fixd'"):
+        par.kernel_of("fixd")
+    assert par.kernel_of("fixed") is fx.gemm and par.kernel_of("projection") is g.gemm
+
+
+@needs_gpu
+@pytest.mark.parametrize(("m", "k", "n"), [(0, 64, 32), (16, 64, 0), (16, 0, 32)])
+def test_empty_operands_give_the_exact_empty_or_zero_result(m, k, n):
+    a = torch.randn(m, k, device="cuda").bfloat16()
+    b = torch.randn(k, n, device="cuda").bfloat16()
+    for out_dtype in (torch.bfloat16, torch.float32):
+        c = fx.gemm(a, b, out_dtype=out_dtype)
+        assert c.shape == (m, n) and c.dtype == out_dtype and not c.any()
