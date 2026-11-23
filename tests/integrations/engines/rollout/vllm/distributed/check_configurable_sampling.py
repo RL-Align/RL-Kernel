@@ -8,9 +8,10 @@ import os
 
 import torch
 import torch.distributed as dist
-from vllm.v1.sample.ops.topk_topp_sampler import apply_top_k_top_p
+from vllm.v1.sample.ops import topk_topp_sampler
 
 from rl_engine.integrations.common.linear_logp import LinearLogpWrapper
+from rl_engine.integrations.engines.rollout.vllm.sampling_support import install_sort_contract
 from rl_engine.ops.sampling.policy import sampling_keep_mask, vocab_parallel_sampling_keep_mask
 
 
@@ -18,6 +19,8 @@ def main():
     rank = int(os.environ["LOCAL_RANK"])
     torch.cuda.set_device(rank)
     dist.init_process_group("nccl")
+    # Strict CUDA rollout samples with the sort that sampling_keep_mask reproduces.
+    install_sort_contract()
     os.environ["RL_KERNEL_STRICT_CANONICAL_TP"] = "8"
     os.environ["RL_KERNEL_STRICT_CANONICAL_VOCAB_SIZE"] = "152576"
     torch.manual_seed(2026)
@@ -34,7 +37,7 @@ def main():
             top_p=p if p < 1 else None,
             top_k=k if k > 0 else None,
         )
-        native = apply_top_k_top_p(
+        native = topk_topp_sampler.apply_top_k_top_p(
             raw[:, :real].float() / effective_temperature,
             (
                 torch.full((3,), k, device="cuda", dtype=torch.int32)
