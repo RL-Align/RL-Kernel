@@ -367,6 +367,9 @@ class H3OmniModelBinding:
     ops: Any = None
     record: Callable[[Mapping[str, Any], dict, tuple], None] | None = None
     calls: int = 0
+    # per-call input / output digests, for the G3 validation only (each one copies the tensors to
+    # the CPU): off for rollout, on with ``record_digests``
+    record_digests: bool = False
     digests: list[dict[str, Any]] = field(default_factory=list)
     record_errors: list[str] = field(default_factory=list)  # rank 0's failed captures
 
@@ -400,15 +403,16 @@ class H3OmniModelBinding:
                 video, audio = self.model(**inputs)
                 if self.record is not None:
                     self.record(request, inputs, (video, audio))
-                self.digests.append(
-                    {
-                        "call": self.calls,
-                        "num_requests": len(requests),
-                        "inputs": inputs_digest(inputs),
-                        "video": tensor_digest(video),
-                        "audio": tensor_digest(audio),
-                    }
-                )
+                if self.record_digests:
+                    self.digests.append(
+                        {
+                            "call": self.calls,
+                            "num_requests": len(requests),
+                            "inputs": inputs_digest(inputs),
+                            "video": tensor_digest(video),
+                            "audio": tensor_digest(audio),
+                        }
+                    )
                 v, a = diffusers_to_omni(video, audio, request)
                 videos.append(v)
                 audios.append(a)

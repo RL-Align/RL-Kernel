@@ -237,6 +237,7 @@ async def _engine(args) -> dict[str, Any]:
                 release_weights=args.release_weights,
                 record_dir=str(calls_dir),
                 record_calls=tuple(range(args.record_calls)),
+                record_digests=True,  # the report compares every call's digests across ranks
             ),
         )
         report["install"] = bound
