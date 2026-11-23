@@ -197,13 +197,20 @@ def test_operator_trace_covers_the_refiner_paths(refiner_weights):
     ]
     assert [c.path for c in trace.calls] == paths
     assert trace.coverage(paths=paths) == {"wrong_count": [], "unexpected": []}
+    # what CandidateOps loaded, derived here rather than from ``bound`` (which the observer copies)
+    expected = {n.name: (n.binding.status, n.binding.backend) for n in hr.NODES}
+    for name, row in hb.GEMM_ROWS.items():
+        if name in expected:
+            loaded = ops.gemm_op(row) is not None
+            expected[name] = (
+                ("row", hb.GEMM_ROW_OPS[row]) if loaded else ("interim", hb.INTERIM_GEMM)
+            )
+    if ops.attention_h3 is None:
+        expected["attention"] = ("interim", hb.INTERIM_ATTENTION)
     for call in trace.calls:
         node = call.path.rsplit(".", 1)[1]
-        assert (call.status, call.row, call.backend) == (
-            bound[node].status,
-            bound[node].rfc_row,
-            bound[node].backend,
-        )
+        assert (call.status, call.backend) == expected[node], node
+        assert call.row == bound[node].rfc_row  # the row comes from the graph, not the binding
     assert trace.violations(paths=paths)  # the hook does not observe fallback state
     assert (
         trace.violations(paths=paths, allowed_statuses=("row", "interim"), require_observed=False)
