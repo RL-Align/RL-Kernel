@@ -204,3 +204,35 @@ def test_the_full_model_binds_the_cuda_row_and_reports_it():
     assert trace.packed_bindings == {"packed_index_copy": "row", "packed_index_select": "reference"}
     for g, w in zip(got, want, strict=True):
         assert _bitwise(g, w)
+
+
+def test_a_replay_wrapper_installed_after_bind_serves_the_packed_forward(tmp_path):
+    """The generation tool's order: the packed forward is bound first, the resume wrapper goes on
+    top of it (keeping its signature, which the pipeline reads), and comes off first."""
+
+    from rl_engine.validation.models.h3_generation_resume import ResumableRun, StepStore
+
+    if hpf.forward_source_sha256(MODEL) not in hpf.KNOWN_FORWARDS:
+        pytest.skip("unknown provider forward")
+    model = _Model()
+    model.__class__ = type("_Bound", (MODEL,), {})
+    want = _run(inspect.unwrap(MODEL.forward), model)
+    calls = []
+
+    def pack(*args):
+        calls.append(len(args))
+        return NativePackedIndexCopyOp()(*args)
+
+    identity = {"commit": "abc", "seed": 1, "candidate": True, "preflight": False}
+    with hpf.bind(model, pack):
+        bound = model.forward
+        run = ResumableRun(StepStore(tmp_path / "steps"), identity, resume=False)
+        uninstall = run.install(model, lambda values, kwargs: values)
+        assert inspect.signature(model.forward) == inspect.signature(bound)
+        got = _run(lambda m, *a, **k: m.forward(*a, **k), model)
+        uninstall()
+        assert model.__dict__["forward"] == bound
+    assert "forward" not in model.__dict__
+    assert calls == [7]  # the one forward ran on the packed row, beneath the replay wrapper
+    for g, w in zip(got, want, strict=True):
+        assert _bitwise(g, w)
