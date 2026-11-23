@@ -155,9 +155,15 @@ class FullModelTrace:
             actual_backends=self.actual_backends,
             calls=dict(self.calls),
             backward_calls=dict(self.backward_calls),
+            # the block nodes as this run bound them; a provider run binds none of them, so
+            # each is the provider's arithmetic rather than the static row table
             bindings={
-                name: dict(rfc_row=b.rfc_row, status=b.status, backend=b.backend)
-                for name, b in h3_block.bindings(self.ops).items()
+                name: (
+                    dict(rfc_row=b.rfc_row, status=b.status, backend=b.backend)
+                    if self.candidate
+                    else dict(rfc_row=b.rfc_row, status="reference", backend="provider")
+                )
+                for name, b in h3_block.bindings(self.ops if self.candidate else None).items()
             },
             boundary_binding=(
                 "strict rows + provider" if self.boundary_bindings else "provider/reference"
@@ -592,12 +598,18 @@ def full_model_execution(
             handle.remove()
         for block, original in originals:
             block.forward = original
-        if boundary_context is not None and boundary_entered:
-            boundary_context.__exit__(*exc_info)
-        if pack_context is not None and pack_entered:
-            pack_context.__exit__(*exc_info)
-        if gemm_context is not None and gemm_entered:
-            gemm_context.__exit__(*exc_info)
+        # nested, so an error raised while one context exits still closes the ones after it
+        # (the pack binding, then the GEMM session)
+        try:
+            if boundary_context is not None and boundary_entered:
+                boundary_context.__exit__(*exc_info)
+        finally:
+            try:
+                if pack_context is not None and pack_entered:
+                    pack_context.__exit__(*exc_info)
+            finally:
+                if gemm_context is not None and gemm_entered:
+                    gemm_context.__exit__(*exc_info)
 
 
 # --- Numerics shared with the generation runner --------------------------------------------------

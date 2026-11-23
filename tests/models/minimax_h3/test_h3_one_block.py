@@ -302,8 +302,21 @@ def test_gemm_row_nodes_pass_logical_keys_and_a_parameter_id_per_block():
     ]
 
 
+def test_gemm_rows_need_triton_as_well_as_sm90(monkeypatch):
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (9, 0))
+    monkeypatch.setattr(det_gemm, "_TRITON_AVAILABLE", False)
+    assert not h3_block.gemm_rows_supported()  # "auto" then binds the interim GEMM
+    monkeypatch.setattr(det_gemm, "_TRITON_AVAILABLE", True)
+    assert h3_block.gemm_rows_supported()
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (10, 0))
+    assert not h3_block.gemm_rows_supported()
+
+
 needs_sm90 = pytest.mark.skipif(
-    not h3_block.gemm_rows_supported(), reason="the GEMM rows (#535, #554) run on SM90 only"
+    not h3_block.gemm_rows_supported(), reason="the GEMM rows (#535, #554) need SM90 and Triton"
 )
 
 
