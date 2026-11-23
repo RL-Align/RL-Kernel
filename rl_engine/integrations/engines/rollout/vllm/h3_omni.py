@@ -24,6 +24,7 @@ Attention, rotary and norm stay vLLM-Omni's (their rows are separate); the repor
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import torch
@@ -43,6 +44,8 @@ _ABSENT = object()
 @dataclass
 class H3RolloutHandle:
     patched: list[str] = field(default_factory=list)
+    # Non-strict only: "<module path>: <reason>" for each projection left on the engine's forward.
+    skipped: list[str] = field(default_factory=list)
     _restore: list = field(default_factory=list)  # (module, its own forward or _ABSENT)
 
     def remove(self) -> None:
@@ -65,6 +68,7 @@ class H3RolloutHandle:
         return {
             "contract": par.CONTRACT,
             "patched": list(self.patched),
+            "skipped": list(self.skipped),
             "external": ["attention", "rotary", "qk_norm", "swiglu", "adaln"],
         }
 
@@ -82,42 +86,57 @@ def _wrap(module, kind, collective, tp):
     return forward
 
 
+ModuleCheck = Callable[[str, torch.nn.Module, str], "str | None"]
+
+
 def install_h3_rollout(
-    model: torch.nn.Module, *, collective=None, tp: int = 1, strict: bool = True
+    model: torch.nn.Module,
+    *,
+    collective=None,
+    tp: int = 1,
+    strict: bool = True,
+    check: ModuleCheck | None = None,
 ) -> H3RolloutHandle:
     """Patch every ``qkv_proj`` / ``out_proj`` / ``fc1`` / ``fc2`` of ``blocks`` and the refiner.
 
     Only modules at a block projection path are considered. Every candidate is checked before
-    any forward changes, so a strict refusal leaves the model untouched.
+    any forward changes, so a strict refusal leaves the model untouched. ``check(name, module,
+    kind)`` is an engine's own test of a candidate (``kind`` is ``"column"`` or ``"row"``); it
+    returns why the module cannot be bound, or ``None``. It runs before the dtype and bias tests.
+    With ``strict`` one error names every refused module; without it, every refused module keeps
+    the engine's forward and is listed in ``handle.skipped``.
     """
 
     if tp > 1 and collective is None:
         raise ValueError("tp > 1 needs a deterministic collective")
-    selected = []
+    selected, skipped = [], []
     for name, module in model.named_modules():
         if not _PROJECTION_PATH.search(name) or not hasattr(module, "weight"):
             continue
-        weight = module.weight
-        if not weight.is_cuda or weight.dtype != torch.bfloat16:
-            if strict:
-                raise RuntimeError(
-                    f"{name}: strict H3 rollout needs CUDA BF16 weights, got "
-                    f"{weight.dtype} on {weight.device}"
+        kind = LINEAR_NAMES[name.rsplit(".", 1)[-1]]
+        reason = check(name, module, kind) if check is not None else None
+        if reason is None:
+            weight = module.weight
+            if not weight.is_cuda or weight.dtype != torch.bfloat16:
+                reason = (
+                    f"strict H3 rollout needs CUDA BF16 weights, got {weight.dtype} on "
+                    f"{weight.device}"
                 )
-            continue
-        if getattr(module, "bias", None) is not None:
-            if strict:
-                raise RuntimeError(
-                    f"{name}: has a bias; the strict H3 rollout kernels compute the bias-free H3 "
+            elif getattr(module, "bias", None) is not None:
+                reason = (
+                    "has a bias; the strict H3 rollout kernels compute the bias-free H3 "
                     "projections only"
                 )
+        if reason is not None:
+            skipped.append(f"{name}: {reason}")
             continue
-        selected.append((name, module))
+        selected.append((name, module, kind))
+    if strict and skipped:
+        raise RuntimeError("; ".join(skipped))
     if strict and not selected:
         raise RuntimeError("no H3 projection modules found (qkv_proj/out_proj/fc1/fc2)")
-    handle = H3RolloutHandle()
-    for name, module in selected:
-        kind = LINEAR_NAMES[name.rsplit(".", 1)[-1]]
+    handle = H3RolloutHandle(skipped=skipped)
+    for name, module, kind in selected:
         handle._restore.append((module, module.__dict__.get("forward", _ABSENT)))
         module.forward = _wrap(module, kind, collective, tp)
         handle.patched.append(name)

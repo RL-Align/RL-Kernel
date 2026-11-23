@@ -12,9 +12,10 @@ with the pinned checkpoint (`MiniMaxAI/MiniMax-H3@42ed227`, all 14 shards, sha25
   `audio_output_projection_fp32`, `text_context_projection`, `token_refiner_block`,
   `timestep_mlp_fp32` for `time_embedder`, `final_adaln_out` for `norm_out`); the report lists
   every binding (`boundary_bindings`). `--provider-boundaries` keeps all of them on the
-  provider. `time_proj` has no parameters and stays provider arithmetic. `time_embedder` and
-  `norm_out` must resolve to their CUDA ops: if the registry falls back to the PyTorch reference
-  (for example an `_C` built without the H3 kernels), strict mode raises before binding anything.
+  provider. `time_proj` has no parameters and stays provider arithmetic. Every row resolved
+  through the registry must be its CUDA op: if the registry gives anything else, such as the
+  PyTorch reference that `time_embedder` and `norm_out` fall back to with an `_C` built without
+  the H3 kernels, strict mode raises before binding anything.
 - `tools/validation/models/h3_dual_trajectory.py`: a 4-step flow-matching Euler sampler
   (video + audio, FP32 latents) run in two layouts - the request alone, and as row 1 of a
   batch of 2 - sealed with the trajectory artifact and compared with `drift_report`.

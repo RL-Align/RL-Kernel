@@ -163,6 +163,33 @@ def test_a_fallback_does_not_carry_over_to_the_next_activation(monkeypatch):
     assert adapter.report()["case_id"] == "R/R" and adapter.report()["bound"]
 
 
+def test_the_provider_rerun_of_a_failed_binding_names_no_diagnostic_provider_nodes(monkeypatch):
+    """An audit fallback under a node overlay runs the provider only: the provider-only rerun
+    gets no ``provider_nodes``, so its trace claims no diagnostic hybrid."""
+    from contextlib import contextmanager
+
+    from rl_engine.validation.models import h3_full_model
+
+    requests = []
+
+    @contextmanager
+    def execution(model, *, candidate, trace, provider_nodes=(), **_):
+        """Record each request; the candidate graph cannot bind."""
+        requests.append((candidate, tuple(provider_nodes)))
+        if candidate:
+            raise h3_full_model.CandidateBindingError("no CUDA op for proj_in")
+        yield trace
+
+    monkeypatch.setattr(h3_full_model, "full_model_execution", execution)
+    overlay = rt.AblationOverlay.parse("node:attention")
+    adapter = rt.H3DiffusersAdapter(_FakeModel(), "audit", overlay)
+    monkeypatch.setattr(adapter, "_bind", lambda: True)
+    with adapter.active():
+        pass
+    assert requests == [(True, ("attention",)), (False, ())]
+    assert adapter.fell_back is not None
+
+
 def test_strict_raises_when_the_graph_cannot_bind(monkeypatch):
     """Strict mode raises when the graph cannot bind and records no fallback."""
     adapter, entered = _bindable(monkeypatch, "strict", binding_fails=True)

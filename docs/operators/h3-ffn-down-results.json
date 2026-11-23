@@ -1,0 +1,968 @@
+{
+  "schema_version": 1,
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "provenance": {
+    "kind": "Selected and aggregated historical evidence, not a new execution or lossless export",
+    "source_commit": "d8ae6cf70eb3f18ae6f16c6f0771c5f9a2ea09c6",
+    "original_bundles_sha256": {
+      "h100-summary.json": "3a44e25a9397373010b75caee1ee321864e960fc83594772497f95bfeab15786",
+      "h100-cancellation.json": "2088317c29cc9de80540f215f54b7d6d660044a568c1f50f6194449b2c9b4fba",
+      "h100-random.json": "66fcd857d26a57ea03ce0984f8bf20db1785336c61d302dce74dfd6a4cf213fb",
+      "h100-swiglu-like.json": "dcc64cf4360bbb9dca0211319f635cffed1cd91ebc6ddfd24052882a7201ba9d",
+      "h100-replays.json": "ee532d0a128eed4e978070fcc9fc6358c0cc0b72eafab50266c4645927cb438c"
+    },
+    "transformation": "Aggregate all primary checks; preserve every primary/native failed check, both replay comparisons and four representative random timing cases. Omit repetitive traces, remaining timing samples, raw logs and execution identifiers; full originals retained privately. Private integrity does not establish public reproducibility."
+  },
+  "artifacts": {
+    "h100-summary": {
+      "format": "json",
+      "original_sha256": "3a44e25a9397373010b75caee1ee321864e960fc83594772497f95bfeab15786",
+      "content": {
+        "historical_execution_date": "2026-10-10",
+        "rerun_for_this_edit": false,
+        "acceptance_complete": false,
+        "backend": "rlkernel.h3_ffn_down.triton.fp32_tiles.v1",
+        "device": {
+          "gpu": "NVIDIA H100 80GB HBM3",
+          "capability": [
+            9,
+            0
+          ],
+          "count": 1
+        },
+        "software": {
+          "python": "3.10.12",
+          "torch": "2.6.0+cu124",
+          "torch_cuda": "12.4",
+          "contract_version": "ws1-c1-v2",
+          "contract_sha256": "044167ec21e372017a2758dc09f805b368283c06b83f64061877628cbd101532"
+        },
+        "primary_triton": "3.2.0",
+        "tested_source": {
+          "git_commit": "32b765ec992cd1206517104ec66506881203c91c",
+          "git_diff_sha256": "dfccc37be1ebdc3c62c0ed6ba89af360a67100248b3e2497636e23d162bff679",
+          "source_hashes": {
+            "csrc/cuda/gemm/det_gemm_kernel.cu": "08d08b0a32900fd9590d47f04819b34a2d37cbf53996aa5ed1373d88eae29f33",
+            "csrc/cuda/gemm/det_gemm_tma.cuh": "97049653e61f7eecfbb5807bd456cf04d27bcee810e382d176974f6cb28ba28d",
+            "rl_engine/kernels/ops/h3_ffn_down.py": "dc929c0b4b17133f2a9085781e20c5f83c3f66e1008ede35e9ef659ed4c7dd78",
+            "rl_engine/kernels/ops/h3_down_fp32_backend.py": "b2485d3135b4ac63163cf0f0786c0295da54efd413343171339a52814364f9bb",
+            "rl_engine/kernels/ops/triton/matmul/det_gemm.py": "b618a3e38223ab9bfcf3f644581f48f00cc48b50ddc0d772205aac4f6a5e37fe",
+            "rl_engine/kernels/ops/h3_down_validation.py": "967dd239a2daf2334ec134b3ac277fbdbd1de4a7244c0549a2f8b507ff537fbf",
+            "rl_engine/kernels/ops/canonical_backward.py": "0c443a9453d43bd16f3de72ccf9c681deb4c34088b18dbe199f7288227a14515",
+            "rl_engine/kernels/registry.py": "bb9ea616c66c0766eb09752d6e892ce9bebb3c68cac93672e918b34060ac2cf0",
+            "scripts/validate_h3_ffn_down.py": "ab394967074aff207f89177f1bafc4c24223187700d7910f355e6c92e3e0b772"
+          }
+        },
+        "seed": 420,
+        "repeats": 5,
+        "dtype": "bfloat16",
+        "shapes": {
+          "input": "[M,14336]",
+          "weight": "[5376,14336]",
+          "output": "[M,5376]",
+          "rows_by_family": {
+            "cancellation": [
+              1,
+              31,
+              32,
+              33,
+              127,
+              128,
+              129,
+              256,
+              513,
+              1024,
+              2048,
+              4096,
+              8192,
+              16385,
+              24577,
+              32768
+            ],
+            "checkpoint_fixture": [
+              129
+            ],
+            "random": [
+              1,
+              31,
+              32,
+              33,
+              127,
+              128,
+              129,
+              256,
+              513,
+              1024,
+              2048,
+              4096,
+              8192,
+              16385,
+              24577,
+              32768
+            ],
+            "swiglu_like": [
+              1,
+              31,
+              32,
+              33,
+              127,
+              128,
+              129,
+              256,
+              513,
+              1024,
+              2048,
+              4096,
+              8192,
+              16385,
+              24577,
+              32768
+            ]
+          }
+        },
+        "fixture": {
+          "sha256": "63b2995505504ef0e91a66bb523c65c6d81b5be921005a9a9aca590587ba85fe",
+          "metadata": {
+            "checkpoint_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+            "model_variant": "transformer",
+            "weight_key": "transformer_blocks.0.ff.net.2.weight",
+            "weight_source": "https://huggingface.co/MiniMaxAI/MiniMax-H3/resolve/42ed227ee7df40d41602854ae760620d6eb651fe/transformer/diffusion_pytorch_model-00001-of-00014.safetensors",
+            "weight_sha256": "e19d4e1649e4b55b1931842e5cc4bb46892c2e635b9315b2996630a86284e88f",
+            "index_sha256": "ac30a3b58963f2e735d493475fbb81853a5735ec947619648b3e045acda6783e",
+            "header_sha256": "74df10c38f82fe10b5d5983029684fb143f935032f52dc585c9c0ac9eff91746",
+            "activation_source": "seeded synthetic FP32 SiLU(gate) * up, then BF16",
+            "activation_kind": "synthetic",
+            "seed": 420
+          }
+        },
+        "gpu_tests": {
+          "status": "passed",
+          "passed": 64,
+          "command": "python -m pytest -q tests/test_h3_ffn_down.py tests/test_h3_down_tooling.py tests/test_h3_down_fixture.py tests/test_tolerance_contract.py",
+          "original_stdout_sha256": "89b85664fcf2fc6e0dc519e6656d0dddfe00c006ed98731ff2d9f126aba52c86"
+        },
+        "matrix": {
+          "cases": 49,
+          "checks": 1141,
+          "passed_checks": 1141,
+          "accuracy": {
+            "y": {
+              "comparisons": 49,
+              "passed": true,
+              "max_abs_error": 0.12514114379882812,
+              "max_error_over_tolerance": 0.17978119850158691,
+              "failing_elements": 0,
+              "tolerance": {
+                "judgment": "forward_accuracy",
+                "op_class": "reduction",
+                "dtype_name": "bfloat16",
+                "status": "applicable",
+                "mode": "tolerance",
+                "atol": 0.05,
+                "rtol": 0.02,
+                "comparison_lhs_role": "bf16_candidate",
+                "comparison_rhs_role": "fp32_reference",
+                "backend_profile": "cuda_bf16",
+                "arch_key": "sm90"
+              }
+            },
+            "dx": {
+              "comparisons": 49,
+              "passed": true,
+              "max_abs_error": 0.015633583068847656,
+              "max_error_over_tolerance": 0.08594760298728943,
+              "failing_elements": 0,
+              "tolerance": {
+                "judgment": "gradient_accuracy",
+                "op_class": "reduction",
+                "dtype_name": "bfloat16",
+                "status": "applicable",
+                "mode": "tolerance",
+                "atol": 0.1,
+                "rtol": 0.02,
+                "comparison_lhs_role": "bf16_candidate",
+                "comparison_rhs_role": "fp32_reference",
+                "backend_profile": "cuda_bf16",
+                "arch_key": "sm90"
+              }
+            },
+            "dw": {
+              "comparisons": 49,
+              "passed": true,
+              "max_abs_error": 0.2525482177734375,
+              "max_error_over_tolerance": 0.18232759833335876,
+              "failing_elements": 0,
+              "tolerance": {
+                "judgment": "gradient_accuracy",
+                "op_class": "reduction",
+                "dtype_name": "bfloat16",
+                "status": "applicable",
+                "mode": "tolerance",
+                "atol": 0.1,
+                "rtol": 0.02,
+                "comparison_lhs_role": "bf16_candidate",
+                "comparison_rhs_role": "fp32_reference",
+                "backend_profile": "cuda_bf16",
+                "arch_key": "sm90"
+              }
+            }
+          },
+          "invariance": {
+            "checks": 994,
+            "passed": true,
+            "mismatched_bytes": 0,
+            "transforms": [
+              "batch2_reshape",
+              "chunk31_single_backward",
+              "inactive_padding",
+              "other_rows_mutated",
+              "permuted_logical_rows",
+              "repeat",
+              "singleton_vs_batch",
+              "strided_input_and_weight"
+            ]
+          },
+          "failed_checks": []
+        },
+        "timing_method": "Five-sample synchronized wall time including wrapper checks, copies, allocations and canonical preparation. Ordinary torch BF16 baseline is not qualified for byte invariance. Representative random rows only; all samples preserved privately.",
+        "representative_benchmarks": [
+          {
+            "rows": 1,
+            "input_family": "random",
+            "benchmarks": {
+              "candidate_forward": {
+                "median_ms": 0.4641115665435791,
+                "samples_ms": [
+                  0.5014799535274506,
+                  0.4641115665435791,
+                  0.4806891083717346,
+                  0.46247243881225586,
+                  0.46306103467941284
+                ],
+                "peak_allocated_bytes": 221329920,
+                "incremental_peak_bytes": 10752,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_dx": {
+                "median_ms": 0.19700080156326294,
+                "samples_ms": [
+                  0.19984692335128784,
+                  0.21108612418174744,
+                  0.19700080156326294,
+                  0.18755346536636353,
+                  0.18952041864395142
+                ],
+                "peak_allocated_bytes": 221347840,
+                "incremental_peak_bytes": 28672,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_dw_canonical_order": {
+                "median_ms": 0.16470998525619507,
+                "samples_ms": [
+                  0.18192827701568604,
+                  0.1676119863986969,
+                  0.16402080655097961,
+                  0.16470998525619507,
+                  0.1600421965122223
+                ],
+                "peak_allocated_bytes": 376721408,
+                "incremental_peak_bytes": 155402240,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_forward_backward": {
+                "median_ms": 5.881074815988541,
+                "samples_ms": [
+                  10.020162910223007,
+                  4.396550357341766,
+                  4.599045962095261,
+                  5.881074815988541,
+                  7.008261978626251
+                ],
+                "peak_allocated_bytes": 531011584,
+                "incremental_peak_bytes": 309692416,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "torch_bf16_forward": {
+                "median_ms": 0.08215755224227905,
+                "samples_ms": [
+                  0.107593834400177,
+                  0.08467957377433777,
+                  0.08215755224227905,
+                  0.07981061935424805,
+                  0.07973238825798035
+                ],
+                "peak_allocated_bytes": 221329920,
+                "incremental_peak_bytes": 10752,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "torch_bf16_forward_backward": {
+                "median_ms": 1.2091360986232758,
+                "samples_ms": [
+                  0.8774884045124054,
+                  1.2091360986232758,
+                  1.040332019329071,
+                  1.277294009923935,
+                  1.5825442969799042
+                ],
+                "peak_allocated_bytes": 375499264,
+                "incremental_peak_bytes": 154180096,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              }
+            }
+          },
+          {
+            "rows": 129,
+            "input_family": "random",
+            "benchmarks": {
+              "candidate_forward": {
+                "median_ms": 0.5118474364280701,
+                "samples_ms": [
+                  0.5456544458866119,
+                  0.5125962197780609,
+                  0.5012191832065582,
+                  0.5118474364280701,
+                  0.5014054477214813
+                ],
+                "peak_allocated_bytes": 231426560,
+                "incremental_peak_bytes": 1387008,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_dx": {
+                "median_ms": 0.22323429584503174,
+                "samples_ms": [
+                  0.2366490662097931,
+                  0.22323429584503174,
+                  0.21626055240631104,
+                  0.22421032190322876,
+                  0.21079927682876587
+                ],
+                "peak_allocated_bytes": 234200576,
+                "incremental_peak_bytes": 4161024,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_dw_canonical_order": {
+                "median_ms": 0.2612210810184479,
+                "samples_ms": [
+                  0.29610469937324524,
+                  0.2780333161354065,
+                  0.25999173521995544,
+                  0.2612210810184479,
+                  0.24727359414100647
+                ],
+                "peak_allocated_bytes": 390986240,
+                "incremental_peak_bytes": 160946688,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_forward_backward": {
+                "median_ms": 4.367075860500336,
+                "samples_ms": [
+                  9.567219763994217,
+                  4.193499684333801,
+                  4.239816218614578,
+                  4.367075860500336,
+                  4.3790265917778015
+                ],
+                "peak_allocated_bytes": 564981248,
+                "incremental_peak_bytes": 334941696,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "torch_bf16_forward": {
+                "median_ms": 0.11000409722328186,
+                "samples_ms": [
+                  0.122804194688797,
+                  0.11217594146728516,
+                  0.10993704199790955,
+                  0.10891258716583252,
+                  0.11000409722328186
+                ],
+                "peak_allocated_bytes": 231426560,
+                "incremental_peak_bytes": 1387008,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "torch_bf16_forward_backward": {
+                "median_ms": 1.257181167602539,
+                "samples_ms": [
+                  1.0933689773082733,
+                  1.257181167602539,
+                  1.3633482158184052,
+                  1.405365765094757,
+                  0.9644664824008942
+                ],
+                "peak_allocated_bytes": 389265920,
+                "incremental_peak_bytes": 159226368,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              }
+            }
+          },
+          {
+            "rows": 8192,
+            "input_family": "random",
+            "benchmarks": {
+              "candidate_forward": {
+                "median_ms": 7.1127749979496,
+                "samples_ms": [
+                  7.472507655620575,
+                  7.3508769273757935,
+                  7.102977484464645,
+                  7.1127749979496,
+                  6.655432283878326
+                ],
+                "peak_allocated_bytes": 867434496,
+                "incremental_peak_bytes": 88080384,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_dx": {
+                "median_ms": 4.442032426595688,
+                "samples_ms": [
+                  4.521660506725311,
+                  4.305578768253326,
+                  4.4516921043396,
+                  4.442032426595688,
+                  4.309028387069702
+                ],
+                "peak_allocated_bytes": 1014235136,
+                "incremental_peak_bytes": 234881024,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_dw_canonical_order": {
+                "median_ms": 4.242591559886932,
+                "samples_ms": [
+                  4.133425652980804,
+                  4.224028438329697,
+                  4.242591559886932,
+                  4.332114011049271,
+                  4.297386854887009
+                ],
+                "peak_allocated_bytes": 933494784,
+                "incremental_peak_bytes": 154140672,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_forward_backward": {
+                "median_ms": 18.447231501340866,
+                "samples_ms": [
+                  18.785148859024048,
+                  18.268324434757233,
+                  18.301360309123993,
+                  19.21449601650238,
+                  18.447231501340866
+                ],
+                "peak_allocated_bytes": 2291867648,
+                "incremental_peak_bytes": 1512513536,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "torch_bf16_forward": {
+                "median_ms": 1.7193928360939026,
+                "samples_ms": [
+                  1.7297640442848206,
+                  1.718033105134964,
+                  1.7193928360939026,
+                  1.7182528972625732,
+                  1.7548836767673492
+                ],
+                "peak_allocated_bytes": 867434496,
+                "incremental_peak_bytes": 88080384,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "torch_bf16_forward_backward": {
+                "median_ms": 5.222029983997345,
+                "samples_ms": [
+                  5.2265264093875885,
+                  5.222029983997345,
+                  5.225643515586853,
+                  5.210563540458679,
+                  5.208142101764679
+                ],
+                "peak_allocated_bytes": 1256456192,
+                "incremental_peak_bytes": 477102080,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              }
+            }
+          },
+          {
+            "rows": 32768,
+            "input_family": "random",
+            "benchmarks": {
+              "candidate_forward": {
+                "median_ms": 41.62594676017761,
+                "samples_ms": [
+                  41.61025583744049,
+                  41.62594676017761,
+                  41.63192957639694,
+                  41.6228361427784,
+                  41.692305356264114
+                ],
+                "peak_allocated_bytes": 2805989376,
+                "incremental_peak_bytes": 352321536,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_dx": {
+                "median_ms": 35.47533228993416,
+                "samples_ms": [
+                  33.461909741163254,
+                  34.31571647524834,
+                  37.22900524735451,
+                  35.47533228993416,
+                  35.92732176184654
+                ],
+                "peak_allocated_bytes": 3393191936,
+                "incremental_peak_bytes": 939524096,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_dw_canonical_order": {
+                "median_ms": 19.52551305294037,
+                "samples_ms": [
+                  19.52551305294037,
+                  19.28829774260521,
+                  17.499323934316635,
+                  20.080339163541794,
+                  20.596228539943695
+                ],
+                "peak_allocated_bytes": 2607808512,
+                "incremental_peak_bytes": 154140672,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "candidate_forward_backward": {
+                "median_ms": 107.59353637695312,
+                "samples_ms": [
+                  109.32975634932518,
+                  107.23195970058441,
+                  106.83485865592957,
+                  107.59353637695312,
+                  112.38069087266922
+                ],
+                "peak_allocated_bytes": 7578877952,
+                "incremental_peak_bytes": 5125210112,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "torch_bf16_forward": {
+                "median_ms": 7.167089730501175,
+                "samples_ms": [
+                  6.37710839509964,
+                  6.479129195213318,
+                  7.427748292684555,
+                  7.846798747777939,
+                  7.167089730501175
+                ],
+                "peak_allocated_bytes": 2805989376,
+                "incremental_peak_bytes": 352321536,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              },
+              "torch_bf16_forward_backward": {
+                "median_ms": 21.537311375141144,
+                "samples_ms": [
+                  22.03044295310974,
+                  21.537311375141144,
+                  20.823486149311066,
+                  21.31655439734459,
+                  21.96405827999115
+                ],
+                "peak_allocated_bytes": 3899654144,
+                "incremental_peak_bytes": 1445986304,
+                "timing_scope": "synchronized wall time, includes wrapper/copies/padding"
+              }
+            }
+          }
+        ],
+        "trace_contract": {
+          "requested_backend": "rlkernel.h3_ffn_down.triton.fp32_tiles.v1",
+          "actual_backend": "rlkernel.h3_ffn_down.triton.fp32_tiles.v1",
+          "kernel_id": "rl_engine.kernels.ops.triton.matmul.det_gemm._det_gemm_fp32_kernel",
+          "fallback": false,
+          "arithmetic": "32-wide FP32 dot tiles, ordered FP32 additions, one BF16 epilogue cast",
+          "tile": [
+            64,
+            64,
+            32
+          ],
+          "num_warps": 4,
+          "num_stages": 2,
+          "fp_fusion": false,
+          "split_k": false,
+          "split_policy": "none",
+          "accumulator_dtype": "float32",
+          "schedule_id": "fixed-64x64x32-w4-s2-fusion0",
+          "topology": {
+            "world_size": 1,
+            "tensor_parallel_size": 1
+          },
+          "checkpoint_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+          "weight_layout": "[5376,14336]",
+          "dw_order": "lexicographic active logical keys; trailing zero pad to 32",
+          "forward_executed": true,
+          "input_gradient_executed": true,
+          "weight_gradient_executed": true
+        },
+        "all_primary_traces_use_requested_backend_without_fallback": true,
+        "rejected_native": {
+          "backend": "rlkernel.h3_ffn_down.sm90.midtree.v1",
+          "status": "failed",
+          "failed_checks": [
+            {
+              "rows": 129,
+              "input_family": "checkpoint_fixture",
+              "judgment": "forward_accuracy",
+              "tolerance": {
+                "judgment": "forward_accuracy",
+                "op_class": "reduction",
+                "dtype_name": "bfloat16",
+                "status": "applicable",
+                "mode": "tolerance",
+                "atol": 0.05,
+                "rtol": 0.02,
+                "comparison_lhs_role": "bf16_candidate",
+                "comparison_rhs_role": "fp32_reference",
+                "backend_profile": "cuda_bf16",
+                "arch_key": "sm90"
+              },
+              "passed": false,
+              "max_abs_error": 0.40984344482421875,
+              "max_error_over_tolerance": 5.004410743713379,
+              "failing_elements": 23353,
+              "tensor": "y",
+              "transform": "fp32_reference"
+            }
+          ]
+        },
+        "limitations": [
+          "Real checkpoint weights were paired with synthetic activations, not captured H3 activations.",
+          "One SM90 GPU, eager WS1 only; no whole-model or TP qualification.",
+          "The default fixed-tile adapter is slower than the ordinary PyTorch BF16 comparator.",
+          "The vLLM probe does not qualify canonical autograd or all dW invariance transforms.",
+          "Strict production resolution remains gated by the test-only descriptor.",
+          "Independent hardware/environment replay, captured activations and production runtime qualification remain pending.",
+          "No GPU rerun after source formatting, directory relocation or registry merges."
+        ],
+        "replay": {
+          "cold_cache_output_comparison": {
+            "status": "passed",
+            "scope": "Same H100 and PyTorch profile; separate process and fresh Triton 3.2.0 cache; not another GPU or runtime environment",
+            "checks": [
+              {
+                "input_family": "random",
+                "rows": 1,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "e5fe21151c0dd93aa2b06c9f1741f1d890bff8b6033cb3254f02caebc6315386"
+              },
+              {
+                "input_family": "random",
+                "rows": 1,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "a88ab71d4c7c1f8f42501065d445aeea13d06141dc574a9a664a06d2191aa81f"
+              },
+              {
+                "input_family": "random",
+                "rows": 1,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "82679e4fc3d45760a6506b51e690bc7c085e7eb9ab533af941cc3bea52d6def9"
+              },
+              {
+                "input_family": "random",
+                "rows": 33,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "250f624bedafbd8468babdf59a1c3320e1047b7def946d1c97a399b4ce76e869"
+              },
+              {
+                "input_family": "random",
+                "rows": 33,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "652ffe9aa3ee3dadb5a0fcb3447a42e1b15b5c50442e2b13332f8722ddac04ee"
+              },
+              {
+                "input_family": "random",
+                "rows": 33,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "ad736ee7cffc7352d2ca352ac21a7c8db4a65cf967ccb93893eacd1196a25a08"
+              },
+              {
+                "input_family": "random",
+                "rows": 129,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "09b874683cd430aef29e88c69c6045e14550c43d0b5ea8e2d10e4c0b83f1bcb7"
+              },
+              {
+                "input_family": "random",
+                "rows": 129,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "5e9612df14e42ef4c29d0a87dc0e9c5a2e52538febe0833b1e84404d2f591a5d"
+              },
+              {
+                "input_family": "random",
+                "rows": 129,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "189c4f5e27489c154533f2b6ff7938cea2a78d928fbf46054a0a58963c15e078"
+              },
+              {
+                "input_family": "swiglu_like",
+                "rows": 1,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "45c0a3d8ac89ad6e6d9abf0c3b651f78aa29d21a0658d962621ab80d0c8f64eb"
+              },
+              {
+                "input_family": "swiglu_like",
+                "rows": 1,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "afe5c6f16746123e0e15fa11293826ce8ba4d409eb9ee795182e68f7032f2e43"
+              },
+              {
+                "input_family": "swiglu_like",
+                "rows": 1,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "5fda4991a478f32e87fd328ed21717c14c89afaa575d6817065043e41e76beda"
+              },
+              {
+                "input_family": "swiglu_like",
+                "rows": 33,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "5ff078a836c628189018465b2f3df6f28325ef6ebf48d75d85679d5fb3d3400e"
+              },
+              {
+                "input_family": "swiglu_like",
+                "rows": 33,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "9a51175a297f58b4e1954b0c7d23905161a6f9ef4c8dc8dec95ee657d4c51c60"
+              },
+              {
+                "input_family": "swiglu_like",
+                "rows": 33,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "ac7a1a891b5401b1f26645394532ff4c9556f48ea786155ffc02af067071f69f"
+              },
+              {
+                "input_family": "swiglu_like",
+                "rows": 129,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "6f18c30644e43ba2934c76eb8bcfefc298c69935baa26bc7d92e28cf029dc236"
+              },
+              {
+                "input_family": "swiglu_like",
+                "rows": 129,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "ec72b2ebce5759c4bbab75b88d698c3b69e26408cb8394517f7a9f66e1ed4bf8"
+              },
+              {
+                "input_family": "swiglu_like",
+                "rows": 129,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "1b66c82f7aced61c44f6e0b7769a66ec60116a35856af26388ce21ed4efc593f"
+              },
+              {
+                "input_family": "cancellation",
+                "rows": 1,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "7ffd3684b2dec669090662fe5fc98e32ef0908b275d5e2af5ded586e10860421"
+              },
+              {
+                "input_family": "cancellation",
+                "rows": 1,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "693f69f6ffb23114cc40f559e78d3f0c96fc7edaff65bcd3c7f0cae702c87730"
+              },
+              {
+                "input_family": "cancellation",
+                "rows": 1,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "0075000b70889eba017ba0c596e3072654b517819d2ae04e814e2cf1b8b63aa3"
+              },
+              {
+                "input_family": "cancellation",
+                "rows": 33,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "6bcd40750594f0bc7db22a4c79e3d1f2a3ff201531f34fddef6bf2538b24362b"
+              },
+              {
+                "input_family": "cancellation",
+                "rows": 33,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "25cce04e11335a6a017a7455cce810dbc2b2815cedb877ae63ab803d7ad9ede3"
+              },
+              {
+                "input_family": "cancellation",
+                "rows": 33,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "77c8a96db1a6712311503033033dccd73eb1aab761cbc4f0bdab404596c34f18"
+              },
+              {
+                "input_family": "cancellation",
+                "rows": 129,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "c020992d561b7a21ac8f25417270656ba5ca4ba5295f2b4ef2804c2d3ea39ea9"
+              },
+              {
+                "input_family": "cancellation",
+                "rows": 129,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "6f3bbc1b79f7fd84c4d8c0cf5f1bacd36aee6425162ece92a543eba5aecad930"
+              },
+              {
+                "input_family": "cancellation",
+                "rows": 129,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "f602eb2cb919c47c1055fa23105171bd12cf0d8f0fec348e5d8cfc0f0ee48716"
+              },
+              {
+                "input_family": "checkpoint_fixture",
+                "rows": 129,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "b459b3edbe9e388b9270541cbc9764a7315f74712c08075878936d8d1907186b"
+              },
+              {
+                "input_family": "checkpoint_fixture",
+                "rows": 129,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "082851ec9fd8976b500b318670a202f0f5431fe2042799f6db2530fca04c2e84"
+              },
+              {
+                "input_family": "checkpoint_fixture",
+                "rows": 129,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "8b533d8735e80018237b64cbc0c0b0cbaffb66d276b68815c05b7a5a9f1c3b41"
+              }
+            ]
+          },
+          "compiler_version_output_comparison": {
+            "status": "passed",
+            "scope": "Same H100/PyTorch; Triton 3.2.0 versus separately pinned 3.4.0 using independent JIT caches; selected cases only",
+            "checks": [
+              {
+                "input_family": "random",
+                "rows": 1,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "e5fe21151c0dd93aa2b06c9f1741f1d890bff8b6033cb3254f02caebc6315386"
+              },
+              {
+                "input_family": "random",
+                "rows": 1,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "a88ab71d4c7c1f8f42501065d445aeea13d06141dc574a9a664a06d2191aa81f"
+              },
+              {
+                "input_family": "random",
+                "rows": 1,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "82679e4fc3d45760a6506b51e690bc7c085e7eb9ab533af941cc3bea52d6def9"
+              },
+              {
+                "input_family": "random",
+                "rows": 129,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "09b874683cd430aef29e88c69c6045e14550c43d0b5ea8e2d10e4c0b83f1bcb7"
+              },
+              {
+                "input_family": "random",
+                "rows": 129,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "5e9612df14e42ef4c29d0a87dc0e9c5a2e52538febe0833b1e84404d2f591a5d"
+              },
+              {
+                "input_family": "random",
+                "rows": 129,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "189c4f5e27489c154533f2b6ff7938cea2a78d928fbf46054a0a58963c15e078"
+              },
+              {
+                "input_family": "random",
+                "rows": 8192,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "5f6470e031a61422734ca646ab827a65b5a1031eba2c7153e7bde3c7e36e70c8"
+              },
+              {
+                "input_family": "random",
+                "rows": 8192,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "6d0ac2f7b0b0116d5cb8baf59e6b78b5d1bb77da15ae3631a9b52ee74a73ea66"
+              },
+              {
+                "input_family": "random",
+                "rows": 8192,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "7ff5fd6196633fee5ec0539a919f7725249c7389eb3a74d669be1b2095b31328"
+              },
+              {
+                "input_family": "random",
+                "rows": 32768,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "2887e2261ca6bed9765a1531db63ef2e6f2dcd46a20bedc18ff1dd4a0ebf8949"
+              },
+              {
+                "input_family": "random",
+                "rows": 32768,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "b57014e1a7a27923da784c6b0ceef1bf541f24e768a0a5224c6859bc506c0515"
+              },
+              {
+                "input_family": "random",
+                "rows": 32768,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "fc5f279f4dd80d4995540573c5c6a1a9feb33341f33f4586f599dc2c23e4d42b"
+              },
+              {
+                "input_family": "checkpoint_fixture",
+                "rows": 129,
+                "tensor": "y",
+                "passed": true,
+                "sha256": "b459b3edbe9e388b9270541cbc9764a7315f74712c08075878936d8d1907186b"
+              },
+              {
+                "input_family": "checkpoint_fixture",
+                "rows": 129,
+                "tensor": "dx",
+                "passed": true,
+                "sha256": "082851ec9fd8976b500b318670a202f0f5431fe2042799f6db2530fca04c2e84"
+              },
+              {
+                "input_family": "checkpoint_fixture",
+                "rows": 129,
+                "tensor": "dw",
+                "passed": true,
+                "sha256": "8b533d8735e80018237b64cbc0c0b0cbaffb66d276b68815c05b7a5a9f1c3b41"
+              }
+            ]
+          }
+        },
+        "prior_art": "The vLLM partial probe requires Triton 3.4.0; Triton 3.2.0 rejected flatten=True. It does not qualify canonical autograd or all dW invariance transforms; timings are not end-to-end comparable."
+      }
+    }
+  }
+}
