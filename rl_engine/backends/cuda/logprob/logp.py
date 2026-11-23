@@ -46,7 +46,7 @@ class _FusedLogpAutograd(FusedLogpAutogradForward):
     def backward(ctx, grad_output: torch.Tensor):
         """Return ``dlogits`` in the input shape and ``None`` for ``token_ids`` and ``backend``.
 
-        Uses ``backend.fused_logp_backward`` on MUSA devices or non-ROCm builds that provide it,
+        Uses ``backend.fused_logp_backward`` on non-ROCm CUDA builds that provide it,
         otherwise ``fused_logp_backward_chunked`` in the input dtype.
         """
         logits, labels = ctx.saved_tensors
