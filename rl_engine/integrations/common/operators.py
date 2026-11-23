@@ -56,6 +56,27 @@ def _attention_dtype(tensor: torch.Tensor) -> AttentionDType:
         raise RuntimeError(f"unsupported Attention dtype {tensor.dtype}") from exc
 
 
+def _npu_available() -> bool:
+    """True when this process can allocate NPU tensors.
+
+    ``transfer_to_npu`` makes ``torch.cuda.is_available()`` true on Ascend, so
+    the CUDA availability flag cannot select the projection implementation.
+    """
+
+    npu = getattr(torch, "npu", None)
+    is_available = getattr(npu, "is_available", None)
+    if not callable(is_available):
+        return False
+    try:
+        return bool(is_available())
+    except Exception:
+        return False
+
+
+def _is_npu_tensor(tensor: torch.Tensor) -> bool:
+    return tensor.device.type == "npu"
+
+
 def _require_nvidia_cuda(tensor: torch.Tensor, module: str) -> None:
     if tensor.device.type != "cuda":
         raise RuntimeError(f"strict {module} R/R requires CUDA/ROCm GPU tensors")
@@ -78,6 +99,16 @@ def _strict_attention_projection_backend_id(platform: str) -> str:
 
 
 def _strict_attention_projection_provenance(platform: str) -> dict[str, Any]:
+    if platform == "npu":
+        return {
+            "backend_id": "rlkernel.ascend.det_gemm",
+            "deterministic": True,
+            "accumulation_dtype": "fp32",
+            "reduction_order": "k_ascending",
+            "split_k": False,
+            "roles": ["qkv", "o_proj"],
+            "triton_used": False,
+        }
     return {
         "backend_id": _strict_attention_projection_backend_id(platform),
         "deterministic": True,
@@ -92,6 +123,10 @@ def _strict_attention_projection_provenance(platform: str) -> dict[str, Any]:
 def _strict_attention_projection_op() -> Any:
     """Construct the deterministic projection selected for this PyTorch build."""
 
+    if _npu_available():
+        from rl_engine.backends.ascend.gemm.det_gemm import DetGemmAscendOp
+
+        return DetGemmAscendOp()
     return DetGemmOp()
 
 
