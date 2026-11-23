@@ -1,0 +1,26 @@
+{
+  "image": "ghcr.io/hongleng/rl-kernel/task19-h100@sha256:4af7e74a5e6f71002806de8dc2c5fbd35926c75896c3488a72a1bba750ae28b3",
+  "python": "3.11.9",
+  "torch": "2.4.1+cu124",
+  "cuda": "12.4",
+  "gpu": "NVIDIA H100 NVL",
+  "memory": 99951706112,
+  "python_abi": "cpython-311-x86_64-linux-gnu",
+  "torch_cxx11_abi": false,
+  "packages": {
+    "numpy": "2.1.1",
+    "pytest": "8.3.5",
+    "ninja": "1.11.1.4",
+    "tabulate": "0.9.0",
+    "setuptools": "73.0.1"
+  },
+  "nvcc": "nvcc: NVIDIA (R) Cuda compiler driver\nCopyright (c) 2005-2024 NVIDIA Corporation\nBuilt on Thu_Mar_28_02:18:24_PDT_2024\nCuda compilation tools, release 12.4, V12.4.131\nBuild cuda_12.4.r12.4/compiler.34097967_0\n",
+  "cxx": "c++ (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0\nCopyright (C) 2021 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "flags": {
+    "TORCH_CUDA_ARCH_LIST": "9.0",
+    "KERNEL_ALIGN_FORCE_SM90": "0",
+    "KERNEL_ALIGN_USE_FAST_MATH": "0",
+    "MAX_JOBS": "4",
+    "CUDA_HOME": "/usr/local/cuda"
+  }
+}

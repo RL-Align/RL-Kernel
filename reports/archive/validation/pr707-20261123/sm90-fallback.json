@@ -1,0 +1,6 @@
+{
+  "state": "PASS",
+  "experimental_tma_executed": false,
+  "generic_native_forward": true,
+  "torch_backward": true
+}
