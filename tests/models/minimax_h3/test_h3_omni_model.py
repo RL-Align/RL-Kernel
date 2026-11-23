@@ -657,9 +657,9 @@ class TestInstallLifecycle:
 
     @pytest.mark.parametrize("release", [False, True])
     def test_a_failed_bind_says_whether_to_retry_or_restart(self, monkeypatch, release):
-        """Check, load and bind are gathered in turn; here another rank fails the bind."""
+        """Check, load, grid and bind are gathered in turn; here another rank fails the bind."""
 
-        ext = self._ext(monkeypatch, [{}, {}, {2: "RuntimeError: report failed"}])
+        ext = self._ext(monkeypatch, [{}, {}, {}, {2: "RuntimeError: report failed"}])
         dit = ext.model_runner.pipeline.transformer
         with pytest.raises(RuntimeError, match="restart the engine" if release else "be retried"):
             ext.rlk_h3_install("ckpt", release_weights=release)
@@ -683,6 +683,27 @@ class TestInstallLifecycle:
         assert ext._rlk_h3 is None and dit.w.is_meta
         with pytest.raises(RuntimeError, match="no usable DiT"):
             dit()  # not vLLM-Omni's forward on meta tensors
+
+    @pytest.mark.parametrize("release", [False, True])
+    def test_a_failed_grid_on_another_rank_fails_every_rank(self, monkeypatch, release):
+        """The grid and its collective are built in a gathered phase: a rank that fails there
+        (out of memory, collective setup) is reported on every rank, and no rank binds."""
+
+        ext = self._ext(monkeypatch, [{}, {}, {3: "OutOfMemoryError: staging"}])
+        dit = ext.model_runner.pipeline.transformer
+        with pytest.raises(RuntimeError, match=r"TP ranks \{3: 'OutOfMemoryError: staging'\}"):
+            ext.rlk_h3_install("ckpt", release_weights=release)
+        assert ext._rlk_h3 is None and dit.w.is_meta == release
+        if not release:
+            assert "forward" not in dit.__dict__ and len(ext.rlk_h3_install("ckpt")) == 4
+
+    def test_the_grid_collective_staging_is_what_it_allocates(self):
+        from rl_engine.distributed.algorithms import collectives as col
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+
+        assert om.grid_collective_staging_bytes(1) == 0
+        per_frame = om.GRID_COLLECTIVE_BYTES + col._COLLECTIVE_FRAME_METADATA_BYTES
+        assert om.grid_collective_staging_bytes(4) == col._COLLECTIVE_STAGING_FRAMES * per_frame
 
     def test_bound_engine_refuses_request_lora_and_remove_after_release(self, monkeypatch):
         ext = self._ext(monkeypatch, [])

@@ -138,6 +138,11 @@ class H3OmniWorkerExtension:
             for p in model.parameters():
                 p.requires_grad_(False)
             loaded["model"] = model
+            # the grid's collective allocates this, then exchanges with every rank: a rank that
+            # cannot allocate must fail here, in a gathered phase, not leave the others waiting
+            probe = om.grid_collective_staging_bytes(tp)
+            if probe and torch.cuda.is_available():
+                torch.empty(probe, dtype=torch.uint8, device="cuda")  # allocated and freed at once
 
         _, failed = _gather(_run(load))
         if failed:
@@ -186,9 +191,14 @@ class H3OmniWorkerExtension:
 
             record = _record
 
+        grids: dict[str, Any] = {}
+
+        def make_grid() -> None:
+            grids["grid"] = om.tp_grid_from_group(tp_group.device_group, tp_rank, tp)
+
         def bind() -> dict[str, Any]:
             binding = om.H3OmniModelBinding(
-                model, grid, strict_boundaries=strict_boundaries, record=record
+                model, grids["grid"], strict_boundaries=strict_boundaries, record=record
             )
             binding.record_errors = record_errors
             handle = om.install_h3_omni_model(pipeline.transformer, binding, od_config=od_config)
@@ -198,8 +208,12 @@ class H3OmniWorkerExtension:
             torch.cuda.empty_cache()
             return {**handle.report(), "resident_param_bytes": _resident(model)}
 
-        grid = om.tp_grid_from_group(tp_group.device_group, tp_rank, tp)
-        results, failed = _gather(_run(bind))
+        # the grid (and its collective) is built in a gathered phase too: a rank that fails there
+        # is reported on every rank, which then all take the failed-bind path below
+        results: list[Any] = []
+        _, failed = _gather(_run(make_grid))
+        if not failed:
+            results, failed = _gather(_run(bind))
         if failed:
             handle, self._rlk_h3 = self._rlk_h3, None
             _restore_request_lora(self)
