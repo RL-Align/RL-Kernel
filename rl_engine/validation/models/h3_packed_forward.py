@@ -108,9 +108,10 @@ def _packed_forward(model_cls, pack, variant):
             text_embeds.contiguous(),
             video_embeds.contiguous(),
             audio_embeds.contiguous(),
-            text_indices,
-            video_indices,
-            audio_indices,
+            # the row validates contiguous indices; the provider's index_copy takes any view
+            text_indices.contiguous(),
+            video_indices.contiguous(),
+            audio_indices.contiguous(),
             sequence_length,
         )
         temb = self.time_proj(timestep)
