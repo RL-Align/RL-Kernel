@@ -220,9 +220,16 @@ class TestLayout:
 
         for target, kind in pl.TARGETS.items():
             for part in ["A", "B.hidden", "B.gate"] if target == "ff.net.0.proj" else ["A", "B"]:
-                counts = [pl.lora_counted(target, part, t, c) for c in range(cp) for t in range(tp)]
                 sharded = (kind == "col") != (part == "A")
-                assert sum(counts) == (tp if sharded else 1), (target, part)
+                if sharded:  # each TP rank's shard once, over the CP replicas
+                    for t in range(tp):
+                        per_shard = sum(pl.lora_counted(target, part, t, c) for c in range(cp))
+                        assert per_shard == 1, (target, part, t)
+                else:  # one whole tensor, counted once over all ranks
+                    counts = [
+                        pl.lora_counted(target, part, t, c) for c in range(cp) for t in range(tp)
+                    ]
+                    assert sum(counts) == 1, (target, part)
 
     def test_rollout_layout_follows_upstream(self):
         full = h3_lora.make_block_lora(0, rank=4, seed=3)
