@@ -17,8 +17,10 @@ it bit for bit, block by block. :func:`first_drift` names the first block and lo
 differs, with the owning rank and the row's modality, which is what the WS2 exit criterion asks of
 first-drift tooling across rank boundaries.
 
-This is a validation harness: every rank keeps the full weights of the model and slices the shards
-of the projections out of them on each call. It does not shard the weight storage.
+By default every rank keeps the full weights of the model and slices the shards of the
+projections out of them on each call. A model loaded by ``h3_sharded_load.load_sharded_model``
+holds only this rank's shards of those projections (the full weights stay on the ``meta`` device),
+and each block then uses the stored shards: the same bytes, so the same results.
 """
 
 from __future__ import annotations
@@ -37,6 +39,9 @@ from rl_engine.validation.models import h3_tp
 from rl_engine.validation.models.h3_full_model import full_model_execution
 
 CONTRACT = "h3-parallel-model-v1"
+# Attribute of a transformer block that holds this rank's stored projection shards (see
+# ``h3_sharded_load``): ``{"tp": int, "tp_rank": int, "tensors": {name: shard}}``.
+SHARDS_ATTR = "_rlk_tp_shards"
 # Weight shards read back after a backward: name -> axis of the unsharded weight.
 SHARDED_WEIGHTS = {
     "attn.to_q.weight": 0,
@@ -189,9 +194,26 @@ def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelS
         idx = par.coshard(shard, adaln_indices, dim=0)[0]
         idx_res = idx[lo - shard.lo : hi - shard.lo].contiguous()
         weights = {hb.BLOCK + "." + n: p for n, p in self.named_parameters()}
+        stored = getattr(self, SHARDS_ATTR, None)
+        if stored is not None and (stored["tp"], stored["tp_rank"]) != (grid.tp, grid.tp_rank):
+            raise ValueError(
+                f"block {index} holds the shards of tp={stored['tp']} rank {stored['tp_rank']}, "
+                f"the grid is tp={grid.tp} rank {grid.tp_rank}"
+            )
         leaves: dict[str, torch.Tensor] | None = {} if torch.is_grad_enabled() else None
         out = h3_tp.run_tp_block_rows(
-            weights, h_res, idx_res, cos, sin, temb, ops, grid, sp=sp, shard=shard, leaves=leaves
+            weights,
+            h_res,
+            idx_res,
+            cos,
+            sin,
+            temb,
+            ops,
+            grid,
+            sp=sp,
+            shard=shard,
+            leaves=leaves,
+            shards=None if stored is None else stored["tensors"],
         )
         if state.inject is not None and state.inject[0] == index and state.inject[2] == rank:
             row = state.inject[1]  # this rank holds it (check_injection)
@@ -210,12 +232,21 @@ def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelS
 
 
 @contextmanager
-def parallel_model_execution(model, grid: h3_tp.Grid, *, sp: bool, trace, ops=None):
-    """Run the full model with every block on ``grid`` (``Grid(1, 1, 0, 0)`` is canonical)."""
+def parallel_model_execution(
+    model, grid: h3_tp.Grid, *, sp: bool, trace, ops=None, strict_boundaries: bool = True
+):
+    """Run the full model with every block on ``grid`` (``Grid(1, 1, 0, 0)`` is canonical).
+
+    ``strict_boundaries=False`` leaves the boundary modules (patch and audio projections, heads,
+    time embedder, final norm) on the provider. That is for hardware the strict boundary rows do
+    not support (the video projections need SM90); the blocks run on ``grid`` either way.
+    """
 
     ops = ops or hb.CandidateOps()
     state = ParallelState(grid, sp)
-    with full_model_execution(model, candidate=True, trace=trace, ops=ops, strict_boundaries=True):
+    with full_model_execution(
+        model, candidate=True, trace=trace, ops=ops, strict_boundaries=strict_boundaries
+    ):
         saved = [(block, block.forward) for block in model.transformer_blocks]
         try:
             for i, block in enumerate(model.transformer_blocks):
