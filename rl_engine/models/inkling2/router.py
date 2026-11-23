@@ -58,3 +58,28 @@ def route_topk_sigmoid(
     )
     weights = normalized * float(route_scale)
     return RoutingResult(expert_indices=expert_indices, weights=weights)
+
+
+def route_topk_sigmoid_cuda(
+    logits: torch.Tensor,
+    selection_bias: torch.Tensor | None = None,
+    *,
+    top_k: int = 8,
+    route_scale: float = 8.0,
+) -> RoutingResult:
+    """Run the native CUDA deterministic top-k router forward kernel."""
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_router_forward"):
+        raise RuntimeError("Inkling 2 CUDA router extension is unavailable")
+    if not logits.is_cuda or logits.ndim != 2:
+        raise ValueError("native router logits must be a 2-D CUDA tensor")
+    experts = logits.shape[1]
+    if selection_bias is None:
+        selection_bias = torch.zeros(experts, device=logits.device, dtype=torch.float32)
+    else:
+        selection_bias = selection_bias.to(device=logits.device, dtype=torch.float32).contiguous()
+    packed = _C.inkling2_router_forward(
+        logits.contiguous(), selection_bias, int(top_k), float(route_scale)
+    )
+    return RoutingResult(expert_indices=packed[0], weights=packed[1])

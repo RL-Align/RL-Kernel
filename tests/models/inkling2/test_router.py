@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """INK-24 router contract tests."""
 
+import pytest
 import torch
 
 from rl_engine.models.inkling2.router import route_topk_sigmoid
@@ -39,3 +40,18 @@ def test_router_backward_flows_through_unbiased_scores():
     result.weights.square().sum().backward()
     assert logits.grad is not None
     assert torch.isfinite(logits.grad).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_native_cuda_router_matches_reference():
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+    from rl_engine.models.inkling2.router import route_topk_sigmoid_cuda
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_router_forward"):
+        pytest.skip("Inkling 2 CUDA router extension is unavailable")
+    logits = torch.randn(16, 128, device="cuda", dtype=torch.bfloat16)
+    bias = torch.randn(128, device="cuda")
+    native = route_topk_sigmoid_cuda(logits, bias)
+    reference = route_topk_sigmoid(logits, bias)
+    assert torch.equal(native.expert_indices, reference.expert_indices)
+    torch.testing.assert_close(native.weights, reference.weights, atol=0, rtol=0)
