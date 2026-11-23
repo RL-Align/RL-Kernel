@@ -38,7 +38,10 @@ KNOWN_SCALE_NOISE = {
 
 
 def scale_noise_variant(scheduler) -> str:
-    source = inspect.getsource(inspect.unwrap(type(scheduler).scale_noise))
+    try:
+        source = inspect.getsource(inspect.unwrap(type(scheduler).scale_noise))
+    except (OSError, TypeError):  # not file-backed: every call stays on the provider
+        return "unknown"
     return KNOWN_SCALE_NOISE.get(hashlib.sha256(source.encode()).hexdigest(), "unknown")
 
 

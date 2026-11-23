@@ -214,6 +214,9 @@ def main():
             pipe.transformer.forward = variant_forward
         noise_calls = {"row": 0, "provider": 0}
         noise_context = contextlib.nullcontext(noise_calls)
+        # recorded in the manifest: a candidate run without the row says so, rather than
+        # reporting {"row": 0, "provider": 0} as if the mix had been bound
+        noise_binding = {"bound": False, "reason": "provider run"}
         if args.candidate:
             # the anchors' noise mix on its row (bitwise the provider's; a mixed-dtype call stays
             # on the provider, see h3_conditioning_noise)
@@ -221,11 +224,26 @@ def main():
             from rl_engine.validation.models import h3_conditioning_noise
 
             try:
+                from rl_engine.backends.cuda.conditioning.conditioning_noise_mix import (
+                    ConditioningNoiseMixCudaOp,
+                )
+
                 mix = KernelRegistry().get_op("conditioning_noise_mix", device="cuda")
-            except RuntimeError:
-                mix = None
-            if type(mix).__name__ == "ConditioningNoiseMixCudaOp":
+            except torch.cuda.OutOfMemoryError:
+                raise
+            except (RuntimeError, ImportError) as exc:
+                mix, reason = None, f"conditioning_noise_mix unavailable: {exc}"
+            else:
+                reason = f"conditioning_noise_mix resolved to {type(mix).__qualname__}"
+            if mix is not None and isinstance(mix, ConditioningNoiseMixCudaOp):
                 noise_context = h3_conditioning_noise.bind(pipe.scheduler, mix)
+                noise_binding = {"bound": True, "reason": ""}
+            else:
+                noise_binding = {"bound": False, "reason": reason}
+                print(
+                    f"warning: candidate noise mix not bound ({reason}); provider noise runs",
+                    flush=True,
+                )
         handle = pipe.transformer.register_forward_hook(capture, with_kwargs=True)
         started = time.perf_counter()
         try:
@@ -304,7 +322,7 @@ def main():
             seed=seed,
             preflight=args.preflight,
             trace=final_trace,
-            conditioning_noise_mix=dict(noise_calls),
+            conditioning_noise_mix=dict(noise_calls, **noise_binding),
             steps=run.recorded,
             resume=run.summary(),
             seconds=time.perf_counter() - started,

@@ -109,3 +109,13 @@ def test_the_cuda_row_is_bitwise_the_provider(t):
     op = KernelRegistry().get_op("conditioning_noise_mix", device="cuda")
     assert isinstance(op, ConditioningNoiseMixCudaOp)
     _check(op, t, device="cuda", shape=(1, 48, 31, 30, 52))
+
+
+def test_an_unreadable_scale_noise_source_is_unknown():
+    scheduler = _scheduler()
+    namespace: dict = {}
+    exec("def scale_noise(self, sample, timestep, noise):\n    return sample\n", namespace)
+    scheduler.__class__ = type(
+        "_Generated", (type(scheduler),), {"scale_noise": namespace["scale_noise"]}
+    )
+    assert hcn.scale_noise_variant(scheduler) == "unknown"

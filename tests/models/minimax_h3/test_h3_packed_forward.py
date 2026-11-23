@@ -236,3 +236,64 @@ def test_a_replay_wrapper_installed_after_bind_serves_the_packed_forward(tmp_pat
     assert calls == [7]  # the one forward ran on the packed row, beneath the replay wrapper
     for g, w in zip(got, want, strict=True):
         assert _bitwise(g, w)
+
+
+def _generated_forward_class():
+    namespace: dict = {}
+    exec("def forward(self, *args, **kwargs):\n    return None\n", namespace)  # no source file
+    return type("_Generated", (MODEL,), {"forward": namespace["forward"]})
+
+
+def test_an_unreadable_forward_source_is_an_unknown_forward():
+    cls = _generated_forward_class()
+    with pytest.raises(hpf.UnknownForwardError, match="cannot read"):
+        hpf.forward_source_sha256(cls)
+    model = _Model()
+    model.__class__ = cls
+    with pytest.raises(hpf.UnknownForwardError):
+        with hpf.bind(model, NativePackedIndexCopyOp()):
+            pass
+    assert "forward" not in model.__dict__
+
+
+class _Registry:
+    error: BaseException | None = None
+    op: object = None
+
+    def get_op(self, name, device):
+        assert (name, device) == ("packed_index_copy", "cuda")
+        if self.error is not None:
+            raise self.error
+        return self.op
+
+
+@pytest.mark.parametrize(
+    "error, op",
+    [
+        (RuntimeError("no backend for packed_index_copy"), None),
+        (ImportError("no extension"), None),
+        (None, NativePackedIndexCopyOp()),  # resolved, but not the CUDA row
+    ],
+)
+def test_the_pack_falls_back_only_for_a_missing_row(monkeypatch, error, op):
+    from rl_engine.runtime import registry
+    from rl_engine.validation.models import h3_full_model as hfm
+
+    monkeypatch.setattr(_Registry, "error", error)
+    monkeypatch.setattr(_Registry, "op", op)
+    monkeypatch.setattr(registry, "KernelRegistry", _Registry)
+    model, trace = _Model(), hfm.FullModelTrace()
+    with hfm._packed_rows(model, trace):
+        assert "forward" not in model.__dict__
+    assert trace.packed_bindings["packed_index_copy"] == "provider"
+
+
+def test_an_out_of_memory_error_while_binding_the_pack_raises(monkeypatch):
+    from rl_engine.runtime import registry
+    from rl_engine.validation.models import h3_full_model as hfm
+
+    monkeypatch.setattr(_Registry, "error", torch.cuda.OutOfMemoryError("out of memory"))
+    monkeypatch.setattr(registry, "KernelRegistry", _Registry)
+    with pytest.raises(torch.cuda.OutOfMemoryError):
+        with hfm._packed_rows(_Model(), hfm.FullModelTrace()):
+            pass
