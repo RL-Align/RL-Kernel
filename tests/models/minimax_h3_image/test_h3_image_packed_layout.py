@@ -246,6 +246,9 @@ def _tiny_forward(model, layout: pl.PackedLayout, image_rows, text_rows, timeste
 
 
 def _tiny_case():
+    # Gate on the pinned pipeline package, not on diffusers.models.transformers: an older
+    # Diffusers (0.41 has MiniMax-H3 but not H3-Image) imports fine and then has no class.
+    pytest.importorskip("diffusers.modular_pipelines.minimax_h3_image")
     transformers = pytest.importorskip("diffusers.models.transformers")
     torch.manual_seed(0)
     model = transformers.MiniMaxH3ImageTransformer2DModel(**TINY).to(torch.float64).eval()
