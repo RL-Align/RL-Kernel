@@ -1,0 +1,201 @@
+{
+  "upstream": {
+    "url": "https://github.com/huggingface/diffusers/blob/f53d552/src/diffusers/schedulers/scheduling_minimax_h3.py",
+    "commit": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
+    "blob_sha1": "ca69ae6a2f6aae5bb68498216316a71eb07c1f7b",
+    "fetch_note": "fetched 2026-10-12 via the api.github.com contents endpoint; the blob matched at commit f53d552 and at main at fetch time",
+    "class": "MiniMaxH3Scheduler",
+    "method": "set_timesteps",
+    "execution": "the method body is AST-extracted and executed as-is against a namespace shim; no formula is transcribed",
+    "torch": "2.14.1",
+    "device": "cpu",
+    "dtype": "float32"
+  },
+  "generator": "make_upstream_fixture.py --upstream-file <src> --out <this file>",
+  "cases": [
+    {
+      "num_inference_steps": 2,
+      "shift": 3.0,
+      "sigmas_count": 2,
+      "sigmas_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "timesteps_count": 1,
+      "timesteps_bits": [
+        "00000000"
+      ],
+      "num_model_evals": 1
+    },
+    {
+      "num_inference_steps": 2,
+      "shift": 12.0,
+      "sigmas_count": 2,
+      "sigmas_bits": [
+        "3f800000",
+        "00000000"
+      ],
+      "timesteps_count": 1,
+      "timesteps_bits": [
+        "00000000"
+      ],
+      "num_model_evals": 1
+    },
+    {
+      "num_inference_steps": 4,
+      "shift": 3.0,
+      "sigmas_count": 4,
+      "sigmas_bits": [
+        "3f800000",
+        "3f5b6db6",
+        "3f199999",
+        "00000000"
+      ],
+      "timesteps_count": 3,
+      "timesteps_bits": [
+        "00000000",
+        "3e124928",
+        "3eccccce"
+      ],
+      "num_model_evals": 3
+    },
+    {
+      "num_inference_steps": 4,
+      "shift": 12.0,
+      "sigmas_count": 4,
+      "sigmas_bits": [
+        "3f800000",
+        "3f75c28f",
+        "3f5b6db6",
+        "00000000"
+      ],
+      "timesteps_count": 3,
+      "timesteps_bits": [
+        "00000000",
+        "3d23d710",
+        "3e124928"
+      ],
+      "num_model_evals": 3
+    },
+    {
+      "num_inference_steps": 25,
+      "shift": 3.0,
+      "sigmas_count": 25,
+      "sigmas_bits": [
+        "3f800000",
+        "3f7c57c6",
+        "3f787878",
+        "3f745d17",
+        "3f700001",
+        "3f6b5ad6",
+        "3f666666",
+        "3f611a7d",
+        "3f5b6db6",
+        "3f555555",
+        "3f4ec4ed",
+        "3f47ae14",
+        "3f400000",
+        "3f37a6f4",
+        "3f2e8ba3",
+        "3f249249",
+        "3f199999",
+        "3f0d7944",
+        "3f000000",
+        "3ee1e1e1",
+        "3ec00000",
+        "3e99999a",
+        "3e5b6db7",
+        "3dec4ec4",
+        "00000000"
+      ],
+      "timesteps_count": 24,
+      "timesteps_bits": [
+        "00000000",
+        "3c6a0e80",
+        "3cf0f100",
+        "3d3a2e90",
+        "3d7ffff0",
+        "3da52950",
+        "3dccccd0",
+        "3df72c18",
+        "3e124928",
+        "3e2aaaac",
+        "3e44ec4c",
+        "3e6147b0",
+        "3e800000",
+        "3e90b218",
+        "3ea2e8ba",
+        "3eb6db6e",
+        "3eccccce",
+        "3ee50d78",
+        "3f000000",
+        "3f0f0f10",
+        "3f200000",
+        "3f333333",
+        "3f492492",
+        "3f627628"
+      ],
+      "num_model_evals": 24
+    },
+    {
+      "num_inference_steps": 25,
+      "shift": 12.0,
+      "sigmas_count": 25,
+      "sigmas_bits": [
+        "3f800000",
+        "3f7f1369",
+        "3f7e133f",
+        "3f7cfcfd",
+        "3f7bcda5",
+        "3f7a81a5",
+        "3f7914c2",
+        "3f7781d3",
+        "3f75c28f",
+        "3f73cf3d",
+        "3f719e34",
+        "3f6f2341",
+        "3f6c4ec5",
+        "3f690c5b",
+        "3f6540f4",
+        "3f60c7ce",
+        "3f5b6db6",
+        "3f54e931",
+        "3f4ccccd",
+        "3f426e2d",
+        "3f34b4b4",
+        "3f21af28",
+        "3f0590b2",
+        "3eaf8af8",
+        "00000000"
+      ],
+      "timesteps_count": 24,
+      "timesteps_bits": [
+        "00000000",
+        "3b6c9700",
+        "3bf66080",
+        "3c40c0c0",
+        "3c864b60",
+        "3cafcb60",
+        "3cdd67c0",
+        "3d07e2d0",
+        "3d23d710",
+        "3d430c30",
+        "3d661cc0",
+        "3d86e5f8",
+        "3d9d89d8",
+        "3db79d28",
+        "3dd5f860",
+        "3df9c190",
+        "3e124928",
+        "3e2c5b3c",
+        "3e4ccccc",
+        "3e76474c",
+        "3e969698",
+        "3ebca1b0",
+        "3ef4de9c",
+        "3f283a84"
+      ],
+      "num_model_evals": 24
+    }
+  ]
+}
