@@ -390,14 +390,30 @@ class TestCuda:
         assert_bits(output, x.index_select(1, index))
         assert_bits(dx, expected_gradient(x, index, grad))
 
-    def test_capped_grid_covers_rows_and_tiles(self, monkeypatch):
+    def test_backward_masks_invalid_destinations(self):
+        from rl_engine.backends.shared.triton.embedding.index_select import _launch_index_select_bwd
+
+        # Call the launcher directly to check the scatter independently of
+        # the asynchronous error normally reported by forward.
+        index = torch.tensor([-1, 2, 2**63 - 1, 0], device="cuda")
+        grad = torch.arange(12, device="cuda", dtype=torch.float32).reshape(4, 3)
+        dx = _launch_index_select_bwd(grad, index, (4, 3), 0, unique_indices=True)
+        expected = torch.zeros_like(grad)
+        expected[2] = grad[1]
+        expected[0] = grad[3]
+        assert_bits(dx, expected)
+
+    @pytest.mark.parametrize("batch,narrow", [(2, False), (15, True)])
+    def test_capped_grid_covers_rows_and_tiles(self, monkeypatch, batch, narrow):
         from rl_engine.backends.shared.triton.embedding import index_select
 
-        # Eight logical rows and three tiles per row must fit a (3, 2) launch.
+        # Exercise both a wide row split across column tiles and a final,
+        # partially filled group of narrow rows behind the grid cap.
         monkeypatch.setattr(index_select, "_MAX_GRID_X", 3)
         monkeypatch.setattr(index_select, "_MAX_GRID_Y", 2)
-        width = 2 * index_select._BLOCK_SIZE + 1
-        x = torch.arange(2 * 6 * width, device="cuda", dtype=torch.float32).reshape(2, 6, width)
+        width = 35 if narrow else 2 * index_select._BLOCK_SIZE + 1
+        x = torch.arange(batch * 6 * width, device="cuda", dtype=torch.float32)
+        x = x.reshape(batch, 6, width)
         index = torch.tensor([5, 1, 4, 0], device=x.device)
         grad = x[:, 1:5]
 
@@ -408,8 +424,10 @@ class TestCuda:
         assert_bits(dx, expected_dx)
 
     def test_inner_tiles_exceed_cuda_grid_y_limit(self):
+        from rl_engine.backends.shared.triton.embedding import index_select
+
         # Shared selection can copy much larger slices than H3's head widths.
-        width = 65535 * 256 + 1
+        width = (65535 * index_select._BLOCK_SIZE) + 1
         x = torch.ones(1, 2, 1, device="cuda", dtype=torch.float16).expand(1, 2, width)
         index = torch.tensor([1], device="cuda")
         grad = torch.ones(1, 1, 1, device="cuda", dtype=x.dtype).expand(1, 1, width)
@@ -476,21 +494,23 @@ class TestCuda:
             assert_bits(dx, expected_gradient(x, index, grad, dim=dim).to(dtype))
 
     @pytest.mark.parametrize(
-        "shape,bad_index",
+        "shape,indices",
         [
-            ((1, 7, 32), -1),
-            ((1, 7, 32), 7),
-            ((1, 7, 32), 2**63 - 1),
-            ((0, 7, 32), 7),
-            ((1, 7, 0), -1),
+            ((1, 7, 32), [-1]),
+            ((1, 7, 32), [7]),
+            ((1, 7, 32), [2**63 - 1]),
+            ((1, 19, 96), [0, 1, 2, 3, 19]),  # bad index in the final narrow-row tile
+            ((0, 7, 32), [7]),
+            ((1, 7, 0), [-1]),
+            ((1, 0, 32), [0]),
         ],
     )
-    def test_invalid_cuda_index_fails_in_isolated_process(self, shape, bad_index):
+    def test_invalid_cuda_index_fails_in_isolated_process(self, shape, indices):
         code = f"""
 import torch
 from rl_engine.backends.shared.triton.embedding.index_select import TritonIndexSelectOp
 x = torch.zeros({shape!r}, device='cuda')
-i = torch.tensor([{bad_index}], device='cuda')
+i = torch.tensor({indices!r}, device='cuda')
 TritonIndexSelectOp()(x, i, dim=1, unique_indices=True)
 torch.cuda.synchronize()
 """

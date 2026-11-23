@@ -19,7 +19,9 @@ from rl_engine.contracts.operators.index_select import require_unique_indices
 _SUPPORTED_DEVICES = ("cuda", "hip", "xpu", "musa")
 _SUPPORTED_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 _INDEX_DTYPES = (torch.int32, torch.int64)
-_BLOCK_SIZE = 256
+_BLOCK_SIZE = 1024
+_TILE_ELEMENTS = 512
+_MAX_BLOCK_ROWS = 16
 _MAX_GRID_X = 2**31 - 1
 _MAX_GRID_Y = 65535
 
@@ -56,13 +58,17 @@ def _index_select_fwd_kernel(
     x_ptr,
     index_ptr,
     y_ptr,
+    indices_valid_ptr,
     n_rows,
     n_selected,
     axis_size,
     inner_size: tl.constexpr,
     X_IS_CONTIGUOUS: tl.constexpr,
     index_stride,
+    BLOCK_ROWS: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
+    ROW_STEPS: tl.constexpr,
+    COL_STEPS: tl.constexpr,
     OUTER_SHAPE: tl.constexpr = None,
     INNER_SHAPE: tl.constexpr = None,
     OUTER_STRIDES: tl.constexpr = None,
@@ -72,37 +78,47 @@ def _index_select_fwd_kernel(
     """Copy a tile from an indexed slice, retaining the input's storage bits.
 
     Logically view x as [outer, axis, inner] and y as [outer, K, inner].
-    Grid axis 0 distributes the outer * K logical rows, and axis 1 distributes
-    the inner tiles of each row. If either axis reaches its launch limit, a
-    program advances by the grid size on that axis. A contiguous input uses
-    linear row and column offsets. Other views use their original strides.
-    Both paths copy the selected bits into a contiguous output.
+    Grid axis 0 distributes tiles of output rows and axis 1 their columns.
+    A narrow slice shares its program with neighboring rows. A capped grid
+    revisits tiles in grid-size steps. Invalid indices flag the asynchronous
+    bounds check and never address input storage.
     """
-    first_row = tl.program_id(0).to(tl.int64)
+    first_row_tile = tl.program_id(0).to(tl.int64)
     row_stride = tl.num_programs(0).to(tl.int64)
-    row_end = tl.cast(n_rows, tl.int64)
-    first_tile = tl.program_id(1)
-    n_tiles = tl.cdiv(inner_size, BLOCK_SIZE)
-    tile_stride = tl.num_programs(1)
+    first_col_tile = tl.program_id(1).to(tl.int64)
+    col_stride = tl.num_programs(1).to(tl.int64)
 
-    for output_row in range(first_row, row_end, row_stride):
-        # y[outer, position, :] comes from x[outer, index[position], :].
+    for step in range(ROW_STEPS):
+        row_tile = first_row_tile + step * row_stride
+        output_row = row_tile * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)
+        valid_row = output_row < n_rows
+        # Modulo K always addresses the index vector, including padding lanes.
         outer, position = output_row // n_selected, output_row % n_selected
         input_row = _load_index_row(index_ptr, position, index_stride)
+        valid_index = (input_row >= 0) & (input_row < axis_size)
+        # The flag starts at one. Only tiles with an invalid index write it.
+        if tl.sum((valid_row & ~valid_index).to(tl.int32), 0) != 0:
+            tl.atomic_xchg(indices_valid_ptr, 0, sem="relaxed")
+        input_row = tl.where(valid_index, input_row, 0)
         if X_IS_CONTIGUOUS:
             x_start = (outer * axis_size + input_row) * inner_size
         else:
             outer_offset = _strided_offset(outer, OUTER_SHAPE, OUTER_STRIDES)
             x_start = outer_offset + input_row * axis_stride
-        for tile in range(first_tile, n_tiles, tile_stride):
-            cols = tl.cast(tile, tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-            mask = cols < inner_size
+        for col_step in range(COL_STEPS):
+            col_tile = first_col_tile + col_step * col_stride
+            cols = col_tile * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+            mask = valid_row[:, None] & (cols[None, :] < inner_size)
             if X_IS_CONTIGUOUS:
                 inner_offsets = cols
             else:
                 inner_offsets = _strided_offset(cols, INNER_SHAPE, INNER_STRIDES)
-            value = tl.load(x_ptr + x_start + inner_offsets, mask=mask, other=0)
-            tl.store(y_ptr + output_row * inner_size + cols, value, mask=mask)
+            value = tl.load(
+                x_ptr + x_start[:, None] + inner_offsets[None, :],
+                mask=mask & valid_index[:, None],
+                other=0,
+            )
+            tl.store(y_ptr + output_row[:, None] * inner_size + cols[None, :], value, mask=mask)
 
 
 @triton.jit
@@ -116,24 +132,33 @@ def _index_select_bwd_unique_kernel(
     inner_size: tl.constexpr,
     GRAD_Y_IS_CONTIGUOUS: tl.constexpr,
     index_stride,
+    BLOCK_ROWS: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
+    ROW_STEPS: tl.constexpr,
+    COL_STEPS: tl.constexpr,
     OUTER_SHAPE: tl.constexpr = None,
     INNER_SHAPE: tl.constexpr = None,
     OUTER_STRIDES: tl.constexpr = None,
     INNER_STRIDES: tl.constexpr = None,
     axis_stride=None,
 ):
-    """Scatter a tile of grad_y into grad_x when each selected row occurs once."""
-    first_row = tl.program_id(0).to(tl.int64)
+    """Scatter a tile of rows and columns. Unique indices give each element one writer."""
+    first_row_tile = tl.program_id(0).to(tl.int64)
     row_stride = tl.num_programs(0).to(tl.int64)
-    row_end = tl.cast(n_rows, tl.int64)
-    first_tile = tl.program_id(1)
-    n_tiles = tl.cdiv(inner_size, BLOCK_SIZE)
-    tile_stride = tl.num_programs(1)
+    first_col_tile = tl.program_id(1).to(tl.int64)
+    col_stride = tl.num_programs(1).to(tl.int64)
 
-    for output_row in range(first_row, row_end, row_stride):
+    for step in range(ROW_STEPS):
+        row_tile = first_row_tile + step * row_stride
+        output_row = row_tile * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)
+        valid_row = output_row < n_rows
         outer, position = output_row // n_selected, output_row % n_selected
         input_row = _load_index_row(index_ptr, position, index_stride)
+        # Forward reports invalid indices asynchronously. Independently guard
+        # the scatter address before writing to the input gradient.
+        valid_index = (input_row >= 0) & (input_row < axis_size)
+        valid_row = valid_row & valid_index
+        input_row = tl.where(valid_index, input_row, 0)
         # grad_y has the output shape, so output_row is already its flat row index.
         if GRAD_Y_IS_CONTIGUOUS:
             grad_y_start = output_row * inner_size
@@ -141,18 +166,23 @@ def _index_select_bwd_unique_kernel(
             outer_offset = _strided_offset(outer, OUTER_SHAPE, OUTER_STRIDES)
             grad_y_start = outer_offset + position * axis_stride
         grad_x_start = (outer * axis_size + input_row) * inner_size
-        for tile in range(first_tile, n_tiles, tile_stride):
-            cols = tl.cast(tile, tl.int64) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-            mask = cols < inner_size
+        for col_step in range(COL_STEPS):
+            col_tile = first_col_tile + col_step * col_stride
+            cols = col_tile * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+            mask = valid_row[:, None] & (cols[None, :] < inner_size)
             if GRAD_Y_IS_CONTIGUOUS:
                 inner_offsets = cols
             else:
                 inner_offsets = _strided_offset(cols, INNER_SHAPE, INNER_STRIDES)
-            grad = tl.load(grad_y_ptr + grad_y_start + inner_offsets, mask=mask, other=0)
+            grad = tl.load(
+                grad_y_ptr + grad_y_start[:, None] + inner_offsets[None, :], mask=mask, other=0
+            )
             # Match the reference's FP32 sum starting at +0. An upstream -0 gives +0.
             value = 0.0 + grad.to(tl.float32)
             tl.store(
-                grad_x_ptr + grad_x_start + cols, value.to(grad_x_ptr.dtype.element_ty), mask=mask
+                grad_x_ptr + grad_x_start[:, None] + cols[None, :],
+                value.to(grad_x_ptr.dtype.element_ty),
+                mask=mask,
             )
 
 
@@ -160,12 +190,7 @@ _BACKWARD_KERNELS = {True: _index_select_bwd_unique_kernel}
 
 
 def _validate_inputs(x: Tensor, index: Tensor, dim: int) -> None:
-    """Check the device, metadata and index bounds.
-
-    Accept strided tensors and empty dimensions. Check index bounds on device
-    when the backend implements PyTorch's asynchronous assertion.
-    This backend owns its checks independently of the PyTorch reference.
-    """
+    """Check tensor metadata and handle index bounds when the gather cannot run."""
     if x.device.type not in _SUPPORTED_DEVICES:
         raise RuntimeError(f"x must use a device in {_SUPPORTED_DEVICES}, got {x.device.type!r}.")
     if x.ndim == 0:
@@ -180,7 +205,9 @@ def _validate_inputs(x: Tensor, index: Tensor, dim: int) -> None:
         raise TypeError(f"index dtype must be one of {_INDEX_DTYPES}, got {index.dtype}")
     if x.device != index.device:
         raise ValueError("x and index must be on the same device")
-    if index.numel() != 0:
+    if index.numel() and x.numel() == 0:
+        # A zero-size axis or an empty outer/inner dimension leaves no data to
+        # gather. The index contract still applies to every supplied entry.
         axis_size = x.shape[dim]
         # The axis length can exceed int32 even when the requested row fits.
         max_valid_index = min(axis_size - 1, torch.iinfo(index.dtype).max)
@@ -248,6 +275,25 @@ def _get_axis_layout(
     )
 
 
+def _tile_grid(n_rows: int, inner_size: int) -> tuple[tuple[int, int], dict[str, int]]:
+    """Group narrow rows in one tile; split wide rows across column tiles.
+
+    A grid below both launch limits visits its tile once. When an axis is
+    capped, the same program visits the remaining tiles along that axis.
+    """
+    block_size = min(triton.next_power_of_2(inner_size), _BLOCK_SIZE)
+    block_rows = min(_MAX_BLOCK_ROWS, max(1, _TILE_ELEMENTS // block_size))
+    row_tiles = triton.cdiv(n_rows, block_rows)
+    col_tiles = triton.cdiv(inner_size, block_size)
+    grid = min(row_tiles, _MAX_GRID_X), min(col_tiles, _MAX_GRID_Y)
+    return grid, {
+        "BLOCK_ROWS": block_rows,
+        "BLOCK_SIZE": block_size,
+        "ROW_STEPS": triton.cdiv(row_tiles, grid[0]),
+        "COL_STEPS": triton.cdiv(col_tiles, grid[1]),
+    }
+
+
 def _launch_index_select_fwd(x: Tensor, index: Tensor, dim: int) -> Tensor:
     """Allocate the selected shape and copy slices on the input device's stream."""
     # Start at the selected axis, then drop it. For dim=-1 the suffix is empty.
@@ -255,22 +301,21 @@ def _launch_index_select_fwd(x: Tensor, index: Tensor, dim: int) -> Tensor:
     outer_size, inner_size = prod(outer_shape), prod(inner_shape)
     n_selected = index.numel()
     output_shape = (*outer_shape, n_selected, *inner_shape)
-    y = torch.empty(output_shape, device=x.device, dtype=x.dtype)
-    if y.numel() == 0:
+    y = x.new_empty(output_shape)
+    if y.numel() == 0 or x.numel() == 0:
         return y
-    block_size = min(triton.next_power_of_2(inner_size), _BLOCK_SIZE)
     n_rows = outer_size * n_selected
-    grid_x = min(n_rows, _MAX_GRID_X)
-    grid_y = min(triton.cdiv(inner_size, block_size), _MAX_GRID_Y)
-    grid = (grid_x, grid_y)
+    grid, tile = _tile_grid(n_rows, inner_size)
     x_layout = _get_axis_layout(x, dim, outer_shape, inner_shape)
     # The caller may have another device selected. This guard restores it after the launch.
     device_module = torch.get_device_module(x.device)
     with device_module.device(x.device):
+        indices_valid = x.new_ones((), dtype=torch.int32)
         _index_select_fwd_kernel[grid](
             x,
             index,
             y,
+            indices_valid,
             n_rows=n_rows,
             n_selected=n_selected,
             axis_size=x.shape[dim],
@@ -278,9 +323,10 @@ def _launch_index_select_fwd(x: Tensor, index: Tensor, dim: int) -> Tensor:
             X_IS_CONTIGUOUS=_AxisLayout.is_contiguous(x_layout),
             index_stride=None if index.is_contiguous() else index.stride(0),
             num_warps=4,
-            BLOCK_SIZE=block_size,
+            **tile,
             **_AxisLayout.kernel_kwargs(x_layout),
         )
+        torch._assert_async(indices_valid, f"index values must be in [0, {x.shape[dim]})")
     return y
 
 
@@ -289,18 +335,15 @@ def _launch_index_select_bwd(
 ) -> Tensor:
     """Use the forward call's mode to select how gradients are written back."""
     # The kernel writes only selected rows. Unselected rows keep +0, even for an empty index.
-    grad_x = torch.zeros(x_shape, device=grad_y.device, dtype=grad_y.dtype)
+    grad_x = grad_y.new_zeros(x_shape)
     if grad_y.numel() == 0:
         return grad_x
 
     outer_shape, inner_shape = x_shape[:dim], x_shape[dim:][1:]
     outer_size, inner_size = prod(outer_shape), prod(inner_shape)
     n_selected = index.numel()
-    block_size = min(triton.next_power_of_2(inner_size), _BLOCK_SIZE)
     n_rows = outer_size * n_selected
-    grid_x = min(n_rows, _MAX_GRID_X)
-    grid_y = min(triton.cdiv(inner_size, block_size), _MAX_GRID_Y)
-    grid = (grid_x, grid_y)
+    grid, tile = _tile_grid(n_rows, inner_size)
     backward_kernel = _BACKWARD_KERNELS[unique_indices]
     grad_y_layout = _get_axis_layout(grad_y, dim, outer_shape, inner_shape)
     device_module = torch.get_device_module(grad_y.device)
@@ -315,9 +358,9 @@ def _launch_index_select_bwd(
             inner_size=inner_size,
             GRAD_Y_IS_CONTIGUOUS=_AxisLayout.is_contiguous(grad_y_layout),
             index_stride=None if index.is_contiguous() else index.stride(0),
-            BLOCK_SIZE=block_size,
             num_warps=4,
             enable_fp_fusion=False,
+            **tile,
             **_AxisLayout.kernel_kwargs(grad_y_layout),
         )
     return grad_x

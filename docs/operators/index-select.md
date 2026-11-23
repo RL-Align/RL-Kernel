@@ -74,8 +74,12 @@ preserving their bits. Backward sends `grad_y[0]` to input row 3 and `grad_y[1]`
 to input row 1. All other rows receive zero. PyTorch uses its built-in
 `Tensor.index_select` and its autograd backward.
 
-The Triton kernel reads strided upstream gradients directly and uses the original
-indices to write each selected row of a zero-filled `grad_x` in parallel.
+Triton masks out-of-bounds input reads and gradient writes. The gather records
+invalid indices for a device-side check that also runs with `TRITON_DEBUG=0`.
+An empty data tensor still gets a separate check for any supplied indices.
+Both kernels group narrow rows into one program and split wide rows into column
+tiles. Backward reads strided upstream gradients directly and writes each
+selected row of a zero-filled `grad_x` in parallel.
 
 ```text
 y[j]               = x[index[j]]
