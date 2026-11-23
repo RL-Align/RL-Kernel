@@ -114,7 +114,8 @@ def test_reserved_and_duplicate_slots_are_rejected():
         ((64, 8, 0, 16), None),
         ((1024, 256, 64, 8), None),
         ((1024, 777, 1500, 64), None),
-        # A rollout-sized cache bank: untouched slots must keep their bytes.
+        # A rollout-sized cache bank. The op is functional: it returns a new bank and leaves
+        # every slot of the caller's bank, the 16 it reads included, byte for byte unchanged.
         ((512,) * 16, 362),
     ],
 )
@@ -128,7 +129,10 @@ def test_one_launch_forward_equals_one_decode_step_per_token(lengths, blocks):
     exact(tensors[-1], original_state)
 
 
-def test_gradients_equal_the_decode_loop():
+def test_backward_wiring_equals_the_decode_loop_gradient():
+    """The one-launch backward differentiates the decode loop by design, so this checks its
+    wiring (saved inputs, which inputs need gradients, an empty sequence, the state bank's
+    routing), not the gradient math; that is checked against FP64 below."""
     lengths = (16, 0, 9, 32)
     grads = []
     for function in (packed_recurrent_sequence, decode_loop_sequence):
@@ -176,10 +180,10 @@ def _reference_recurrence(qkv, a, b, A_log, dt_bias, state, indices, cu, *, num_
     return torch.stack(outputs), final
 
 
-def test_gradients_match_an_independent_reference():
+@pytest.mark.parametrize("lengths", [(5, 0, 3), (16, 0, 9, 32)])
+def test_gradients_match_an_independent_reference(lengths):
     """The decode-loop gradient (used by the one-launch backward) against FP64 autograd of
     a separate PyTorch recurrence, so a shared bug in the decode loop would be caught."""
-    lengths = (5, 0, 3)
     tensors, indices, cu = inputs(lengths, seed=21)
     weights = None
     results = []
