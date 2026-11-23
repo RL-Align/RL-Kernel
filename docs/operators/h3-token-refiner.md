@@ -54,10 +54,19 @@ without weights). On H100 (Hopper) 15 passed. Tokens 1, 64 and 257 per block, bo
 ## Limits
 
 The block needs Triton: the interim GEMM and the GEMM rows' backends are Triton kernels, so
-`CandidateOps` cannot be built without it. SwiGLU and the QK norm are `interim` until their rows
-land, and so are the O/gate_up/down GEMMs off SM90, and attention where the `H3FullAttentionOp` extension cannot be loaded (it then runs the
-interim `DeterministicAttentionOp`); a refiner trace is not yet strict-clean (`assert_strict`
-reports exactly those nodes).
+`CandidateOps` cannot be built without it.
+
+A refiner trace is not yet strict-clean, for two separate reasons:
+
+- **Interim bindings.** SwiGLU and the QK norm are `interim` until their rows land. So are the
+  O/gate_up/down GEMMs off SM90, and attention where the `H3FullAttentionOp` extension cannot be
+  loaded (it then runs the interim `DeterministicAttentionOp`).
+- **Unobserved fields, on every node.** `block_observer` only learns each node's name, so it
+  records the accumulator, the split policy and the fallback state as not observed, row-bound
+  nodes included. `assert_strict` (by default `require_observed=True`) reports those too.
+  Replacing the interim bindings alone does not clear them; the operators have to report their
+  own. `violations(require_observed=False)` checks the bindings alone.
+
 Fail-closed strict mode is therefore enforced per node by the trace, not by the block.
 
 ## Hopper evidence (H100)
