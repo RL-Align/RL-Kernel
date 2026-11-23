@@ -161,8 +161,8 @@ PYTHONPATH=. OMP_NUM_THREADS=1 python -m pytest -q \
   tests/benchmarks/test_fused_logp_provider_evidence.py
 ```
 
-The archived H100 evidence under `reports/archive/validation/pr707-20261123`
-validates `2f685b8e` against `49941801`, before #495/#547 integration. It remains
+The [historical H100 archive](https://github.com/hongleng/RL-Kernel/releases/download/pr707-task19-validation-20261123/pr707-20261123.tar.gz)
+validates `2f685b8e` against `49941801`: **82 passed**, before #495/#547 integration. It remains
 historical evidence for that revision, not hardware acceptance of the merged
 backward or deterministic-autograd paths. The old Task19 image lacks the new
 native symbols and cannot be reused as this checkout's extension.
@@ -171,10 +171,12 @@ The post-integration H100 rerun on 2026-11-23 tested `4c9ee6dc` against
 `e9d52e95`: **214 passed, 36 deselected, zero skips/failures/errors**, plus all
 18 exact forward/native-backward/variant comparisons and the SM90 wrapper's
 native-backward fallback check. The complete runner took 11.71 seconds.
-[Acceptance record](https://github.com/hongleng/RL-Kernel/blob/7bf7ca4564b54e74720e68a461e2d299e415ff64/reports/archive/validation/pr707-main-20261123/acceptance.json),
-[raw pytest log](https://github.com/hongleng/RL-Kernel/blob/7bf7ca4564b54e74720e68a461e2d299e415ff64/reports/archive/validation/pr707-main-20261123/gpu.log),
-and [comparison report](https://github.com/hongleng/RL-Kernel/blob/7bf7ca4564b54e74720e68a461e2d299e415ff64/reports/archive/validation/pr707-main-20261123/comparison.json)
-record this newer evidence. The 65 pytest warnings concern `record_property`
+The [integrated-main archive](https://github.com/hongleng/RL-Kernel/releases/download/pr707-task19-validation-20261123/pr707-main-20261123.tar.gz)
+preserves the acceptance record, raw pytest log, comparison report and CPU
+integration records (**225 passed, 550 skipped**; Python routing, no native GPU
+execution). [Release notes and checksums](https://github.com/hongleng/RL-Kernel/releases/tag/pr707-task19-validation-20261123)
+describe both batches; this archival publication does not constitute a new test
+of the latest PR HEAD. The 65 pytest warnings concern `record_property`
 with xunit2; testcase properties were retained and all assertions passed.
 This completes the declared single-H100 integration scope below; its exclusions
 remain unchanged.
