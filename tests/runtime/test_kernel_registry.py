@@ -119,3 +119,55 @@ def test_sm90_linear_ops_do_not_prioritize_cuda_on_non_hopper(monkeypatch):
 
     assert OpBackend.CUDA_SM90_EMBEDDING not in registry._priority_map["cuda"]["embedding"]
     assert OpBackend.CUDA_SM90_LM_HEAD not in registry._priority_map["cuda"]["lm_head"]
+
+
+class _FakeRMSNormExtension:
+    rmsnorm_forward = object()
+    rmsnorm_backward_dx = object()
+    rmsnorm_backward_dw = object()
+
+
+class _FakeForwardOnlyRMSNormExtension:
+    rmsnorm_forward = object()
+
+
+class _FakeNoDwRMSNormExtension:
+    """RMSNormCudaOp computes dW in Python, so rmsnorm_backward_dw is not needed."""
+
+    rmsnorm_forward = object()
+    rmsnorm_backward_dx = object()
+
+
+@pytest.mark.parametrize("extension", [_FakeRMSNormExtension(), _FakeNoDwRMSNormExtension()])
+@pytest.mark.parametrize("capability", [(8, 0), (9, 0), (10, 0)])
+def test_rms_norm_prioritizes_cuda_when_extension_symbols_exist(monkeypatch, capability, extension):
+    from rl_engine.backends import extension as base_module
+
+    monkeypatch.setattr(registry_module.device_ctx, "device_type", "cuda")
+    monkeypatch.setattr(registry_module.torch.cuda, "get_device_capability", lambda: capability)
+    monkeypatch.setattr(base_module, "_EXT_AVAILABLE", True)
+    monkeypatch.setattr(base_module, "_C", extension)
+
+    registry = KernelRegistry()
+
+    assert registry._priority_map["cuda"]["rms_norm"] == [
+        OpBackend.CUDA_RMS_NORM,
+        OpBackend.PYTORCH_NATIVE_RMS_NORM,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("available", "extension"),
+    [(False, _FakeRMSNormExtension()), (True, _FakeForwardOnlyRMSNormExtension())],
+)
+def test_rms_norm_stays_native_without_full_cuda_extension(monkeypatch, available, extension):
+    from rl_engine.backends import extension as base_module
+
+    monkeypatch.setattr(registry_module.device_ctx, "device_type", "cuda")
+    monkeypatch.setattr(registry_module.torch.cuda, "get_device_capability", lambda: (10, 0))
+    monkeypatch.setattr(base_module, "_EXT_AVAILABLE", available)
+    monkeypatch.setattr(base_module, "_C", extension)
+
+    registry = KernelRegistry()
+
+    assert registry._priority_map["cuda"]["rms_norm"] == [OpBackend.PYTORCH_NATIVE_RMS_NORM]

@@ -335,6 +335,48 @@ def test_cuda_triton_rms_norm_deterministic_repeat(impl):
         assert torch.equal(dw0, dw)
 
 
+@requires_cuda_rmsnorm
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="needs two CUDA devices")
+def test_cuda_rms_norm_launches_on_the_input_device():
+    """Inputs on cuda:1 while cuda:0 is current must run on cuda:1.
+
+    The launchers read the current stream, so without a device guard they
+    launch on cuda:0 with cuda:1 pointers. With peer access enabled that can
+    still give the right values, so the kernels' device is checked directly.
+    """
+    from torch.autograd import DeviceType
+    from torch.profiler import ProfilerActivity, profile
+
+    torch.manual_seed(0)
+    x = torch.randn(64, _HIDDEN, dtype=torch.bfloat16)
+    weight = torch.randn(_HIDDEN, dtype=torch.bfloat16)
+    dy = torch.randn(64, _HIDDEN, dtype=torch.bfloat16)
+
+    def run():
+        return _run_forward_backward(
+            rmsnorm_cuda, x.to("cuda:1"), weight.to("cuda:1"), dy.to("cuda:1")
+        )
+
+    with torch.cuda.device(1):
+        expected = run()
+        torch.cuda.synchronize(1)
+    with torch.cuda.device(0):
+        with profile(activities=[ProfilerActivity.CUDA]) as prof:
+            got = run()
+            torch.cuda.synchronize(0)
+            torch.cuda.synchronize(1)
+    kernels = [
+        event
+        for event in prof.events()
+        if event.device_type == DeviceType.CUDA and "rmsnorm" in event.name
+    ]
+    assert kernels, "no RMSNorm kernel was recorded"
+    assert {event.device_index for event in kernels} == {1}
+    for want, have in zip(expected, got, strict=True):
+        assert have.device == torch.device("cuda:1")
+        assert torch.equal(want, have)
+
+
 @requires_cuda
 def test_triton_rms_norm_long_context_dw_reduction():
     torch.manual_seed(2)
