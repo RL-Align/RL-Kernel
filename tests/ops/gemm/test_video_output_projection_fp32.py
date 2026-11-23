@@ -1,0 +1,1086 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+
+"""H3 FP32 output projection accuracy, logical-row BI, and video selection."""
+
+import hashlib
+import json
+import math
+
+import pytest
+import torch
+
+from rl_engine.contracts.numerical import load_contract
+from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
+from rl_engine.ops.gemm.video_output_projection_fp32 import VideoOutputProjectionFP32Op
+from rl_engine.reference.gemm.video_output_projection_fp32 import (
+    NativeVideoOutputProjectionFP32Op,
+    _reference_matmul_fp32,
+)
+
+HAS_SM90 = (
+    torch.cuda.is_available()
+    and torch.version.hip is None
+    and torch.cuda.get_device_capability() == (9, 0)
+)
+requires_sm90 = pytest.mark.skipif(not HAS_SM90, reason="requires CUDA SM90")
+
+
+def _op():
+    from rl_engine.backends.shared.triton.gemm.video_output_projection_fp32 import (
+        TritonVideoOutputProjectionFP32Op,
+    )
+
+    return TritonVideoOutputProjectionFP32Op()
+
+
+def _keys(rows, device):
+    return torch.stack(
+        (torch.zeros(rows, dtype=torch.int64, device=device), torch.arange(rows, device=device)),
+        dim=1,
+    )
+
+
+def _data(rows, device="cuda", *, seed=420, scaled=True):
+    generator = torch.Generator(device=device).manual_seed(seed)
+    shapes = ((rows, 5376), (96, 5376), (96,), (rows, 96))
+    values = [torch.randn(shape, generator=generator, device=device) for shape in shapes]
+    if scaled:
+        # In-place scaling avoids a second full hidden-state allocation in large cases.
+        for value, scale in zip(values, (0.125, 0.0625, 0.125, 0.0625), strict=True):
+            value.mul_(scale)
+    return values
+
+
+def _run(op, data, keys, chunks=None, *, train_weight=True, train_bias=True):
+    x, weight, bias, grad = [None if t is None else t.detach().clone() for t in data]
+    x.requires_grad_(True)
+    weight.requires_grad_(train_weight)
+    if bias is not None:
+        bias.requires_grad_(train_bias)
+    cuts = chunks if chunks is not None else [torch.arange(x.shape[0], device=x.device)]
+    with canonical_backward_session() as session:
+        outputs = [
+            op(
+                x.index_select(0, ix),
+                weight,
+                bias,
+                logical_keys=keys.index_select(0, ix),
+                parameter_id="proj_out",
+            )
+            for ix in cuts
+        ]
+        torch.autograd.backward(outputs, [grad.index_select(0, ix) for ix in cuts])
+        session.validate_complete()
+    y = torch.empty(x.shape[0], 96, dtype=torch.float32, device=x.device)
+    for ix, out in zip(cuts, outputs, strict=True):
+        y.index_copy_(0, ix, out.detach())
+    return y, x.grad, weight.grad, None if bias is None else bias.grad
+
+
+def _reference(data):
+    x, weight, bias, grad = data
+    x, weight = [t.detach().cpu().requires_grad_() for t in (x, weight)]
+    bias = None if bias is None else bias.detach().cpu().requires_grad_()
+    output = NativeVideoOutputProjectionFP32Op()(x, weight, bias)
+    output.backward(grad.cpu())
+    return output, x.grad, weight.grad, None if bias is None else bias.grad
+
+
+def _assert_accuracy(actual, expected, kind):
+    threshold = load_contract()["judgments"][kind]["by_op_class"]["reduction"]["float32"]
+    assert actual.shape == expected.shape
+    for a, b in zip(actual.split(4096), expected.split(4096), strict=True):
+        torch.testing.assert_close(a.cpu(), b.cpu(), atol=threshold["atol"], rtol=threshold["rtol"])
+
+
+def _assert_result_accuracy(actual, expected):
+    for i, (a, b) in enumerate(zip(actual, expected, strict=True)):
+        if a is None or b is None:
+            assert a is b
+        else:
+            _assert_accuracy(a, b, "forward_accuracy" if i == 0 else "gradient_accuracy")
+
+
+def _assert_bytes(actual, expected):
+    if actual is None or expected is None:
+        assert actual is expected
+        return
+    assert torch.equal(
+        actual.detach().contiguous().view(torch.int32),
+        expected.detach().contiguous().view(torch.int32),
+    )
+
+
+class _CPUAdapter(VideoOutputProjectionFP32Op):
+    family = "pytorch"
+
+    def _check_backend(self, x):
+        pass
+
+
+@pytest.mark.parametrize("with_bias", [False, True])
+def test_cpu_reference_matches_fp64_linear(with_bias):
+    data = _data(3, "cpu")
+    if not with_bias:
+        data[2] = None
+    actual = _reference(data)
+    x, weight, bias, grad = [None if value is None else value.double() for value in data]
+    output = x @ weight.t()
+    if bias is not None:
+        output = output + bias
+    expected = (output, grad @ weight, grad.t() @ x, None if bias is None else grad.sum(0))
+    _assert_result_accuracy(
+        actual, tuple(None if value is None else value.float() for value in expected)
+    )
+
+
+@pytest.mark.parametrize("with_bias", [False, True])
+def test_cpu_reference_and_input_only_gradient(with_bias):
+    data = _data(3, "cpu")
+    x, weight, bias, grad = data
+    if not with_bias:
+        bias = data[2] = None
+    x.requires_grad_(True)
+    output = _CPUAdapter()(x, weight, bias)
+    output.backward(grad)
+    expected = _reference(data)
+    _assert_accuracy(output, expected[0], "forward_accuracy")
+    _assert_accuracy(x.grad, expected[1], "gradient_accuracy")
+    assert weight.grad is None
+    assert bias is None or bias.grad is None
+
+
+@pytest.mark.parametrize("frozen", ["weight", "bias", "both"])
+def test_frozen_parameter_registration(frozen):
+    result = _run(
+        _CPUAdapter(),
+        _data(2, "cpu"),
+        _keys(2, "cpu"),
+        train_weight=frozen not in ("weight", "both"),
+        train_bias=frozen not in ("bias", "both"),
+    )
+    assert (result[2] is None) == (frozen in ("weight", "both"))
+    assert (result[3] is None) == (frozen in ("bias", "both"))
+
+
+@pytest.mark.parametrize(
+    "source,value",
+    [
+        ("candidate", float("nan")),
+        ("candidate", float("inf")),
+        ("reference", float("inf")),
+    ],
+)
+def test_benchmark_accuracy_rejects_non_finite(source, value):
+    from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _accuracy
+
+    actual = [torch.ones(3, 2), torch.ones(3, 3), torch.ones(2, 3), torch.ones(2)]
+    gold = [tensor.clone() for tensor in actual]
+    for tensor in actual if source == "candidate" else gold:
+        tensor[(0,) * tensor.ndim] = value
+    report = _accuracy(actual, gold)
+    for name in ("y", "dx", "dw", "dbias"):
+        assert report[name]["out_of_tolerance"] == 1
+        assert report[name]["non_finite_elements"] == 1
+        assert report[name]["max_abs_error"] is None
+        assert report[name]["checked_elements"] == report[name]["total_elements"]
+    json.dumps(report, allow_nan=False)
+
+
+def test_benchmark_accuracy_checks_all_comparison_chunks():
+    from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _accuracy
+
+    actual = [torch.ones(4097, 2), torch.ones(4097, 3), torch.ones(2, 3), torch.ones(2)]
+    gold = [tensor.clone() for tensor in actual]
+    # Cross the comparison's 4096-row boundary and include an interior dW column.
+    actual[0][-1, 0] = float("nan")
+    actual[1][-1, 2] = float("inf")
+    actual[2][-1, 1] = -float("inf")
+    report = _accuracy(actual, gold)
+    for name in ("y", "dx", "dw", "dbias"):
+        assert report[name]["out_of_tolerance"] == (name != "dbias")
+        assert report[name]["non_finite_elements"] == (name != "dbias")
+        assert report[name]["max_abs_error"] == (0.0 if name == "dbias" else None)
+        assert report[name]["checked_elements"] == report[name]["total_elements"]
+    json.dumps(report, allow_nan=False)
+
+
+@pytest.mark.parametrize("rows", [1, 129, 4097])
+def test_benchmark_reference_preserves_full_reductions(rows):
+    from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _reference
+
+    generator = torch.Generator().manual_seed(420)
+    x = torch.randn(rows, 17, generator=generator)
+    weight = torch.randn(3, 17, generator=generator)
+    bias = torch.randn(3, generator=generator)
+    grad = torch.randn(rows, 3, generator=generator)
+    actual = _reference(x, weight, bias, grad)
+    expected = (
+        _reference_matmul_fp32(x, weight.t()) + bias,
+        _reference_matmul_fp32(grad, weight),
+        _reference_matmul_fp32(grad.t(), x),
+        grad.sum(dim=0),
+    )
+    for a, b in zip(actual, expected, strict=True):
+        _assert_bytes(a, b)
+
+
+@pytest.fixture(
+    params=[
+        "cpu",
+        pytest.param(
+            "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+        ),
+    ]
+)
+def ordered_rows_device(request):
+    return request.param
+
+
+@pytest.fixture(params=[False, True], ids=["default", "deterministic"])
+def deterministic_row_copy(request):
+    enabled = torch.are_deterministic_algorithms_enabled()
+    warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+    torch.use_deterministic_algorithms(request.param, warn_only=False)
+    try:
+        yield
+    finally:
+        torch.use_deterministic_algorithms(enabled, warn_only=warn_only)
+
+
+@pytest.mark.parametrize(
+    "layout,dtype",
+    [
+        ("independent", torch.float32),
+        ("shared", torch.bfloat16),
+        ("strided", torch.float16),
+        ("empty_uses", torch.int64),
+        ("single", torch.float32),
+        ("mixed", torch.float16),
+    ],
+)
+def test_canonical_ordered_rows_matches_original(
+    layout, dtype, ordered_rows_device, deterministic_row_copy
+):
+    from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
+
+    source = torch.arange(45, device=ordered_rows_device, dtype=torch.int64).reshape(9, 5)
+    source = source.to(dtype)
+    parts = [source[:3], source[3:7], source[7:]]
+    if layout == "single":
+        values = [source]
+    elif layout == "shared":
+        values = parts
+    elif layout == "strided":
+        values = []
+        for part in parts:
+            backing = part.new_empty((2 * part.shape[0], 2 * part.shape[1]))
+            view = backing[::2, ::2]
+            view.copy_(part)
+            assert not view.is_contiguous()
+            values.append(view)
+    else:
+        values = [part.clone() for part in parts]
+        if layout == "empty_uses":
+            values = [source[:0], values[0], source[:0], *values[1:], source[:0]]
+        elif layout == "mixed":
+            # Even an excluded part contributes to torch.cat's dtype promotion.
+            values[1] = values[1].bfloat16()
+    # All rows of the middle nonempty use are padding. The active rows interleave
+    # the other uses, so a simple per-use concatenation cannot produce this order.
+    order = torch.tensor([7, 1, 8, 0], device=ordered_rows_device)
+    original = [value.clone() for value in values]
+    expected = torch.cat(values).index_select(0, order)
+    actual = CanonicalBackwardSession._ordered_rows(values, order)
+    assert actual.shape == expected.shape
+    assert actual.dtype == expected.dtype
+    assert actual.device == expected.device
+    assert actual.stride() == expected.stride()
+    assert torch.equal(actual.view(torch.uint8), expected.view(torch.uint8))
+    for value, before in zip(values, original, strict=True):
+        assert torch.equal(value.contiguous().view(torch.uint8), before.view(torch.uint8))
+
+
+def test_canonical_ordered_rows_preserves_float_bits(ordered_rows_device, deterministic_row_copy):
+    from rl_engine.ops.autograd.canonical_backward import CanonicalBackwardSession
+
+    # Include signed zero, subnormal values, infinities, and distinct NaN payloads.
+    bits = torch.tensor(
+        [
+            [0, -2147483648, 0x7FC00001],
+            [1, -2147483647, 0x7FC12345],
+            [0x7FA00001, -4194303, 0x7F800000],
+            [-8388608, 0x3F800000, -1082130432],
+        ],
+        dtype=torch.int32,
+        device=ordered_rows_device,
+    )
+    values = [bits[:2].view(torch.float32).clone(), bits[2:].view(torch.float32).clone()]
+    order = torch.tensor([2, 0, 3, 1], device=ordered_rows_device)
+    actual = CanonicalBackwardSession._ordered_rows(values, order)
+    assert torch.equal(actual.view(torch.int32), bits.index_select(0, order))
+
+
+def test_canonical_multi_use_rows_preserve_reducer_and_bias_sharing(
+    ordered_rows_device, deterministic_row_copy, monkeypatch
+):
+    from rl_engine.ops.autograd import canonical_backward
+
+    # Exercise the session with independent allocations and two parameter dtypes.
+    # Explicit expected indices avoid using the implementation's sorting as an oracle.
+    device = ordered_rows_device
+    if device == "cuda":
+        monkeypatch.setattr(canonical_backward, "_DIRECT_ROW_COPY_MIN_BYTES", 0)
+    keys = [
+        torch.tensor([[1, 2], [0, 1], [1, 0]], device=device),
+        torch.full((2, 2), -1, device=device, dtype=torch.int64),
+        torch.tensor([[0, 2], [0, 0], [1, 1]], device=device),
+    ]
+    order = torch.tensor([6, 1, 5, 2, 7, 0], device=device)
+    with canonical_backward_session() as session:
+        parameters = []
+        for index, dtype in enumerate((torch.float32, torch.bfloat16)):
+            name = f"weight.{index}"
+            source = torch.arange(40, device=device).reshape(8, 5).to(dtype) + 8 * index
+            grad = (
+                torch.arange(16, device=device, dtype=torch.float32).reshape(8, 2) + 16 * index
+            ) * 0.5
+            rows = [part.clone() for part in source.split((3, 2, 3))]
+            grads = [part.clone() for part in grad.split((3, 2, 3))]
+            for logical_keys in keys:
+                contribution = object()
+                session.register(name, logical_keys, contribution=contribution)
+                session.register(f"{name}.bias", logical_keys, contribution=contribution)
+            parameters.append((name, rows, grads, source, grad))
+
+        for name, rows, grads, source, grad in parameters:
+            expected_rows = source.index_select(0, order)
+            expected_grads = grad.index_select(0, order)
+            normalized_grads = []
+
+            def weight_reducer(ordered_rows, ordered_grads):
+                assert ordered_rows.dtype == source.dtype
+                assert torch.equal(ordered_rows.view(torch.uint8), expected_rows.view(torch.uint8))
+                _assert_bytes(ordered_grads, expected_grads)
+                normalized_grads.append(ordered_grads)
+                return (ordered_grads.unsqueeze(2) * ordered_rows.float().unsqueeze(1)).sum(0)
+
+            def bias_reducer(ordered_grads):
+                assert len(normalized_grads) == 1
+                assert ordered_grads is normalized_grads[0]
+                return ordered_grads.sum(0)
+
+            # The all-padding use arrives last; registration order defines row offsets.
+            for submission, slot in enumerate((2, 0, 1)):
+                dweight = session.submit_linear(name, slot, rows[slot], grads[slot], weight_reducer)
+                dbias = session.submit_rows(f"{name}.bias", slot, grads[slot], bias_reducer)
+                if submission < 2:
+                    assert dweight is None and dbias is None
+                else:
+                    expected_weight = (
+                        expected_grads.unsqueeze(2) * expected_rows.float().unsqueeze(1)
+                    ).sum(0)
+                    _assert_bytes(dweight, expected_weight)
+                    _assert_bytes(dbias, expected_grads.sum(0))
+            assert torch.equal(torch.cat(rows).view(torch.uint8), source.view(torch.uint8))
+            _assert_bytes(torch.cat(grads), grad)
+        session.validate_complete()
+        assert not session._normalized
+
+
+@pytest.mark.parametrize(
+    "device,uses,threshold_offset,expected_direct",
+    [
+        pytest.param("cpu", 2, 0, False, id="cpu-fallback"),
+        pytest.param("cuda", 2, 0, True, id="at-threshold"),
+        pytest.param("cuda", 2, 1, False, id="below-threshold"),
+        pytest.param("cuda", 1, 0, False, id="single-use-fallback"),
+        pytest.param("cuda", 2, None, False, id="default-small-fallback"),
+    ],
+)
+def test_canonical_direct_row_copy_routing(
+    device, uses, threshold_offset, expected_direct, monkeypatch
+):
+    from rl_engine.ops.autograd import canonical_backward
+
+    if device == "cuda" and (not torch.cuda.is_available() or torch.version.hip is not None):
+        pytest.skip("requires NVIDIA CUDA")
+    source = torch.arange(20, dtype=torch.float32, device=device).reshape(4, 5)
+    grad = torch.arange(8, dtype=torch.float32, device=device).reshape(4, 2)
+    keys = torch.tensor([[1, 1], [0, 1], [-1, -1], [0, 0]], device=device)
+    order = torch.tensor([3, 1, 0], device=device)
+    rows = [part.clone() for part in source.chunk(uses)]
+    grads = [part.clone() for part in grad.chunk(uses)]
+    if threshold_offset is not None:
+        # Count physical rows, including padding, without allocating a large input.
+        threshold = source.numel() * source.element_size() + threshold_offset
+        monkeypatch.setattr(canonical_backward, "_DIRECT_ROW_COPY_MIN_BYTES", threshold)
+    calls = []
+    original = canonical_backward.CanonicalBackwardSession._ordered_rows
+
+    def observe(values, selected_order):
+        calls.append(selected_order.clone())
+        return original(values, selected_order)
+
+    monkeypatch.setattr(
+        canonical_backward.CanonicalBackwardSession, "_ordered_rows", staticmethod(observe)
+    )
+
+    def reducer(ordered_rows, ordered_grads):
+        _assert_bytes(ordered_rows, source.index_select(0, order))
+        _assert_bytes(ordered_grads, grad.index_select(0, order))
+        return ordered_rows.clone()
+
+    with canonical_backward_session() as session:
+        slots = [session.register("weight", part) for part in keys.chunk(uses)]
+        for submission, slot in enumerate(reversed(slots)):
+            result = session.submit_linear("weight", slot, rows[slot], grads[slot], reducer)
+            if submission < uses - 1:
+                assert result is None
+        session.validate_complete()
+    _assert_bytes(result, source.index_select(0, order))
+    assert len(calls) == int(expected_direct)
+    if calls:
+        assert torch.equal(calls[0], order)
+    _assert_bytes(torch.cat(rows), source)
+    _assert_bytes(torch.cat(grads), grad)
+
+
+@pytest.mark.parametrize(
+    "invalid,error_type,message",
+    [
+        ("dtype", TypeError, "x must have dtype torch.float32"),
+        ("weight_dtype", TypeError, "weight must have dtype torch.float32"),
+        ("bias_dtype", TypeError, "bias must have dtype torch.float32"),
+        ("shape", ValueError, "x must have non-empty shape"),
+        ("rank", ValueError, "x must have non-empty shape"),
+        ("empty", ValueError, "x must have non-empty shape"),
+        ("weight_shape", ValueError, "weight must have shape"),
+        ("bias_shape", ValueError, "bias must have shape"),
+        ("noncontiguous", ValueError, "x must be contiguous"),
+        ("keys_dtype", ValueError, "logical_keys must be contiguous int64"),
+        ("keys_shape", ValueError, "logical_keys must have shape"),
+        ("missing_keys", TypeError, "parameter gradients require logical_keys"),
+        ("parameter_id", ValueError, "parameter gradients require a non-empty parameter_id"),
+        ("duplicates", ValueError, "active logical keys must be unique"),
+        ("duplicates_across_uses", ValueError, "active logical keys must be unique"),
+        ("session", RuntimeError, "parameter gradients require canonical_backward_session"),
+    ],
+)
+def test_invalid_inputs(invalid, error_type, message):
+    x, weight, bias, _ = _data(2, "cpu")
+    keys, parameter_id = _keys(2, "cpu"), "proj_out"
+    if invalid == "dtype":
+        x = x.bfloat16()
+    elif invalid == "weight_dtype":
+        weight = weight.bfloat16()
+    elif invalid == "bias_dtype":
+        bias = bias.bfloat16()
+    elif invalid == "shape":
+        x = x[:, :5375].contiguous()
+    elif invalid == "rank":
+        x = x.reshape(1, 1, 2, 5376)
+    elif invalid == "empty":
+        x = x[:0]
+    elif invalid == "weight_shape":
+        weight = weight[:95]
+    elif invalid == "bias_shape":
+        bias = bias[:95]
+    elif invalid == "noncontiguous":
+        x = torch.empty(2, 10752)[:, ::2]
+    elif invalid == "keys_dtype":
+        keys = keys.int()
+    elif invalid == "keys_shape":
+        keys = keys[:1]
+    elif invalid == "missing_keys":
+        keys = None
+    elif invalid == "parameter_id":
+        parameter_id = " "
+    elif invalid == "duplicates":
+        keys.zero_()
+    weight.requires_grad_(True)
+    op = _CPUAdapter()
+    if invalid == "session":
+        with pytest.raises(error_type, match=message):
+            op(x, weight, bias, logical_keys=keys, parameter_id=parameter_id)
+        return
+    with canonical_backward_session():
+        if invalid == "duplicates_across_uses":
+            op(x, weight, bias, logical_keys=keys, parameter_id=parameter_id)
+            keys = keys.clone()
+            keys[:, 1] += 1
+        with pytest.raises(error_type, match=message):
+            op(x, weight, bias, logical_keys=keys, parameter_id=parameter_id)
+
+
+@requires_sm90
+@pytest.mark.parametrize("rows", [1, 9, 17, 65, 96, 97, 128, 129, 257])
+@pytest.mark.parametrize("with_bias", [False, True])
+def test_forward_and_actual_gradients(rows, with_bias):
+    data = _data(rows)
+    if not with_bias:
+        data[2] = None
+    _assert_result_accuracy(_run(_op(), data, _keys(rows, "cuda")), _reference(data))
+
+
+@requires_sm90
+@pytest.mark.parametrize("rows", [9, 65, 96, 97, 127, 128, 129, 257])
+def test_parameter_bi_permutation_chunk_padding(rows):
+    _check_parameter_bi(_data(rows))
+
+
+def _check_parameter_bi(data):
+    rows = data[0].shape[0]
+    op, keys = _op(), _keys(rows, "cuda")
+    baseline = _run(op, data, keys)
+    generator = torch.Generator(device="cuda").manual_seed(421)
+    order = torch.randperm(rows, generator=generator, device="cuda")
+    permuted = _run(
+        op,
+        [t.index_select(0, order) if i in (0, 3) else t for i, t in enumerate(data)],
+        keys.index_select(0, order),
+    )
+    inverse = order.argsort()
+    for i, (actual, expected) in enumerate(zip(permuted, baseline, strict=True)):
+        _assert_bytes(actual.index_select(0, inverse) if i < 2 else actual, expected)
+    chunked = _run(op, data, keys, list(torch.tensor_split(order, 3)))
+    for actual, expected in zip(chunked, baseline, strict=True):
+        _assert_bytes(actual, expected)
+    padded = [
+        torch.cat((data[0], torch.randn(7, 5376, device="cuda"))),
+        data[1],
+        data[2],
+        torch.cat((data[3], torch.randn(7, 96, device="cuda"))),
+    ]
+    padded_keys = torch.cat((keys, torch.full((7, 2), -1, device="cuda", dtype=torch.int64)))
+    result = _run(op, padded, padded_keys)
+    for i, (actual, expected) in enumerate(zip(result, baseline, strict=True)):
+        _assert_bytes(actual[:rows] if i < 2 else actual, expected)
+    for actual, expected in zip(_run(op, data, keys), baseline, strict=True):
+        _assert_bytes(actual, expected)
+
+
+@requires_sm90
+@pytest.mark.parametrize(
+    "seed,rows",
+    [(seed, rows) for seed in (420, 421, 422, 423) for rows in (129, 13104)] + [(420, 5376)],
+)
+def test_standard_normal_long_reduction(rows, seed):
+    # Output projection moves the 5376-term dot into forward; dW reduces over rows.
+    # At 5376 rows, dbias shares the one-row forward GEMM shape.
+    data = _data(rows, seed=seed, scaled=False)
+    _assert_result_accuracy(_run(_op(), data, _keys(rows, "cuda")), _reference(data))
+    _check_parameter_bi(data)
+
+
+@requires_sm90
+@pytest.mark.parametrize("rows,hidden,outputs", [(17, 4096, 128), (4096, 64, 32)])
+def test_existing_canonical_linear_bf16_call_preserves_accuracy_and_bi(rows, hidden, outputs):
+    from rl_engine.ops.gemm.canonical_linear import canonical_linear_fp32
+
+    generator = torch.Generator(device="cuda").manual_seed(420)
+    x = (torch.randn(rows, hidden, generator=generator, device="cuda") * 0.125).bfloat16()
+    weight = (torch.randn(outputs, hidden, generator=generator, device="cuda") * 0.0625).bfloat16()
+    grad = torch.randn(rows, outputs, generator=generator, device="cuda") * 0.0625
+    keys = _keys(rows, "cuda")
+
+    def run(cuts):
+        inputs, parameter = [value.detach().clone().requires_grad_() for value in (x, weight)]
+        with canonical_backward_session() as session:
+            # Preserve the existing call shape without bias or a custom matmul.
+            values = [
+                canonical_linear_fp32(
+                    inputs.index_select(0, indices),
+                    parameter,
+                    keys.index_select(0, indices),
+                    parameter_id="existing_linear.weight",
+                    family="triton",
+                )
+                for indices in cuts
+            ]
+            torch.autograd.backward(values, [grad.index_select(0, indices) for indices in cuts])
+            session.validate_complete()
+        output = torch.empty(rows, outputs, dtype=torch.float32, device="cuda")
+        for indices, value in zip(cuts, values, strict=True):
+            output.index_copy_(0, indices, value.detach())
+        return output, inputs.grad, parameter.grad
+
+    baseline = run([torch.arange(rows, device="cuda")])
+    order = torch.randperm(rows, generator=generator, device="cuda")
+    for cuts in ([order], list(torch.tensor_split(order, 3))):
+        reordered = run(cuts)
+        for actual, expected in zip(reordered, baseline, strict=True):
+            _assert_bytes(actual, expected)
+    assert baseline[0].dtype == torch.float32
+    assert baseline[1].dtype == baseline[2].dtype == torch.bfloat16
+
+    cx, cw, cg = [value.detach().cpu().float() for value in (x, weight, grad)]
+    reference = (
+        _reference_matmul_fp32(cx, cw.t()),
+        _reference_matmul_fp32(cg, cw),
+        _reference_matmul_fp32(cg.t(), cx),
+    )
+    _assert_accuracy(baseline[0], reference[0], "forward_accuracy")
+    threshold = load_contract()["judgments"]["gradient_accuracy"]["by_op_class"]["reduction"][
+        "bfloat16"
+    ]
+    for actual, expected in zip(baseline[1:], reference[1:], strict=True):
+        torch.testing.assert_close(
+            actual.cpu().float(), expected, atol=threshold["atol"], rtol=threshold["rtol"]
+        )
+
+
+@requires_sm90
+@pytest.mark.parametrize("k_size", [129, 257])
+def test_chunked_gemm_workspace_slices_preserve_strided_inputs(monkeypatch, k_size):
+    from rl_engine.backends.shared.triton.gemm import det_gemm as shared_gemm
+
+    generator = torch.Generator(device="cuda").manual_seed(420)
+    rows, columns = 17, 33
+    a = torch.randn(k_size, 2 * rows, generator=generator, device="cuda").mul_(0.125)[:, ::2].t()
+    b = torch.randn(k_size, 2 * columns, generator=generator, device="cuda").mul_(0.0625)[:, ::2]
+    assert not a.is_contiguous() and not b.is_contiguous()
+    baseline = shared_gemm._triton_chunked_gemm_fp32(a, b)
+    chunks = math.ceil(k_size / shared_gemm._FP32_CHUNK_K)
+    # Allow five output rows per workspace, so all 17 rows require four slices.
+    budget = chunks * columns * 5
+    assert budget < chunks * rows * columns < shared_gemm._MAX_TREE_WORKSPACE_ELEMENTS
+    monkeypatch.setattr(shared_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", budget)
+    sliced = shared_gemm._triton_chunked_gemm_fp32(a, b)
+    _assert_bytes(sliced, baseline)
+    _assert_accuracy(sliced, _reference_matmul_fp32(a, b), "forward_accuracy")
+
+
+@requires_sm90
+@pytest.mark.parametrize("frozen", ["weight", "bias", "both"])
+def test_backend_frozen_parameters_preserve_trainable_gradients(frozen):
+    data = _data(17)
+    actual = _run(
+        _op(),
+        data,
+        _keys(17, "cuda"),
+        train_weight=frozen not in ("weight", "both"),
+        train_bias=frozen not in ("bias", "both"),
+    )
+    expected = list(_reference(data))
+    if frozen in ("weight", "both"):
+        expected[2] = None
+    if frozen in ("bias", "both"):
+        expected[3] = None
+    _assert_result_accuracy(actual, expected)
+
+
+@requires_sm90
+def test_batch_placement_and_unrelated_rows():
+    op = _op()
+    x, weight, bias, grad = _data(39)
+    x = x.reshape(3, 13, 5376)
+    grad = grad.reshape(3, 13, 96)
+    single = _run(op, (x[1], weight, bias, grad[1]), _keys(13, "cuda"))
+    x.requires_grad_(True)
+    # Frozen parameters exercise ordinary autograd without a parameter session.
+    output = op(x, weight, bias)
+    output.backward(grad)
+    _assert_bytes(output[1], single[0])
+    _assert_bytes(x.grad[1], single[1])
+    with torch.no_grad():
+        changed = x.detach().clone()
+        changed[0].add_(5)
+        changed[2].sub_(7)
+        _assert_bytes(op(changed, weight, bias)[1], output[1])
+
+
+@requires_sm90
+@pytest.mark.parametrize("rows", [17, 129])
+@pytest.mark.parametrize("expanded_upstream", [False, True])
+def test_noncontiguous_upstream_and_forward_graph(expanded_upstream, rows):
+    op = _op()
+    x, weight, bias, grad = _data(rows)
+    grad = (
+        torch.ones((), device="cuda").expand_as(grad)
+        if expanded_upstream
+        else grad.t().contiguous().t()
+    )
+    assert not grad.is_contiguous()
+    with canonical_backward_session() as session:
+        output = op(
+            x.requires_grad_(),
+            weight.requires_grad_(),
+            bias.requires_grad_(),
+            logical_keys=_keys(rows, "cuda"),
+            parameter_id="proj_out",
+        )
+        output.backward(grad)
+        session.validate_complete()
+    _assert_result_accuracy(
+        (output, x.grad, weight.grad, bias.grad), _reference((x, weight, bias, grad))
+    )
+    with torch.no_grad():
+        stream = torch.cuda.Stream()
+        stream.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(stream):
+            for _ in range(3):
+                expected = op(x, weight, bias)
+        torch.cuda.current_stream().wait_stream(stream)
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            captured = op(x, weight, bias)
+        graph.replay()
+        _assert_bytes(captured, expected)
+
+
+@requires_sm90
+@pytest.mark.parametrize("with_bias", [False, True])
+def test_projection_then_video_index_select(with_bias):
+    # PyTorch selection is a test-only integration reference for packed_index_select.
+    x, weight, bias, _ = _data(51)
+    x = x.reshape(3, 17, 5376).requires_grad_()
+    weight.requires_grad_(True)
+    bias = bias.requires_grad_() if with_bias else None
+    video_indices = torch.tensor([1, 8, 3, 16, 10], device="cuda")
+    generator = torch.Generator(device="cuda").manual_seed(422)
+    selected_grad = torch.randn(3, 5, 96, generator=generator, device="cuda") * 0.0625
+    with canonical_backward_session() as session:
+        full = _op()(
+            x,
+            weight,
+            bias,
+            logical_keys=_keys(51, "cuda"),
+            parameter_id="proj_out",
+        )
+        selected = full.index_select(1, video_indices)
+        selected.backward(selected_grad)
+        session.validate_complete()
+    cx, cw = [t.detach().cpu().requires_grad_() for t in (x, weight)]
+    cb = None if bias is None else bias.detach().cpu().requires_grad_()
+    reference = NativeVideoOutputProjectionFP32Op()(cx, cw, cb)
+    reference_selected = reference.index_select(1, video_indices.cpu())
+    reference_selected.backward(selected_grad.cpu())
+    _assert_result_accuracy(
+        (selected, x.grad, weight.grad, None if bias is None else bias.grad),
+        (reference_selected, cx.grad, cw.grad, None if cb is None else cb.grad),
+    )
+    unused = torch.ones(17, dtype=torch.bool, device="cuda")
+    unused[video_indices] = False
+    assert torch.count_nonzero(x.grad[:, unused]) == 0
+    # An explicit full gradient gives the same projection VJP as unique row selection.
+    full_grad = torch.zeros_like(full)
+    full_grad.index_copy_(1, video_indices, selected_grad)
+    explicit = _run(
+        _op(),
+        (x.detach().reshape(51, 5376), weight, bias, full_grad.reshape(51, 96)),
+        _keys(51, "cuda"),
+    )
+    _assert_bytes(x.grad.reshape(51, 5376), explicit[1])
+    _assert_bytes(weight.grad, explicit[2])
+    _assert_bytes(None if bias is None else bias.grad, explicit[3])
+
+    # Move rows and their logical keys together. Remap video_indices so selection
+    # still returns the same logical video rows in the same order.
+    order = torch.randperm(17, generator=generator, device="cuda")
+    inverse = order.argsort()
+    px = x.detach().index_select(1, order).requires_grad_()
+    pw = weight.detach().clone().requires_grad_()
+    pb = None if bias is None else bias.detach().clone().requires_grad_()
+    permuted_keys = _keys(51, "cuda").reshape(3, 17, 2).index_select(1, order).reshape(51, 2)
+    with canonical_backward_session() as session:
+        projected = _op()(px, pw, pb, logical_keys=permuted_keys, parameter_id="proj_out")
+        permuted_selection = projected.index_select(1, inverse.index_select(0, video_indices))
+        permuted_selection.backward(selected_grad)
+        session.validate_complete()
+    _assert_bytes(permuted_selection, selected)
+    _assert_bytes(px.grad.index_select(1, inverse), x.grad)
+    _assert_bytes(pw.grad, weight.grad)
+    _assert_bytes(None if pb is None else pb.grad, None if bias is None else bias.grad)
+    assert torch.count_nonzero(px.grad[:, unused.index_select(0, order)]) == 0
+
+
+@requires_sm90
+def test_default_cuda_dispatch():
+    from rl_engine.runtime.registry import KernelRegistry
+
+    op = KernelRegistry().get_op("video_output_projection_fp32", device="cuda")
+    assert op.backend_info()["backend_id"] == "triton-video-output-projection-fp32"
+    x, weight, bias, _ = _data(3)
+    with torch.no_grad():
+        _assert_bytes(op(x, weight, bias), _op()(x, weight, bias))
+
+
+@requires_sm90
+def test_projection_rejects_mixed_devices():
+    x, weight, bias, _ = _data(2)
+    with pytest.raises(ValueError, match="projection tensors must be on the same device"):
+        _op()(x, weight.cpu(), bias)
+
+
+def _layout(variant, frames, height, width, context_rows):
+    """Build row counts and ranges from the pinned Diffusers 0.40.0 layout."""
+    assert frames % 17 == 5 and height % 32 == width % 32 == 0
+    rows_per_frame = (height // 32) * (width // 32)
+    latent_frames = (frames - 5) // 17 * 5 + 2
+    # Target audio uses the rounded latent grid; reference audio below instead
+    # uses the waveform length padded to the audio VAE's 800-sample hop.
+    target_audio = 2 * round(frames / 24 * 40)
+    target_video = latent_frames * rows_per_frame
+    cursor, video_ranges = context_rows, []
+    if variant == "fl2va":
+        video_ranges.append((cursor, cursor + 2 * rows_per_frame))
+        cursor += 2 * rows_per_frame
+    elif variant == "ref2va":
+        image_rows = 9 * (2048 // 32) * (8192 // 32)
+        video_ranges.append((cursor, cursor + image_rows))
+        cursor += image_rows
+        # The final 248-frame clip encodes 243 video frames, but its full audio.
+        # Three clips total 15 seconds; each waveform is padded to 800 samples.
+        for reference_frames in (56, 56, 248):
+            cursor += 2 * math.ceil(int(reference_frames / 24 * 32000) / 800)
+            reference_latents = (reference_frames - 5) // 17 * 5 + 2
+            count = reference_latents * rows_per_frame
+            video_ranges.append((cursor, cursor + count))
+            cursor += count
+    cursor += target_audio
+    video_ranges.append((cursor, cursor + target_video))
+    cursor += target_video
+    return cursor, video_ranges
+
+
+def _tensor_digest(tensor, row_order=None):
+    """Hash all FP32 bytes in logical order without retaining a full CPU copy."""
+    digest = hashlib.sha256()
+    value = tensor.detach()
+    for start in range(0, value.shape[0], 4096):
+        chunk = (
+            value[start : start + 4096]
+            if row_order is None
+            else value.index_select(0, row_order[start : start + 4096])
+        )
+        chunk = chunk.cpu().contiguous()
+        assert torch.isfinite(chunk).all()
+        digest.update(chunk.view(torch.int32).numpy().tobytes())
+    return digest.hexdigest()
+
+
+def _layout_accuracy(data, actual):
+    """Check every result using the memory-bounded, full-K CPU reference."""
+    from benchmarks.operators.gemm.benchmark_video_output_projection_fp32 import _reference
+
+    _assert_result_accuracy(actual, _reference(*data))
+
+
+@requires_sm90
+@pytest.mark.parametrize(
+    "profiles",
+    [
+        pytest.param(("packed_62t",) * 2, id="two-equal-requests"),
+        pytest.param(("packed_62t",) * 4, id="four-equal-requests"),
+        pytest.param(("packed_62t", "345f"), id="two-different-length-requests"),
+    ],
+)
+def test_packed_multi_request_accuracy_and_bi(profiles):
+    # vLLM-Omni #5810, merged at d150a4fde77d15d466102323a4048b0a8631d74c:
+    # one DiT request has text=9, video=62*12*21 and stereo audio=348*2.
+    # Each request is padded independently to 64 rows before packed execution.
+    short_video, short_audio = 62 * 12 * 21, 348 * 2
+    short_rows = 9 + short_video + short_audio
+    assert short_rows == 16329 and math.ceil(short_rows / 64) * 64 == 16384
+    layouts = {
+        "packed_62t": (short_rows, [(9 + short_audio, short_rows)]),
+        "345f": _layout("t2va", 345, 768, 1344, 1024),
+    }
+    requests = [layouts[profile] for profile in profiles]
+    padded_lengths = [math.ceil(rows / 64) * 64 for rows, _ in requests]
+    total_rows = sum(padded_lengths)
+    data = _data(total_rows, seed=420)
+    keys = torch.full((total_rows, 2), -1, device="cuda", dtype=torch.int64)
+    video_mask = torch.zeros(total_rows, dtype=torch.bool, device="cuda")
+    request_indices = []
+    cursor = 0
+    for request_id, ((rows, video_ranges), padded) in enumerate(
+        zip(requests, padded_lengths, strict=True)
+    ):
+        keys[cursor : cursor + rows, 0] = request_id
+        keys[cursor : cursor + rows, 1] = torch.arange(rows, device="cuda")
+        for start, end in video_ranges:
+            video_mask[cursor + start : cursor + end] = True
+        request_indices.append(torch.arange(cursor, cursor + padded, device="cuda"))
+        cursor += padded
+    # Non-video rows and per-request padding receive no selected-video gradient.
+    data[3][~video_mask] = 0
+    active = torch.nonzero(keys[:, 0] >= 0, as_tuple=True)[0]
+    assert active.numel() == sum(rows for rows, _ in requests)
+
+    def result_digest(result, active_rows):
+        return tuple(
+            _tensor_digest(value, active_rows if i < 2 else None) for i, value in enumerate(result)
+        )
+
+    op = _op()
+    baseline = _run(op, data, keys)
+    # Exclude padding from the reference and check every active output/gradient.
+    _layout_accuracy(
+        (
+            data[0].index_select(0, active),
+            data[1],
+            data[2],
+            data[3].index_select(0, active),
+        ),
+        (
+            baseline[0].index_select(0, active),
+            baseline[1].index_select(0, active),
+            baseline[2],
+            baseline[3],
+        ),
+    )
+    expected = result_digest(baseline, active)
+    del baseline
+
+    # Independent no-grad requests must reproduce each request's forward rows.
+    # Parameter-gradient BI instead compares the same complete contribution set.
+    with torch.no_grad():
+        independent = torch.cat([op(data[0][ix], data[1], data[2]) for ix in request_indices])
+    assert _tensor_digest(independent, active) == expected[0]
+    del independent
+
+    # All request forwards register before backward within the same session.
+    per_request = _run(op, data, keys, chunks=request_indices)
+    assert result_digest(per_request, active) == expected
+    del per_request
+    generator = torch.Generator(device="cuda").manual_seed(421)
+    reordered_requests = [
+        ix[torch.randperm(ix.numel(), generator=generator, device="cuda")]
+        for ix in reversed(request_indices)
+    ]
+    for cuts in ([torch.cat(reordered_requests)], reordered_requests):
+        reordered = _run(op, data, keys, chunks=cuts)
+        assert result_digest(reordered, active) == expected
+        del reordered
+
+    # Add another 64 padding rows to every request, preserving active values,
+    # identities, and upstream gradients. Padding never contributes to dW/dbias.
+    padded_data = list(data)
+    for position, width in ((0, 5376), (3, 96)):
+        padded_data[position] = torch.cat(
+            [
+                torch.cat((data[position][ix], torch.zeros(64, width, device="cuda")))
+                for ix in request_indices
+            ]
+        )
+    padded_keys = torch.cat(
+        [
+            torch.cat((keys[ix], torch.full((64, 2), -1, device="cuda", dtype=torch.int64)))
+            for ix in request_indices
+        ]
+    )
+    padded_active = torch.nonzero(padded_keys[:, 0] >= 0, as_tuple=True)[0]
+    padded_result = _run(op, padded_data, padded_keys)
+    assert result_digest(padded_result, padded_active) == expected
+
+
+@pytest.mark.parametrize("gradient", ["weight", "bias"])
+def test_projection_rejects_oversized_parameter_reduction(monkeypatch, gradient):
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+    from rl_engine.backends.shared.triton.gemm.video_output_projection_fp32 import (
+        projection_gemm_fp32,
+    )
+
+    reduction = 2097153
+    rows, columns = (96, 5376) if gradient == "weight" else (1, 96)
+    a = torch.empty((rows, reduction), device="meta")
+    b = torch.empty((reduction, columns), device="meta")
+
+    def unexpected_allocation(*args, **kwargs):
+        raise AssertionError("oversized reduction must fail before workspace allocation")
+
+    monkeypatch.setattr(det_gemm.torch, "empty", unexpected_allocation)
+    with pytest.raises(ValueError, match=f"supports K <= 2097152; got K={reduction}"):
+        projection_gemm_fp32(a, b)
+
+
+def _run_layout(rows, video_ranges, *, permuted_chunks):
+    # Regeneration keeps only one pass resident on the GPU. Outputs are represented
+    # by complete byte digests on the host, not by another 12.6 GiB dX tensor.
+    data = _data(rows)
+    x, weight, bias, grad = data
+    mask = torch.zeros(rows, dtype=torch.bool, device="cuda")
+    for start, end in video_ranges:
+        mask[start:end] = True
+    grad[~mask] = 0
+    keys = _keys(rows, "cuda")
+    order = None
+    if permuted_chunks:
+        generator = torch.Generator(device="cuda").manual_seed(421)
+        order = torch.randperm(rows, generator=generator, device="cuda")
+        x = x.index_select(0, order)
+        data[0] = x
+        grad = grad.index_select(0, order)
+        data[3] = grad
+        keys = keys.index_select(0, order)
+    x.requires_grad_(True)
+    weight.requires_grad_(True)
+    bias.requires_grad_(True)
+    outputs = []
+    with canonical_backward_session() as session:
+        # Slices are views of x; concatenating cloned hidden states is unnecessary.
+        cuts = (0, rows // 3, 2 * rows // 3, rows) if permuted_chunks else (0, rows)
+        for start, end in zip(cuts[:-1], cuts[1:], strict=True):
+            outputs.append(
+                _op()(
+                    x[start:end],
+                    weight,
+                    bias,
+                    logical_keys=keys[start:end],
+                    parameter_id="proj_out",
+                )
+            )
+        torch.autograd.backward(
+            outputs,
+            [grad[start:end] for start, end in zip(cuts[:-1], cuts[1:], strict=True)],
+        )
+        session.validate_complete()
+    actual = (torch.cat(outputs), x.grad, weight.grad, bias.grad)
+    if not permuted_chunks:
+        _layout_accuracy(data, actual)
+    inverse = None if order is None else order.argsort()
+    return tuple(
+        _tensor_digest(value, inverse if index < 2 else None) for index, value in enumerate(actual)
+    )
+
+
+@requires_sm90
+@pytest.mark.parametrize(
+    "variant,frames,height,width,context_rows,expected_rows,expected_video_rows",
+    [
+        pytest.param("t2va", 124, 768, 1344, 1024, 38734, 37296, id="124f-768p"),
+        pytest.param("t2va", 243, 1344, 768, 1024, 74410, 72576, id="243f-768p"),
+        pytest.param("t2va", 345, 768, 1344, 1024, 104990, 102816, id="345f-768p"),
+        pytest.param("fl2va", 345, 576, 1856, 1024, 110750, 108576, id="fl2va-default"),
+        pytest.param("ref2va", 345, 576, 1856, 1024, 367986, 364608, id="ref2va-default"),
+        pytest.param("fl2va", 345, 576, 1856, 262144, 371870, 108576, id="fl2va-context-limit"),
+        pytest.param("ref2va", 345, 576, 1856, 262144, 629106, 364608, id="ref2va-context-limit"),
+    ],
+)
+def test_task_layout_accuracy_and_bi(
+    variant, frames, height, width, context_rows, expected_rows, expected_video_rows
+):
+    # L includes all conditioner rows, including reference vision tokens. The
+    # largest profiles use the checkpoint's declared 262144-token context limit;
+    # they are operator shape tests, not full-model inference or encoder tests.
+    rows, video_ranges = _layout(variant, frames, height, width, context_rows)
+    assert rows == expected_rows
+    assert sum(end - start for start, end in video_ranges) == expected_video_rows
+    torch.cuda.empty_cache()
+    free_bytes, _ = torch.cuda.mem_get_info()
+    # Five hidden-state-sized allocations cover input, dX, canonical payloads,
+    # and sorting/indexing temporaries. Keep an additional 4 GiB headroom.
+    required_bytes = 5 * rows * 5376 * 4 + 4 * 1024**3
+    if free_bytes < required_bytes:
+        pytest.skip(
+            f"layout {rows} needs approximately {required_bytes / 1024**3:.1f} GiB free; "
+            f"device has {free_bytes / 1024**3:.1f} GiB"
+        )
+    baseline = _run_layout(rows, video_ranges, permuted_chunks=False)
+    torch.cuda.empty_cache()
+    reordered = _run_layout(rows, video_ranges, permuted_chunks=True)
+    assert reordered == baseline
