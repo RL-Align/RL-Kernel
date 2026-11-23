@@ -38,18 +38,18 @@ To explore the implementation beyond the talks, see the
 
 ## Slides and materials
 
-Presentation decks are linked to their original events. **Public Google Drive
-links for the three supplied decks are pending publication**. Once published,
-replace `Pending public link` below with a `[View slides · Google Drive](...)`
-link pointing to each file's **Viewer**-accessible sharing URL. Google Drive
-opens PPTX and PDF files for online preview; a PDF can be shared alongside the
-editable PPTX when typography or diagrams need to render consistently.
+Presentation decks are hosted externally on Google Slides. Use the
+**View slides · Google Slides** links to read the original PPTX decks online.
+Sharing permissions are controlled by the file owners; if a file prompts for
+access, the owner should set **General access → Anyone with the link → Viewer**.
+The documents remain version-specific references, not a replacement for the
+latest technical guides.
 
 | Date | Presentation | Slides | Related RL-Kernel docs |
 | --- | --- | --- | --- |
-| **2026-09-26** | **vLLM Classroom #18** — RL-Kernel v0.1.0 (Vensen Mu, Chinese, 27 slides) | Pending public link | [Linear LogP](../operators/linear-logp.md) · [Reproduction guide](../usage/qwen3-vime-consistency.md) |
-| **2026-10-20** | **Qingke Talk #160** — RL-Kernel v0.1.0 (Jiajie Li, Chinese, 33 slides) | Pending public link | [Numerical contract](../contracts/cross_config_logprob_drift_contract.md) · [CUDA/ROCm audit](../usage/cuda-rocm-consistency-audit.md) |
-| **2026-11-14** | **DevFest Kuala Lumpur** — Practical Train–Inference Consistency (Vensen Mu, English, 19 slides) | Pending public link | [Practical guide](../blog/2026-11-02-rl-kernel-practical-guide.md) · [CUDA/ROCm audit](../usage/cuda-rocm-consistency-audit.md) |
+| **2026-09-26** | **vLLM Classroom #18** — RL-Kernel v0.1.0 (Vensen Mu, Chinese, 27 slides) | [View slides · Google Slides](https://docs.google.com/presentation/d/1AY8a2UQKWMrLBpqHvaSVz2O6YSJFVJ2V/edit?usp=drive_link&ouid=102623941861710943111&rtpof=true&sd=true) | [Linear LogP](../operators/linear-logp.md) · [Reproduction guide](../usage/qwen3-vime-consistency.md) |
+| **2026-10-20** | **Qingke Talk #160** — RL-Kernel v0.1.0 (Jiajie Li, Chinese, 33 slides) | [View slides · Google Slides](https://docs.google.com/presentation/d/1GjbPMtpERVjJuCRjL7ZWfNG_ZSZrxkqp/edit?usp=drive_link&ouid=102623941861710943111&rtpof=true&sd=true) | [Numerical contract](../contracts/cross_config_logprob_drift_contract.md) · [CUDA/ROCm audit](../usage/cuda-rocm-consistency-audit.md) |
+| **2026-11-14** | **DevFest Kuala Lumpur** — Practical Train–Inference Consistency (Vensen Mu, English, 19 slides) | [View slides · Google Slides](https://docs.google.com/presentation/d/1tSeeLcYzb75hbX7KwR42k_ozXyV3jb4l/edit?usp=drive_link&ouid=102623941861710943111&rtpof=true&sd=true) | [Practical guide](../blog/2026-11-02-rl-kernel-practical-guide.md) · [CUDA/ROCm audit](../usage/cuda-rocm-consistency-audit.md) |
 
 Other project materials:
 
