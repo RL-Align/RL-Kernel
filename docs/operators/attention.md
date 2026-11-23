@@ -271,3 +271,60 @@ for measured peak memory at representative shapes.
 - `Hq` must be divisible by `Hkv` (raises `ValueError` otherwise).
 - CUDA KV-cache op wrapper is not in scope (caller does cat + calls this op).
 - No FP8, no multi-GPU / sequence-parallel.
+
+## MiniMax-H3 full attention
+
+This implements the CUDA `h3_full_attention` work item in [RFC #420](https://github.com/RL-Align/RL-Kernel/issues/420), with an independent PyTorch reference. It covers the attention core after Q/K normalization and RoPE; it does not close the complete model roadmap.
+
+### Interface and scope
+
+```python
+from rl_engine.backends.cuda.attention.h3_full_attention import H3FullAttentionOp
+
+out = H3FullAttentionOp(chunk_rows=128)(q, k, v)
+```
+
+Q/K/V must be matching contiguous BF16 `[B,S,56,128]` tensors. They must already have the checkpoint's QK RMSNorm and partial three-axis RoPE applied. Output has the same shape and dtype. `forward_with_lse` additionally returns diagnostic FP32 `[B,S,56]` LSE without gradients.
+
+Only non-causal MHA, single rank, TP1/CP1 and first derivatives are supported. No masks, GQA, KV cache, CP or projections are provided. CUDA requires NVIDIA SM80 or newer and an audited strict extension; unsupported inputs/builds fail closed. H20 is the measured device. ROCm is outside this PR.
+
+`kernel_registry.get_op("h3_full_attention", device="cuda")` selects CUDA. The semantic registry explicitly declares dtype/layout/topology and rejects unsupported requests.
+
+### Arithmetic and workspace
+
+The CUDA path retains #240's ascending-D scalar QK reduction, 256-thread softmax tree and ascending-key PV/dQ reductions. Shared-memory staging reuses converted Q/K and dO/V operands and rows of probabilities/dS. Fused dK/dV loading shares operands while maintaining two separate ascending-query FP32 accumulation chains. Each gradient element has one writer; there are no cross-CTA atomics or split-K partial-sum merges.
+
+Queries are processed in fixed-size chunks, while each query consumes all keys. Forward saves Q/K/V; backward recomputes probabilities using the same QK/softmax arithmetic, skipping unused PV. dK/dV retain FP32 accumulators across chunks, dK is scaled once, and both gradients are cast once at the final boundary. Fixed-chunk probability workspace is `[B,56,min(chunk_rows,S),S]` FP32; backward additionally needs dP/dS and two `[B,56,S,128]` FP32 accumulators. Workspace grows linearly with S at a fixed chunk size; compute remains quadratic.
+
+Strict compilation uses `--fmad=false --ftz=false --prec-div=true --prec-sqrt=true`. Fast math and external NVCC prepend/append flags are rejected. An isolated `_H3_C` extension enforces this profile without changing ordinary `_C` source/compiler/linker settings. Native H3 entry points and the wrapper verify build identity. Raw-bit promises apply within a qualified device/build, not across platforms or compilers. Independent mathematical accuracy is a separate tolerance check.
+
+### Build and validation
+
+Use an isolated checkout and environment. The ordinary build intentionally omits the strict extension.
+
+```bash
+RL_KERNEL_H3_STRICT=1 RL_KERNEL_REQUIRE_EXT=1 TORCH_CUDA_ARCH_LIST=9.0 MAX_JOBS=2 \
+  python setup.py build_ext --inplace
+python -m pytest -q tests/backends/cuda/test_h3_full_attention.py
+python tools/validation/operators/check_operator.py --op h3_full_attention \
+  --candidate cuda --device cuda --dtype bf16 --batch 2 --seq 129 --check-grad --json
+```
+
+Tests cover independent FP32/FP64 output/all-gradient accuracy, strict-native raw bits,
+repeat/batch/chunk invariance, LSE, invalid inputs, checkpointing and streams. CUDA tests require the optional strict `_H3_C`;
+CPU-only success or skipped GPU tests do not establish GPU qualification.
+
+### Performance reproduction
+
+```bash
+python benchmarks/operators/attention/benchmark_deterministic_attention.py h3 \
+  --output /path/to/local-evidence/matrix
+```
+
+The matrix compares strict native and CUDA chunks 64/128/256 on six shapes.
+Output/all-gradient raw-bit checks precede timing; two warmups and six rotating samples
+include public-wrapper copies, allocations and forward plus all QKV gradients. JSON records
+raw samples, extra peak allocation, environment, backend readback and source/binary hashes.
+At fixed chunk size, probability workspace grows linearly with sequence length while compute
+remains quadratic. These are operator measurements, without
+full-model, multi-GPU or ROCm hardware qualification.
