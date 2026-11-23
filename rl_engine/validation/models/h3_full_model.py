@@ -447,14 +447,23 @@ def _packed_rows(model, trace):
     from rl_engine.validation.models import h3_packed_forward as hpf
 
     pack_cls = "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp"
+    # Only a missing operator (the registry's RuntimeError, an ImportError) or a forward that is
+    # not a known provider forward (``UnknownForwardError``) leaves the provider scatter on; an
+    # out-of-memory error, or any other error while binding, is an error of the run and raises.
+    context = None
     try:
         op = KernelRegistry().get_op("packed_index_copy", device="cuda")
-        got = f"{type(op).__module__}.{type(op).__qualname__}"
-        if got != pack_cls:
-            raise RuntimeError(f"packed_index_copy resolved to {got}, not its CUDA op")
-        context = hpf.bind(model, op)
-        context.__enter__()
+    except torch.cuda.OutOfMemoryError:
+        raise
     except (RuntimeError, ImportError):
+        op = None
+    if op is not None and f"{type(op).__module__}.{type(op).__qualname__}" == pack_cls:
+        context = hpf.bind(model, op)
+        try:
+            context.__enter__()
+        except (hpf.UnknownForwardError, ImportError):
+            context = None
+    if context is None:
         yield
         return
     trace.packed_bindings["packed_index_copy"] = "row"

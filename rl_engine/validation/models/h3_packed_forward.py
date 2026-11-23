@@ -44,7 +44,15 @@ class UnknownForwardError(RuntimeError):
 
 
 def forward_source_sha256(model_cls) -> str:
-    return hashlib.sha256(inspect.getsource(inspect.unwrap(model_cls.forward)).encode()).hexdigest()
+    """sha256 of the forward's source; ``UnknownForwardError`` if the source cannot be read."""
+
+    try:
+        source = inspect.getsource(inspect.unwrap(model_cls.forward))
+    except (OSError, TypeError) as exc:  # not file-backed (generated, compiled, a C function)
+        raise UnknownForwardError(
+            f"cannot read {model_cls.__name__}.forward source: {exc}"
+        ) from exc
+    return hashlib.sha256(source.encode()).hexdigest()
 
 
 def _dtype_reader(variant: str):
