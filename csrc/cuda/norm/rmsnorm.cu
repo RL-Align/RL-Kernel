@@ -1,7 +1,9 @@
 #include <torch/extension.h>
 #include <ATen/cuda/CUDAContext.h>
-#if !defined(USE_ROCM)
+// Unconditional: the launchers' device guards are compiled for ROCm too
+// (hipified, as in activation.cu).
 #include <c10/cuda/CUDAGuard.h>
+#if !defined(USE_ROCM)
 #include <c10/cuda/CUDAException.h>
 #endif
 #include <cuda.h>
