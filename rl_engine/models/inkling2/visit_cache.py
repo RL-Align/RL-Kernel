@@ -44,7 +44,7 @@ class VisitStateCache:
     def _clone_state(tensor: torch.Tensor | None) -> torch.Tensor | None:
         if tensor is None:
             return None
-        if tensor.is_cuda:
+        if tensor.is_cuda and tensor.dtype in (torch.float16, torch.bfloat16, torch.float32):
             from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
             if _EXT_AVAILABLE and hasattr(_C, "inkling2_visit_state_clone"):
