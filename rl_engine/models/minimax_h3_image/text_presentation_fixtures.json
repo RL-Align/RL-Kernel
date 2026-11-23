@@ -1,0 +1,374 @@
+{
+  "contract_id": "h3-image-text-presentation-v1",
+  "cases": [
+    {
+      "name": "t2i",
+      "mode": "text2image",
+      "prompt": "A lighthouse on a basalt cliff at dusk, waves breaking below, 35mm film grain. 灯塔的光束穿过薄雾，照亮远处的渔船。",
+      "expected": {
+        "mode": "text2image",
+        "num_rows": 38,
+        "token_ids_sha256": "10503a4606361a56e97882b2dc3b9e5c64dcb0b933da3007d749ee7a1cbb4645",
+        "token_tags_sha256": "4484aede8ded4e1f36a1bcca19925eec47a536aaa35f9c93b8c2130a60cb8dd8",
+        "image_rows": 0,
+        "text_rows": 38,
+        "image_grid_thw": [],
+        "segments": [
+          {
+            "kind": "prompt",
+            "start": 0,
+            "length": 38,
+            "reference": null
+          }
+        ],
+        "prompt_sha256": "fa4739b6c1cc26be499b37af86e7b62778b4a7e08e61eeccf90152e00a7addb2",
+        "prompt_num_tokens": 38,
+        "prompt_truncated": false,
+        "vision": null
+      },
+      "features": {
+        "sm_100|torch 2.13.0+cu130|transformers 5.17.0": {
+          "shape": [
+            1,
+            38,
+            5120
+          ],
+          "dtype": "bfloat16",
+          "sha256": "0baff003b3679391dd2ad90a1004464f03d5c3cedb22da78439a6ea6042d4e73"
+        },
+        "sm_90|torch 2.13.0+cu130|transformers 5.17.0": {
+          "shape": [
+            1,
+            38,
+            5120
+          ],
+          "dtype": "bfloat16",
+          "sha256": "49d410f64c58904d45f1a88ab8da9097a0a5c56b8dbe78fbee5e96d95f27ee49"
+        }
+      }
+    },
+    {
+      "name": "t2i_truncated",
+      "mode": "text2image",
+      "prompt": "A caravan of camels crosses the salt flats under a violet sky, long shadows on cracked white ground; ",
+      "repeat": 240,
+      "expected": {
+        "mode": "text2image",
+        "num_rows": 4096,
+        "token_ids_sha256": "57cf0ccad1f06a1c166ac6a326432de39fb1bf31a0555e0ccab8d8b3e19ddf6b",
+        "token_tags_sha256": "cbe395b05b456faab6fc15f48c42ecf131669c9bd04423f3e861be4d32fe2776",
+        "image_rows": 0,
+        "text_rows": 4096,
+        "image_grid_thw": [],
+        "segments": [
+          {
+            "kind": "prompt",
+            "start": 0,
+            "length": 4096,
+            "reference": null
+          }
+        ],
+        "prompt_sha256": "501d41fc24fd96b17df37567eab17ff683aa4a842cf08aec813bbf373a504d5a",
+        "prompt_num_tokens": 5041,
+        "prompt_truncated": true,
+        "vision": null
+      },
+      "features": {
+        "sm_100|torch 2.13.0+cu130|transformers 5.17.0": {
+          "shape": [
+            1,
+            4096,
+            5120
+          ],
+          "dtype": "bfloat16",
+          "sha256": "575d12f12767e013dcd19d7acfa65e2f472249643f3c5c2e9bbb1b713f05f200"
+        },
+        "sm_90|torch 2.13.0+cu130|transformers 5.17.0": {
+          "shape": [
+            1,
+            4096,
+            5120
+          ],
+          "dtype": "bfloat16",
+          "sha256": "69ee9bded2424314f823f00a9e702d818b5433315748a4a4685a6815e554838d"
+        }
+      }
+    },
+    {
+      "name": "edit",
+      "mode": "image_conditioned",
+      "prompt": "Put the teapot from <Picture 1> on the table in <Picture 2>, and paint the wall with the pattern of <Picture 3>.",
+      "references": [
+        {
+          "width": 1024,
+          "height": 1024,
+          "seed": 1
+        },
+        {
+          "width": 1536,
+          "height": 1024,
+          "seed": 2
+        },
+        {
+          "width": 1024,
+          "height": 1344,
+          "seed": 3
+        }
+      ],
+      "expected": {
+        "mode": "image_conditioned",
+        "num_rows": 3957,
+        "token_ids_sha256": "d146f284ac544660db82f91b602faddcaba1a8fbc8e1b66b5309df5e2087b72f",
+        "token_tags_sha256": "c6aef7baf015fae1e1e7942d6a5fb7aa7ab1cf198b61e81ab95553f4e2ba1097",
+        "image_rows": 3910,
+        "text_rows": 47,
+        "image_grid_thw": [
+          [
+            1,
+            64,
+            64
+          ],
+          [
+            1,
+            64,
+            96
+          ],
+          [
+            1,
+            84,
+            64
+          ]
+        ],
+        "segments": [
+          {
+            "kind": "label",
+            "start": 0,
+            "length": 5,
+            "reference": 0
+          },
+          {
+            "kind": "vision",
+            "start": 5,
+            "length": 1026,
+            "reference": 0
+          },
+          {
+            "kind": "label",
+            "start": 1031,
+            "length": 5,
+            "reference": 1
+          },
+          {
+            "kind": "vision",
+            "start": 1036,
+            "length": 1538,
+            "reference": 1
+          },
+          {
+            "kind": "label",
+            "start": 2574,
+            "length": 5,
+            "reference": 2
+          },
+          {
+            "kind": "vision",
+            "start": 2579,
+            "length": 1346,
+            "reference": 2
+          },
+          {
+            "kind": "prompt",
+            "start": 3925,
+            "length": 32,
+            "reference": null
+          }
+        ],
+        "prompt_sha256": "e788cbf914be9665d595baeb0b46123b67092ed23d51b72cbd9d44e749796c6e",
+        "prompt_num_tokens": 32,
+        "prompt_truncated": false,
+        "vision": {
+          "pixel_values_sha256": "e09586c30ae1198a93e7d3c0d17c81b9a94db03a2a09409985902309603fc9b4",
+          "pixel_values_shape": [
+            15616,
+            1536
+          ],
+          "image_grid_thw": [
+            [
+              1,
+              64,
+              64
+            ],
+            [
+              1,
+              64,
+              96
+            ],
+            [
+              1,
+              84,
+              64
+            ]
+          ]
+        }
+      },
+      "features": {
+        "sm_100|torch 2.13.0+cu130|transformers 5.17.0": {
+          "shape": [
+            1,
+            3957,
+            5120
+          ],
+          "dtype": "bfloat16",
+          "sha256": "482935d7ae4401a3cc19212360735a69b27c1e881a4820982a326b7f0853de82"
+        },
+        "sm_90|torch 2.13.0+cu130|transformers 5.17.0": {
+          "shape": [
+            1,
+            3957,
+            5120
+          ],
+          "dtype": "bfloat16",
+          "sha256": "49133ed838a560a63fd070917758bfaaf8e3da2c56097e154e811dce5f4daa1e"
+        }
+      }
+    },
+    {
+      "name": "edit_swapped",
+      "mode": "image_conditioned",
+      "prompt": "Put the teapot from <Picture 1> on the table in <Picture 2>, and paint the wall with the pattern of <Picture 3>.",
+      "references": [
+        {
+          "width": 1536,
+          "height": 1024,
+          "seed": 2
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "seed": 1
+        },
+        {
+          "width": 1024,
+          "height": 1344,
+          "seed": 3
+        }
+      ],
+      "expected": {
+        "mode": "image_conditioned",
+        "num_rows": 3957,
+        "token_ids_sha256": "96cb387c7401b5f29be76862ca6c40fc66d70fba9080f199e44d88667b3a1287",
+        "token_tags_sha256": "6739be60bb56a3920080d56e2e846131cc120647087a78f6abc62738672da33d",
+        "image_rows": 3910,
+        "text_rows": 47,
+        "image_grid_thw": [
+          [
+            1,
+            64,
+            96
+          ],
+          [
+            1,
+            64,
+            64
+          ],
+          [
+            1,
+            84,
+            64
+          ]
+        ],
+        "segments": [
+          {
+            "kind": "label",
+            "start": 0,
+            "length": 5,
+            "reference": 0
+          },
+          {
+            "kind": "vision",
+            "start": 5,
+            "length": 1538,
+            "reference": 0
+          },
+          {
+            "kind": "label",
+            "start": 1543,
+            "length": 5,
+            "reference": 1
+          },
+          {
+            "kind": "vision",
+            "start": 1548,
+            "length": 1026,
+            "reference": 1
+          },
+          {
+            "kind": "label",
+            "start": 2574,
+            "length": 5,
+            "reference": 2
+          },
+          {
+            "kind": "vision",
+            "start": 2579,
+            "length": 1346,
+            "reference": 2
+          },
+          {
+            "kind": "prompt",
+            "start": 3925,
+            "length": 32,
+            "reference": null
+          }
+        ],
+        "prompt_sha256": "e788cbf914be9665d595baeb0b46123b67092ed23d51b72cbd9d44e749796c6e",
+        "prompt_num_tokens": 32,
+        "prompt_truncated": false,
+        "vision": {
+          "pixel_values_sha256": "c8373f6c4014ad00baadeb9b4dc77c5565c08335c4c3b55b6dfa4a9ea64fd835",
+          "pixel_values_shape": [
+            15616,
+            1536
+          ],
+          "image_grid_thw": [
+            [
+              1,
+              64,
+              96
+            ],
+            [
+              1,
+              64,
+              64
+            ],
+            [
+              1,
+              84,
+              64
+            ]
+          ]
+        }
+      },
+      "features": {
+        "sm_100|torch 2.13.0+cu130|transformers 5.17.0": {
+          "shape": [
+            1,
+            3957,
+            5120
+          ],
+          "dtype": "bfloat16",
+          "sha256": "85e60733c236300e7366ac4d53a1e81275d70937ad33d73a2f7690f5b1388e76"
+        },
+        "sm_90|torch 2.13.0+cu130|transformers 5.17.0": {
+          "shape": [
+            1,
+            3957,
+            5120
+          ],
+          "dtype": "bfloat16",
+          "sha256": "d3b5e94f790d855782d066b6ceb3e612162ea6c941448f9c5fb22524053a9d86"
+        }
+      }
+    }
+  ]
+}
