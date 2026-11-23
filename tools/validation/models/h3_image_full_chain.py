@@ -109,6 +109,13 @@ def main() -> int:
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
+    try:
+        # from_pretrained keeps the checkpoint's FP32 modules (proj_in, time_embedder,
+        # pdd_proj_out, rope) only on the low_cpu_mem_usage path, which needs accelerate.
+        # Check before phase 1 rather than after the text encoder has been loaded.
+        import accelerate
+    except ImportError:
+        parser.error("accelerate is required to load transformer_diffusers (pip install --no-deps)")
     import diffusers
     import transformers
     from diffusers import AutoencoderKLMiniMaxH3Image, MiniMaxH3ImageTransformer2DModel
@@ -132,6 +139,7 @@ def main() -> int:
             "cuda": torch.version.cuda,
             "diffusers": diffusers.__version__,
             "transformers": transformers.__version__,
+            "accelerate": accelerate.__version__,
             "python": platform.python_version(),
         },
         "fixtures": {},
