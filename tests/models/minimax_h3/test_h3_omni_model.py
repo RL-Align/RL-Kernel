@@ -149,11 +149,19 @@ def _batched(singles):
     }
 
 
+def _same(a, b) -> bool:
+    """Bitwise: dtype, shape and bytes (``torch.equal`` compares values, so ``-0.0 == 0.0``)."""
+
+    from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+
+    return om.tensor_digest(a) == om.tensor_digest(b)
+
+
 def _equal(a, b):
     assert set(a) == set(b)
     for k in a:
         if isinstance(a[k], torch.Tensor):
-            assert a[k].dtype == b[k].dtype and torch.equal(a[k], b[k]), k
+            assert _same(a[k], b[k]), k
         else:
             assert a[k] == b[k], k
 
@@ -192,14 +200,14 @@ class TestConversion:
         k = _omni(req, update, row_t, 2)
         video, audio = torch.randn(1, 4, 96), torch.randn(1, 2, 32)
         v, a = om.diffusers_to_omni(video, audio, k)
-        assert torch.equal(v, video[0] * update.unsqueeze(-1)) and torch.equal(a, audio[0])
+        assert _same(v, video[0] * update.unsqueeze(-1)) and _same(a, audio[0])
         k["skip_mask_out_condition"] = True
         v, _ = om.diffusers_to_omni(video, audio, k)
-        assert torch.equal(v, video[0])
+        assert _same(v, video[0])
         k["skip_mask_out_condition"] = False
         k["update_audio_mask"] = torch.tensor([True, False])
         _, a = om.diffusers_to_omni(video, audio, k)
-        assert torch.equal(a, audio[0] * k["update_audio_mask"].unsqueeze(-1))
+        assert _same(a, audio[0] * k["update_audio_mask"].unsqueeze(-1))
 
 
 class TestRefusals:
@@ -561,11 +569,11 @@ def test_bound_call_is_the_models_call(full_model, with_lora, vllm_sdpa):
             v, a = binding.forward(**k)
             torch.backends.cuda.enable_cudnn_sdp(cudnn)  # the actor's process: torch's default
             dv, da = _direct(model, _cuda(req), strict)
-            assert torch.equal(v, dv[0] * update.cuda().unsqueeze(-1)) and torch.equal(a, da[0])
+            assert _same(v, dv[0] * update.cuda().unsqueeze(-1)) and _same(a, da[0])
             alone.append((v, a))
         v, a = binding.forward(**_batched(singles))
-        assert torch.equal(v, torch.cat([x for x, _ in alone]))
-        assert torch.equal(a, torch.cat([y for _, y in alone]))
+        assert _same(v, torch.cat([x for x, _ in alone]))
+        assert _same(a, torch.cat([y for _, y in alone]))
     finally:
         torch.backends.cuda.enable_cudnn_sdp(cudnn)
         for block in model.transformer_blocks:
