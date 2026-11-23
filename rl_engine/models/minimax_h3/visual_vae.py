@@ -516,8 +516,8 @@ def preprocess_pixels(pixels: torch.Tensor) -> torch.Tensor:
 def postprocess_pixels(video: torch.Tensor) -> torch.Tensor:
     """Decoder output (ImageNet-normalized) -> FP32 RGB in ``[0, 1]`` (``decoders.py``)."""
 
-    mean = torch.tensor(PIXEL_MEAN, device=video.device).view(1, -1, 1, 1, 1)
-    std = torch.tensor(PIXEL_STD, device=video.device).view(1, -1, 1, 1, 1)
+    mean = torch.tensor(PIXEL_MEAN, dtype=torch.float32, device=video.device).view(1, -1, 1, 1, 1)
+    std = torch.tensor(PIXEL_STD, dtype=torch.float32, device=video.device).view(1, -1, 1, 1, 1)
     return (video.float() * std + mean).clamp(0, 1)
 
 
@@ -596,7 +596,13 @@ class RuntimePolicy:
 RELEASE_POLICY = RuntimePolicy()
 
 
-def runtime_readback() -> dict[str, Any]:
+def runtime_readback(device: torch.device | str | None = None) -> dict[str, Any]:
+    """Library versions, the four backend flags, and the GPU of ``device``.
+
+    ``device=None`` names the current CUDA device (when CUDA is available); a CPU ``device``
+    names no GPU.
+    """
+
     info: dict[str, Any] = {
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
@@ -606,10 +612,14 @@ def runtime_readback() -> dict[str, Any]:
         "cudnn_allow_tf32": bool(torch.backends.cudnn.allow_tf32),
         "matmul_allow_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
     }
-    if torch.cuda.is_available():
-        index = torch.cuda.current_device()
-        info["device_name"] = torch.cuda.get_device_name(index)
-        info["compute_capability"] = list(torch.cuda.get_device_capability(index))
+    target = None if device is None else torch.device(device)
+    if target is None and not torch.cuda.is_available():
+        return info
+    if target is not None and target.type != "cuda":
+        return info
+    index = torch.cuda.current_device() if target is None or target.index is None else target.index
+    info["device_name"] = torch.cuda.get_device_name(index)
+    info["compute_capability"] = list(torch.cuda.get_device_capability(index))
     return info
 
 
@@ -619,11 +629,13 @@ _RUNTIME_LOCK = threading.RLock()
 
 
 @contextlib.contextmanager
-def pinned_runtime(policy: RuntimePolicy = RELEASE_POLICY) -> Iterator[dict[str, Any]]:
+def pinned_runtime(
+    policy: RuntimePolicy = RELEASE_POLICY, *, device: torch.device | str | None = None
+) -> Iterator[dict[str, Any]]:
     """Apply ``policy`` for the duration of the block and restore the previous flags.
 
-    Scopes in different threads are serialized; a thread waits until the scope in another
-    thread has restored its flags.
+    Yields ``runtime_readback(device)``. Scopes in different threads are serialized; a
+    thread waits until the scope in another thread has restored its flags.
     """
 
     cudnn = torch.backends.cudnn
@@ -635,7 +647,7 @@ def pinned_runtime(policy: RuntimePolicy = RELEASE_POLICY) -> Iterator[dict[str,
             cudnn.benchmark = policy.cudnn_benchmark
             cudnn.allow_tf32 = policy.cudnn_allow_tf32
             matmul.allow_tf32 = policy.matmul_allow_tf32
-            yield runtime_readback()
+            yield runtime_readback(device)
         finally:
             cudnn.deterministic, cudnn.benchmark, cudnn.allow_tf32, matmul.allow_tf32 = saved
 
@@ -818,7 +830,7 @@ class VisualVAEContract:
         expected = self.layout.latent_shape(1, frames, height, width)
         device = self._device()
         rows = []
-        with pinned_runtime(self.policy) as runtime:
+        with pinned_runtime(self.policy, device=device) as runtime:
             for row in pixels.split(1):
                 x = preprocess_pixels(row.to(device))
                 # The release encodes in FP32 with no autocast; an ambient autocast must not
@@ -865,7 +877,7 @@ class VisualVAEContract:
         device = self._device()
         frames = self.layout.pixel_frames(latents.shape[2])
         rows = []
-        with pinned_runtime(self.policy) as runtime:
+        with pinned_runtime(self.policy, device=device) as runtime:
             for row in latents.split(1):
                 z = denormalize_latents(row.to(device), self.mean, self.std, self.layout)
                 enabled = autocast_fp16 and device.type == "cuda"
