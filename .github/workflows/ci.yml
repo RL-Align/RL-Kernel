@@ -5,9 +5,9 @@ name: CI-Pipeline
 
 on:
   push:
-    branches: [ main, test ]
+    branches: [ main, test, test-h3 ]
   pull_request:
-    branches: [ main, test ]
+    branches: [ main, test, test-h3 ]
 
 permissions:
   contents: read
@@ -71,10 +71,23 @@ jobs:
       - name: Check refactor packaging and compatibility
         run: python ci/run.py layout -q
 
+      - name: Run H3 Reference and Packed Layout Tests (CPU-safe)
+        run: |
+          python -m pytest tests/reference/minimax_h3 tests/runtime/test_h3_sigma_schedule_dispatch.py tests/models/minimax_h3/test_h3_packed_layout.py -q
+
+      - name: Run full H3 binding contracts
+        run: |
+          python -m pytest -q \
+            tests/models/minimax_h3/test_h3_full_model.py \
+            tests/models/minimax_h3/test_h3_full_ensemble_rule.py \
+            tests/models/minimax_h3/test_h3_generation_resume.py
+
       - name: Run Mocked Hardware Discovery Tests
         run: |
           python -m pytest tests/runtime/test_dispatch.py -v
+          python -m pytest tests/ops/conditioning/test_conditioning_noise_mix.py tests/benchmarks/test_benchmark_conditioning_noise_mix.py -q
           PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ops/attention/test_attention_correctness.py -q -rs
+          python -m pytest tests/ops/packing/test_packed_index_copy.py tests/benchmarks/test_benchmark_packed_index_copy.py -q
           python -m pytest tests/validation/operators/test_forward_invariance.py tests/contracts/test_tolerance_contract.py tests/validation/operators/test_ws1_workload.py tests/validation/operators/test_gradient_invariance.py tests/validation/operators/test_elementwise_inventory.py tests/validation/operators/test_four_judgment_matrix.py tests/validation/operators/test_op_checks.py tests/validation/operators/test_operator_inputs.py tests/benchmarks/test_profiler.py tests/validation/operators/test_kv_consistency.py tests/models/qwen3/test_ws1_qwen3_dense.py tests/validation/models/test_ws1_chain_integration.py -q
 
       - name: Run Linear-Attention Reference Tests (CPU-only)
