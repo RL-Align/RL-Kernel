@@ -12,6 +12,8 @@ GPU (with the H3 provider): the bound call equals the model's own call on the sa
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -935,6 +937,42 @@ class TestRolloutReportGates:
         assert not tool._same_bytes(torch.tensor([-0.0]), torch.tensor([0.0]))
         assert not tool._same_bytes(torch.zeros(2), torch.zeros(2, dtype=torch.float64))
         assert tool._same_bytes(torch.tensor([1.0, -0.0]), torch.tensor([1.0, -0.0]))
+
+    def test_native_inputs_compare_every_tensor_kwarg(self):
+        from tools.validation.models import h3_omni_rollout_report as tool
+
+        a = {"x": torch.ones(2), "prompt_embeds": torch.zeros(3), "flag": True}
+        assert tool._same_tensor_inputs(a, dict(a))
+        assert not tool._same_tensor_inputs(a, {**a, "prompt_embeds": torch.ones(3)})
+        assert not tool._same_tensor_inputs(a, {k: v for k, v in a.items() if k != "prompt_embeds"})
+
+    @pytest.mark.parametrize(
+        "argv, ok",
+        [
+            (["--lora-rank", "2"], False),
+            (["--lora-rank", "-1"], False),
+            (["--lora-rank", "4"], True),
+            (["--lora-rank", "0"], True),
+            (["--stage", "native"], False),
+        ],
+    )
+    def test_arguments_are_checked_before_an_engine_starts(self, tmp_path, argv, ok):
+        import argparse
+
+        from tools.validation.models import h3_omni_rollout_report as tool
+
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--stage", default="engine")
+        ap.add_argument("--lora-rank", type=int, default=0)
+        ap.add_argument("--compare-calls", type=Path)
+        args = ap.parse_args(argv)
+        if ok:
+            tool.check_args(ap, args)
+        else:
+            with pytest.raises(SystemExit):
+                tool.check_args(ap, args)
+        args = ap.parse_args(["--stage", "native", "--compare-calls", str(tmp_path)])
+        tool.check_args(ap, args)  # an existing directory is accepted
 
     def test_an_engine_run_removes_the_earlier_reports(self, tmp_path):
         from tools.validation.models import h3_omni_rollout_report as tool
