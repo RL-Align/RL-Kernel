@@ -42,3 +42,56 @@ def token_embedding(
     if output_dtype is not None:
         output = output.to(dtype=output_dtype)
     return output
+
+
+class _NativeTokenEmbeddingFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, token_ids, weight):
+        from rl_engine.backends.extension import _C
+
+        output = _C.embedding_sm90_forward(token_ids.contiguous(), weight.contiguous())
+        ctx.save_for_backward(token_ids.contiguous())
+        ctx.vocab_size = weight.shape[0]
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        from rl_engine.backends.extension import _C
+
+        (token_ids,) = ctx.saved_tensors
+        grad_weight = _C.embedding_sm90_backward(
+            token_ids, grad_output.contiguous(), int(ctx.vocab_size)
+        )
+        return None, grad_weight
+
+
+def token_embedding_cuda(
+    token_ids: torch.Tensor,
+    weight: torch.Tensor,
+    *,
+    output_dtype: torch.dtype | None = None,
+) -> torch.Tensor:
+    """Run the native SM90 embedding forward and deterministic backward kernel."""
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+    if output_dtype is not None and output_dtype != weight.dtype:
+        raise ValueError("native token embedding output_dtype must match weight dtype")
+    if not _EXT_AVAILABLE or not hasattr(_C, "embedding_sm90_forward"):
+        raise RuntimeError("SM90 embedding CUDA extension is unavailable")
+    if not token_ids.is_cuda or not weight.is_cuda:
+        raise ValueError("native token embedding requires CUDA tensors")
+    if token_ids.dtype not in (torch.int32, torch.int64):
+        raise TypeError("token ids must be int32 or int64")
+    if weight.ndim != 2 or weight.dtype not in (torch.float16, torch.bfloat16, torch.float32):
+        raise ValueError("native embedding weight must be [vocab, hidden] in fp32, fp16, or bf16")
+    if token_ids.device != weight.device:
+        raise ValueError("token ids and embedding weight must share a device")
+    ids = token_ids.to(dtype=torch.int64)
+    if ids.numel():
+        min_id = int(ids.min().item())
+        max_id = int(ids.max().item())
+        if min_id < 0 or max_id >= weight.shape[0]:
+            raise ValueError(
+                f"token ids must be in [0, {weight.shape[0] - 1}], got [{min_id}, {max_id}]"
+            )
+    return _NativeTokenEmbeddingFunction.apply(ids, weight)

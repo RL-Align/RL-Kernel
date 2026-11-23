@@ -34,3 +34,23 @@ def test_embedding_backward_accumulates_duplicate_ids():
 def test_embedding_rejects_out_of_range_ids():
     with pytest.raises(ValueError, match="must be in"):
         token_embedding(torch.tensor([8]), torch.zeros(8, 2))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_native_sm90_embedding_matches_reference_and_backward():
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+    from rl_engine.models.inkling2.token_embedding import token_embedding_cuda
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "embedding_sm90_forward"):
+        pytest.skip("SM90 embedding CUDA extension is unavailable")
+    torch.manual_seed(17)
+    weight = torch.randn(8, 4, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    ids = torch.tensor([[0, 5, 5, 7]], device="cuda", dtype=torch.int32)
+    native = token_embedding_cuda(ids, weight)
+    reference = token_embedding(ids, weight)
+    torch.testing.assert_close(native, reference, atol=0, rtol=0)
+    native.float().square().mean().backward()
+    native_grad = weight.grad
+    weight.grad = None
+    reference.float().square().mean().backward()
+    torch.testing.assert_close(native_grad, weight.grad, atol=0, rtol=0)

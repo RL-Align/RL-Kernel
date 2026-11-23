@@ -81,6 +81,28 @@ __global__ void embedding_sm90_forward_kernel(const int64_t *__restrict__ token_
     output[idx] = static_cast<output_t>(weight[token_id * hidden_size + hidden_col]);
 }
 
+template <typename scalar_t>
+__global__ void embedding_sm90_backward_kernel(
+    const int64_t *__restrict__ token_ids,
+    const scalar_t *__restrict__ grad_output,
+    scalar_t *__restrict__ grad_weight,
+    int64_t num_tokens,
+    int64_t hidden_size,
+    int64_t vocab_size) {
+    const int64_t index = static_cast<int64_t>(blockIdx.x) * kThreads + threadIdx.x;
+    const int64_t total = vocab_size * hidden_size;
+    if (index >= total) return;
+    const int64_t vocab_index = index / hidden_size;
+    const int64_t hidden_index = index - vocab_index * hidden_size;
+    float value = 0.0f;
+    for (int64_t token = 0; token < num_tokens; ++token) {
+        if (token_ids[token] == vocab_index) {
+            value += static_cast<float>(grad_output[token * hidden_size + hidden_index]);
+        }
+    }
+    grad_weight[index] = static_cast<scalar_t>(value);
+}
+
 template <typename scalar_t, typename output_t>
 __global__ void lm_head_sm90_forward_kernel(const scalar_t *__restrict__ hidden,
                                             const scalar_t *__restrict__ weight,
@@ -302,6 +324,46 @@ torch::Tensor embedding_sm90_forward(torch::Tensor token_ids, torch::Tensor weig
 
 torch::Tensor embedding_sm90_forward_fp32(torch::Tensor token_ids, torch::Tensor weight) {
     return embedding_sm90_forward_impl(token_ids, weight, true);
+}
+
+torch::Tensor embedding_sm90_backward(torch::Tensor token_ids, torch::Tensor grad_output,
+                                      int64_t vocab_size) {
+    TORCH_CHECK(token_ids.is_cuda() && grad_output.is_cuda(),
+                "token_ids and grad_output must be CUDA tensors");
+    TORCH_CHECK(token_ids.device() == grad_output.device(),
+                "token_ids and grad_output must share a CUDA device");
+    TORCH_CHECK(token_ids.is_contiguous() && grad_output.is_contiguous(),
+                "token_ids and grad_output must be contiguous");
+    TORCH_CHECK(token_ids.scalar_type() == at::kLong || token_ids.scalar_type() == at::kInt,
+                "token_ids must be int32 or int64");
+    TORCH_CHECK(grad_output.dim() == token_ids.dim() + 1,
+                "grad_output must have token_ids dimensions plus hidden dimension");
+    TORCH_CHECK(is_supported_float_dtype(grad_output.scalar_type()),
+                "embedding gradient must be fp32, fp16, or bf16");
+    TORCH_CHECK(vocab_size > 0, "vocab_size must be positive");
+    c10::cuda::CUDAGuard device_guard(grad_output.device());
+    check_sm90_device();
+    const int64_t num_tokens = token_ids.numel();
+    const int64_t hidden_size = grad_output.size(-1);
+    TORCH_CHECK(grad_output.numel() == num_tokens * hidden_size,
+                "grad_output shape does not match token_ids");
+    auto ids = token_ids.reshape({num_tokens}).to(at::kLong).contiguous();
+    auto grad_2d = grad_output.reshape({num_tokens, hidden_size});
+    auto grad_weight = torch::zeros({vocab_size, hidden_size}, grad_output.options());
+    const int64_t total = vocab_size * hidden_size;
+    TORCH_CHECK(total <= std::numeric_limits<int>::max(),
+                "embedding backward launch size exceeds CUDA grid limit");
+    if (total == 0) return grad_weight;
+    const int blocks = static_cast<int>((total + kThreads - 1) / kThreads);
+    AT_DISPATCH_FLOATING_TYPES_AND2(
+        at::kHalf, at::kBFloat16, grad_output.scalar_type(), "embedding_sm90_backward", [&] {
+            embedding_sm90_backward_kernel<scalar_t>
+                <<<blocks, kThreads, 0, at::cuda::getCurrentCUDAStream()>>>(
+                    ids.data_ptr<int64_t>(), grad_2d.data_ptr<scalar_t>(),
+                    grad_weight.data_ptr<scalar_t>(), num_tokens, hidden_size, vocab_size);
+        });
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return grad_weight;
 }
 
 torch::Tensor lm_head_sm90_forward(torch::Tensor hidden, torch::Tensor weight,

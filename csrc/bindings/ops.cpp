@@ -82,6 +82,7 @@ torch::Tensor linear_logp_logits_bf16_to_dlogits(torch::Tensor logits,
 torch::Tensor rope_apply_sm90(torch::Tensor x, torch::Tensor cos, torch::Tensor sin, double sin_sign);
 torch::Tensor embedding_sm90_forward(torch::Tensor token_ids, torch::Tensor weight);
 torch::Tensor embedding_sm90_forward_fp32(torch::Tensor token_ids, torch::Tensor weight);
+torch::Tensor embedding_sm90_backward(torch::Tensor token_ids, torch::Tensor grad_output, int64_t vocab_size);
 torch::Tensor lm_head_sm90_forward(torch::Tensor hidden,
                                    torch::Tensor weight,
                                    torch::optional<torch::Tensor> bias);
