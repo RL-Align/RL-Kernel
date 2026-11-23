@@ -261,6 +261,9 @@ class H3GridActor:
             "tp_rank": self.grid.tp_rank,
             "shards": shards,
             "digests": self.digests(),
+            # alpha / r: the rollout's rlk_h3_load_lora refuses a file whose scale is not the one
+            # it is asked to apply (the digests cover the tensors only)
+            "scale": self.scale,
         }
         if refiner:
             state["refiner"] = refiner
@@ -277,6 +280,8 @@ class H3GridActor:
                 f"the saved LoRA is tp={state.get('tp')} rank {state.get('tp_rank')}'s, "
                 f"this rank is tp={mine[0]} rank {mine[1]}"
             )
+        if "scale" in state and state["scale"] != self.scale:
+            raise ValueError(f"the saved LoRA has scale {state['scale']}, this actor {self.scale}")
         sources: dict[str, torch.Tensor] = {}
         for index, parts_by_target in enumerate(state["shards"]):
             for target, parts in parts_by_target.items():

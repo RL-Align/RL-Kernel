@@ -146,7 +146,8 @@ class TestState:
     def test_lora_state_round_trips_in_place(self):
         actor = _actor()
         state = actor.lora_state()
-        assert set(state) == {"tp", "tp_rank", "shards", "digests", "refiner"}
+        assert set(state) == {"tp", "tp_rank", "shards", "digests", "refiner", "scale"}
+        assert state["scale"] == actor.scale
         assert all(
             t.device.type == "cpu"
             for b in state["shards"]
@@ -162,6 +163,12 @@ class TestState:
         actor.load_lora_state(state)
         assert actor.digests() == before
         assert all(a is b for a, b in zip(params, actor.parameters()))  # the same objects
+
+    def test_load_refuses_another_scale(self):
+        actor = _actor()
+        state = dict(actor.lora_state(), scale=actor.scale + 1.0)
+        with pytest.raises(ValueError, match="scale"):
+            actor.load_lora_state(state)
 
     def test_load_refuses_another_ranks_state(self):
         other = _actor(_model(tp_rank=2), tp_rank=2).lora_state()
@@ -192,13 +199,14 @@ class TestState:
         assert out["path"] == str(tmp_path / "cp0" / "rank1.pt")
         assert out["rollout_source"].endswith("cp0/rank{rank}.pt")
         sent = torch.load(out["rollout_source"].format(rank=1), weights_only=True)
+        assert sent["scale"] == actor.scale == 2.0  # rlk_h3_load_lora requires the sender's scale
         receiver = _Model()
         got = h3_lora.install_lora_shards(
             receiver,
             sent["shards"],
             4,
             1,
-            scale=2.0,
+            scale=sent["scale"],
             expected=sent["digests"],
             device="cpu",
             refiner=sent.get("refiner"),
