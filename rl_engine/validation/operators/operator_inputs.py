@@ -62,6 +62,8 @@ def make_operator_inputs(
         "adaln_gate_residual": _make_adaln_gate_residual_inputs,
         "final_adaln_out": _make_final_adaln_out_inputs,
         "h3_ode_step": _make_h3_ode_step_inputs,
+        # Same [R, C] packed-row case: the velocity step takes the H3 step's inputs.
+        "h3_image_velocity_step": _make_h3_ode_step_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -114,6 +116,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "final_adaln_out": f"{batch}x{seq}x{_h3_hidden(args)}",
         # batch = packed-row count, seq = latent channel width (24 video / 32 audio)
         "h3_ode_step": f"{batch}x{seq}",
+        "h3_image_velocity_step": f"{batch}x{seq}",
     }
     try:
         return names[op_name]

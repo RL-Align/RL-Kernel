@@ -502,6 +502,20 @@ OP_SPECS = {
         },
         grad_input_names=("xt", "v"),
     ),
+    # MiniMax-H3-Image velocity-form Euler step (RFC #738 image_velocity_step).
+    "h3_image_velocity_step": OperatorSpec(
+        name="h3_image_velocity_step",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.flow.velocity_step.NativeH3ImageVelocityStepOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.flow.velocity_step.NativeH3ImageVelocityStepOp",
+            "triton": (
+                "rl_engine.backends.shared.triton.flow.velocity_step.H3ImageVelocityStepTritonOp"
+            ),
+        },
+        grad_input_names=("xt", "v"),
+    ),
 }
 
 

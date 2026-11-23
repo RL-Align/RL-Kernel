@@ -81,6 +81,13 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_H3_ODE_STEP = "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp"
     PYTORCH_H3_ODE_STEP = "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp"
     TRITON_H3_ODE_STEP = "rl_engine.backends.shared.triton.flow.ode_step.H3OdeStepTritonOp"
+    # MiniMax-H3-Image velocity-form Euler step (RFC #738 image_velocity_step).
+    PYTORCH_H3_IMAGE_VELOCITY_STEP = (
+        "rl_engine.reference.flow.velocity_step.NativeH3ImageVelocityStepOp"
+    )
+    TRITON_H3_IMAGE_VELOCITY_STEP = (
+        "rl_engine.backends.shared.triton.flow.velocity_step.H3ImageVelocityStepTritonOp"
+    )
     CUDA_DETERMINISTIC_ATTENTION = (
         "rl_engine.kernels.ops.cuda.attention.deterministic_attn.DeterministicAttentionOp"
     )
@@ -594,6 +601,68 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             version_or_build_fingerprint="h3-euler-fp32-reference-v1",
         ),
         OperatorBackendDescriptor(
+            semantic_op="h3_image_velocity_step",
+            backend_id="rlkernel.triton.h3_image_velocity_step.euler_velocity_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda", "rocm"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "x + (sigma - sigma_next) * v, FP fusion disabled",
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-triton-strict-v1",
+                "accumulator_dtype": "float32",
+                "epilogue_cast": "storage_dtype",
+                "reduction": "none",
+                "sigma_layout": "per_packed_row",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.TRITON_H3_IMAGE_VELOCITY_STEP.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-image-euler-velocity-fp32-triton-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="h3_image_velocity_step",
+            backend_id="rlkernel.pytorch.h3_image_velocity_step.euler_velocity_fp32.v1",
+            supported_targets=frozenset({"rollout", "training"}),
+            # CPU/NPU reference, as for h3_ode_step: the GPU profiles resolve the Triton
+            # kernel and declare no silent reference fallback.
+            supported_devices=frozenset({"cpu"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "torch eager x + (sigma - sigma_next) * v, one declared fp32 program",
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "arithmetic_profile": "h3-pytorch-strict-v1",
+                "accumulator_dtype": "float32",
+                "epilogue_cast": "storage_dtype",
+                "reduction": "none",
+                "sigma_layout": "per_packed_row",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.PYTORCH_H3_IMAGE_VELOCITY_STEP.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-image-euler-velocity-fp32-reference-v1",
+        ),
+        OperatorBackendDescriptor(
             semantic_op="selected_logprob",
             backend_id="rlkernel.reference_logp",
             supported_targets=frozenset({"rollout", "training"}),
@@ -1024,6 +1093,7 @@ class KernelRegistry:
                 "packed_index_copy": [OpBackend.CUDA_PACKED_INDEX_COPY],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "h3_ode_step": [OpBackend.CUDA_H3_ODE_STEP, OpBackend.TRITON_H3_ODE_STEP],
+                "h3_image_velocity_step": [OpBackend.TRITON_H3_IMAGE_VELOCITY_STEP],
                 "det_gemm": [OpBackend.CUDA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "video_input_projection_fp32": [OpBackend.TRITON_VIDEO_INPUT_PROJECTION_FP32],
                 "video_output_projection_fp32": [OpBackend.TRITON_VIDEO_OUTPUT_PROJECTION_FP32],
@@ -1132,6 +1202,7 @@ class KernelRegistry:
                 "packed_index_copy": [],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "h3_ode_step": [OpBackend.TRITON_H3_ODE_STEP],
+                "h3_image_velocity_step": [OpBackend.TRITON_H3_IMAGE_VELOCITY_STEP],
                 "det_gemm": [OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -1194,6 +1265,7 @@ class KernelRegistry:
                 "packed_index_copy": [],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "h3_ode_step": [OpBackend.TRITON_H3_ODE_STEP],
+                "h3_image_velocity_step": [OpBackend.TRITON_H3_IMAGE_VELOCITY_STEP],
                 "det_gemm": [OpBackend.MUSA_DET_GEMM, OpBackend.TRITON_DET_GEMM],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -1246,6 +1318,7 @@ class KernelRegistry:
                 "packed_index_copy": [OpBackend.PYTORCH_NATIVE_PACKED_INDEX_COPY],
                 "video_patch_pack_unpack": [OpBackend.PYTORCH_VIDEO_PATCH_PACK_UNPACK],
                 "h3_ode_step": [OpBackend.PYTORCH_H3_ODE_STEP],
+                "h3_image_velocity_step": [OpBackend.PYTORCH_H3_IMAGE_VELOCITY_STEP],
                 "batch_invariant_logp": [OpBackend.PYTORCH_BATCH_INVARIANT_LOGP],
                 "matmul": [OpBackend.PYTORCH_NATIVE_MATMUL],
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
