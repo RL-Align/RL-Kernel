@@ -94,6 +94,9 @@ def load_tiny_pipeline(**config: Any) -> Any:
     return pipe
 
 
+_ABSENT = object()
+
+
 @contextlib.contextmanager
 def capture_steps() -> Iterator[dict[str, dict[str, Any]]]:
     """Snapshot ``CAPTURE`` fields of every listed step's block state after it runs."""
@@ -106,16 +109,24 @@ def capture_steps() -> Iterator[dict[str, dict[str, Any]]]:
     try:  # a step missing mid-loop must not leave the earlier ones wrapped
         for name, fields in CAPTURE.items():
             cls = next(getattr(m, name) for m in modules if hasattr(m, name))
-            original = cls.__call__
+            # the class's own ``__call__`` (or none: it inherits one), restored as it was; the
+            # method wrapped is the real one, also when it is inherited from a step that is
+            # already wrapped here
+            own = cls.__dict__.get("__call__", _ABSENT)
+            original = getattr(cls.__call__, "_capture_original", cls.__call__)
 
             def wrapped(self, components, state, _original=original, _name=name, _fields=fields):
                 out = _original(self, components, state)
                 captured[_name] = {f: copy.deepcopy(state.get(f)) for f in _fields}
                 return out
 
-            originals.append((cls, original))
+            wrapped._capture_original = original  # type: ignore[attr-defined]
+            originals.append((cls, own))
             cls.__call__ = wrapped
         yield captured
     finally:
-        for cls, original in originals:
-            cls.__call__ = original
+        for cls, own in reversed(originals):
+            if own is _ABSENT:
+                del cls.__call__
+            else:
+                cls.__call__ = own
