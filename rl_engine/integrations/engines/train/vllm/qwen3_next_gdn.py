@@ -259,7 +259,8 @@ def _sequence_provider():
 def _fused_sequence(qkv, a, b, A_log, dt_bias, state, indices, boundaries, *, num_k_heads, scale):
     lengths = [end - start for start, end in zip(boundaries, boundaries[1:])]
     if not max(lengths, default=0):
-        return qkv.new_empty((0, state.shape[1], 128)), state
+        # A new bank, as on every other path: the output must not alias the caller's state.
+        return qkv.new_empty((0, state.shape[1], 128)), state.contiguous().clone()
     recurrent, gating = _sequence_provider()
     tokens, heads = qkv.shape[0], state.shape[1]
     width = num_k_heads * 128

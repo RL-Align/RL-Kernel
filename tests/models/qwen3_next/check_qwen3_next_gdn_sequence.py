@@ -142,7 +142,22 @@ def test_backward_wiring_equals_the_decode_loop_gradient():
         (out.float().square().sum() + state.square().sum() * 0.01).backward()
         grads.append([tensor.grad for tensor in tensors])
     for fused, loop in zip(*grads):
+        assert fused is not None and fused.abs().max() > 0
         exact(fused, loop)
+
+
+def test_all_empty_sequences_return_a_new_bank_and_backpropagate():
+    tensors, indices, cu = inputs((4,))
+    tensors = [tensor[:0] if i < 3 else tensor for i, tensor in enumerate(tensors)]
+    state = tensors[-1].clone().requires_grad_()
+    out, new_state = packed_recurrent_sequence(
+        *tensors[:-1], state, indices, torch.tensor([0, 0]), num_k_heads=4
+    )
+    assert out.shape[0] == 0
+    assert new_state.data_ptr() != state.data_ptr()
+    exact(new_state, state)
+    new_state.square().sum().backward()
+    exact(state.grad, 2 * state.detach())
 
 
 def _reference_recurrence(qkv, a, b, A_log, dt_bias, state, indices, cu, *, num_k_heads):
@@ -208,4 +223,6 @@ def test_gradients_match_an_independent_reference(lengths):
 
     assert relative(fused_out, reference_out) < 1e-2
     for fused, reference in zip(fused_grads, reference_grads):
+        # A zero reference would make the relative error vacuous.
+        assert reference.abs().max() > 0
         assert relative(fused, reference) < 1e-2, relative(fused, reference)
