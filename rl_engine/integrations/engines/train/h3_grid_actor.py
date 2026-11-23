@@ -309,20 +309,31 @@ class H3GridActor:
         The rollout engine fed by CP group ``c`` loads ``<directory>/cp<c>/rank{rank}.pt``.
         """
 
-        state = self.lora_state()
         folder = os.path.join(directory, f"cp{self.grid.cp_rank}")
-        os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, f"rank{self.grid.tp_rank}.pt")
-        torch.save(state, path + ".tmp")
-        os.replace(path + ".tmp", path)
-        mine = (self.grid.tp_rank, state["digests"])
+        # A rank whose write fails still joins the gather below, so every rank learns of it and
+        # raises, instead of the others waiting in the collective for a rank that left.
+        error = None
+        try:
+            state = self.lora_state()
+            os.makedirs(folder, exist_ok=True)
+            torch.save(state, path + ".tmp")
+            os.replace(path + ".tmp", path)
+            digests_here = state["digests"]
+        except Exception as exc:  # reported to every rank, then raised there
+            error = f"{type(exc).__name__}: {exc}"
+            digests_here = {}
+        mine = (self.grid.tp_rank, digests_here, error)
         everyone: list[Any] = [mine]
         if self.world > 1:
             everyone = [None] * self.world
             dist.all_gather_object(everyone, mine, group=self.group)
+        failed = [(rank, err) for rank, (_, _, err) in enumerate(everyone) if err is not None]
+        if failed:
+            raise RuntimeError(f"the LoRA export failed on ranks {failed}")
         by_tp: dict[int, dict[str, str]] = {}
         refiner: dict[str, str] | None = None
-        for tp_rank, digests in everyone:
+        for tp_rank, digests, _ in everyone:
             blocks = {k: v for k, v in digests.items() if not k.startswith("refiner.")}
             ref = {k: v for k, v in digests.items() if k.startswith("refiner.")}
             if by_tp.setdefault(tp_rank, blocks) != blocks:
@@ -334,8 +345,8 @@ class H3GridActor:
         return {
             "path": path,
             "rollout_source": os.path.join(folder, "rank{rank}.pt"),
-            "digests": state["digests"],
-            "scale": state["scale"],
+            "digests": digests_here,
+            "scale": self.scale,
         }
 
     def checkpoint_state(self, optimizer: torch.optim.Optimizer | None = None) -> dict[str, Any]:

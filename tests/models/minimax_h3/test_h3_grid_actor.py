@@ -193,6 +193,18 @@ class TestState:
         with pytest.raises(ValueError, match="checkpoint"):
             _actor(_model(tp_rank=2), tp_rank=2).load_checkpoint_state(saved)
 
+    def test_a_failed_write_raises_after_the_gather(self, tmp_path, monkeypatch):
+        actor = _actor()
+
+        def fail(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(ga.torch, "save", fail)
+        with pytest.raises(
+            RuntimeError, match=r"export failed on ranks \[\(0, 'OSError: disk full'"
+        ):
+            actor.export(str(tmp_path))
+
     def test_export_is_what_the_rollout_installs(self, tmp_path):
         actor = _actor()
         out = actor.export(str(tmp_path))
