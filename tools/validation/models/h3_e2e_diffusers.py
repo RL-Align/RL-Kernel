@@ -489,11 +489,11 @@ def cmd_run(args) -> None:
                 prov=prov,
                 strict_boundaries=args.arm == "candidate" and not args.provider_boundaries,
             )
-            t = m["timing"]
+            t, final = m["timing"], m["final_latent_sha256"]
             print(
                 f"{m['label']}: {m['seconds']:.1f} s, transformer steady "
                 f"{t['transformer_steady']['mean_seconds']}, final video "
-                f"{m['final_latent_sha256']['video'][:12]} audio {m['final_latent_sha256']['audio'][:12]}",
+                f"{final['video'][:12]} audio {final['audio'][:12]}",
                 flush=True,
             )
 
