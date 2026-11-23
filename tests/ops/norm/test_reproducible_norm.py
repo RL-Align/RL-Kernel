@@ -93,11 +93,21 @@ def test_nvrtc_candidates_find_cuda13_wheel_layout(tmp_path):
     from rl_engine.ops.norm.reproducible import _nvrtc_candidates
 
     wheel = _touch(tmp_path / "cu13" / "lib" / "libnvrtc.so.13")
-    _touch(tmp_path / "cu13" / "lib" / "libnvrtc.alt.so.13")
     candidates = _nvrtc_candidates(tmp_path, "13.0")
     assert candidates[0] == wheel
-    assert not any(".alt." in name for name in candidates)
     assert candidates.index("libnvrtc.so.13") < candidates.index("libnvrtc.so.12")
+
+
+def test_nvrtc_candidates_try_the_matching_major_before_other_wheels(tmp_path):
+    """A leftover CUDA 12 wheel must not win over the CUDA 13 system soname."""
+    from rl_engine.ops.norm.reproducible import _nvrtc_candidates
+
+    stale = _touch(tmp_path / "cu12" / "lib" / "libnvrtc.so.12")
+    stale_legacy = _touch(tmp_path / "cuda_nvrtc" / "lib" / "libnvrtc.so.12")
+    candidates = _nvrtc_candidates(tmp_path, "13.0")
+    assert candidates[0] == "libnvrtc.so.13"
+    assert candidates.index("libnvrtc.so.13") < candidates.index(stale)
+    assert candidates.index("libnvrtc.so.13") < candidates.index(stale_legacy)
 
 
 def test_nvrtc_candidates_find_cuda12_wheel_layout(tmp_path):

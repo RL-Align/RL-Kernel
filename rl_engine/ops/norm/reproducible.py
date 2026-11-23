@@ -64,8 +64,9 @@ def _nvrtc_candidates(site=None, cuda_version=None):
     """NVRTC libraries to try, best match for torch's CUDA build first.
 
     CUDA 12 wheels ship ``nvidia/cuda_nvrtc/lib/libnvrtc.so.12``; CUDA 13
-    wheels ship ``nvidia/cu13/lib/libnvrtc.so.13``. After the wheel copies
-    come the system sonames for torch's CUDA major, then the unversioned name.
+    wheels ship ``nvidia/cu13/lib/libnvrtc.so.13``. Every library for torch's
+    CUDA major comes first, wheel copies before the system soname; wheel
+    copies for other majors come after it, then the other system sonames.
     """
     if site is None:
         site = Path(torch.__file__).parent.parent / "nvidia"
@@ -76,11 +77,14 @@ def _nvrtc_candidates(site=None, cuda_version=None):
     if major:
         wheel_dirs.insert(0, site / f"cu{major}" / "lib")
     wheel_dirs += sorted(Path(p) for p in glob.glob(str(site / "cu[0-9]*" / "lib")))
-    candidates = []
+    wheel = []
     for directory in wheel_dirs:
-        candidates += sorted(glob.glob(str(directory / "libnvrtc.so*")), key=len)
+        wheel += sorted(glob.glob(str(directory / "libnvrtc.so*")), key=len)
+    candidates = wheel
     if major:
-        candidates.append(f"libnvrtc.so.{major}")
+        matching = [name for name in wheel if Path(name).name.startswith(f"libnvrtc.so.{major}")]
+        others = [name for name in wheel if name not in matching]
+        candidates = matching + [f"libnvrtc.so.{major}"] + others
     candidates += ["libnvrtc.so.13", "libnvrtc.so.12", "libnvrtc.so"]
     return list(dict.fromkeys(candidates))
 
