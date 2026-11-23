@@ -132,6 +132,8 @@ def test_merge_rounds_pools_values_and_compares_tokens_across_processes():
         [_rollout_record([1.0], [2.0]), _rollout_record([1.0], [2.0], "b")]
     )
     assert changed["p64-b1-r16"]["checks"]["same_tokens_across_rounds"] == [False]
+    single = cases.merge_rounds([_rollout_record([1.0], [2.0])])
+    assert single["p64-b1-r16"]["checks"]["same_tokens_across_rounds"] == [None]
 
 
 def test_report_summarizes_ratios_and_failures():
@@ -251,6 +253,23 @@ def test_output_directory_of_an_earlier_run_is_refused(tmp_path, monkeypatch, le
         bench.orchestrate(args)
 
 
+def test_worker_timeout_is_recorded_not_raised(tmp_path, monkeypatch):
+    def timed_out(command, **kwargs):
+        raise bench.subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(bench.subprocess, "run", timed_out)
+    monkeypatch.setattr(bench, "wait_gpus_idle", lambda: True)
+    monkeypatch.setattr(bench, "arm_environment", lambda base, arm: base)
+    (tmp_path / "logs").mkdir()
+    args = SimpleNamespace(run=tmp_path, repeats=1, timeout=5)
+    manifest = {"python": "python", "source": str(tmp_path)}
+    record = bench.run_worker(manifest, {}, "b.py", tmp_path, "train", "strict", "long", 0, args)
+    assert record == {
+        "error": "worker timed out after 5 s; see logs/train-strict-long-round0.log",
+        "gpus_idle_after": True,
+    }
+
+
 def test_engine_refusal_is_unsupported_not_a_crash():
     log = (
         "x\nERROR [multiproc_executor.py:944] RuntimeError: "
@@ -340,7 +359,11 @@ def test_chart_takes_a_rerun_phase_from_a_later_report():
     assert first["phases"]["rollout"]["results"] == {}
     assert cases.commit_line(commits) == "rollout at 3e06906f; replay and training at 37e04258"
     assert cases.commit_line(cases.combine_reports([first])[1]) == "at 37e04258"
-    with pytest.raises(ValueError, match="GPUs"):
+    with pytest.raises(ValueError, match="gpus"):
         cases.combine_reports(
             [first, _plot_report("3e06906f", ("rollout",), gpus=("NVIDIA H100",) * 4)]
         )
+    other_vllm = _plot_report("3e06906f", ("rollout",))
+    other_vllm["versions"]["vllm"] = "0.31.0"
+    with pytest.raises(ValueError, match="vllm"):
+        cases.combine_reports([first, other_vllm])

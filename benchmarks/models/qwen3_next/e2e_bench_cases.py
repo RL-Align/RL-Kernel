@@ -196,7 +196,8 @@ def merge_rounds(records):
 
     Timing lists are concatenated. Boolean checks are kept per round. ``tokens_sha256`` (the
     greedy output of a rollout shape) is collected per round, so ``same_tokens_across_rounds``
-    tells whether separate processes generated the same tokens.
+    tells whether separate processes generated the same tokens; it is None (does not apply)
+    when only one round produced the shape.
     """
     pooled = {}
     for record in records:
@@ -212,7 +213,9 @@ def merge_rounds(records):
     for target in pooled.values():
         digests = target.get("tokens_sha256")
         if digests is not None:
-            target["checks"]["same_tokens_across_rounds"] = [len(set(digests)) == 1]
+            target["checks"]["same_tokens_across_rounds"] = [
+                len(set(digests)) == 1 if len(digests) > 1 else None
+            ]
     return pooled
 
 
@@ -260,7 +263,7 @@ def combine_reports(reports):
     """The first report with each later report's phases in place of its own.
 
     Returns the combined report and each phase's commit. The reports must come from the
-    same GPUs and topology.
+    same topology, GPUs and recorded versions (torch, vLLM, Triton, Megatron-core, ...).
     """
     report = json.loads(json.dumps(reports[0]))
     commits = {phase: report["rl_kernel_commit"] for phase in report["phases"]}
@@ -268,8 +271,13 @@ def combine_reports(reports):
         for key in ("topology",):
             if other[key] != report[key]:
                 raise ValueError(f"reports disagree on {key}")
-        if other["versions"].get("gpus") != report["versions"].get("gpus"):
-            raise ValueError("reports disagree on the GPUs")
+        differ = sorted(
+            key
+            for key in set(other["versions"]) | set(report["versions"])
+            if other["versions"].get(key) != report["versions"].get(key)
+        )
+        if differ:
+            raise ValueError(f"reports disagree on {', '.join(differ)}")
         for phase, value in other["phases"].items():
             report["phases"][phase] = value
             commits[phase] = other["rl_kernel_commit"]

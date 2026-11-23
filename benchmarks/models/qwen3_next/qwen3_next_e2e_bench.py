@@ -570,15 +570,23 @@ def run_worker(manifest, base_env, script, out, phase, arm, workload, round_inde
         "--result",
         str(result),
     ]
-    with log.open("w") as handle:
-        code = subprocess.run(
-            command,
-            cwd=manifest["source"],
-            env=arm_environment(base_env, arm),
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            timeout=args.timeout,
-        ).returncode
+    try:
+        with log.open("w") as handle:
+            code = subprocess.run(
+                command,
+                cwd=manifest["source"],
+                env=arm_environment(base_env, arm),
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                timeout=args.timeout,
+            ).returncode
+    except subprocess.TimeoutExpired:
+        # Record the arm and go on; if its processes stay on the GPUs, the next worker's
+        # idle check records that worker as not measured.
+        return {
+            "error": f"worker timed out after {args.timeout} s; see logs/{log.name}",
+            "gpus_idle_after": wait_gpus_idle(),
+        }
     idle = wait_gpus_idle()
     if code or not result.is_file():
         refusal = unsupported_reason(log.read_text(errors="replace"))
