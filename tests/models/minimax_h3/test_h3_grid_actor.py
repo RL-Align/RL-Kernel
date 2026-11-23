@@ -135,7 +135,7 @@ class TestGradients:
         assert p.grad is not g1 and torch.equal(p.grad, g1)
         actor._sink(0, name, g2)
         assert torch.equal(p.grad, (g1 + g2))
-        assert actor._received == 2
+        assert actor._received == {(0, name)}  # one shard, however many sinks
         with pytest.raises(TypeError, match="gradient"):
             actor._sink(0, name, g1.float())
         actor.zero_grad()
@@ -342,3 +342,43 @@ class TestG5Cut:
             for target, parts in canonical.items():
                 for part, t in parts.items():
                     assert torch.equal(_cut(f"3.{target}.{part}", t, tp, rank), mine[target][part])
+
+
+class TestRefinerBroadcast:
+    def _two_ranks(self, monkeypatch, disagree_on=None):
+        actor = _actor()
+        actor.world = 2
+        calls = []
+
+        def all_reduce(t, op=None, group=None):
+            if disagree_on is not None:
+                t[disagree_on] = 0 if op == ga.dist.ReduceOp.MIN else 1
+
+        monkeypatch.setattr(ga.dist, "all_reduce", all_reduce)
+        monkeypatch.setattr(ga.dist, "broadcast", lambda t, src, group=None: calls.append(t))
+        return actor, calls
+
+    def test_every_refiner_gradient_is_broadcast_when_ranks_agree(self, monkeypatch):
+        actor, calls = self._two_ranks(monkeypatch)
+        for p in actor._refiner:
+            p.grad = torch.ones_like(p)
+        actor.finish_grads()
+        assert len(calls) == len(actor._refiner) > 0
+
+    def test_ranks_that_disagree_on_a_gradient_raise_instead_of_hanging(self, monkeypatch):
+        actor, calls = self._two_ranks(monkeypatch, disagree_on=0)
+        for p in actor._refiner:
+            p.grad = torch.ones_like(p)
+        with pytest.raises(RuntimeError, match=r"refiner LoRA tensors \[0\] have a gradient"):
+            actor.finish_grads()
+        assert calls == []
+
+
+def test_a_shard_that_sinks_twice_counts_once():
+    actor = _actor()
+    actor._received = set()
+    (index, name), p = next(iter(actor._by_leaf.items()))
+    actor._sink(index, name, torch.ones_like(p))
+    actor._sink(index, name, torch.ones_like(p))
+    assert actor._received == {(index, name)}
+    assert torch.equal(p.grad, 2 * torch.ones_like(p))

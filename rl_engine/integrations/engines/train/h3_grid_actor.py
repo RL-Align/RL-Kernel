@@ -128,7 +128,7 @@ class H3GridActor:
                     self._add(f"refiner.{index}.{target}.{part}", p)
                     self._refiner.append(p)
                     self._counted[id(p)] = self.rank == 0
-        self._received = 0
+        self._received: set[tuple[int, str]] = set()
 
     @property
     def ops(self) -> hb.CandidateOps:
@@ -167,7 +167,7 @@ class H3GridActor:
             p.grad = grad.contiguous().clone()
         else:
             p.grad.add_(grad)
-        self._received += 1
+        self._received.add((index, name))  # distinct shards: a shard may sink more than once
 
     def _execution(self):
         return pm.parallel_model_execution(
@@ -195,7 +195,7 @@ class H3GridActor:
         its backward, and each LoRA gradient added to its parameter. Returns the detached loss
         and outputs."""
 
-        self._received = 0
+        self._received = set()
         with torch_default_sdpa(), self._execution() as state:
             state.grad_sink = self._sink
             video, audio = self.model(**inputs)
@@ -203,19 +203,33 @@ class H3GridActor:
             if loss.dim() != 0:
                 raise ValueError("loss_fn must return a scalar")
             loss.backward()
-        if self._received != len(self._by_leaf):
+        if len(self._received) != len(self._by_leaf):
             raise RuntimeError(
-                f"{self._received} of {len(self._by_leaf)} block LoRA shards got a gradient"
+                f"{len(self._received)} of {len(self._by_leaf)} block LoRA shards got a gradient"
             )
         return loss.detach(), (video.detach(), audio.detach())
 
     def finish_grads(self) -> None:
         """Before the clip: every rank takes global rank 0's refiner gradients (see module doc)."""
 
-        if self.world > 1:
+        if self.world > 1 and self._refiner:
             src = dist.get_global_rank(self.group, 0) if self.group is not None else 0
-            for p in self._refiner:
-                if p.grad is not None:
+            # every rank must enter the same broadcasts: agree first on which refiner tensors
+            # have a gradient, and refuse a disagreement instead of hanging in a collective
+            device = self._refiner[0].device
+            has = torch.tensor(
+                [p.grad is not None for p in self._refiner], dtype=torch.int32, device=device
+            )
+            low, high = has.clone(), has.clone()
+            dist.all_reduce(low, op=dist.ReduceOp.MIN, group=self.group)
+            dist.all_reduce(high, op=dist.ReduceOp.MAX, group=self.group)
+            if not torch.equal(low, high):
+                split = [i for i, (a, b) in enumerate(zip(low.tolist(), high.tolist())) if a != b]
+                raise RuntimeError(
+                    f"refiner LoRA tensors {split} have a gradient on some ranks only"
+                )
+            for p, present in zip(self._refiner, has.tolist()):
+                if present:
                     dist.broadcast(p.grad, src=src, group=self.group)
 
     def clip_grad_norm_(self, max_norm: float) -> float:
