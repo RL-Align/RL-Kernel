@@ -216,6 +216,9 @@ def main() -> int:
         raise SystemExit("needs CUDA")
     if args.quick:
         args.height, args.width, args.repeats, args.timing_repeats = 256, 384, 2, 2
+    if args.repeats < 2:
+        # Run-to-run determinism compares runs; one run has nothing to compare.
+        parser.error("--repeats must be at least 2")
 
     import diffusers
     from diffusers.models.autoencoders.autoencoder_kl_minimax_h3 import AutoencoderKLMiniMaxH3
