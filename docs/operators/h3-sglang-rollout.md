@@ -23,7 +23,8 @@ the AdaLN path and the norms:
 
 | SGLang module | Bound to |
 | --- | --- |
-| `attn.qkv_proj` (`[Q; K; V]`), `mlp.fc1` (`[gate; up]`) | `h3-projection-gemm-v1` |
+| `attn.qkv_proj` (`[Q; K; V]`) | `h3-projection-gemm-v1` |
+| `mlp.fc1` (`[gate; up]`) | the gate/up row's fixed FP32-tile GEMM (`fixed_fp32_gemm`, [`h3-parallel-v2`](h3-parallel.md)) |
 | `attn.out_proj`, `mlp.fc2` (row parallel) | canonical 8-unit reduction of [`h3-parallel-v2`](h3-parallel.md) |
 | `blocks.N.adaln_proj.linear` | the deterministic GEMV of `adaln_projection_3mod`, on its TP column shard |
 | `blocks.N` norm1 / norm2 with their modulation | `h3_rmsnorm` (`forward_modulated`) |

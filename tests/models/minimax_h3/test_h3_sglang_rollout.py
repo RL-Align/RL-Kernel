@@ -565,6 +565,7 @@ def test_the_readback_counts_every_bound_forward_and_the_batching_switch_is_put_
         implementations = report["implementations"]
         assert report["calls"]["blocks.0.attn.qkv_proj"] == 2
         assert implementations["blocks.0.attn.qkv_proj"] == adapter.IMPLEMENTATIONS["column"]
+        assert implementations["blocks.0.mlp.fc1"] == adapter.IMPLEMENTATIONS["column_fixed"]
         assert implementations["blocks.0.mlp.fc2"] == adapter.IMPLEMENTATIONS["row"]
         assert implementations["blocks.0.adaln_proj.linear"] == adapter.IMPLEMENTATIONS["adaln"]
         assert implementations["blocks.0"] == adapter.IMPLEMENTATIONS["block"]
