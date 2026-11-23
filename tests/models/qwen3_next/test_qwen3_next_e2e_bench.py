@@ -209,6 +209,29 @@ def test_cli_requires_run_and_output():
         bench.parse_args(["--run", "r", "--out", "o", "--phases", "decode"])
 
 
+def test_worker_gets_the_run_directory_as_an_absolute_path(tmp_path, monkeypatch):
+    commands = []
+
+    def fake_run(command, cwd, **_):
+        commands.append((command, cwd))
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(bench.subprocess, "run", fake_run)
+    monkeypatch.setattr(bench, "wait_gpus_idle", lambda: True)
+    monkeypatch.setattr(bench, "arm_environment", lambda base, arm: base)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "out" / "logs").mkdir(parents=True)
+    source = tmp_path / "source"
+    args = SimpleNamespace(run=bench.Path("runs/l2"), repeats=1, timeout=1)
+    manifest = {"python": "python", "source": str(source)}
+    bench.run_worker(
+        manifest, {}, "bench.py", tmp_path / "out", "rollout", "strict", "long", 0, args
+    )
+    ((command, cwd),) = commands
+    assert cwd == str(source)
+    assert _option(command, "run") == str(tmp_path / "runs" / "l2")
+
+
 def test_engine_refusal_is_unsupported_not_a_crash():
     log = (
         "x\nERROR [multiproc_executor.py:944] RuntimeError: "

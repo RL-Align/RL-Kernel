@@ -561,7 +561,8 @@ def run_worker(manifest, base_env, script, out, phase, arm, workload, round_inde
         "--repeats",
         str(args.repeats),
         "--run",
-        str(args.run),
+        # Absolute: the worker runs in the source clone, not in the caller's directory.
+        str(Path(args.run).resolve()),
         "--result",
         str(result),
     ]
