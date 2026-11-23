@@ -617,3 +617,33 @@ def test_padding_only_shard_is_constructible_for_the_identity_partial():
     assert sharding.local_vocab_start == 0
     assert sharding.vocab_shard_bounds[1] == (QWEN3_REAL_VOCAB, QWEN3_PADDED_VOCAB)
     assert sharding.owner_rank(QWEN3_REAL_VOCAB - 1) == 0
+
+
+@pytest.mark.parametrize(
+    ("requested_backend", "fallback"),
+    [
+        ("test-deterministic-tp-logprob", False),
+        ("reference", False),
+        ("REFERENCE", False),
+        ("auto", True),
+        ("AUTO", True),
+    ],
+)
+def test_undeclared_candidate_counts_as_fallback_only_for_auto(requested_backend, fallback):
+    # A candidate with no declared capability has no backend_id or
+    # implementation_kind, so an explicit id or policy can never select it;
+    # only "auto" could have wanted it.
+    registry = KernelRegistry()
+    platform = registry._platform()
+    registry._logprob_candidates[platform] = [OpBackend.PYTORCH_NATIVE]
+    registry.register_logprob_backend(
+        OpBackend.PYTORCH_BATCH_INVARIANT_LOGP, _declared_tp_backend(), platform=platform
+    )
+
+    result = registry.get_logprob_op(_contract(), requested_backend=requested_backend)
+
+    assert result.capability.backend_id == "test-deterministic-tp-logprob"
+    assert result.provenance["fallback"] is fallback
+    assert result.provenance["prior_rejections"] == [
+        "PYTORCH_NATIVE: no LogprobBackendCapability declared"
+    ]

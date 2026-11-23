@@ -497,3 +497,28 @@ def test_dtype_and_split_kv_mismatches_are_explained():
     )
     with pytest.raises(AttentionContractError, match="dtype"):
         validate_cross_config_alignment(train, rollout)
+
+
+@pytest.mark.parametrize(
+    ("requested_backend", "fallback"),
+    [("test.strict.core", False), ("production", False), ("auto", True)],
+)
+def test_undeclared_candidate_counts_as_fallback_only_for_auto(
+    registry, requested_backend, fallback
+):
+    # CUDA's static ws2_attention list holds a candidate with no declared
+    # capability. It has no backend_id or implementation_kind, so an explicit id
+    # or policy can never select it; only "auto" could have wanted it.
+    platform = _platform(registry)
+    registry._priority_map[platform]["ws2_attention"] = [OpBackend.PYTORCH_ATTN]
+    registry.register_attention_backend(
+        OpBackend.ROCM_STRICT_ATTENTION, _capability(), platform=platform
+    )
+
+    result = registry.get_attention_op(_contract(), requested_backend=requested_backend)
+
+    assert result.capability.backend_id == "test.strict.core"
+    assert result.provenance["fallback"] is fallback
+    assert result.provenance["prior_rejections"] == [
+        "PYTORCH_ATTN: no AttentionBackendCapability declared"
+    ]
