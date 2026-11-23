@@ -20,14 +20,17 @@ copy the assembled output keeps (anything else is refused).
 
 With ``--sharded`` the grid run uses a model loaded by ``h3_sharded_load.load_sharded_model``:
 after the canonical run the full model is freed, and each rank loads only its shards of the
-sharded projections (the rest of the model in full), so the comparison above holds for a rank
-that never holds those full weights. ``--provider-boundaries`` leaves the boundary modules on the
-provider in both runs, for GPUs the strict boundary rows do not support (they need SM90).
+sharded projections (the rest of the model in full), so the comparison above holds for a grid
+run that never holds those full weights. The canonical run before it still loads the full model
+on every GPU, so each GPU needs the full model's memory for that phase. ``--provider-boundaries``
+leaves the boundary modules on the provider in both runs, for GPUs the strict boundary rows do not
+support (they need SM90).
 
-``--lora-rank R`` puts a seeded LoRA (``h3_lora.make_block_lora``: A ~ N(0, 1/R), B random or,
-with ``--lora-b-zero``, zero; scale ``--lora-alpha / R``) on the six targets of every block, cut
-for each run's grid (``h3-parallel-lora-v2``), and compares every LoRA shard's gradient too
-(``lora_gradients_bitwise``). The two token-refiner blocks are not on the grid and carry no LoRA
+``--lora-rank R`` puts a seeded LoRA (``h3_lora.make_block_lora``: A normal with std 1/R, B
+random or, with ``--lora-b-zero``, zero; scale ``--lora-alpha / R``) on the six targets of every
+block, cut for each run's grid (``h3-parallel-lora-v2``), and compares every LoRA shard's
+gradient too (``lora_gradients_bitwise``). The two token-refiner blocks are not on the grid and
+carry no LoRA
 here.
 """
 
