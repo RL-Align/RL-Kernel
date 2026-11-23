@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -25,11 +25,7 @@ DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 
 @pytest.fixture(scope="module")
 def before():
-    # A frozen source oracle also works in shallow CI checkouts without the base object.
-    source = Path(__file__).with_name("_logp_main_49941801.py").read_text()
-    module = ModuleType("logp_before_task19")
-    exec(compile(source, "<main-before-task19>", "exec"), module.__dict__)
-    return module
+    return importlib.import_module("tests.ops.logprob._logp_main_49941801")
 
 
 class RecordingBackend:
