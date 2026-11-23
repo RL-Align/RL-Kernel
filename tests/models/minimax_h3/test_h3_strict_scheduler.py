@@ -67,12 +67,13 @@ def test_the_bound_scheduler_is_bitwise_the_provider(shift, steps):
 
 def test_return_dict_gives_the_scheduler_output():
     scheduler = scheduling.MiniMaxH3Scheduler(shift=12.0)
-    with _bound(scheduler):
+    with _bound(scheduler) as calls:
         scheduler.set_timesteps(10, device="cpu")
         x = torch.zeros(4, 8)
         out = scheduler.step(torch.ones(4, 8), scheduler.timesteps[0], x)
     assert isinstance(out, scheduling.MiniMaxH3SchedulerOutput)
     assert scheduler.step_index == 1
+    assert calls["row"] == 1 and calls["provider"] == 0  # the row's branch built that output
 
 
 def test_half_precision_samples_stay_on_the_provider():
