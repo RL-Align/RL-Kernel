@@ -237,6 +237,22 @@ class _ColumnParallel(torch.autograd.Function):
         return (dx, None, None, None, None, None, None, *dws)
 
 
+def check_column_widths(weights: Sequence[torch.Tensor], tp: int) -> None:
+    """Each column shard's output width must split into this rank's ``8 / tp`` canonical units.
+
+    The ``dX`` of a column-parallel projection sums ``8 / tp`` equal slices of each output; a
+    width that does not divide would leave its last columns out of every slice.
+    """
+
+    local = UNITS // tp
+    for i, w in enumerate(weights):
+        if w.shape[0] <= 0 or w.shape[0] % local:
+            raise ValueError(
+                f"column shard {i} has {w.shape[0]} outputs, not a positive multiple of the "
+                f"{local} canonical units of a TP{tp} rank"
+            )
+
+
 def column_parallel_linear(
     x,
     weights: Sequence[torch.Tensor],
@@ -261,6 +277,7 @@ def column_parallel_linear(
 
     if tp > 1 and collective is None:
         raise ValueError("tp > 1 needs a collective")
+    check_column_widths(weights, tp)
     gather = gather and tp > 1  # one rank holds every row already
     return _ColumnParallel.apply(
         x.contiguous(), collective, tp, gather, cp_shard, cp_group, KERNELS[kernel], *weights

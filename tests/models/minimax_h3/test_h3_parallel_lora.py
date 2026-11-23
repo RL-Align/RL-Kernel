@@ -118,6 +118,17 @@ class TestOneGPU:
         assert torch.equal(y[nonzero].view(torch.int16), base[nonzero].view(torch.int16))
         assert not da.any() and db.any()
 
+    @pytest.mark.parametrize("rows", [9, 0])
+    def test_a_column_width_off_the_canonical_units_is_refused(self, rows):
+        """dX sums 8 / tp equal slices of each output: 9 outputs at tp=1 would drop one."""
+
+        x = torch.zeros(4, 8)
+        w, a, b = torch.zeros(rows, 8), torch.zeros(2, 8), torch.zeros(rows, 2)
+        with pytest.raises(ValueError, match="canonical units"):
+            par.column_parallel_linear(x, [w])
+        with pytest.raises(ValueError, match="canonical units"):
+            pl.column_parallel_lora_linear(x, [w], [(a, [b])], 2.0)
+
     def test_sequence_parallel_flags_are_identities_at_tp1(self):
         """At tp=1 one rank holds every row: gather / scatter must not reach the (absent)
         collective, and the results are the unflagged ones, LoRA and base alike."""
