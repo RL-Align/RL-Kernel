@@ -285,12 +285,37 @@ class TestRefinerLoRA:
         h3_lora._set_refiner(model, None, 2.0, "cpu")
         assert block(1)["flash"] == torch.backends.cuda.flash_sdp_enabled()  # no LoRA: as before
 
+    def test_the_gate_up_base_runs_the_rows_fixed_kernel(self, monkeypatch):
+        """As in the blocks (h3-parallel-lora-v2): gate/up on the fixed kernel, Q/K/V not."""
+
+        seen = {}
+
+        def column(x, weights, loras, scale, *, kernel="projection", **kw):
+            seen[weights[0].shape] = kernel
+            return (torch.zeros(x.shape[0], weights[0].shape[0]),)
+
+        monkeypatch.setattr(pl, "column_parallel_lora_linear", column)
+        for target, want in (("ff.net.0.proj", "fixed"), ("attn.to_q", "projection")):
+            seen.clear()
+            linear = nn.Linear(4, 6, bias=False)
+            forward = h3_lora._refiner_forward(_LoRAHolder(target), target)
+            forward(linear, torch.zeros(2, 4))
+            assert list(seen.values()) == [want], target
+
     def test_the_draw_is_its_own_stream(self):
         refiner = h3_lora.make_refiner_lora(0, rank=R, seed=1)
         block = h3_lora.make_block_lora(0, rank=R, seed=1)
         assert not torch.equal(refiner["attn.to_q"]["A"], block["attn.to_q"]["A"])
         again = h3_lora.make_refiner_lora(0, rank=R, seed=1)
         assert all(torch.equal(refiner[t][p], again[t][p]) for t in refiner for p in refiner[t])
+
+
+class _LoRAHolder:
+    """A refiner block holding a LoRA for ``target`` (only what ``_refiner_forward`` reads)."""
+
+    def __init__(self, target):
+        parts = {"A": torch.zeros(2, 4), "B": torch.zeros(6, 2)}
+        self.__dict__[h3_lora.REFINER_ATTR] = {"scale": 1.0, "tensors": {target: parts}}
 
 
 class TestG5Cut:

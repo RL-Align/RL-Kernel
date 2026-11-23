@@ -14,7 +14,7 @@ The draw depends only on the seed, the block index and the target, never on the 
 The two token-refiner blocks carry the same six targets (the recipe's ``target_modules`` match
 them too). The refiner runs replicated on every rank, so its LoRA is held whole: refiner block
 ``i`` draws as block ``REFINER_SEED_BLOCK + i``, ``attach_refiner_lora`` puts it on
-``model.token_refiner``, and each target linear then runs ``h3-parallel-lora-v1`` at ``tp=1``
+``model.token_refiner``, and each target linear then runs ``h3-parallel-lora-v2`` at ``tp=1``
 (base GEMM included, so the refiner's projections leave cuBLAS once a LoRA is attached). That
 needs the refiner on the provider path (``strict_boundaries=False``): the strict refiner row
 reads the weights directly and would not see the LoRA, so ``require_refiner_lora_supported``
@@ -104,9 +104,14 @@ def make_refiner_lora(index: int, **kwargs) -> dict[str, dict[str, torch.Tensor]
 
 
 def _refiner_forward(block, target: str):
-    """A target linear's forward: ``h3-parallel-lora-v1`` at tp=1 while ``block`` holds a LoRA."""
+    """A target linear's forward: ``h3-parallel-lora-v2`` at tp=1 while ``block`` holds a LoRA.
+
+    As in the blocks, the gate/up base (``ff.net.0.proj``) runs the gate/up row's fixed FP32-tile
+    GEMM, and Q/K/V keep ``h3-projection-gemm-v1``; the row targets run the O / down rows' kernel.
+    """
 
     kind = pl.TARGETS[target]
+    kernel = "fixed" if target == "ff.net.0.proj" else "projection"
 
     def forward(linear, x):
         lora = block.__dict__.get(REFINER_ATTR)
@@ -116,7 +121,7 @@ def _refiner_forward(block, target: str):
         x2 = x.reshape(-1, x.shape[-1])
         if kind == "col":
             y = pl.column_parallel_lora_linear(
-                x2, [linear.weight], [(parts["A"], [parts["B"]])], scale
+                x2, [linear.weight], [(parts["A"], [parts["B"]])], scale, kernel=kernel
             )[0]
         else:
             y = pl.row_parallel_lora_linear(x2, linear.weight, parts["A"], parts["B"], scale)
@@ -150,7 +155,7 @@ def _patch_refiner(block) -> None:
     for target in SHAPES:
         linear = block.get_submodule(target)
         if linear.bias is not None:
-            raise ValueError(f"refiner {target} has a bias; h3-parallel-lora-v1 has none")
+            raise ValueError(f"refiner {target} has a bias; h3-parallel-lora-v2 has none")
         if _REFINER_FORWARD not in linear.__dict__:
             linear.__dict__[_REFINER_FORWARD] = linear.forward
             linear.forward = MethodType(_refiner_forward(block, target), linear)
