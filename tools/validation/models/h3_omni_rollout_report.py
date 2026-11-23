@@ -146,6 +146,25 @@ def _invalidate_reports(out: Path) -> None:
         (out / name).unlink(missing_ok=True)
 
 
+def check_args(ap: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Refuse, before any engine starts, what a stage could only fail on later."""
+
+    if args.lora_rank < 0 or 0 < args.lora_rank < 4:  # the control changes attn.to_v.A[3, 5]
+        ap.error(f"--lora-rank must be 0 or at least 4, got {args.lora_rank}")
+    if args.stage == "native" and (args.compare_calls is None or not args.compare_calls.is_dir()):
+        ap.error("--stage native needs --compare-calls DIR, the calls/ of a B = 0 engine run")
+
+
+def _same_tensor_inputs(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """The same DiT inputs: the same tensor-valued kwargs (latents, positions, timesteps and the
+    prompt conditioning alike), each with equal bytes; a kwarg only one side holds is a difference.
+    """
+
+    keys_a = {k for k, v in a.items() if isinstance(v, torch.Tensor)}
+    keys_b = {k for k, v in b.items() if isinstance(v, torch.Tensor)}
+    return keys_a == keys_b and all(_same_bytes(a[k], b[k]) for k in keys_a)
+
+
 def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -218,6 +237,7 @@ async def _engine(args) -> dict[str, Any]:
                 release_weights=args.release_weights,
                 record_dir=str(calls_dir),
                 record_calls=tuple(range(args.record_calls)),
+                record_digests=True,  # the report compares every call's digests across ranks
             ),
         )
         report["install"] = bound
@@ -317,7 +337,8 @@ def _save_actor_shards(args, seed: int, out: Path, tamper_rank: int | None = Non
         if r == tamper_rank:
             a = shards[17]["attn.to_v"]["A"]
             a[3, 5] = a[3, 5] + 1  # one element: BF16 + 1 always changes it
-        torch.save({"shards": shards, "digests": digests}, out / f"rank{r}.pt")
+        scale = args.lora_alpha / args.lora_rank  # the worker refuses a file of another scale
+        torch.save({"shards": shards, "digests": digests, "scale": scale}, out / f"rank{r}.pt")
     return str(out / "rank{rank}.pt")
 
 
@@ -341,18 +362,22 @@ async def _lora_sync(engine, args) -> dict[str, Any]:
         ),
     )
     tamper_rank = min(2, args.tp - 1)
-    bad = _save_actor_shards(args, args.lora_seed, args.out / "lora-bad", tamper_rank)
-    try:
-        await _rpc(engine, "rlk_h3_load_lora", args=(bad,), kwargs=dict(scale=scale))
-        refused = None
-    except RpcError as e:  # expected
-        refused = str(e)[:600]
-    after_bad = await _rpc(engine, "rlk_h3_lora_digests")
-    good = _save_actor_shards(args, args.lora_seed, args.out / "lora-good")
-    installed = await _rpc(engine, "rlk_h3_load_lora", args=(good,), kwargs=dict(scale=scale))
-    sent = [torch.load(good.format(rank=r), weights_only=True)["digests"] for r in range(args.tp)]
-    for d in ("lora-bad", "lora-good"):
-        shutil.rmtree(args.out / d, ignore_errors=True)
+    try:  # the shard files are removed whatever happens
+        bad = _save_actor_shards(args, args.lora_seed, args.out / "lora-bad", tamper_rank)
+        try:
+            await _rpc(engine, "rlk_h3_load_lora", args=(bad,), kwargs=dict(scale=scale))
+            refused = None
+        except RpcError as e:  # expected
+            refused = str(e)[:600]
+        after_bad = await _rpc(engine, "rlk_h3_lora_digests")
+        good = _save_actor_shards(args, args.lora_seed, args.out / "lora-good")
+        installed = await _rpc(engine, "rlk_h3_load_lora", args=(good,), kwargs=dict(scale=scale))
+        sent = [
+            torch.load(good.format(rank=r), weights_only=True)["digests"] for r in range(args.tp)
+        ]
+    finally:
+        for d in ("lora-bad", "lora-good"):
+            shutil.rmtree(args.out / d, ignore_errors=True)
     out = {
         "rank": args.lora_rank,
         "alpha": args.lora_alpha,
@@ -361,7 +386,10 @@ async def _lora_sync(engine, args) -> dict[str, Any]:
         "shards_per_rank": [len(d) for d in installed],
         "tampered": {"rank": tamper_rank, "block": 17, "target": "attn.to_v.A", "at": [3, 5]},
         "tampered_sync_refused": refused,
-        "every_rank_kept_the_decoy": after_bad == decoy,
+        # a readback from every rank, each non-empty: two empty replies would also be equal
+        "every_rank_kept_the_decoy": len(decoy) == len(after_bad) == args.tp
+        and all(decoy)
+        and after_bad == decoy,
         "every_rank_has_the_senders_digests": installed == sent,
     }
     out["pass"] = bool(
@@ -441,11 +469,7 @@ async def _native(args) -> dict[str, Any]:
     for path in sorted((args.out / "native-calls").glob("call*.pt"), key=lambda p: int(p.stem[4:])):
         nat = torch.load(path, weights_only=True)
         ours = torch.load(args.compare_calls / path.name, weights_only=True)
-        same_inputs = all(
-            _same_bytes(nat["omni_kwargs"][k], ours["omni_kwargs"][k])
-            for k in ("x", "audio_x", "img_position_ids", "unique_timesteps", "inverse_indices")
-            if isinstance(ours["omni_kwargs"].get(k), torch.Tensor)
-        )
+        same_inputs = _same_tensor_inputs(nat["omni_kwargs"], ours["omni_kwargs"])
         v, a = om.diffusers_to_omni(ours["video"], ours["audio"], ours["omni_kwargs"])
         row: dict[str, Any] = {"call": path.stem, "same_inputs": same_inputs}
         for name, mine, theirs in (("video", v, nat["video"]), ("audio", a, nat["audio"])):
@@ -643,6 +667,7 @@ def main() -> None:
         help="native: the calls/ of a B = 0 engine run to compare with",
     )
     args = ap.parse_args()
+    check_args(ap, args)
     args.out.mkdir(parents=True, exist_ok=True)
     if args.stage == "engine":
         report = asyncio.run(_engine(args))

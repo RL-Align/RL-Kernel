@@ -85,8 +85,12 @@ class H3OmniWorkerExtension:
         release_weights: bool = False,
         record_dir: str | None = None,
         record_calls: tuple[int, ...] = (0,),
+        record_digests: bool = False,
     ) -> list[dict[str, Any]]:
         """Bind the H3 rollout DiT on every TP rank, or on none.
+
+        ``record_digests`` keeps every DiT call's input and output digests for ``rlk_h3_report``
+        (the G3 validation); rollout leaves it off, as each digest copies the tensors to the CPU.
 
         Three phases, each gathered over the TP group before the next starts (so no rank waits on
         one that failed): (1) checks, a checkpoint preflight and rank 0's record directory: a
@@ -198,7 +202,11 @@ class H3OmniWorkerExtension:
 
         def bind() -> dict[str, Any]:
             binding = om.H3OmniModelBinding(
-                model, grids["grid"], strict_boundaries=strict_boundaries, record=record
+                model,
+                grids["grid"],
+                strict_boundaries=strict_boundaries,
+                record=record,
+                record_digests=record_digests,
             )
             binding.record_errors = record_errors
             handle = om.install_h3_omni_model(pipeline.transformer, binding, od_config=od_config)
@@ -261,10 +269,12 @@ class H3OmniWorkerExtension:
         """Install the LoRA shards the actor's TP rank ``r`` saved for rollout rank ``r``.
 
         ``source`` is a path with ``{rank}``; that file holds ``{"shards": [...], "digests":
-        {...}}`` (``h3_lora.shard_block_lora`` per block and the sender's ``lora_digests``), and
-        ``"refiner"`` (a whole LoRA per token-refiner block) when the actor trains one. All
-        ranks or none: if any rank's shards are refused (shape or digest), every rank keeps its
-        previous LoRA and the call raises.
+        {...}, "scale": s}`` (``h3_lora.shard_block_lora`` per block, the sender's
+        ``lora_digests`` and the scale ``alpha / r`` it trained with), and ``"refiner"`` (a whole
+        LoRA per token-refiner block) when the actor trains one. ``scale`` must equal the file's:
+        the digests cover the tensors only, so a different scale would pass them and still compute
+        another LoRA. All ranks or none: if any rank's shards are refused (scale, shape or digest),
+        every rank keeps its previous LoRA and the call raises.
         """
 
         from rl_engine.validation.models import h3_lora
@@ -285,6 +295,11 @@ class H3OmniWorkerExtension:
             expected = sent.get("digests") if isinstance(sent, dict) else None
             if not isinstance(expected, dict) or not expected:
                 raise ValueError("the LoRA file holds no sender digests: it cannot be verified")
+            sent_scale = sent.get("scale")
+            if sent_scale is None or float(sent_scale) != float(scale):
+                raise ValueError(
+                    f"the LoRA file's scale {sent_scale} differs from the scale to apply {scale}"
+                )
             return h3_lora.install_lora_shards(
                 handle.binding.model,
                 sent["shards"],

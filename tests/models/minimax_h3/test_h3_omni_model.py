@@ -12,6 +12,8 @@ GPU (with the H3 provider): the bound call equals the model's own call on the sa
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -407,6 +409,82 @@ class TestLoRASync:
         assert h3_lora.lora_digests(receiver) == old
         assert getattr(receiver.transformer_blocks[0], pm.LORA_ATTR)["tp_rank"] == 1
 
+    def test_a_failed_transfer_or_digest_changes_no_block(self, monkeypatch):
+        from rl_engine.validation.models import h3_lora
+
+        receiver = self._Model(2)
+        old = h3_lora.install_lora_shards(
+            receiver, self._shards(4, 1, seed=5), 4, 1, scale=2.0, device="cpu"
+        )
+        real_to, calls = torch.Tensor.to, {"n": 0}
+
+        def to(self, *args, **kwargs):  # fails in the second block's transfers
+            calls["n"] += 1
+            if calls["n"] > h3_lora.LEAVES_PER_BLOCK:
+                raise torch.cuda.OutOfMemoryError("transfer")
+            return real_to(self, *args, **kwargs)
+
+        monkeypatch.setattr(torch.Tensor, "to", to)
+        with pytest.raises(torch.cuda.OutOfMemoryError):
+            h3_lora.install_lora_shards(receiver, self._shards(4, 1), 4, 1, scale=2.0, device="cpu")
+        monkeypatch.setattr(torch.Tensor, "to", real_to)
+        assert h3_lora.lora_digests(receiver) == old
+
+        def broken(model):
+            raise RuntimeError("digest")
+
+        monkeypatch.setattr(h3_lora, "lora_digests", broken)
+        with pytest.raises(RuntimeError, match="digest"):
+            h3_lora.install_lora_shards(receiver, self._shards(4, 1), 4, 1, scale=2.0, device="cpu")
+        monkeypatch.undo()
+        assert h3_lora.lora_digests(receiver) == old
+
+    @pytest.mark.parametrize("file_scale", [None, 1.0])
+    def test_worker_sync_refuses_a_scale_other_than_the_senders(
+        self, monkeypatch, tmp_path, file_scale
+    ):
+        from types import SimpleNamespace
+
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_worker as wk
+        from rl_engine.validation.models import h3_lora
+
+        model = self._Model(2)
+        model.w = torch.nn.Parameter(torch.zeros(1))
+        shards = self._shards(4, 1)
+        sent = h3_lora.install_lora_shards(self._Model(2), shards, 4, 1, scale=2.0, device="cpu")
+        payload = {"shards": shards, "digests": sent}
+        if file_scale is not None:
+            payload["scale"] = file_scale
+        torch.save(payload, tmp_path / "rank1.pt")
+        ext = wk.H3OmniWorkerExtension()
+        ext._rlk_h3 = SimpleNamespace(
+            binding=SimpleNamespace(model=model, grid=SimpleNamespace(tp=4, tp_rank=1))
+        )
+        errors = []
+
+        def gather(mine):  # this rank only; its refusal is the failure
+            if not mine["ok"]:
+                errors.append(mine["error"])
+            return [None, mine.get("result"), None, None], ({} if mine["ok"] else {1: "x"})
+
+        monkeypatch.setattr(wk, "_gather", gather)
+        with pytest.raises(RuntimeError, match="no rank changed"):
+            ext.rlk_h3_load_lora(str(tmp_path / "rank{rank}.pt"), scale=2.0)
+        assert "scale" in errors[0]
+        assert not h3_lora.lora_digests(model)
+
+    def test_shards_without_a_are_refused_as_value_errors(self):
+        from rl_engine.validation.models import h3_lora
+
+        bad = self._shards(4, 1)
+        del bad[1]["attn.to_q"]["A"]
+        with pytest.raises(ValueError, match="have no A"):
+            h3_lora.install_lora_shards(self._Model(2), bad, 4, 1, scale=2.0, device="cpu")
+        bad = self._shards(4, 1)
+        bad[0]["ff.net.2"]["B"] = [0.0]
+        with pytest.raises(ValueError, match="not tensors"):
+            h3_lora.install_lora_shards(self._Model(2), bad, 4, 1, scale=2.0, device="cpu")
+
     @pytest.mark.parametrize("other_rank_fails", [False, True], ids=["all-ok", "rank2-refused"])
     def test_worker_sync_is_all_ranks_or_none(self, monkeypatch, tmp_path, other_rank_fails):
         from types import SimpleNamespace
@@ -421,7 +499,7 @@ class TestLoRASync:
         )
         shards = self._shards(4, 1)
         sent = h3_lora.install_lora_shards(self._Model(2), shards, 4, 1, scale=2.0, device="cpu")
-        torch.save({"shards": shards, "digests": sent}, tmp_path / "rank1.pt")
+        torch.save({"shards": shards, "digests": sent, "scale": 2.0}, tmp_path / "rank1.pt")
         ext = wk.H3OmniWorkerExtension()
         ext._rlk_h3 = SimpleNamespace(
             binding=SimpleNamespace(model=model, grid=SimpleNamespace(tp=4, tp_rank=1))
@@ -567,8 +645,8 @@ def test_bound_call_is_the_models_call(full_model, with_lora, vllm_sdpa):
         for (req, update, _), k in zip(reqs, singles):
             torch.backends.cuda.enable_cudnn_sdp(not vllm_sdpa)  # vLLM's import turns it off
             v, a = binding.forward(**k)
-            torch.backends.cuda.enable_cudnn_sdp(cudnn)  # the actor's process: torch's default
-            dv, da = _direct(model, _cuda(req), strict)
+            with om.torch_default_sdpa():  # the reference on torch's default backends
+                dv, da = _direct(model, _cuda(req), strict)
             assert _same(v, dv[0] * update.cuda().unsqueeze(-1)) and _same(a, da[0])
             alone.append((v, a))
         v, a = binding.forward(**_batched(singles))
@@ -841,6 +919,9 @@ class TestRolloutReportGates:
         torch.save({"video": video + 1}, calls / "call0.pt")  # a later run's capture
         with pytest.raises(RuntimeError, match="does not match"):
             tool._listed_captures(args, {"pass": True, "captures": listed})
+        # the valid capture again: only the manifest's missing sha256 can refuse it now
+        torch.save({"video": video, "audio": torch.zeros(2)}, calls / "call0.pt")
+        assert tool._listed_captures(args, {"pass": True, "captures": listed})
         without_sha = [{k: v for k, v in listed[0].items() if k != "sha256"}]
         with pytest.raises(RuntimeError, match="does not match"):  # an engine.json before sha256
             tool._listed_captures(args, {"pass": True, "captures": without_sha})
@@ -859,6 +940,42 @@ class TestRolloutReportGates:
         assert not tool._same_bytes(torch.tensor([-0.0]), torch.tensor([0.0]))
         assert not tool._same_bytes(torch.zeros(2), torch.zeros(2, dtype=torch.float64))
         assert tool._same_bytes(torch.tensor([1.0, -0.0]), torch.tensor([1.0, -0.0]))
+
+    def test_native_inputs_compare_every_tensor_kwarg(self):
+        from tools.validation.models import h3_omni_rollout_report as tool
+
+        a = {"x": torch.ones(2), "prompt_embeds": torch.zeros(3), "flag": True}
+        assert tool._same_tensor_inputs(a, dict(a))
+        assert not tool._same_tensor_inputs(a, {**a, "prompt_embeds": torch.ones(3)})
+        assert not tool._same_tensor_inputs(a, {k: v for k, v in a.items() if k != "prompt_embeds"})
+
+    @pytest.mark.parametrize(
+        "argv, ok",
+        [
+            (["--lora-rank", "2"], False),
+            (["--lora-rank", "-1"], False),
+            (["--lora-rank", "4"], True),
+            (["--lora-rank", "0"], True),
+            (["--stage", "native"], False),
+        ],
+    )
+    def test_arguments_are_checked_before_an_engine_starts(self, tmp_path, argv, ok):
+        import argparse
+
+        from tools.validation.models import h3_omni_rollout_report as tool
+
+        ap = argparse.ArgumentParser()
+        ap.add_argument("--stage", default="engine")
+        ap.add_argument("--lora-rank", type=int, default=0)
+        ap.add_argument("--compare-calls", type=Path)
+        args = ap.parse_args(argv)
+        if ok:
+            tool.check_args(ap, args)
+        else:
+            with pytest.raises(SystemExit):
+                tool.check_args(ap, args)
+        args = ap.parse_args(["--stage", "native", "--compare-calls", str(tmp_path)])
+        tool.check_args(ap, args)  # an existing directory is accepted
 
     def test_an_engine_run_removes_the_earlier_reports(self, tmp_path):
         from tools.validation.models import h3_omni_rollout_report as tool
