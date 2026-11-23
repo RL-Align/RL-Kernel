@@ -87,8 +87,11 @@ def test_loader_matches_from_pretrained(tiny_checkpoint, tp):
                 assert p.is_meta, name
                 continue
             assert p.dtype == ref[name].dtype and torch.equal(p, ref[name]), name
-        for (name, buf), (_, ref_buf) in zip(model.named_buffers(), reference.named_buffers()):
-            assert not buf.is_meta and torch.equal(buf, ref_buf), name
+        bufs, ref_bufs = dict(model.named_buffers()), dict(reference.named_buffers())
+        assert bufs.keys() == ref_bufs.keys()
+        for name, buf in bufs.items():
+            assert not buf.is_meta, name
+            assert buf.dtype == ref_bufs[name].dtype and torch.equal(buf, ref_bufs[name]), name
         for i, block in enumerate(model.transformer_blocks):
             stored = getattr(block, pm.SHARDS_ATTR)
             assert (stored["tp"], stored["tp_rank"]) == (tp, r)
