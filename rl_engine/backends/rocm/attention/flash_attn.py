@@ -53,6 +53,8 @@ _AITER_FWD_POSITIONAL_CONTRACT = (
     "return_softmax_lse",
     "return_dropout_randval",
 )
+# The direct-output path passes ``out=`` by keyword, so only presence matters.
+_AITER_FWD_REQUIRED_KEYWORDS = frozenset({"out"})
 _AITER_BWD_POSITIONAL_CONTRACT = (
     "dout",
     "q",
@@ -89,7 +91,8 @@ _AITER_BATCH_PREFILL_POSITIONAL_CONTRACT = (
     "return_softmax_lse",
     "return_dropout_randval",
 )
-_AITER_BATCH_PREFILL_REQUIRED_KEYWORDS = frozenset({"block_table", "seqlen_k"})
+# The paged direct-output path also passes ``out=`` by keyword.
+_AITER_BATCH_PREFILL_REQUIRED_KEYWORDS = frozenset({"out", "block_table", "seqlen_k"})
 
 # Stable dispatch identity for the strict ROCm attention core.  Kept at module
 # scope so contract-aware dispatch and the Vime adapter name one constant
@@ -171,7 +174,11 @@ def _load_aiter_ck_ops() -> tuple[Callable[..., Any], Callable[..., Any], Callab
         ) from exc
     if not all(callable(op) for op in (mha_fwd, mha_bwd, mha_batch_prefill)):
         raise StrictRocmAttentionUnavailable("AITER CK MHA entry points are not callable")
-    _validate_aiter_schema("mha_fwd", _AITER_FWD_POSITIONAL_CONTRACT)
+    _validate_aiter_schema(
+        "mha_fwd",
+        _AITER_FWD_POSITIONAL_CONTRACT,
+        required_keywords=_AITER_FWD_REQUIRED_KEYWORDS,
+    )
     _validate_aiter_schema(
         "mha_bwd",
         _AITER_BWD_POSITIONAL_CONTRACT,
