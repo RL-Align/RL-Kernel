@@ -4,9 +4,11 @@
 """Seeded H3 LoRA for the parallel harness (``h3-parallel-lora-v2``).
 
 ``make_block_lora`` draws one block's full LoRA from a seed: for each of the six targets of the
-verl-omni H3 recipe, ``A (r, K) ~ N(0, 1/r)`` (peft's ``gaussian`` init) and ``B (N, r)`` zero
-(the recipe's init) or ``N(0, b_std)`` (to exercise the B path), stored BF16 like the recipe's
-adapters. ``shard_block_lora`` cuts this TP rank's tensors with ``parallel_lora.shard_lora``.
+verl-omni H3 recipe, ``A (r, K)`` normal with mean 0 and standard deviation ``1 / r`` (peft's
+``gaussian`` init: ``nn.init.normal_(lora_A.weight, std=1 / r)``) and ``B (N, r)`` zero (the
+recipe's init) or normal with standard deviation ``b_std`` (to exercise the B path), stored BF16
+like the recipe's adapters. ``shard_block_lora`` cuts this TP rank's tensors with
+``parallel_lora.shard_lora``.
 The draw depends only on the seed, the block index and the target, never on the grid.
 
 The two token-refiner blocks carry the same six targets (the recipe's ``target_modules`` match
@@ -62,7 +64,7 @@ def make_block_lora(
     out = {}
     for i, (target, (k, n)) in enumerate((shapes or SHAPES).items()):
         gen = torch.Generator().manual_seed((seed * 1009 + block) * 31 + i)
-        a = torch.randn(rank, k, generator=gen) / rank
+        a = torch.randn(rank, k, generator=gen) / rank  # std 1 / r, as peft's gaussian init
         b = torch.zeros(n, rank) if b_zero else torch.randn(n, rank, generator=gen) * b_std
         out[target] = {"A": a.bfloat16().to(device), "B": b.bfloat16().to(device)}
     return out

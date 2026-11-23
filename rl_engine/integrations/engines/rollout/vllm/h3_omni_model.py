@@ -589,6 +589,26 @@ def install_h3_omni_model(
     return handle
 
 
+GRID_COLLECTIVE_BYTES = 256 << 20  # capacity of the rollout grid's DeterministicCollective
+
+
+def grid_collective_staging_bytes(tp: int) -> int:
+    """Device bytes the rollout grid's collective allocates on each rank (0 at TP = 1).
+
+    Its constructor allocates them and then exchanges IPC metadata with every rank, so a rank
+    that cannot allocate would leave the others waiting in that exchange; the worker allocates
+    this much once in a gathered phase first.
+    """
+
+    from rl_engine.distributed.algorithms import collectives as col
+
+    if tp == 1:
+        return 0
+    return col._COLLECTIVE_STAGING_FRAMES * (
+        GRID_COLLECTIVE_BYTES + col._COLLECTIVE_FRAME_METADATA_BYTES
+    )
+
+
 def tp_grid_from_group(group: Any, tp_rank: int, tp: int, device: Any = None):
     """``h3_tp.Grid(tp, 1)`` on an existing TP process group (vLLM's), with #701's collective."""
 
@@ -598,5 +618,5 @@ def tp_grid_from_group(group: Any, tp_rank: int, tp: int, device: Any = None):
     collective = None
     if tp > 1:
         device = torch.cuda.current_device() if device is None else device
-        collective = DeterministicCollective(group, device, max_size_bytes=256 << 20)
+        collective = DeterministicCollective(group, device, max_size_bytes=GRID_COLLECTIVE_BYTES)
     return h3_tp.Grid(tp, 1, tp_rank, 0, collective, None, "h3_full", "ring")

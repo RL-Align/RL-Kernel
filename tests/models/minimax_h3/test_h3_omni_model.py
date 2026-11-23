@@ -149,11 +149,19 @@ def _batched(singles):
     }
 
 
+def _same(a, b) -> bool:
+    """Bitwise: dtype, shape and bytes (``torch.equal`` compares values, so ``-0.0 == 0.0``)."""
+
+    from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+
+    return om.tensor_digest(a) == om.tensor_digest(b)
+
+
 def _equal(a, b):
     assert set(a) == set(b)
     for k in a:
         if isinstance(a[k], torch.Tensor):
-            assert a[k].dtype == b[k].dtype and torch.equal(a[k], b[k]), k
+            assert _same(a[k], b[k]), k
         else:
             assert a[k] == b[k], k
 
@@ -192,14 +200,14 @@ class TestConversion:
         k = _omni(req, update, row_t, 2)
         video, audio = torch.randn(1, 4, 96), torch.randn(1, 2, 32)
         v, a = om.diffusers_to_omni(video, audio, k)
-        assert torch.equal(v, video[0] * update.unsqueeze(-1)) and torch.equal(a, audio[0])
+        assert _same(v, video[0] * update.unsqueeze(-1)) and _same(a, audio[0])
         k["skip_mask_out_condition"] = True
         v, _ = om.diffusers_to_omni(video, audio, k)
-        assert torch.equal(v, video[0])
+        assert _same(v, video[0])
         k["skip_mask_out_condition"] = False
         k["update_audio_mask"] = torch.tensor([True, False])
         _, a = om.diffusers_to_omni(video, audio, k)
-        assert torch.equal(a, audio[0] * k["update_audio_mask"].unsqueeze(-1))
+        assert _same(a, audio[0] * k["update_audio_mask"].unsqueeze(-1))
 
 
 class TestRefusals:
@@ -561,11 +569,11 @@ def test_bound_call_is_the_models_call(full_model, with_lora, vllm_sdpa):
             v, a = binding.forward(**k)
             torch.backends.cuda.enable_cudnn_sdp(cudnn)  # the actor's process: torch's default
             dv, da = _direct(model, _cuda(req), strict)
-            assert torch.equal(v, dv[0] * update.cuda().unsqueeze(-1)) and torch.equal(a, da[0])
+            assert _same(v, dv[0] * update.cuda().unsqueeze(-1)) and _same(a, da[0])
             alone.append((v, a))
         v, a = binding.forward(**_batched(singles))
-        assert torch.equal(v, torch.cat([x for x, _ in alone]))
-        assert torch.equal(a, torch.cat([y for _, y in alone]))
+        assert _same(v, torch.cat([x for x, _ in alone]))
+        assert _same(a, torch.cat([y for _, y in alone]))
     finally:
         torch.backends.cuda.enable_cudnn_sdp(cudnn)
         for block in model.transformer_blocks:
@@ -657,9 +665,9 @@ class TestInstallLifecycle:
 
     @pytest.mark.parametrize("release", [False, True])
     def test_a_failed_bind_says_whether_to_retry_or_restart(self, monkeypatch, release):
-        """Check, load and bind are gathered in turn; here another rank fails the bind."""
+        """Check, load, grid and bind are gathered in turn; here another rank fails the bind."""
 
-        ext = self._ext(monkeypatch, [{}, {}, {2: "RuntimeError: report failed"}])
+        ext = self._ext(monkeypatch, [{}, {}, {}, {2: "RuntimeError: report failed"}])
         dit = ext.model_runner.pipeline.transformer
         with pytest.raises(RuntimeError, match="restart the engine" if release else "be retried"):
             ext.rlk_h3_install("ckpt", release_weights=release)
@@ -683,6 +691,27 @@ class TestInstallLifecycle:
         assert ext._rlk_h3 is None and dit.w.is_meta
         with pytest.raises(RuntimeError, match="no usable DiT"):
             dit()  # not vLLM-Omni's forward on meta tensors
+
+    @pytest.mark.parametrize("release", [False, True])
+    def test_a_failed_grid_on_another_rank_fails_every_rank(self, monkeypatch, release):
+        """The grid and its collective are built in a gathered phase: a rank that fails there
+        (out of memory, collective setup) is reported on every rank, and no rank binds."""
+
+        ext = self._ext(monkeypatch, [{}, {}, {3: "OutOfMemoryError: staging"}])
+        dit = ext.model_runner.pipeline.transformer
+        with pytest.raises(RuntimeError, match=r"TP ranks \{3: 'OutOfMemoryError: staging'\}"):
+            ext.rlk_h3_install("ckpt", release_weights=release)
+        assert ext._rlk_h3 is None and dit.w.is_meta == release
+        if not release:
+            assert "forward" not in dit.__dict__ and len(ext.rlk_h3_install("ckpt")) == 4
+
+    def test_the_grid_collective_staging_is_what_it_allocates(self):
+        from rl_engine.distributed.algorithms import collectives as col
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_model as om
+
+        assert om.grid_collective_staging_bytes(1) == 0
+        per_frame = om.GRID_COLLECTIVE_BYTES + col._COLLECTIVE_FRAME_METADATA_BYTES
+        assert om.grid_collective_staging_bytes(4) == col._COLLECTIVE_STAGING_FRAMES * per_frame
 
     def test_bound_engine_refuses_request_lora_and_remove_after_release(self, monkeypatch):
         ext = self._ext(monkeypatch, [])
