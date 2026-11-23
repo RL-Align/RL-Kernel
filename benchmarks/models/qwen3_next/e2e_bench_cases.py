@@ -6,6 +6,7 @@
 Pure Python plus Torch on the CPU, so the report logic is testable without GPUs.
 """
 
+import json
 import statistics
 
 import torch
@@ -253,3 +254,38 @@ def ratios(phase, results):
                     phase, reference
                 ) / headline(phase, summary)
     return out
+
+
+def combine_reports(reports):
+    """The first report with each later report's phases in place of its own.
+
+    Returns the combined report and each phase's commit. The reports must come from the
+    same GPUs and topology.
+    """
+    report = json.loads(json.dumps(reports[0]))
+    commits = {phase: report["rl_kernel_commit"] for phase in report["phases"]}
+    for other in reports[1:]:
+        for key in ("topology",):
+            if other[key] != report[key]:
+                raise ValueError(f"reports disagree on {key}")
+        if other["versions"].get("gpus") != report["versions"].get("gpus"):
+            raise ValueError("reports disagree on the GPUs")
+        for phase, value in other["phases"].items():
+            report["phases"][phase] = value
+            commits[phase] = other["rl_kernel_commit"]
+    return report, commits
+
+
+def commit_line(commits):
+    """``at <commit>``, or each phase's commit when they differ."""
+    by_commit = {}
+    for phase in ("rollout", "replay", "train"):
+        if phase in commits:
+            by_commit.setdefault(commits[phase][:8], []).append(phase)
+    if len(by_commit) == 1:
+        return f"at {next(iter(by_commit))}"
+    names = {"rollout": "rollout", "replay": "replay", "train": "training"}
+    return "; ".join(
+        f"{' and '.join(names[p] for p in phases)} at {commit}"
+        for commit, phases in by_commit.items()
+    )

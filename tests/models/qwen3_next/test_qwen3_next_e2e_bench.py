@@ -301,3 +301,27 @@ def test_packed_lengths_pad_to_the_sequence_parallel_split():
                 rows, _ = cases.data_parallel_share(cases.sequences(shape), rank, 2)
                 lengths = [len(row) for row in rows]
                 assert cases.packed_lengths(lengths, 2) == lengths  # no shape needs padding
+
+
+def _plot_report(commit, phases, gpus=("NVIDIA B200",) * 4):
+    return {
+        "rl_kernel_commit": commit,
+        "topology": {"tp": 4, "ep": 1},
+        "versions": {"gpus": list(gpus)},
+        "phases": {phase: {"results": {}} for phase in phases},
+    }
+
+
+def test_chart_takes_a_rerun_phase_from_a_later_report():
+    first = _plot_report("37e04258" + "0" * 32, ("rollout", "replay", "train"))
+    rerun = _plot_report("3e06906f" + "0" * 32, ("rollout",))
+    rerun["phases"]["rollout"]["results"] = {"native_graph": {}}
+    report, commits = cases.combine_reports([first, rerun])
+    assert report["phases"]["rollout"]["results"] == {"native_graph": {}}
+    assert first["phases"]["rollout"]["results"] == {}
+    assert cases.commit_line(commits) == "rollout at 3e06906f; replay and training at 37e04258"
+    assert cases.commit_line(cases.combine_reports([first])[1]) == "at 37e04258"
+    with pytest.raises(ValueError, match="GPUs"):
+        cases.combine_reports(
+            [first, _plot_report("3e06906f", ("rollout",), gpus=("NVIDIA H100",) * 4)]
+        )

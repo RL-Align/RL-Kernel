@@ -4,11 +4,13 @@
 
 """Render the Qwen3-Next end-to-end speed test as a PNG.
 
-    python benchmarks/models/qwen3_next/plot_qwen3_next_e2e_bench.py <dir>/report.json
+    python benchmarks/models/qwen3_next/plot_qwen3_next_e2e_bench.py <dir>/report.json [<more>]
 
-writes ``figure.png`` next to the report: one row per phase (rollout, replay, train) and
-one column per workload. Each panel shows the median seconds per shape for every arm (log
-scale, lower is better). The ratios are in the report's ``strict_over_native``.
+writes ``figure.png`` next to the last report: one row per phase (rollout, replay, train) and
+one column per workload. Each later report replaces the phases it measured (for example a
+rollout re-measured at another commit), and the title then names each phase's commit. Each
+panel shows the median seconds per shape for every arm (log scale, lower is better). The
+ratios are in the report's ``strict_over_native``.
 """
 
 from __future__ import annotations
@@ -26,7 +28,11 @@ import numpy as np  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from benchmarks.models.qwen3_next.e2e_bench_cases import headline  # noqa: E402
+from benchmarks.models.qwen3_next.e2e_bench_cases import (  # noqa: E402
+    combine_reports,
+    commit_line,
+    headline,
+)
 
 INK = "#2b2b29"
 MUTED = "#6f6e69"
@@ -105,8 +111,9 @@ def layout_line(report):
     )
 
 
-def render(report_path):
-    report = json.loads(Path(report_path).read_text())
+def render(report_paths):
+    report_paths = [Path(path) for path in report_paths]
+    report, commits = combine_reports([json.loads(path.read_text()) for path in report_paths])
     phases = [phase for phase in ("rollout", "replay", "train") if phase in report["phases"]]
     workloads = list(report["settings"]["workloads"])
     figure, axes = plt.subplots(
@@ -133,20 +140,20 @@ def render(report_path):
     figure.legend(handles.values(), names, loc="lower center", ncol=3, frameon=False)
     gpus = ", ".join(report["versions"].get("gpus", []))
     figure.suptitle(
-        f"Qwen3-Next-80B-A3B end-to-end on {gpus} at {report['rl_kernel_commit'][:8]}\n"
+        f"Qwen3-Next-80B-A3B end-to-end on {gpus}, {commit_line(commits)}\n"
         f"{layout_line(report)}",
         color=INK,
     )
     figure.tight_layout(rect=(0, 0.09, 1, 0.93))
-    output = Path(report_path).with_name("figure.png")
+    output = report_paths[-1].with_name("figure.png")
     figure.savefig(output, dpi=150)
     return output
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("report", type=Path)
-    print(render(parser.parse_args().report))
+    parser.add_argument("reports", type=Path, nargs="+")
+    print(render(parser.parse_args().reports))
 
 
 if __name__ == "__main__":
