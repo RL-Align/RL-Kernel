@@ -91,14 +91,58 @@ bit for bit, the video / audio velocity, the three input gradients, every block'
 gradient (`first_drift_*` names the first block, logical row, owning rank and modality) and this
 rank's weight-shard gradients of all 350 sharded projections. `--inject BLOCK:ROW:RANK` perturbs one
 row on one rank: a negative control that has to be reported at that block, row and owner. Every
-rank loads the whole checkpoint and runs the canonical model first, so it is a validation harness,
-not a memory-sharded implementation. Weight-shard gradients are reduced to their digest the moment
+rank loads the whole checkpoint and runs the canonical model first. By default the grid run then
+uses that same model, cutting each projection shard out of the full weight on every call.
+
+With `--sharded` the grid runs on a model that holds only this rank's projection shards:
+`h3_sharded_load.load_sharded_model(transformer_dir, tp, tp_rank, device)` builds the transformer
+with its parameters on `meta`, loads every other parameter in full, and reads each shard of the
+seven sharded projections per block (Q / K / V, the attention output, the hidden and gate halves of
+`ff.net.0.proj`, `ff.net.2`) through a safetensors slice, so the rest of the weight is never read.
+The shards are stored on the block (`SHARDS_ATTR`) with the `(tp, tp_rank)` they were cut for, and
+the block refuses another grid. Called outside `parallel_model_execution`, the projections whose
+weights are on `meta` raise (a forward pre-hook), since `F.linear` would return a `meta` tensor. They are the bytes `parallel.shard_rows` / `shard_cols` cut from the
+full weight, so the run is compared against the same canonical run. Everything else (embedders,
+refiner, norms, `adaln_proj`, boundary projections) is still held in full on every rank.
+`--provider-boundaries` (`parallel_model_execution(..., strict_boundaries=False)`) leaves the
+boundary modules on the provider in both runs, for GPUs the strict boundary rows do not support.
+
+Weight-shard gradients are reduced to their digest the moment
 they are accumulated and freed (`ParallelState.digest_leaf`), so a run holds one block's shard
 gradients at a time: without that, the canonical run's unsharded leaves and gradients need about
 twice the 33B weights on top of the weights themselves, which does not fit a 94 GB H100. The digest
 (`exact_digest`) is two wrap-around int64 checksums of the bytes, accumulated 2^24 words at a time
 so its temporaries stay bounded. It is not a hash, but it always sees a change of one or two 16-bit
 words.
+
+## LoRA on the grid (`h3-parallel-lora-v1`)
+
+`rl_engine/backends/cuda/model_specific/minimax_h3/parallel_lora.py` puts a LoRA,
+`y = round(x W^T + s * (x A^T) B^T)`, on the six targets of the verl-omni H3 recipe (Q, K, V, the
+attention output, `ff.net.0.proj`, `ff.net.2`; r = 64, alpha = 128). Every GEMM is
+`h3-projection-gemm-v1`; `A` and `B` may be stored in BF16 (the recipe's adapters), are read as FP32,
+and their gradients are rounded once to their dtype. Every sum that crosses ranks uses the canonical
+units above, so every layout equals the canonical `Grid(1, 1)` run bit for bit:
+
+| Target | A | B | Sum across ranks |
+|---|---|---|---|
+| Q / K / V, `ff.net.0.proj` (hidden and gate share one `A`) | whole on every TP rank | output rows, like the base | `dz = s * sum_N dy B`: the base `dX` units (output block `j` of every weight the `A` serves), tree, all-reduce |
+| attention output, `ff.net.2` | input columns, like the base | whole on every TP rank | `z = sum_K x A^T`: the base's K-units, tree, all-reduce (also under SP; `z` is `T x r`) |
+
+Under CP, `dA` and `dB` sum over tokens from the rows of every CP rank, gathered exactly (as the base
+`dW`), so every CP rank holds the same gradient. A column-parallel forward is bitwise #574's
+`strict_lora_linear`; where a sum crosses units, the canonical run sums the 8 units and is as close
+to FP64 as `strict_lora_linear` (FP32 adapters: `dA` 3.7e-7 against 9.3e-7 for Q on the released
+block 0). `lora_counted` says which rank counts each LoRA tensor in a gradient norm (TP-replicated
+tensors on TP rank 0, CP rank 0 only), and `to_rollout_layout` gives upstream `map_lora_tensors`'s
+vLLM-Omni names and `fc1` order (`[gate, up]`, `A` shared).
+
+The full-model runner takes `--lora-rank R --lora-alpha A --lora-seed S [--lora-b-zero]`: every
+block gets a seeded LoRA (`h3_lora.make_block_lora`: `A ~ N(0, 1/R)`, `B` random or the recipe's
+zero), cut for each run's grid, and every LoRA shard's gradient is compared too
+(`lora_gradients_bitwise`). With `B = 0` the outputs are the projections without LoRA (values; bytes
+up to the sign of a zero). The two token-refiner blocks are not on the grid and carry no LoRA in the
+runner; on every rank they would run `strict_lora_linear` alike.
 
 ## Tests and evidence
 
@@ -153,8 +197,9 @@ this is the time of a whole `block_case(..., backward=False)` call, not of the k
 - The compute paths (`seq_sharded_linear`, `run_tp_block`, `run_tp_block_rows`, hence the full
   model) need at least one row on every CP rank; the ring and the packed IO themselves accept ranks
   that hold no rows.
-- The full-model runner keeps the whole 33B checkpoint on every rank and runs the canonical model
-  first; it is not run with sharded weight storage.
+- The full-model runner keeps the whole 33B checkpoint on every rank for the canonical run. With
+  `--sharded` the grid run holds only the 350 projection shards of its TP rank; the other block
+  parameters (`adaln_proj.linear` above all, about 0.5 GB per block) stay replicated.
 - `HierarchicalCollective` assumes ranks are packed node-major and node counts of 1/2/4/8.
   With several TP groups (CP > 1) it is given every TP group's ranks (`group_ranks`, as
   `make_grid` does) and every rank creates all their subgroups in one order, as
