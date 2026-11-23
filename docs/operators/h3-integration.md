@@ -28,8 +28,9 @@ x_prev = mean + std * eps        log_prob = mean over non-batch dims of -(x_prev
   the key), so noise never depends on batch order or composition (the strict runtime's draw);
 - `h3_sample_previous_step` (drop-in for verl-omni's `sample_h3_transition`) takes such noise as
   `noise=`; without it, it draws from the caller's `generator` in batch order exactly as the
-  scheduler does, so a stock rollout keeps its noise. The drawn `x_prev` then depends on the batch
-  position, as in the scheduler; its log-prob, and the score of a stored `x_prev`, do not;
+  scheduler does, so a stock rollout keeps its noise. The drawn `x_prev` and its log-prob then
+  depend on the batch position, as in the scheduler (the log-prob is a function of the drawn
+  noise); scoring a given stored `x_prev` does not;
 - the log-prob mean is a fixed-order row reduction per sample (`h3-row-mean-v1`: fixed 8192-element
   chunks, then their sums, an order that depends only on the row length; the scheduler's `torch.mean`
   order is shape dependent; ours agrees to FP32 rounding and is batch invariant); it is differentiable, so
