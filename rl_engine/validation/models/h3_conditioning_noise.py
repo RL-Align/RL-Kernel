@@ -28,6 +28,8 @@ from contextlib import contextmanager
 
 import torch
 
+_ROW_TIMESTEP_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
+
 # sha256 of ``inspect.getsource`` of ``scale_noise`` -> how it rounds a Python-float ``t``.
 KNOWN_SCALE_NOISE = {
     # diffusers@f53d552 (the pinned provider): ``t`` cast to the sample's dtype
@@ -59,6 +61,25 @@ def bind(scheduler, op):
     variant = scale_noise_variant(scheduler)
     calls = {"row": 0, "provider": 0, "scale_noise": variant}
 
+    def row_takes(sample, timestep) -> bool:
+        # what the row's validator accepts, and where its arithmetic is the provider's
+        if isinstance(timestep, torch.Tensor):
+            return (
+                timestep.numel() == 1
+                and timestep.device == sample.device  # the provider moves it; the row refuses
+                and timestep.dtype in _ROW_TIMESTEP_DTYPES
+                and not timestep.requires_grad
+                and timestep.is_contiguous()
+                # the pinned provider casts t to the sample's dtype, as the row does; Diffusers
+                # 0.43.0 is only trusted with a t already in that dtype; an unknown version never
+                and (
+                    variant == "sample_dtype"
+                    or (variant == "python_float_double" and timestep.dtype == sample.dtype)
+                )
+            )
+        # a Python float: the row casts it to the sample's dtype, as only the pinned provider does
+        return type(timestep) is float and variant == "sample_dtype"
+
     def scale_noise(sample, timestep, noise):
         same = (
             isinstance(sample, torch.Tensor)
@@ -68,11 +89,7 @@ def bind(scheduler, op):
             and sample.device == noise.device
             and sample.is_contiguous()
             and noise.is_contiguous()
-            and not (isinstance(timestep, torch.Tensor) and timestep.numel() != 1)
-            and (
-                variant == "sample_dtype"
-                or (variant == "python_float_double" and isinstance(timestep, torch.Tensor))
-            )
+            and row_takes(sample, timestep)
         )
         if not same:
             calls["provider"] += 1

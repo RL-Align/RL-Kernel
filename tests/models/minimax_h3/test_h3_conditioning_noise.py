@@ -119,3 +119,35 @@ def test_an_unreadable_scale_noise_source_is_unknown():
         "_Generated", (type(scheduler),), {"scale_noise": namespace["scale_noise"]}
     )
     assert hcn.scale_noise_variant(scheduler) == "unknown"
+
+
+@pytest.mark.parametrize(
+    "timestep",
+    [
+        1,  # an int: the provider takes it, the row's validator refuses it
+        torch.tensor(0.999, dtype=torch.float64),
+        torch.tensor(0.999, requires_grad=True),
+    ],
+    ids=["int", "float64", "requires_grad"],
+)
+def test_a_timestep_the_row_refuses_stays_on_the_provider(timestep):
+    scheduler = _scheduler()
+    sample, noise = _case(torch.float32)
+    t = timestep.detach() if isinstance(timestep, torch.Tensor) else timestep
+    want = scheduler.scale_noise(sample, t, noise)
+    with hcn.bind(scheduler, NativeConditioningNoiseMixOp()) as calls:
+        got = scheduler.scale_noise(sample, timestep, noise)
+    assert calls["row"] == 0 and calls["provider"] == 1
+    assert torch.equal(got.detach().view(-1), want.view(-1))
+
+
+@needs_cuda
+def test_a_cpu_timestep_with_a_cuda_sample_stays_on_the_provider():
+    scheduler = _scheduler()
+    sample, noise = _case(torch.float32, device="cuda")
+    t = torch.tensor(0.5)
+    want = scheduler.scale_noise(sample, t, noise)
+    with hcn.bind(scheduler, NativeConditioningNoiseMixOp()) as calls:
+        got = scheduler.scale_noise(sample, t, noise)
+    assert calls == {"row": 0, "provider": 1, "scale_noise": hcn.scale_noise_variant(scheduler)}
+    assert torch.equal(got, want)
