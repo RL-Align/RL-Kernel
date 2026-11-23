@@ -341,6 +341,11 @@ def test_fixture_cases_cover_the_phase_b_gate() -> None:
     for case in cases.values():
         assert "expected" in case, f"{case['name']} has no sealed CPU digests"
         assert case.get("features"), f"{case['name']} has no sealed layer-50 feature"
+        for key, sealed in case["features"].items():
+            assert sealed["shape"] == [1, case["expected"]["num_rows"], tp.FEATURE_WIDTH], key
+            assert sealed["dtype"] == "bfloat16", key
+    # Every case is sealed for the same set of devices.
+    assert len({tuple(sorted(c["features"])) for c in cases.values()}) == 1
     assert cases["t2i_truncated"]["expected"]["prompt_truncated"]
     assert cases["t2i_truncated"]["expected"]["num_rows"] == 4096
 
