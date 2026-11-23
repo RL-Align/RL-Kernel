@@ -152,7 +152,7 @@ def check(row: str, rows: int, seed: int) -> dict:
             dw = torch.cat([torch.cat([d[0] for d in dws]), torch.cat([d[1] for d in dws])])
             entry["expected_bitwise"]["dw"] = _diff(dw, dw_ref)
             entry["reported"]["dx"] = _diff(tree_add(dx_partials).to(torch.bfloat16), dx_ref)
-        ok &= all(v["bitwise"] for v in entry["expected_bitwise"].values())
+        ok &= all(v["bitwise"] and v["finite"] for v in entry["expected_bitwise"].values())
         ok &= all(v["finite"] for v in entry["reported"].values())  # informational, but finite
         out["tp"][str(tp)] = entry
     out["pass"] = ok
@@ -167,7 +167,7 @@ def main() -> int:
     args = parser.parse_args()
     import torch
 
-    if torch.cuda.get_device_capability() != (9, 0):
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability() != (9, 0):
         print("the GEMM rows' operators run on SM90 only", file=sys.stderr)
         return 2
     torch.backends.cuda.matmul.allow_tf32 = False
