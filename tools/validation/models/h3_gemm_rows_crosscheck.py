@@ -14,7 +14,8 @@ rows' TP=1 operators (#554, #535), run with logical keys in a canonical backward
 * reported (the 8-unit tree, not the operators' single K sweep): the O / down forward and the
   gate/up ``dX``, as the max abs difference and the count of differing elements.
 
-Writes ``--out`` (JSON) and exits 1 if an expected-bitwise piece differs.
+Writes ``--out`` (strict JSON) and exits 1 if an expected-bitwise piece differs or any piece is not
+finite.
 """
 
 from __future__ import annotations
@@ -72,11 +73,22 @@ def _reference(op, x, w, grad):
 
 
 def _diff(a, b):
-    d = (a.float() - b.float()).abs()
+    """``bitwise``: same dtype, shape and bytes (``torch.equal`` compares values, so ``-0.0`` and
+    ``+0.0`` would match). ``finite``: both sides finite; ``max_abs`` is ``None`` otherwise, so the
+    report stays strict JSON, and the check fails (finite inputs must give finite results)."""
+
+    import torch
+
+    same = a.dtype == b.dtype and a.shape == b.shape
+    bitwise = same and torch.equal(
+        a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8)
+    )
+    finite = bool(torch.isfinite(a).all()) and bool(torch.isfinite(b).all())
     return {
-        "bitwise": bool(__import__("torch").equal(a, b)),
-        "max_abs": float(d.max()),
-        "differing": int((a != b).sum()),
+        "bitwise": bool(bitwise),
+        "finite": finite,
+        "max_abs": float((a.float() - b.float()).abs().max()) if finite else None,
+        "differing": int((a != b).sum()) if same else None,
     }
 
 
@@ -141,6 +153,7 @@ def check(row: str, rows: int, seed: int) -> dict:
             entry["expected_bitwise"]["dw"] = _diff(dw, dw_ref)
             entry["reported"]["dx"] = _diff(tree_add(dx_partials).to(torch.bfloat16), dx_ref)
         ok &= all(v["bitwise"] for v in entry["expected_bitwise"].values())
+        ok &= all(v["finite"] for v in entry["reported"].values())  # informational, but finite
         out["tp"][str(tp)] = entry
     out["pass"] = ok
     return out
@@ -166,7 +179,7 @@ def main() -> int:
         "pass": all(r["pass"] for r in results),
         "results": results,
     }
-    args.out.write_text(json.dumps(report, indent=1) + "\n")
+    args.out.write_text(json.dumps(report, indent=1, allow_nan=False) + "\n")
     print(json.dumps({"pass": report["pass"]}))
     return 0 if report["pass"] else 1
 

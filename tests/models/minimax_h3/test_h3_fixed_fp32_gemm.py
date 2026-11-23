@@ -166,3 +166,22 @@ def test_tp_pieces_against_the_rows_operators(row):
 
     result = cc.check(row, 264, seed=1)
     assert result["pass"], result
+
+
+def test_crosscheck_diff_compares_bytes_and_flags_non_finite():
+    """``-0.0`` vs ``+0.0`` is equal by value, not by bytes; a NaN gives a JSON-safe ``None``."""
+
+    import json
+
+    from tools.validation.models import h3_gemm_rows_crosscheck as cc
+
+    zero = torch.zeros(2, 3, dtype=torch.bfloat16)
+    d = cc._diff(zero, -zero)
+    assert not d["bitwise"] and d["finite"] and d["max_abs"] == 0.0
+    assert cc._diff(zero, zero.clone())["bitwise"]
+    nan = zero.clone()
+    nan[0, 0] = float("nan")
+    d = cc._diff(nan, zero)
+    assert not d["finite"] and d["max_abs"] is None
+    json.dumps(d, allow_nan=False)
+    assert not cc._diff(zero, zero.float())["bitwise"]  # another dtype is not bitwise
