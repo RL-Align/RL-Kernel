@@ -65,7 +65,7 @@ __global__ void full_attention_forward_kernel(
   const int64_t qh = (row / query_len) % query_heads;
   const int64_t b = row / (query_heads * query_len);
   const int64_t kvh = qh / (query_heads / key_heads);
-  const int64_t q_offset = ((b * query_heads + qh) * query_len + q) * head_dim;
+  const int64_t q_offset = ((b * query_len + q) * query_heads + qh) * head_dim;
   const int64_t row_offset = row * key_len;
   const int64_t bias_offset = row_offset;
 
@@ -75,7 +75,7 @@ __global__ void full_attention_forward_kernel(
     float score = 0.0f;
     for (int64_t d = 0; d < head_dim; ++d) {
       score += static_cast<float>(query[q_offset + d]) *
-          static_cast<float>(key[((b * key_heads + kvh) * key_len + k) * head_dim + d]);
+          static_cast<float>(key[((b * key_len + k) * key_heads + kvh) * head_dim + d]);
     }
     score *= scale;
     if (relative_bias != nullptr) score += relative_bias[bias_offset + k];
@@ -90,7 +90,7 @@ __global__ void full_attention_forward_kernel(
     float score = 0.0f;
     for (int64_t d = 0; d < head_dim; ++d) {
       score += static_cast<float>(query[q_offset + d]) *
-          static_cast<float>(key[((b * key_heads + kvh) * key_len + k) * head_dim + d]);
+          static_cast<float>(key[((b * key_len + k) * key_heads + kvh) * head_dim + d]);
     }
     score *= scale;
     if (relative_bias != nullptr) score += relative_bias[bias_offset + k];
@@ -107,7 +107,7 @@ __global__ void full_attention_forward_kernel(
     float reduced = 0.0f;
     for (int64_t k = 0; k < key_len; ++k) {
       reduced += probabilities[row_offset + k] *
-          static_cast<float>(value[((b * key_heads + kvh) * key_len + k) * head_dim + d]);
+          static_cast<float>(value[((b * key_len + k) * key_heads + kvh) * head_dim + d]);
     }
     pre_gate[q_offset + d] = reduced;
     output[q_offset + d] = static_cast<scalar_t>(reduced * gate);
@@ -146,8 +146,8 @@ __global__ void full_attention_dscore_kernel(
   }
   const float gate = output_gate == nullptr ? 1.0f : sigmoid_f32(output_gate[qh]);
   float d_probability = 0.0f;
-  const int64_t q_offset = ((b * query_heads + qh) * query_len + q) * head_dim;
-  const int64_t k_offset = ((b * key_heads + kvh) * key_len + k) * head_dim;
+  const int64_t q_offset = ((b * query_len + q) * query_heads + qh) * head_dim;
+  const int64_t k_offset = ((b * key_len + k) * key_heads + kvh) * head_dim;
   for (int64_t d = 0; d < head_dim; ++d) {
     d_probability += static_cast<float>(grad_output[q_offset + d]) * gate *
         static_cast<float>(value[k_offset + d]);
@@ -156,7 +156,7 @@ __global__ void full_attention_dscore_kernel(
   const int64_t row_offset = row * key_len;
   for (int64_t j = 0; j < key_len; ++j) {
     if (!key_is_valid(b, q, j, query_len, key_len, causal, query_documents, key_documents)) continue;
-    const int64_t j_offset = ((b * key_heads + kvh) * key_len + j) * head_dim;
+    const int64_t j_offset = ((b * key_len + j) * key_heads + kvh) * head_dim;
     float dp = 0.0f;
     for (int64_t d = 0; d < head_dim; ++d) {
       dp += static_cast<float>(grad_output[q_offset + d]) * gate *
@@ -186,15 +186,15 @@ __global__ void full_attention_dq_kernel(
   const int64_t total = batch * query_heads * query_len * head_dim;
   if (index >= total) return;
   const int64_t d = index % head_dim;
-  const int64_t q = (index / head_dim) % query_len;
-  const int64_t qh = (index / (query_len * head_dim)) % query_heads;
+  const int64_t qh = (index / head_dim) % query_heads;
+  const int64_t q = (index / (head_dim * query_heads)) % query_len;
   const int64_t b = index / (query_heads * query_len * head_dim);
   const int64_t kvh = qh / (query_heads / key_heads);
   float value = 0.0f;
   for (int64_t k = 0; k < key_len; ++k) {
     if (key_is_valid(b, q, k, query_len, key_len, causal, query_documents, key_documents)) {
       value += dscore[((b * query_heads + qh) * query_len + q) * key_len + k] *
-          static_cast<float>(key[((b * key_heads + kvh) * key_len + k) * head_dim + d]);
+          static_cast<float>(key[((b * key_len + k) * key_heads + kvh) * head_dim + d]);
     }
   }
   dquery[index] = static_cast<scalar_t>(value * scale);
@@ -222,8 +222,8 @@ __global__ void full_attention_dkv_kernel(
   const int64_t total = batch * key_heads * key_len * head_dim;
   if (index >= total) return;
   const int64_t d = index % head_dim;
-  const int64_t k = (index / head_dim) % key_len;
-  const int64_t kvh = (index / (key_len * head_dim)) % key_heads;
+  const int64_t kvh = (index / head_dim) % key_heads;
+  const int64_t k = (index / (head_dim * key_heads)) % key_len;
   const int64_t b = index / (key_heads * key_len * head_dim);
   const int64_t repeats = query_heads / key_heads;
   float key_gradient = 0.0f;
@@ -232,7 +232,7 @@ __global__ void full_attention_dkv_kernel(
     for (int64_t q = 0; q < query_len; ++q) {
       if (!key_is_valid(b, q, k, query_len, key_len, causal, query_documents, key_documents)) continue;
       const int64_t row = (b * query_heads + qh) * query_len + q;
-      const int64_t q_offset = row * head_dim;
+      const int64_t q_offset = ((b * query_len + q) * query_heads + qh) * head_dim;
       key_gradient += dscore[row * key_len + k] * static_cast<float>(query[q_offset + d]);
       const float gate = output_gate == nullptr ? 1.0f : sigmoid_f32(output_gate[qh]);
       value_gradient += probabilities[row * key_len + k] * static_cast<float>(grad_output[q_offset + d]) * gate;
@@ -267,14 +267,15 @@ __global__ void full_attention_dsink_kernel(
   for (int64_t b = 0; b < batch; ++b) {
     for (int64_t q = 0; q < query_len; ++q) {
       const int64_t row = (b * query_heads + qh) * query_len + q;
+      const int64_t q_offset = ((b * query_len + q) * query_heads + qh) * head_dim;
       const float gate = output_gate == nullptr ? 1.0f : sigmoid_f32(output_gate[qh]);
       float sum_probability_gradient = 0.0f;
       for (int64_t k = 0; k < key_len; ++k) {
         if (!key_is_valid(b, q, k, query_len, key_len, causal, query_documents, key_documents)) continue;
         float dp = 0.0f;
         for (int64_t d = 0; d < head_dim; ++d) {
-          dp += static_cast<float>(grad_output[row * head_dim + d]) * gate *
-              static_cast<float>(value_tensor[((b * key_heads + kvh) * key_len + k) * head_dim + d]);
+          dp += static_cast<float>(grad_output[q_offset + d]) * gate *
+              static_cast<float>(value_tensor[((b * key_len + k) * key_heads + kvh) * head_dim + d]);
         }
         sum_probability_gradient += probabilities[row * key_len + k] * dp;
       }
@@ -302,7 +303,8 @@ __global__ void full_attention_dgate_kernel(
     for (int64_t q = 0; q < query_len; ++q) {
       const int64_t row = (b * query_heads + qh) * query_len + q;
       for (int64_t d = 0; d < head_dim; ++d) {
-        value += grad_output[row * head_dim + d] * pre_gate[row * head_dim + d];
+        const int64_t q_offset = ((b * query_len + q) * query_heads + qh) * head_dim;
+        value += static_cast<float>(grad_output[q_offset + d]) * pre_gate[q_offset + d];
       }
     }
   }
