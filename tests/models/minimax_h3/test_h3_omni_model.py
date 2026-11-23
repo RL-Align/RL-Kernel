@@ -645,8 +645,8 @@ def test_bound_call_is_the_models_call(full_model, with_lora, vllm_sdpa):
         for (req, update, _), k in zip(reqs, singles):
             torch.backends.cuda.enable_cudnn_sdp(not vllm_sdpa)  # vLLM's import turns it off
             v, a = binding.forward(**k)
-            torch.backends.cuda.enable_cudnn_sdp(cudnn)  # the actor's process: torch's default
-            dv, da = _direct(model, _cuda(req), strict)
+            with om.torch_default_sdpa():  # the reference on torch's default backends
+                dv, da = _direct(model, _cuda(req), strict)
             assert _same(v, dv[0] * update.cuda().unsqueeze(-1)) and _same(a, da[0])
             alone.append((v, a))
         v, a = binding.forward(**_batched(singles))
@@ -919,6 +919,9 @@ class TestRolloutReportGates:
         torch.save({"video": video + 1}, calls / "call0.pt")  # a later run's capture
         with pytest.raises(RuntimeError, match="does not match"):
             tool._listed_captures(args, {"pass": True, "captures": listed})
+        # the valid capture again: only the manifest's missing sha256 can refuse it now
+        torch.save({"video": video, "audio": torch.zeros(2)}, calls / "call0.pt")
+        assert tool._listed_captures(args, {"pass": True, "captures": listed})
         without_sha = [{k: v for k, v in listed[0].items() if k != "sha256"}]
         with pytest.raises(RuntimeError, match="does not match"):  # an engine.json before sha256
             tool._listed_captures(args, {"pass": True, "captures": without_sha})
