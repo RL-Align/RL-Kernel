@@ -347,6 +347,9 @@ def test_artifact_is_json_and_bound_to_the_fingerprint(monkeypatch) -> None:
 
 
 def test_loop_matches_pinned_scheduler_and_timestep_plan() -> None:
+    # An older Diffusers (0.41) has a MiniMaxH3Scheduler without shift_provided_sigmas /
+    # euler_update_form; only the pinned commit ships the H3-Image pipeline package.
+    pytest.importorskip("diffusers.modular_pipelines.minimax_h3_image")
     schedulers = pytest.importorskip("diffusers.schedulers")
     scheduler = schedulers.MiniMaxH3Scheduler(
         shift_provided_sigmas=False, euler_update_form="velocity"
