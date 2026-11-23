@@ -63,6 +63,7 @@ def test_positional_contract_matches_the_strict_call_sites() -> None:
         "return_dropout_randval",
     )
     assert "out" in _AITER_FWD_REQUIRED_KEYWORDS
+    assert "out" in _AITER_BATCH_PREFILL_REQUIRED_KEYWORDS
     # The backward pins determinism positionally, so its slot must not move.
     assert _AITER_BWD_POSITIONAL_CONTRACT[-1] == "deterministic"
     assert _AITER_BWD_POSITIONAL_CONTRACT.index("softmax_lse") == 5
@@ -112,11 +113,14 @@ def test_unregistered_operator_fails_closed() -> None:
         _validate_aiter_schema("mha_fwd_that_does_not_exist", ("q",))
 
 
-def test_loader_requires_mha_fwd_out_keyword(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The direct-output path calls ``mha_fwd(..., out=...)``.
+@pytest.mark.parametrize("op_name", ["mha_fwd", "mha_batch_prefill"])
+def test_loader_requires_the_out_keyword(monkeypatch: pytest.MonkeyPatch, op_name: str) -> None:
+    """Both direct-output paths pass ``out=`` by keyword.
 
-    An AITER build whose ``mha_fwd`` schema has no ``out`` must be rejected
-    when the ops are loaded, not with a ``TypeError`` at the first decode call.
+    The decode path calls ``mha_fwd(..., out=...)`` and the paged path calls
+    ``mha_batch_prefill(..., out=...)``. An AITER build whose schema for
+    either op has no ``out`` must be rejected when the ops are loaded, not
+    with a ``TypeError`` at the first decode call.
     """
 
     import types
@@ -124,11 +128,12 @@ def test_loader_requires_mha_fwd_out_keyword(monkeypatch: pytest.MonkeyPatch) ->
     from rl_engine.backends.rocm.attention import flash_attn
 
     schemas = {
-        "mha_fwd": _AITER_FWD_POSITIONAL_CONTRACT,  # no "out"
+        "mha_fwd": _AITER_FWD_POSITIONAL_CONTRACT + tuple(_AITER_FWD_REQUIRED_KEYWORDS),
         "mha_bwd": _AITER_BWD_POSITIONAL_CONTRACT + tuple(_AITER_BWD_REQUIRED_KEYWORDS),
         "mha_batch_prefill": _AITER_BATCH_PREFILL_POSITIONAL_CONTRACT
         + tuple(_AITER_BATCH_PREFILL_REQUIRED_KEYWORDS),
     }
+    schemas[op_name] = tuple(name for name in schemas[op_name] if name != "out")
     fake = types.SimpleNamespace(
         mha_fwd=lambda *a, **k: None,
         mha_bwd=lambda *a, **k: None,
@@ -138,6 +143,6 @@ def test_loader_requires_mha_fwd_out_keyword(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(flash_attn, "_aiter_schema_argument_names", schemas.__getitem__)
 
     with pytest.raises(
-        StrictRocmAttentionUnavailable, match="mha_fwd is missing strict controls: out"
+        StrictRocmAttentionUnavailable, match=f"{op_name} is missing strict controls: out"
     ):
         flash_attn._load_aiter_ck_ops()

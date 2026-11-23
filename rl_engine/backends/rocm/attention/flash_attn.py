@@ -91,7 +91,8 @@ _AITER_BATCH_PREFILL_POSITIONAL_CONTRACT = (
     "return_softmax_lse",
     "return_dropout_randval",
 )
-_AITER_BATCH_PREFILL_REQUIRED_KEYWORDS = frozenset({"block_table", "seqlen_k"})
+# The paged direct-output path also passes ``out=`` by keyword.
+_AITER_BATCH_PREFILL_REQUIRED_KEYWORDS = frozenset({"out", "block_table", "seqlen_k"})
 
 # Stable dispatch identity for the strict ROCm attention core.  Kept at module
 # scope so contract-aware dispatch and the Vime adapter name one constant
