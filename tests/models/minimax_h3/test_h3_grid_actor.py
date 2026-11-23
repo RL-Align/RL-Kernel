@@ -199,7 +199,7 @@ class TestState:
         assert out["path"] == str(tmp_path / "cp0" / "rank1.pt")
         assert out["rollout_source"].endswith("cp0/rank{rank}.pt")
         sent = torch.load(out["rollout_source"].format(rank=1), weights_only=True)
-        assert sent["scale"] == actor.scale == 2.0  # rlk_h3_load_lora requires the sender's scale
+        assert sent["scale"] == out["scale"] == actor.scale == 2.0  # rlk_h3_load_lora checks it
         receiver = _Model()
         got = h3_lora.install_lora_shards(
             receiver,

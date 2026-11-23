@@ -335,6 +335,7 @@ class H3GridActor:
             "path": path,
             "rollout_source": os.path.join(folder, "rank{rank}.pt"),
             "digests": state["digests"],
+            "scale": state["scale"],
         }
 
     def checkpoint_state(self, optimizer: torch.optim.Optimizer | None = None) -> dict[str, Any]:
