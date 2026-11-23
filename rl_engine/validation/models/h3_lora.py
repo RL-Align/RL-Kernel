@@ -41,7 +41,14 @@ def make_block_lora(
     """``{target: {"A": (r, K), "B": (N, r)}}`` for block ``block``, BF16."""
 
     out = {}
-    for i, (target, (k, n)) in enumerate((shapes or SHAPES).items()):
+    known, extra = list(SHAPES), 0
+    for target, (k, n) in (shapes or SHAPES).items():
+        # a recipe target draws with its index in the recipe's map, whatever subset or order of
+        # targets ``shapes`` lists; other names follow, in their order
+        if target in SHAPES:
+            i = known.index(target)
+        else:
+            i, extra = len(known) + extra, extra + 1
         gen = torch.Generator().manual_seed((seed * 1009 + block) * 31 + i)
         a = torch.randn(rank, k, generator=gen) / rank
         b = torch.zeros(n, rank) if b_zero else torch.randn(n, rank, generator=gen) * b_std

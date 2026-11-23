@@ -189,6 +189,21 @@ class TestLayout:
                 assert torch.equal(torch.cat([s[target]["B"] for s in ranks]), b)
                 assert all(torch.equal(s[target]["A"], a) for s in ranks)
 
+    def test_a_subset_or_reordered_map_draws_the_recipes_tensors(self):
+        full = h3_lora.make_block_lora(5, rank=4, seed=3)
+        alone = h3_lora.make_block_lora(
+            5, rank=4, seed=3, shapes={"attn.to_k": h3_lora.SHAPES["attn.to_k"]}
+        )
+        reordered = h3_lora.make_block_lora(
+            5, rank=4, seed=3, shapes=dict(reversed(h3_lora.SHAPES.items()))
+        )
+        for t in ("attn.to_k",):
+            assert torch.equal(alone[t]["A"], full[t]["A"]) and torch.equal(
+                alone[t]["B"], full[t]["B"]
+            )
+        for t in full:
+            assert torch.equal(reordered[t]["A"], full[t]["A"]), t
+
     def test_the_draw_does_not_depend_on_the_grid(self):
         one = h3_lora.make_block_lora(7, rank=8, seed=2)
         two = h3_lora.make_block_lora(7, rank=8, seed=2)
