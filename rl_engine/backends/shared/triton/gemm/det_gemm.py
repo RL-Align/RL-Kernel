@@ -22,6 +22,8 @@ from dataclasses import dataclass
 
 import torch
 
+from rl_engine.backends.shared.triton.autotuning import TunableKernel, pin_autotune
+
 try:
     import triton
     import triton.language as tl
@@ -1039,7 +1041,10 @@ def _triton_tree_gemm(
     return result
 
 
+@pin_autotune
 class _TritonDetGemmFn(torch.autograd.Function):
+    """Autograd function for the fixed K-tree GEMM; backward reuses the forward tuning policy."""
+
     @staticmethod
     def forward(ctx, a, b, output_fp32=False):
         ctx.save_for_backward(a, b)
@@ -1073,9 +1078,10 @@ class TritonDetGemmOp:
     """Batch-invariant deterministic GEMM, Triton path."""
 
     def __init__(self):
+        """Fail fast when Triton is unavailable, then log that the op is ready."""
         if not _TRITON_AVAILABLE:
             raise RuntimeError("Triton not available for TritonDetGemmOp")
-        logger.info("TritonDetGemmOp ready (deterministic, autotune disabled).")
+        logger.info("%s ready (fixed K-tree arithmetic).", type(self).__name__)
 
     def __call__(self, a, b):
         assert a.dtype == torch.bfloat16 and b.dtype == torch.bfloat16, "BF16 only"
@@ -1106,3 +1112,11 @@ class TritonDetGemmOp:
 
 def deterministic_gemm_triton(a, b):
     return _TritonDetGemmFn.apply(a, b, False)
+
+
+if _TRITON_AVAILABLE:
+    _det_gemm_fp32_kernel = TunableKernel(_det_gemm_fp32_kernel, outputs=(2,), core=True)
+    _det_gemm_kernel = TunableKernel(_det_gemm_kernel, outputs=(2,), core=True)
+    _det_gemm_tree_leaf_reduce_rocm_kernel = TunableKernel(
+        _det_gemm_tree_leaf_reduce_rocm_kernel, outputs=(2, 3), core=True
+    )
