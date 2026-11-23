@@ -201,3 +201,12 @@ def test_empty_operands_give_the_exact_empty_or_zero_result(m, k, n):
     for out_dtype in (torch.bfloat16, torch.float32):
         c = fx.gemm(a, b, out_dtype=out_dtype)
         assert c.shape == (m, n) and c.dtype == out_dtype and not c.any()
+
+
+@pytest.mark.parametrize("tp", [0, 3, 16])
+def test_a_tp_size_that_does_not_divide_the_units_is_refused(tp):
+    w = torch.zeros(16, 32)
+    with pytest.raises(ValueError, match="tp must be one of"):
+        par.check_column_widths([w], tp)
+    with pytest.raises(ValueError, match="tp must be one of"):
+        par._units_partial(torch.zeros(2, 32), w, tp)

@@ -70,6 +70,13 @@ FFN = 14336
 # --- Sharding helpers ---------------------------------------------------------------------------
 
 
+def check_tp_size(tp: int) -> None:
+    """``tp`` must divide the ``UNITS`` canonical units (a TP size of ``TP_SIZES``)."""
+
+    if tp not in TP_SIZES:
+        raise ValueError(f"tp must be one of {TP_SIZES}, got {tp}")
+
+
 def check_tp(tp: int, rank: int) -> None:
     if tp not in TP_SIZES or not 0 <= rank < tp:
         raise ValueError(
@@ -128,6 +135,7 @@ def _units_partial(x: torch.Tensor, w: torch.Tensor, tp: int, kernel=fx.gemm) ->
     those targets (FP32 operands) passes ``h3_projection.gemm``.
     """
 
+    check_tp_size(tp)
     local = UNITS // tp
     unit = x.shape[1] // local
     parts = [
@@ -254,6 +262,7 @@ def check_column_widths(weights: Sequence[torch.Tensor], tp: int) -> None:
     width that does not divide would leave its last columns out of every slice.
     """
 
+    check_tp_size(tp)
     local = UNITS // tp
     for i, w in enumerate(weights):
         if w.shape[0] <= 0 or w.shape[0] % local:
