@@ -1,0 +1,543 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+
+import json
+from types import SimpleNamespace
+
+import pytest
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
+
+from rl_engine.integrations.engines.train.megatron.qwen3_checkpoint import (
+    hf_to_megatron,
+    megatron_to_hf,
+)
+from tests.distributed.tp.check_tp_ppo_frameworks import snapshot
+from tests.integrations.common.test_tp_scalar import _init
+
+
+def fixture():
+    """Return a tiny two-layer GQA Qwen3 config and a seeded random HF state dict."""
+    c = dict(
+        model_type="qwen3",
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        hidden_size=8,
+        head_dim=2,
+        intermediate_size=12,
+        vocab_size=17,
+        num_hidden_layers=2,
+    )
+    shapes = {
+        "model.embed_tokens.weight": (17, 8),
+        "lm_head.weight": (17, 8),
+        "model.norm.weight": (8,),
+    }
+    for i in range(2):
+        for n, shape in {
+            "input_layernorm.weight": (8,),
+            "post_attention_layernorm.weight": (8,),
+            "self_attn.q_norm.weight": (2,),
+            "self_attn.k_norm.weight": (2,),
+            "self_attn.q_proj.weight": (8, 8),
+            "self_attn.k_proj.weight": (4, 8),
+            "self_attn.v_proj.weight": (4, 8),
+            "self_attn.o_proj.weight": (8, 8),
+            "mlp.gate_proj.weight": (12, 8),
+            "mlp.up_proj.weight": (12, 8),
+            "mlp.down_proj.weight": (8, 12),
+        }.items():
+            shapes[f"model.layers.{i}." + n] = shape
+    gen = torch.Generator().manual_seed(33)
+    return c, {n: torch.randn(shape, generator=gen) for n, shape in shapes.items()}
+
+
+@pytest.mark.parametrize("tp", [1, 2])
+def test_checkpoint_roundtrip_preserves_all_real_tensor_slots(tp):
+    """Splitting HF weights into TP shards and merging them back restores every tensor exactly."""
+    c, state = fixture()
+    shards = [hf_to_megatron(state, c, tp=tp, rank=r) for r in range(tp)]
+    restored = megatron_to_hf(shards, c)
+    assert restored.keys() == state.keys()
+    for name in state:
+        assert torch.equal(restored[name], state[name]), name
+
+
+def test_gqa_group_layout_and_gate_up_stride_are_independently_correct():
+    """TP rank 1 holds its GQA Q/K/V slice, gate-then-up FC1 halves and a zero vocab pad row."""
+    c, state = fixture()
+    s = hf_to_megatron(state, c, tp=2, rank=1)
+    prefix = "model.layers.0."
+    expect = torch.cat(
+        [
+            state[prefix + "self_attn.q_proj.weight"][4:],
+            state[prefix + "self_attn.k_proj.weight"][2:],
+            state[prefix + "self_attn.v_proj.weight"][2:],
+        ]
+    )
+    assert torch.equal(s["decoder.layers.0.self_attention.linear_qkv.weight"], expect)
+    assert torch.equal(
+        s["decoder.layers.0.mlp.linear_fc1.weight"][:6],
+        state[prefix + "mlp.gate_proj.weight"][6:],
+    )
+    assert torch.equal(
+        s["decoder.layers.0.mlp.linear_fc1.weight"][6:],
+        state[prefix + "mlp.up_proj.weight"][6:],
+    )
+    assert torch.count_nonzero(s["output_layer.weight"][-1]) == 0
+
+
+def test_replicated_norm_disagreement_is_rejected():
+    """Merging shards raises when a replicated norm weight differs across TP ranks."""
+    c, state = fixture()
+    shards = [hf_to_megatron(state, c, tp=2, rank=r) for r in range(2)]
+    shards[1]["decoder.layers.1.self_attention.q_layernorm.weight"].add_(1)
+    with pytest.raises(ValueError, match="replicated weights"):
+        megatron_to_hf(shards, c)
+
+
+def _snapshot_worker(rank, size, rendezvous):
+    """Exercise real Gloo gathering with Core 0.15.3's stride-one FC1 annotations."""
+    _init(rank, size, rendezvous, "gloo")
+    try:
+        config, state = fixture()
+        for dtype in (torch.float32, torch.bfloat16):
+            expected = {name: value.to(dtype) for name, value in state.items()}
+            shard = hf_to_megatron(expected, config, tp=size, rank=rank)
+            model = torch.nn.Module()
+            for name, value in shard.items():
+                parts = name.split(".")
+                module = model
+                for part in parts[:-1]:
+                    if part not in module._modules:
+                        module.add_module(part, torch.nn.Module())
+                    module = module._modules[part]
+                parameter = torch.nn.Parameter(value.clone())
+                axis = None
+                if name in (
+                    "embedding.word_embeddings.weight",
+                    "output_layer.weight",
+                ) or (name.endswith(("linear_qkv.weight", "linear_fc1.weight"))):
+                    axis = 0
+                elif name.endswith(("linear_proj.weight", "linear_fc2.weight")):
+                    axis = 1
+                if axis is not None:
+                    parameter.tensor_model_parallel = True
+                    parameter.partition_dim = axis
+                    parameter.partition_stride = 1
+                parameter.grad = value * 2
+                module.register_parameter(parts[-1], parameter)
+            for layer in model.decoder.layers.children():
+                layer.mlp.config = SimpleNamespace(gated_linear_unit=True)
+
+            for gradients in (False, True):
+                gathered = snapshot(model, dist.group.WORLD, gradients=gradients)
+                # This is the exact mapping consumed by VllmPPOClient.install.
+                restored = megatron_to_hf([gathered], config)
+                for name, value in expected.items():
+                    assert torch.equal(restored[name], value * (2 if gradients else 1)), name
+
+            for layer in model.decoder.layers.children():
+                layer.mlp.config.gated_linear_unit = False
+            gathered = snapshot(model, dist.group.WORLD)
+            name = "decoder.layers.0.mlp.linear_fc1.weight"
+            plain_shards = [
+                hf_to_megatron(expected, config, tp=size, rank=r)[name] for r in range(size)
+            ]
+            assert torch.equal(gathered[name], torch.cat(plain_shards, dim=0))
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.parametrize("tp", [1, 2])
+def test_actor_snapshot_preserves_gate_up_weights_and_gradients(tmp_path, tp):
+    """TP exports retain every HF tensor in FP32/BF16 and leave ungated FC1 unchanged."""
+    mp.start_processes(
+        _snapshot_worker,
+        args=(tp, str(tmp_path / "snapshot")),
+        nprocs=tp,
+        start_method="spawn",
+    )
+
+
+def test_reference_report_preserves_loading_diagnostics():
+    """``report_json_default`` writes sets as sorted lists and rejects other unknown objects."""
+    from tools.validation.models.qwen3_ppo.calibrate_qwen3 import report_json_default
+
+    report = {
+        "status": "failed",
+        "error": "incomplete checkpoint",
+        "loading": {"missing_keys": {"b", "a"}, "unexpected_keys": set()},
+    }
+    restored = json.loads(json.dumps(report, default=report_json_default))
+    assert restored["loading"] == {"missing_keys": ["a", "b"], "unexpected_keys": []}
+    assert restored["status"] == "failed"
+    assert restored["error"] == "incomplete checkpoint"
+    with pytest.raises(TypeError):
+        json.dumps({"invalid": object()}, default=report_json_default)
+
+
+def test_independent_hf_targets_and_losses_match_handled_termination():
+    """Standalone HF targets match ``build_ppo_batch`` and its losses match the PPO loss functions.
+
+    Covers the fixture's terminated and length-cut-off rows.
+    """
+    from rl_engine.integrations.common.ppo import build_ppo_batch, ppo_policy_loss, ppo_value_loss
+    from tests.integrations.common.test_ppo import rollout_fixture
+    from tools.validation.models.qwen3_ppo.fixed_contract import CONFIG
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import (
+        independent_loss,
+        independent_targets,
+    )
+
+    rollout = rollout_fixture()
+    values = (
+        torch.arange(rollout.input_ids.numel(), dtype=torch.float32).reshape_as(rollout.input_ids)
+        * 0.03
+    )
+    reference = torch.full_like(rollout.behavior_logps, -0.4)
+    actual = independent_targets(rollout.packet(), values, reference)
+    expected = build_ppo_batch(
+        rollout,
+        state_values=values,
+        rewards=actual["rewards"],
+        reference_logps=reference,
+        config=CONFIG,
+    )
+    for name, value in expected.targets().items():
+        torch.testing.assert_close(actual[name], value)
+    torch.testing.assert_close(
+        independent_loss("actor", reference, rollout.packet(), actual),
+        ppo_policy_loss(reference, expected, CONFIG.policy_clip),
+    )
+    torch.testing.assert_close(
+        independent_loss("critic", values, rollout.packet(), actual),
+        ppo_value_loss(values[:, :-1], expected, CONFIG.value_clip),
+    )
+
+
+def test_independent_hf_targets_reject_a_row_without_action_tokens():
+    """``independent_targets`` raises ``ValueError`` for a row with no action tokens."""
+    from tests.integrations.common.test_ppo import rollout_fixture
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import independent_targets
+
+    rollout = rollout_fixture()
+    packet = dict(rollout.packet())
+    packet["action_mask"] = packet["action_mask"].clone()
+    packet["action_mask"][0] = False
+    values = torch.zeros_like(rollout.input_ids, dtype=torch.float32)
+    with pytest.raises(ValueError, match="at least one action token"):
+        independent_targets(packet, values, torch.zeros_like(rollout.behavior_logps))
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_implementation_control_reorders_linear_and_log_softmax(dtype):
+    """The control computes the same linear and log-softmax in a different reduction order.
+
+    Values and gradients stay close to the single-kernel result; FP32 values differ in at
+    least one bit, so the control really measures a different summation order.
+    """
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import (
+        chunked_log_softmax_gather,
+        reordered_linear,
+    )
+
+    g = torch.Generator().manual_seed(7)
+    x = torch.randn(2, 7, 64, generator=g).to(dtype).requires_grad_()
+    w = torch.randn(10, 64, generator=g).to(dtype).requires_grad_()
+    b = torch.randn(10, generator=g).to(dtype).requires_grad_()
+    x0, w0, b0 = (t.detach().clone().requires_grad_() for t in (x, w, b))
+    y = reordered_linear(x, w, b)
+    y0 = torch.nn.functional.linear(x0.float(), w0.float(), b0.float()).to(dtype)
+    upstream = torch.randn(y.shape, generator=g).to(dtype)
+    (y * upstream).sum().backward()
+    (y0 * upstream).sum().backward()
+    tol = dict(rtol=1e-5, atol=1e-5) if dtype == torch.float32 else dict(rtol=2e-2, atol=2e-2)
+    assert y.dtype == dtype and y.shape == (2, 7, 10)
+    for got, want in [(y, y0), (x.grad, x0.grad), (w.grad, w0.grad), (b.grad, b0.grad)]:
+        torch.testing.assert_close(got, want, **tol)
+    if dtype == torch.float32:
+        assert not torch.equal(y, y0)
+    # A one-output layer (the critic's scalar head) leaves empty output chunks.
+    head = reordered_linear(x.detach(), w.detach()[:1], None)
+    torch.testing.assert_close(head, torch.nn.functional.linear(x.detach(), w.detach()[:1]), **tol)
+
+    logits = torch.randn(3, 5, 11, generator=g) * 4
+    ids = torch.randint(0, 11, (3, 5, 1), generator=g)
+    torch.testing.assert_close(
+        chunked_log_softmax_gather(logits, ids),
+        logits.log_softmax(-1).gather(-1, ids).squeeze(-1),
+    )
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_recomputed_control_keeps_only_inputs(dtype):
+    """The recomputed control keeps no FP32 chunk copies and gives bitwise the same gradients."""
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import (
+        recomputed_reordered_linear,
+        reordered_linear,
+    )
+
+    g = torch.Generator().manual_seed(7)
+    x = torch.randn(2, 7, 64, generator=g).to(dtype).requires_grad_()
+    w = torch.randn(10, 64, generator=g).to(dtype).requires_grad_()
+    x0, w0 = (t.detach().clone().requires_grad_() for t in (x, w))
+    saved = []
+    with torch.autograd.graph.saved_tensors_hooks(lambda t: saved.append(t) or t, lambda t: t):
+        y = recomputed_reordered_linear(x, w, None)
+    assert [t.dtype for t in saved if t.numel()] == [dtype, dtype]
+    y0 = reordered_linear(x0, w0, None)
+    upstream = torch.randn(y.shape, generator=g).to(dtype)
+    (y * upstream).sum().backward()
+    (y0 * upstream).sum().backward()
+    for got, want in [(y, y0), (x.grad, x0.grad), (w.grad, w0.grad)]:
+        assert torch.equal(got, want)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("state_device", ["cpu", "cuda"])
+def test_reference_adamw_matches_one_resident_adamw(dtype, state_device):
+    """Two steps match one resident AdamW over FP32 masters bitwise, wherever state is kept.
+
+    With ``state_device="cpu"`` the moments and BF16 masters are in host memory between steps.
+    """
+    from tools.validation.models.qwen3_ppo.fixed_contract import OPTIMIZER
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import ReferenceAdamW
+
+    g = torch.Generator().manual_seed(11)
+    shapes = {"a": (33, 17), "b": (17,), "c": (5, 3, 2)}
+    initial = {n: torch.randn(s, generator=g) for n, s in shapes.items()}
+    steps = [
+        [{n: torch.randn(s, generator=g).to("cuda", dtype) for n, s in shapes.items()}] * 2
+        for _ in range(2)
+    ]
+    named = {n: torch.nn.Parameter(v.to("cuda", dtype)) for n, v in initial.items()}
+    resident = {n: torch.nn.Parameter(v.to("cuda", dtype)) for n, v in initial.items()}
+    # The previous reference: one AdamW over FP32 masters (BF16) or the FP32 parameters.
+    owners = (
+        {n: torch.nn.Parameter(p.detach().float().clone()) for n, p in resident.items()}
+        if dtype == torch.bfloat16
+        else resident
+    )
+    expected = torch.optim.AdamW(owners.values(), **OPTIMIZER, foreach=False, fused=False)
+    optimizer = ReferenceAdamW(named, dtype, state_device)
+    for step in steps:
+        optimizer.zero_grad()
+        expected.zero_grad(set_to_none=True)
+        for micro in step:
+            for n, p in named.items():
+                p.grad = micro[n].clone() if p.grad is None else p.grad.add_(micro[n])
+            optimizer.accumulate()
+            for n, p in owners.items():
+                add = micro[n].float()
+                p.grad = add.clone() if p.grad is None else p.grad.add_(add)
+        assert set(optimizer.gradients()) == set(named)
+        optimizer.step()
+        expected.step()
+        if dtype == torch.bfloat16:
+            with torch.no_grad():
+                for n, p in resident.items():
+                    p.copy_(owners[n])
+        for n in named:
+            assert torch.equal(named[n], resident[n])
+            state = expected.state[owners[n]]
+            for k in ("exp_avg", "exp_avg_sq"):
+                assert optimizer.state[n][k].device.type == state_device
+                assert torch.equal(optimizer.state[n][k].cuda(), state[k])
+            assert torch.equal(optimizer.state[n]["step"], state["step"])
+            if dtype == torch.bfloat16:
+                assert optimizer.masters[n].device.type == state_device
+                assert torch.equal(optimizer.masters[n].cuda(), owners[n])
+
+
+def test_reference_adamw_requires_every_bf16_gradient():
+    """A BF16 parameter without a gradient after backward is an error, not a skipped update."""
+    from tools.validation.models.qwen3_ppo.hf_ppo_reference import ReferenceAdamW
+
+    named = {n: torch.nn.Parameter(torch.zeros(2, dtype=torch.bfloat16)) for n in "ab"}
+    optimizer = ReferenceAdamW(named, torch.bfloat16, "cpu")
+    named["a"].grad = torch.ones(2, dtype=torch.bfloat16)
+    with pytest.raises(ValueError, match="missing HF gradient: b"):
+        optimizer.accumulate()
+
+
+def _fixed_run(root, values, **report):
+    from tools.validation.models.qwen3_ppo.fixed_contract import save_report, write_tensor
+
+    root.mkdir()
+    artifacts = {name: write_tensor(root, name, value) for name, value in values.items()}
+    row = dict(
+        status="fixed_reference_complete",
+        role="actor",
+        rollout_manifest_sha256="r",
+        targets_manifest_sha256="t",
+        config={},
+        optimizer={},
+        model_revision="m",
+        artifacts=artifacts,
+    )
+    row.update(report)
+    save_report(root, row)
+    return root
+
+
+def test_bounds_take_the_largest_independent_control(tmp_path, monkeypatch):
+    """Each tensor's bound is 4x the larger of the repeat and implementation errors plus floor."""
+    import sys
+
+    from tools.validation.models.qwen3_ppo import compare_fixed
+
+    names = ("0/loss", "0/gradient/w")
+    reference = _fixed_run(tmp_path / "ref", {n: torch.zeros(3) for n in names})
+    repeat = _fixed_run(
+        tmp_path / "rep", {"0/loss": torch.tensor([0, 0, 0.5]), "0/gradient/w": torch.zeros(3)}
+    )
+    impl = _fixed_run(
+        tmp_path / "impl",
+        {"0/loss": torch.tensor([0, 0.25, 0]), "0/gradient/w": torch.tensor([0, 0, 2.0])},
+        implementation_control={"attention": "sdpa"},
+    )
+    out = tmp_path / "bounds.json"
+    argv = ["compare_fixed", "--reference", str(reference), "--other", str(repeat)]
+    argv += ["--extra-control", str(impl), "--output", str(out)]
+    monkeypatch.setattr(sys, "argv", argv)
+    compare_fixed.main()
+    result = json.loads(out.read_text())
+    assert result["bounds"]["0/loss"]["max_abs"] == 4 * 0.5 + 1e-6
+    assert result["bounds"]["0/gradient/w"]["max_abs"] == 4 * 2.0 + 1e-6
+    assert result["extra_controls"][0]["implementation_control"] == {"attention": "sdpa"}
+
+    # A candidate never contributes a control.
+    candidate = _fixed_run(
+        tmp_path / "cand", {n: torch.zeros(3) for n in names}, status="fixed_candidate_complete"
+    )
+    argv[-1] = str(tmp_path / "rejected.json")
+    argv[argv.index(str(impl))] = str(candidate)
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(ValueError, match="only independent HF controls"):
+        compare_fixed.main()
+
+
+def test_tp_comparison_uses_the_frozen_tp_sizes(tmp_path, monkeypatch):
+    """A TP comparison runs the smaller frozen TP size against the larger one, nothing else."""
+    import sys
+
+    from tools.validation.models.qwen3_ppo import compare_fixed
+    from tools.validation.models.qwen3_ppo.fixed_contract import REVISION, sha
+
+    root = tmp_path / "reference"
+    root.mkdir()
+    thresholds = root / "actor-fp32-repeat-bounds.json"
+    # A frozen bounds file always records the reference it was frozen against.
+    thresholds.write_text(
+        json.dumps({"reference_report_sha256": "unused", "bounds": {"0/loss": {"max_abs": 1.0}}})
+    )
+    manifest = tmp_path / "acceptance.json"
+    manifest.write_text(
+        json.dumps(
+            dict(
+                status="frozen",
+                model_revision=REVISION,
+                files={thresholds.name: sha(thresholds)},
+                matrix={"tp": [2, 4]},
+            )
+        )
+    )
+
+    def candidate(tp):
+        return _fixed_run(
+            tmp_path / f"tp{tp}",
+            {"0/loss": torch.tensor(tp / 10)},
+            status="fixed_candidate_complete",
+            tp=tp,
+            precision="fp32",
+            framework="megatron",
+            acceptance_manifest_sha256=sha(manifest),
+        )
+
+    runs = {tp: candidate(tp) for tp in (1, 2, 4)}
+
+    def compare(left, right):
+        out = tmp_path / f"cmp-{left}-{right}.json"
+        argv = ["compare_fixed", "--tp-comparison", "--reference", str(runs[left])]
+        argv += ["--other", str(runs[right]), "--thresholds", str(thresholds)]
+        argv += ["--acceptance-manifest", str(manifest), "--reference-root", str(root)]
+        monkeypatch.setattr(sys, "argv", argv + ["--output", str(out)])
+        compare_fixed.main()
+        return json.loads(out.read_text())
+
+    assert compare(2, 4)["status"] == "passed"
+    for left, right in [(1, 2), (4, 2), (2, 2)]:
+        with pytest.raises(ValueError, match="invalid same-precision TP comparison"):
+            compare(left, right)
+
+
+def test_a_tp4_only_row_is_refused_at_tp2(tmp_path, monkeypatch):
+    """A direct comparison follows the per-row sizes too (the Megatron BF16 actor is TP4 only)."""
+    import sys
+
+    from tools.validation.models.qwen3_ppo import compare_fixed
+    from tools.validation.models.qwen3_ppo.fixed_contract import REVISION, sha
+
+    root = tmp_path / "reference"
+    root.mkdir()
+    thresholds = root / "actor-bf16-repeat-bounds.json"
+    thresholds.write_text(
+        json.dumps({"reference_report_sha256": "unused", "bounds": {"0/loss": {"max_abs": 1.0}}})
+    )
+    manifest = tmp_path / "acceptance.json"
+    manifest.write_text(
+        json.dumps(
+            dict(
+                status="frozen",
+                model_revision=REVISION,
+                files={thresholds.name: sha(thresholds)},
+                matrix={"tp": [2, 4]},
+            )
+        )
+    )
+    runs = {
+        tp: _fixed_run(
+            tmp_path / f"tp{tp}",
+            {"0/loss": torch.tensor(tp / 10)},
+            status="fixed_candidate_complete",
+            tp=tp,
+            precision="bf16",
+            framework="megatron",
+            acceptance_manifest_sha256=sha(manifest),
+        )
+        for tp in (2, 4)
+    }
+    argv = ["compare_fixed", "--tp-comparison", "--reference", str(runs[2])]
+    argv += ["--other", str(runs[4]), "--thresholds", str(thresholds)]
+    argv += ["--acceptance-manifest", str(manifest), "--reference-root", str(root)]
+    monkeypatch.setattr(sys, "argv", argv + ["--output", str(tmp_path / "cmp.json")])
+    with pytest.raises(ValueError, match="no TP2-vs-TP4 comparison"):
+        compare_fixed.main()
+
+
+def test_fixed_evidence_rejects_corruption_and_inventory_shape(tmp_path):
+    """Evidence tensors round-trip; a wrong manifest shape or altered file bytes is rejected."""
+    from tools.validation.models.qwen3_ppo.fixed_contract import read_tensor, write_tensor
+
+    row = write_tensor(tmp_path, "gradient", torch.arange(4.0))
+    torch.testing.assert_close(read_tensor(tmp_path, row), torch.arange(4.0))
+    row["shape"] = [2, 2]
+    with pytest.raises(ValueError, match="invalid tensor"):
+        read_tensor(tmp_path, row)
+    (tmp_path / row["path"]).write_bytes(b"corrupt")
+    with pytest.raises(ValueError, match="identity changed"):
+        read_tensor(tmp_path, row)
+
+
+def test_scalar_checkpoint_mapping_never_requires_an_lm_head():
+    """Scalar (``policy=False``) restore needs no output layer and emits no ``lm_head``."""
+    config, state = fixture()
+    shard = hf_to_megatron(state, config, tp=1, rank=0)
+    del shard["output_layer.weight"]
+    restored = megatron_to_hf([shard], config, policy=False)
+    assert "lm_head.weight" not in restored
+    for name, value in restored.items():
+        torch.testing.assert_close(value, state[name], rtol=0, atol=0)

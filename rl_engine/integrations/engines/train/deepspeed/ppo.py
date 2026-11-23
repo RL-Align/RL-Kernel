@@ -1,0 +1,285 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 RL-Kernel Contributors
+"""DeepSpeed PPO engine steps for Megatron TP models.
+
+Supported configurations: DP=1, accumulation=1, and either FP32 at ZeRO-0 or BF16 with FP32
+gradients/masters at ZeRO-1. DeepSpeed (0.19.7) builds its ``BF16_Optimizer`` with FP32
+gradient buffers only at ZeRO-1, and with DP=1 ZeRO-1 partitions nothing. Hardware
+qualification is recorded separately in experiment reports.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Callable, Literal
+
+import torch
+import torch.distributed as dist
+
+from rl_engine.integrations.common.ppo import PPOConfig, PPOGradientState, PPOTrainingWorker
+from rl_engine.integrations.common.tp_scalar import TPModelInputs
+from rl_engine.integrations.engines.train.megatron.ppo import megatron_parameter_layouts
+
+if TYPE_CHECKING:
+    from deepspeed import DeepSpeedEngine
+
+
+@dataclass(frozen=True)
+class DeepSpeedTPGroups:
+    """DeepSpeed MPU contract for TP-only models with explicit singleton DP.
+
+    Megatron Core's parallel_state lacks DeepSpeed's legacy
+    get_model_parallel_world_size API. This adapter maps the actual groups,
+    without patching either framework's module globals.
+    """
+
+    tp: dist.ProcessGroup
+    dp: dist.ProcessGroup
+
+    def __post_init__(self) -> None:
+        """Reject missing groups, groups that exclude this rank, and a DP group larger than 1."""
+        if self.tp is None or self.dp is None:
+            raise ValueError("TP and DP groups must be explicit")
+        if dist.get_rank(self.tp) < 0 or dist.get_rank(self.dp) < 0:
+            raise ValueError("this rank must belong to TP and DP groups")
+        if dist.get_world_size(self.dp) != 1:
+            raise ValueError("DeepSpeed PPO currently requires singleton DP")
+
+    def get_model_parallel_group(self):
+        """Return the tensor-parallel process group."""
+        return self.tp
+
+    def get_model_parallel_rank(self):
+        """Return this rank's index within the TP group."""
+        return dist.get_rank(self.tp)
+
+    def get_model_parallel_world_size(self):
+        """Return the number of ranks in the TP group."""
+        return dist.get_world_size(self.tp)
+
+    get_tensor_model_parallel_group = get_model_parallel_group
+    get_tensor_model_parallel_rank = get_model_parallel_rank
+    get_tensor_model_parallel_world_size = get_model_parallel_world_size
+
+    def get_tensor_model_parallel_src_rank(self):
+        """Return the global rank of TP-group rank 0."""
+        return dist.get_process_group_ranks(self.tp)[0]
+
+    def get_data_parallel_group(self):
+        """Return the singleton data-parallel process group."""
+        return self.dp
+
+    def get_data_parallel_rank(self):
+        """Return this rank's index within the singleton DP group."""
+        return dist.get_rank(self.dp)
+
+    def get_data_parallel_world_size(self):
+        """Return the DP group size, which ``__post_init__`` requires to be 1."""
+        return dist.get_world_size(self.dp)
+
+    def get_data_parallel_group_ranks(self):
+        """Return the global ranks of the DP group."""
+        return dist.get_process_group_ranks(self.dp)
+
+
+def tp_shared_parameters_first(
+    model: torch.nn.Module, group: dist.ProcessGroup
+) -> list[torch.nn.Parameter]:
+    """Return ``model``'s trainable parameters, those that every TP rank holds first.
+
+    Build a BF16 DeepSpeed optimizer from this list. ``BF16_Optimizer`` packs the parameters
+    into one flat buffer in optimizer order. A parameter that only some ranks hold (the scalar
+    adapter's leader-only bias, which ``named_parameters`` lists first) shifts the offsets of
+    every later parameter on those ranks, and kernels that pick a code path by pointer
+    alignment then reduce replicated gradients in a different order on each rank. Collective
+    over ``group``.
+    """
+    named = [(name, p) for name, p in model.named_parameters() if p.requires_grad]
+    names: list[object] = [None] * dist.get_world_size(group)
+    dist.all_gather_object(names, [name for name, _ in named], group=group)
+    return _shared_first(named, names)
+
+
+def _shared_first(named, names_by_rank) -> list[torch.nn.Parameter]:
+    """Parameters whose name every rank lists, then the rest, each in ``named`` order."""
+    shared = set.intersection(*(set(names) for names in names_by_rank))
+    return [p for name, p in named if name in shared] + [
+        p for name, p in named if name not in shared
+    ]
+
+
+def _layouts_agree(layouts_by_rank) -> bool:
+    """Whether every rank has the same groups and the same layout on their common prefix.
+
+    A layout is one list of ``(parameter name, element offset, numel)`` per BF16 flat group,
+    so two equal-sized shared parameters in swapped places do not agree.
+    """
+    first = layouts_by_rank[0]
+    for other in layouts_by_rank[1:]:
+        if len(other) != len(first):
+            return False
+        for a, b in zip(first, other):
+            common = min(len(a), len(b))
+            if list(a[:common]) != list(b[:common]):
+                return False
+    return True
+
+
+def deepspeed_ppo_worker(
+    engine: DeepSpeedEngine,
+    *,
+    role: Literal["actor", "critic"],
+    forward: Callable[[TPModelInputs], torch.Tensor],
+    group: dist.ProcessGroup,
+    config: PPOConfig,
+) -> PPOTrainingWorker:
+    """Use engine.backward/step without bypassing DeepSpeed's lifecycle.
+
+    This boundary rejects optimizer partitioning and loss scaling: ZeRO-0 for FP32, ZeRO-1
+    only for BF16, where DeepSpeed's ``BF16_Optimizer`` lives, with DP=1. BF16 clipping
+    operates on DeepSpeed's FP32 accumulation views, not low-precision .grad.
+    DeepSpeed must receive an MPU describing the actual TP and singleton DP groups.
+    """
+    stage = engine.zero_optimization_stage()
+    if stage != (1 if engine.bfloat16_enabled() else 0):
+        raise ValueError("DeepSpeed PPO requires ZeRO stage 0 for FP32 and stage 1 for BF16")
+    if engine.fp16_enabled() or engine.amp_enabled() or engine.torch_autocast_enabled():
+        raise ValueError("DeepSpeed PPO supports FP32/BF16 without FP16 loss scaling")
+    expected_dtype = torch.bfloat16 if engine.bfloat16_enabled() else torch.float32
+    if any(p.dtype != expected_dtype for p in engine.parameters() if p.requires_grad):
+        raise ValueError("DeepSpeed PPO trainable parameter dtype disagrees with precision mode")
+    if engine.gradient_accumulation_steps() != 1 or engine.dp_world_size != 1:
+        raise ValueError("DeepSpeed PPO currently requires accumulation=1 and DP=1")
+    if engine.gradient_clipping() != 0:
+        raise ValueError("disable DeepSpeed gradient_clipping; PPO performs TP-aware clipping")
+    if engine.mpu is None or engine.mpu.get_model_parallel_group() is not group:
+        raise ValueError("DeepSpeed MPU and PPO must use the same TP group")
+    gradient_state = None
+    if engine.bfloat16_enabled():
+        gradient_state = _bf16_gradient_state(engine, group)
+        _allow_zero_norm_step(engine.optimizer)
+    return PPOTrainingWorker(
+        role=role,
+        model=engine,
+        forward=forward,
+        optimizer=engine.optimizer,
+        parameter_layouts=megatron_parameter_layouts(engine),
+        group=group,
+        config=config,
+        gradient_state=gradient_state,
+        backward=engine.backward,
+        step=engine.step,
+    )
+
+
+def _allow_zero_norm_step(optimizer, norm_fn=None) -> None:
+    """Let this ``BF16_Optimizer`` apply an update whose gradients are all zero.
+
+    PPO's clipped value loss can zero every gradient of a minibatch: after an update moves all
+    values past ``value_clip``, the clipped branch wins everywhere (the HF reference critic has
+    a grad norm of exactly 0 at its second update). AdamW still moves the parameters then, by
+    its first moment and weight decay, but DeepSpeed 0.19.7's ``BF16_Optimizer.step`` asserts
+    a positive global norm. With a zero norm, no gradient clipping and no MoE layers, this runs
+    the rest of that step: the FP32 partitions take the FP32 gradient partitions, the inner
+    optimizer steps, its state is linked, the BF16 parameters are copied back and the
+    gradients cleared. Any other case goes to DeepSpeed's own step. ``norm_fn`` defaults to
+    DeepSpeed's ``get_global_norm_of_tensors``, the norm that step computes.
+    """
+    if norm_fn is None:
+        from deepspeed.runtime.utils import get_global_norm_of_tensors
+
+        norm_fn = get_global_norm_of_tensors
+    original = optimizer.step
+
+    @torch.no_grad()
+    def step(closure=None):
+        if closure is not None or optimizer.clip_grad > 0.0 or optimizer.has_moe_layers:
+            return original(closure)
+        grads, _ = optimizer.get_grads_for_norm()
+        norm = norm_fn(
+            input_tensors=grads,
+            mpu=optimizer.mpu,
+            norm_type=optimizer.norm_type,
+            use_graph=optimizer.graph_harvesting,
+        )
+        if float(norm) != 0.0:
+            return original(closure)
+        optimizer._global_grad_norm = norm
+        for master, grad in zip(
+            optimizer.fp32_groups_flat_partition, optimizer.fp32_groups_gradient_flat_partition
+        ):
+            master.grad = grad
+        optimizer.optimizer.step()
+        optimizer._lazy_init_hp_params_optimizer_state()
+        optimizer.update_lp_params()
+        optimizer.clear_hp_grads()
+
+    optimizer.step = step
+
+
+def _bf16_gradient_state(engine, group: dist.ProcessGroup) -> PPOGradientState:
+    """Expose DeepSpeed ``BF16_Optimizer`` FP32 gradient views as a ``PPOGradientState``.
+
+    Raises ``ValueError`` unless the optimizer is a ``BF16_Optimizer`` with FP32 gradient
+    accumulation buffers, its BF16 groups own exactly
+    the trainable parameters, its inner optimizer owns the FP32 flat master partitions, and
+    every TP rank places the parameters they share at the same flat-buffer offsets (see
+    ``tp_shared_parameters_first``). The layout check is collective over ``group``.
+    """
+    from deepspeed.runtime.bf16_optimizer import BF16_Optimizer
+
+    optimizer = engine.optimizer
+    if not isinstance(optimizer, BF16_Optimizer) or optimizer.grad_acc_dtype != torch.float32:
+        raise ValueError("BF16 PPO requires DeepSpeed BF16_Optimizer with FP32 gradient buffers")
+    parameters = tuple(p for group in optimizer.bf16_groups for p in group)
+    if {id(p) for p in parameters} != {id(p) for p in engine.parameters() if p.requires_grad}:
+        raise ValueError("DeepSpeed BF16 groups do not own the trainable model parameters")
+    masters = [p for group in optimizer.optimizer.param_groups for p in group["params"]]
+    if len(masters) != len(optimizer.fp32_groups_flat_partition) or any(
+        actual is not expected or actual.dtype != torch.float32
+        for actual, expected in zip(masters, optimizer.fp32_groups_flat_partition)
+    ):
+        raise ValueError("DeepSpeed optimizer does not own the expected FP32 masters")
+    names = {id(p): name for name, p in engine.named_parameters()}
+    layout = [
+        [
+            (names[id(p)], (p.data_ptr() - flat.data_ptr()) // p.element_size(), p.numel())
+            for p in params
+        ]
+        for flat, params in zip(optimizer.bf16_groups_flat, optimizer.bf16_groups)
+    ]
+    layouts: list[object] = [None] * dist.get_world_size(group)
+    dist.all_gather_object(layouts, layout, group=group)
+    if not _layouts_agree(layouts):
+        raise ValueError(
+            "DeepSpeed BF16 flat buffers place shared parameters at different offsets on the "
+            "TP ranks; build the optimizer from tp_shared_parameters_first()"
+        )
+
+    def gradients():
+        """Return FP32 gradient views in ``parameters`` order, ``None`` where one is absent.
+
+        Raises ``ValueError`` if DeepSpeed's group-to-gradient mapping or a buffer's dtype or
+        size has changed.
+        """
+        if not (
+            len(optimizer.bf16_groups)
+            == len(optimizer.fp32_groups_gradients)
+            == len(optimizer.fp32_groups_has_gradients)
+        ):
+            raise ValueError("DeepSpeed BF16 gradient group mapping changed")
+        buffers = []
+        for group, grads, flags in zip(
+            optimizer.bf16_groups,
+            optimizer.fp32_groups_gradients,
+            optimizer.fp32_groups_has_gradients,
+        ):
+            if not (len(group) == len(grads) == len(flags)):
+                raise ValueError("DeepSpeed BF16 gradient mapping changed")
+            for parameter, grad, present in zip(group, grads, flags):
+                if grad.dtype != torch.float32 or grad.numel() != parameter.numel():
+                    raise ValueError("invalid DeepSpeed FP32 gradient view")
+                buffers.append(grad.view_as(parameter) if present else None)
+        return buffers
+
+    return PPOGradientState(parameters, gradients, lambda: optimizer.zero_grad(set_to_none=True))
