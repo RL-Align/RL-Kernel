@@ -268,6 +268,12 @@ std::vector<torch::Tensor> swiglu_backward_cuda(
     torch::Tensor gate,
     torch::Tensor up);
 torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
+torch::Tensor inkling2_dynamic_kv_conv_forward(
+    torch::Tensor x, torch::Tensor coefficients, torch::Tensor state);
+std::vector<torch::Tensor> inkling2_dynamic_kv_conv_forward_with_state(
+    torch::Tensor x, torch::Tensor coefficients, torch::Tensor state);
+std::vector<torch::Tensor> inkling2_dynamic_kv_conv_backward(
+    torch::Tensor grad_output, torch::Tensor x, torch::Tensor coefficients, torch::Tensor state);
 std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
@@ -764,6 +770,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("silu_backward", &silu_backward, "Batch-invariant SiLU backward CUDA");
     m.def("swiglu_forward", &swiglu_forward, "Batch-invariant SwiGLU forward CUDA");
     m.def("swiglu_backward", &swiglu_backward, "Batch-invariant SwiGLU backward CUDA");
+    m.def("inkling2_dynamic_kv_conv_forward", &inkling2_dynamic_kv_conv_forward,
+          "Inkling 2 Mini CUDA dynamic K/V convolution forward");
+    m.def("inkling2_dynamic_kv_conv_forward_with_state",
+          &inkling2_dynamic_kv_conv_forward_with_state,
+          "Inkling 2 Mini CUDA dynamic K/V convolution forward with next state");
+    m.def("inkling2_dynamic_kv_conv_backward", &inkling2_dynamic_kv_conv_backward,
+          "Inkling 2 Mini CUDA dynamic K/V convolution backward");
     m.def("swiglu_packed_forward", &swiglu_packed_forward,
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,

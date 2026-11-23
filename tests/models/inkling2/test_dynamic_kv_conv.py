@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """INK-16 dynamic K/V convolution contract tests."""
 
+import pytest
 import torch
 
 from rl_engine.models.inkling2.dynamic_kv_conv import dynamic_kv_conv
@@ -36,3 +37,23 @@ def test_dynamic_kv_conv_backward_is_defined():
     output.square().mean().backward()
     assert x.grad is not None and torch.isfinite(x.grad).all()
     assert coefficients.grad is not None and torch.isfinite(coefficients.grad).all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_native_cuda_dynamic_kv_conv_matches_reference_and_backward():
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+    from rl_engine.models.inkling2.dynamic_kv_conv import dynamic_kv_conv_cuda
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_dynamic_kv_conv_forward_with_state"):
+        pytest.skip("Inkling 2 CUDA extension is unavailable")
+    x = torch.randn(2, 5, 2, 4, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    coefficients = torch.randn(
+        2, 5, 2, 4, 4, device="cuda", dtype=torch.bfloat16, requires_grad=True
+    )
+    output, state = dynamic_kv_conv_cuda(x, coefficients)
+    reference, reference_state = dynamic_kv_conv(x, coefficients)
+    torch.testing.assert_close(output, reference, atol=0, rtol=0)
+    torch.testing.assert_close(state, reference_state, atol=0, rtol=0)
+    output.float().square().mean().backward()
+    assert x.grad is not None and torch.isfinite(x.grad.float()).all()
+    assert coefficients.grad is not None and torch.isfinite(coefficients.grad.float()).all()

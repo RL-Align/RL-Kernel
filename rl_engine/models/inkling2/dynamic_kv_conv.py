@@ -51,3 +51,43 @@ def dynamic_kv_conv(
         output = output + history[..., tap : tap + time].float() * coefficients_fp32[..., tap]
     next_state = history[..., -(KERNEL_SIZE - 1) :].contiguous()
     return output.permute(0, 3, 1, 2).to(dtype=x.dtype), next_state
+
+
+class _NativeDynamicKVConvFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, coefficients: torch.Tensor, state: torch.Tensor):
+        from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+        if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_dynamic_kv_conv_forward_with_state"):
+            raise RuntimeError("Inkling 2 CUDA dynamic K/V convolution extension is unavailable")
+        output, next_state = _C.inkling2_dynamic_kv_conv_forward_with_state(
+            x.contiguous(), coefficients.contiguous(), state.contiguous()
+        )
+        ctx.save_for_backward(x, coefficients, state)
+        return output, next_state
+
+    @staticmethod
+    def backward(ctx, grad_output, grad_next_state):
+        from rl_engine.backends.extension import _C
+
+        x, coefficients, state = ctx.saved_tensors
+        if grad_next_state is not None and torch.any(grad_next_state != 0):
+            raise RuntimeError("native dynamic K/V convolution state gradients are not supported")
+        return _C.inkling2_dynamic_kv_conv_backward(
+            grad_output.contiguous(), x, coefficients, state
+        )
+
+
+def dynamic_kv_conv_cuda(
+    x: torch.Tensor,
+    coefficients: torch.Tensor,
+    state: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Run the native CUDA INK-16 dynamic K/V convolution kernel."""
+    if not x.is_cuda or not coefficients.is_cuda:
+        raise ValueError("native dynamic K/V convolution requires CUDA tensors")
+    if state is None:
+        state = torch.zeros((x.shape[0], 2, x.shape[3], 3), device=x.device, dtype=x.dtype)
+    if not state.is_cuda:
+        raise ValueError("native dynamic K/V convolution state must be CUDA")
+    return _NativeDynamicKVConvFunction.apply(x, coefficients, state)

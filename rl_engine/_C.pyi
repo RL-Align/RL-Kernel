@@ -391,3 +391,16 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+
+def inkling2_dynamic_kv_conv_forward(
+    x: torch.Tensor, coefficients: torch.Tensor, state: torch.Tensor
+) -> torch.Tensor: ...
+def inkling2_dynamic_kv_conv_forward_with_state(
+    x: torch.Tensor, coefficients: torch.Tensor, state: torch.Tensor
+) -> list[torch.Tensor]: ...
+def inkling2_dynamic_kv_conv_backward(
+    grad_output: torch.Tensor,
+    x: torch.Tensor,
+    coefficients: torch.Tensor,
+    state: torch.Tensor,
+) -> list[torch.Tensor]: ...
