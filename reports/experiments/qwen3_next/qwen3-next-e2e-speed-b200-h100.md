@@ -71,7 +71,7 @@ Two workloads:
   - H100: stock vLLM with CUDA graphs is 0.98-1.00×, and eager 1.01-1.02×;
   - B200: CUDA graphs are 1.00-1.02×, except p256 b4 and p1024 b4, which are 19-27% slower in both B200 runs (for example p256 b4, 0.166 → 0.201 s); eager is 0.90-1.02×;
   - strict, whose environment did not change, is 1.00-1.03×.
-- **One B200 arm has 1 round, not 2:** stock CUDA graphs on the certified workload. In round 0, two TP ranks failed with Triton `KeyError: 'cubin'` while compiling into the cold shared compile cache, and the other ranks timed out. A rerun of that arm hit the same failure in round 0, and its round 1 agrees with this one within 5% on every shape. Both runs are in the ZIP.
+- **One B200 arm has 1 round, not 2:** stock CUDA graphs on the certified workload. In round 0, two TP ranks failed with Triton `KeyError: 'cubin'` while compiling into the cold shared compile cache, and the other ranks timed out. A rerun of that arm hit the same failure in round 0, and its round 1 agrees with this one within 5% on every shape. Both runs are in the ZIP. With one round, that arm's cross-round check does not apply; its `report.json` says `same_tokens_across_rounds: true` because it predates `1c90548a`, which records null in that case.
 - **Consistency:**
   - strict generates the same tokens across repeats and rounds on every shape, and row 0 of a batch equals the same prompt alone;
   - stock vLLM does not, on either GPU. At the larger batches, with CUDA graphs or eager, its tokens differ between repeats or rounds of the same request: on B200 at p256 b4, p1024 b4, long b16 and long b64; on H100 at p1024 b4 (eager), long b16, and long b64 (eager).
