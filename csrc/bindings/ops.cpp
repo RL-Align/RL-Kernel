@@ -271,6 +271,25 @@ torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
 std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate_up);
+std::vector<torch::Tensor> inkling2_expert_gate_up_forward(
+    torch::Tensor hidden,
+    torch::Tensor gate_weight,
+    torch::Tensor up_weight,
+    torch::Tensor gate_bias,
+    torch::Tensor up_bias,
+    double gate_cap,
+    double up_cap);
+std::vector<torch::Tensor> inkling2_expert_gate_up_backward(
+    torch::Tensor dy,
+    torch::Tensor hidden,
+    torch::Tensor gate_weight,
+    torch::Tensor up_weight,
+    torch::Tensor gate_pre,
+    torch::Tensor up_pre,
+    double gate_cap,
+    double up_cap,
+    bool need_gate_bias,
+    bool need_up_bias);
 
 // RMSNorm Declarations & Wrappers
 
@@ -768,6 +787,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Batch-invariant SwiGLU forward for [rows, 2 * intermediate]");
     m.def("swiglu_packed_backward", &swiglu_packed_backward,
           "Batch-invariant SwiGLU backward for [rows, 2 * intermediate]");
+    m.def("inkling2_expert_gate_up_forward", &inkling2_expert_gate_up_forward,
+          "Inkling 2 Mini native CUDA softcapped expert gate/up forward");
+    m.def("inkling2_expert_gate_up_backward", &inkling2_expert_gate_up_backward,
+          "Inkling 2 Mini native CUDA softcapped expert gate/up backward");
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(

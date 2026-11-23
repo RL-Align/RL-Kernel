@@ -391,3 +391,25 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     input: torch.Tensor,
     output: torch.Tensor,
 ) -> None: ...
+
+def inkling2_expert_gate_up_forward(
+    hidden: torch.Tensor,
+    gate_weight: torch.Tensor,
+    up_weight: torch.Tensor,
+    gate_bias: torch.Tensor,
+    up_bias: torch.Tensor,
+    gate_cap: float,
+    up_cap: float,
+) -> list[torch.Tensor]: ...
+def inkling2_expert_gate_up_backward(
+    dy: torch.Tensor,
+    hidden: torch.Tensor,
+    gate_weight: torch.Tensor,
+    up_weight: torch.Tensor,
+    gate_pre: torch.Tensor,
+    up_pre: torch.Tensor,
+    gate_cap: float,
+    up_cap: float,
+    need_gate_bias: bool,
+    need_up_bias: bool,
+) -> list[torch.Tensor]: ...

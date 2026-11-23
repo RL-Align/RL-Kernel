@@ -41,3 +41,31 @@ def test_gate_up_preserves_bfloat16_output_and_backward():
 def test_gate_up_rejects_mismatched_intermediate_size():
     with pytest.raises(ValueError, match="share shape"):
         expert_gate_up(torch.randn(2, 4), torch.randn(3, 4), torch.randn(5, 4))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_native_cuda_gate_up_matches_reference_and_backward():
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+    from rl_engine.models.inkling2.expert_mlp import expert_gate_up_cuda
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_expert_gate_up_forward"):
+        pytest.skip("Inkling 2 expert gate/up CUDA extension is unavailable")
+    torch.manual_seed(9)
+    hidden = torch.randn(3, 5, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    gate = torch.randn(4, 5, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    up = torch.randn(4, 5, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    gate_bias = torch.randn(4, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    up_bias = torch.randn(4, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+
+    native = expert_gate_up_cuda(hidden, gate, up, gate_bias, up_bias)
+    reference = expert_gate_up(hidden, gate, up, gate_bias, up_bias)
+    torch.testing.assert_close(native, reference, atol=2e-2, rtol=0)
+
+    native.float().square().mean().backward()
+    native_grads = [hidden.grad, gate.grad, up.grad, gate_bias.grad, up_bias.grad]
+    hidden.grad = gate.grad = up.grad = gate_bias.grad = up_bias.grad = None
+    reference.float().square().mean().backward()
+    for native_grad, reference_tensor in zip(
+        native_grads, (hidden, gate, up, gate_bias, up_bias), strict=True
+    ):
+        torch.testing.assert_close(native_grad, reference_tensor.grad, atol=2e-2, rtol=0)
