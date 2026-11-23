@@ -31,6 +31,7 @@ reference = logp_ref.forward_fp32(logits, token_ids)
 | --- | --- | --- | --- |
 | CUDA SM90 | `FusedLogpSM90Op` | `_C.fused_logp_sm90` | Experimental TMA-oriented path for 2D contiguous bf16 logits on Hopper-class GPUs. It is disabled by default and requires `RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP=1`; otherwise the wrapper delegates to the CUDA generic fallback. |
 | CUDA generic | `FusedLogpGenericOp` | `_C.fused_logp` | Generic compiled extension fallback. |
+| ROCm generic | `FusedLogpGenericOp` | `_C.fused_logp` | Shared forward; backward uses the bounded row-chunked PyTorch path until the fused backward is validated on ROCm. |
 | Ascend NPU | `FusedLogpAscendOp` | `_C_npu.fused_logp_ascend` | Batch-invariant Ascend C forward: two-pass (row max, then sum-exp) fp32 reduction with a fixed tile order, mirroring the CUDA deterministic kernel. Output is fp32, matching `DeterministicLogpCUDAOp`'s contract; out-of-range targets yield 0.0. |
 | PyTorch native | `NativeLogpOp` | None | PyTorch baseline/reference path. |
 
@@ -49,62 +50,168 @@ ref = torch.log_softmax(logits.float(), dim=-1)
 ref = torch.gather(ref, dim=-1, index=token_ids.unsqueeze(-1).long()).squeeze(-1)
 ```
 
+## Generic backward
+
+The CUDA autograd path uses `_C.fused_logp_backward` when available. It computes
+`dlogits = grad * (one_hot(target) - softmax(logits))` directly in the logits dtype,
+without allocating a full FP32 softmax workspace. Invalid targets receive an exactly
+zero gradient, including when their logits are fully masked.
+
+The binding guards the logits device before making contiguous copies, allocating output,
+and launching on that device's current stream. It restores the caller's selected device
+on return. Vocabulary traversal uses 64-bit loop arithmetic, including the unrolled tail,
+so a vocabulary up to the accepted `INT_MAX` limit cannot overflow the loop counter.
+
+ROCm builds exclude the fused backward kernel and binding. The Python dispatch also
+rejects that path on ROCm, including with an older extension that still exports the symbol.
+ROCm and CUDA builds without the symbol use `fused_logp_backward_chunked`, with at most
+`2**27` FP32 elements per workspace chunk (or one vocabulary row when larger). No ROCm
+fused-backward build or runtime validation is claimed.
+
+## Backward evidence (generic CUDA op)
+
+[`report.json`](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr495/docs/usage/evidence/fused-logp-backward-b200/report.json) was written by
+`benchmarks/fused_logp_backward_evidence.py --flash-attn-src <flash-attention checkout>` (now
+`benchmarks/operators/logprob/fused_logp_backward_evidence.py`) from a clean tree at `f6d3a24`, on an otherwise idle B200 (torch 2.13.0+cu130, triton 3.7.1,
+liger-kernel 0.8.4, fla-core 0.5.2, flash-attention `94e22c9`). V = 151936, BF16 logits.
+These historical timing and memory measurements predate the device/indexing fixes.
+The accuracy comparison in that report used different effective upstream gradients for
+BF16-output and FP32-output candidates and is superseded by the review rerun below.
+
+| 32768 rows | torch `log_softmax` + gather | chunked fallback | fused kernel | Liger CE | FLA CE | flash-attn CE (verl) |
+|---|---|---|---|---|---|---|
+| forward + backward | 44.0 ms | 59.4 ms | 27.2 ms | 15.8 ms | 7.1 ms | **6.2 ms** |
+| backward only | 19.3 ms | 44.8 ms | 12.5 ms | 11.3 ms | 3.7 ms | **3.7 ms** |
+| peak memory (incl. returned grad) | 55.6 GiB | 10.3 GiB | **9.3 GiB** | **9.3 GiB** | **9.3 GiB** | **9.3 GiB** |
+| batch-size sweep, logp / `dlogits` differing (of 2232) | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | **92 / 92** | 0 / 0 |
+
+- The CE columns are existing implementations of the same computation (logp = -loss of a
+  per-token cross entropy). flash-attn's Triton `cross_entropy_loss` is the kernel verl's
+  `logprobs_from_logits` calls when flash-attn is installed.
+- flash-attn's and Liger's kernels are batch-invariant, need the same memory as the fused
+  kernel, and are faster: flash-attn's by 4.4× forward + backward and 3.4× on the backward
+  alone. FLA's is not batch-invariant: a few percent of rows change by one FP32 ulp with the
+  batch size.
+- The fused kernel requires no Triton or flash-attn dependency. The generic op's forward
+  (`_C.fused_logp`) returns BF16 logp for BF16 logits, as does Liger CE; FLA and
+  flash-attn CE return FP32.
+- The batch-size sweep compares eight rows alone with the same rows at the front, middle and
+  back of batches of every size 1..9 and 2^k-1 / 2^k / 2^k+1 up to 2048, over three seeds;
+  `row_invariance` in the report (256 rows of a 4096-row batch) agrees.
+- The corrected runner quantizes the upstream gradient to BF16 once, promotes it losslessly
+  to FP32, and passes those same effective values to every candidate and one FP64 reference.
+  It checks the effective gradient at each output boundary rather than changing the reference
+  for each candidate. See the [review rerun](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr495/docs/usage/evidence/fused-logp-backward-b200/README.md)
+  for corrected accuracy, train/rollout comparisons, and the reuse decision.
+
+The [actual provider follow-up](https://github.com/fusheng-ji/RL-Kernel/blob/6d6193d94a83266d5f5f62bb9d90fb3215716ee3/pr495/docs/usage/evidence/fused-logp-backward-b200/provider-validation/README.md)
+also compares the Vime training provider with the real vLLM sampler/WS2 adapter at
+physical TP=1/2. A coordinated flash-attn CE scorer agrees at TP=1 but changes logp
+and LSE at TP=2. The report separately records an existing chunk-invariance failure
+in the WS2 PyTorch reference provider; same-batch training/rollout agreement does
+not establish invariance under a change of chunking.
+
 ## Tests
 
 ```bash
 python -m pytest tests/ops/logprob/test_logp.py -q
+python -m pytest tests/backends/cuda/test_fused_logp_chunked_backward.py -q
+python -m pytest tests/benchmarks/test_fused_logp_provider_evidence.py -q
 python -m pytest tests/ops/test_op_accuracy.py -q
 ```
 
 `tests/ops/logprob/test_logp.py` covers the PyTorch reference contract, dtype behavior,
 backward-compatible aliases, batch invariance, and registry dispatch. The existing
 operator accuracy tests continue to validate native/CUDA fused API compatibility.
+`tests/backends/cuda/test_fused_logp_chunked_backward.py` covers the fused backward,
+bounded fallback workspace, invalid targets, batch invariance, multi-GPU device/stream
+handling, `INT_MAX` loop arithmetic, and ROCm fallback dispatch.
 
 ## Shared Python ownership (RFC #642 Task 19)
 
 `rl_engine/ops/logprob/fused_logp.py` owns common preparation, native variant
-delegation, autograd forward/save mechanics, and the existing FP32 PyTorch VJP.
+delegation, autograd forward/save mechanics, and #495's bounded FP32 chunked VJP.
+Both backends use that fallback when their native path is unavailable, preserving
+main's zero-gradient contract for invalid targets.
 CUDA and MUSA each own their concrete wrapper, extension binding, and backward
 selection. MUSA no longer imports CUDA. CUDA's canonical and legacy leaf imports
 still share one module object; `_FusedLogpAutograd` remains in the CUDA module.
-Native symbols, arithmetic, and registry priorities are unchanged.
+Native symbols, arithmetic, and registry priorities are unchanged relative to
+the integrated main. CUDA keeps #495's capability-based fused backward and HIP
+fallback; the public `fused_logp_backward_chunked`, row-count helper and chunk
+constant remain importable from the CUDA module. Backward looks up the CUDA
+module attribute at runtime, as required by #495's tests and evidence runner.
+Main's deterministic autograd/FP64 interfaces from #547 are preserved.
 
 The CPU ownership tests use recording backends and a frozen source oracle from
 `main@49941801f942428fd52ac5b66a1b0c070418724e`. The snapshot is test-only and lets
-the before/after checks run in shallow checkouts. Native MUSA execution requires
+valid-target preservation checks run in shallow checkouts. Both backends
+use the integrated main fallback for invalid targets, following #495's
+zero-gradient contract, covered by its original `test_fused_logp_chunked_backward.py`. Native MUSA execution requires
 separate hardware validation.
 
 ```bash
 PYTHONPATH=. OMP_NUM_THREADS=1 python -m pytest -q \
   tests/ops/logprob/test_fused_logp_ownership.py \
   tests/ops/logprob/test_logp.py tests/runtime/test_layout_compatibility.py \
-  tests/runtime/test_kernel_registry.py
+  tests/runtime/test_kernel_registry.py \
+  tests/backends/cuda/test_fused_logp_chunked_backward.py \
+  tests/backends/cuda/test_fused_logp_backward_indexing.py \
+  tests/benchmarks/test_fused_logp_backward_evidence.py \
+  tests/benchmarks/test_fused_logp_provider_evidence.py
 ```
 
-On a provisioned single H100 with this checkout's CUDA extension built, run:
+The archived H100 evidence under `reports/archive/validation/pr707-20261123`
+validates `2f685b8e` against `49941801`, before #495/#547 integration. It remains
+historical evidence for that revision, not hardware acceptance of the merged
+backward or deterministic-autograd paths. The old Task19 image lacks the new
+native symbols and cannot be reused as this checkout's extension.
+
+For a new H100 check, use one extension built from the integrated main's native
+sources with matching Torch/CUDA/ABI/flags, shared by baseline and candidate.
+A matching existing binary can be reused; otherwise build once before GPU rental.
+The commands below assume that binary is in this checkout's `rl_engine/`, with
+no editable import from another checkout. This integration stage does not launch
+a GPU or rebuild an image.
+
+On a provisioned single H100, the minimum integration rerun is:
 
 ```bash
 unset RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP
-PYTHONPATH=. python -m pytest -q tests/ops/test_op_accuracy.py -k 'logp or logprob'
-PYTHONPATH=. python -m pytest -q tests/ops/logprob/test_deterministic_logp.py
+PYTHONPATH=. python -m pytest -q tests/ops/test_op_accuracy.py \
+  -k 'not native and not sm90'
+PYTHONPATH=. python -m pytest -q tests/ops/logprob/test_deterministic_logp.py \
+  tests/ops/logprob/test_deterministic_logp_autograd.py
 PYTHONPATH=. python -m pytest -q \
   tests/e2e/test_rl_kernel_loss_step.py::test_minimal_rl_loss_step_fused_logp_candidate_cuda
 PYTHONPATH=. python -m tools.validation.operators.compare_fused_logp_ownership \
-  --baseline 49941801f942428fd52ac5b66a1b0c070418724e \
+  --baseline e9d52e95226b62d826f0a224bafad2cab3ed7538 \
   --output /tmp/task19-h100.json
+PYTHONPATH=. python -m pytest -q \
+  tests/backends/cuda/test_fused_logp_chunked_backward.py \
+  -k 'not long_sequence_backward_workspace and not guards_tensor_device'
 ```
 
 The comparison command requires the baseline Git object, asserts real CUDA
 extension use, and compares 18 dtype/shape/layout cases byte-for-byte for forward,
 backward, and eight variants. It independently checks reference accuracy and
-records GPU, software, extension and tensor hashes. The generic CUDA backward
-remains PyTorch; there is no new CUDA native backward in Task 19. Missing native
-execution or skipped accelerator tests do not establish hardware acceptance.
+records GPU, software, extension and tensor hashes. It now requires #495's native
+backward symbol and rejects an extension from another checkout. This is a
+before/after ownership comparison using the same post-#495 binary, not a comparison
+to the old PyTorch-only CUDA backward. No native arithmetic is added by Task19.
+
+Accept the rerun only with zero unexpected skips/failures/errors, 18 exact
+comparison cases plus reference accuracy, actual native-backward execution in
+#495's original tests, and no fallback caused by a missing extension. The selected
+single-GPU rerun deliberately omits #495's multi-GPU device/stream and 8k–32k-row
+workspace tests: their native implementation is unchanged from main. This rerun
+makes no new memory/performance, sanitizer, experimental TMA or MUSA-hardware claim.
 
 Shared source is included in the gradient audit inventory. Runtime fingerprints
 also include the defining module of cross-module runtime entrypoints, so moving
 the VJP cannot hide later shared-helper source changes. SM90 and deterministic
-wrappers explicitly declare the shared source dependency because their local
+wrappers explicitly declare the shared source dependency; deterministic also
+declares its `_deterministic_autograd` helper source. Their local
 entrypoints delegate to shared code. Unrelated same-module fingerprint payloads
 and stable public operator identifiers are preserved.
 

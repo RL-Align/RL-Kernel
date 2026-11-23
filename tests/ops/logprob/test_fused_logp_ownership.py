@@ -249,6 +249,9 @@ def test_native_musa_backward_contract(monkeypatch, before, module, bridge, dtyp
 def test_cpu_fallback_selection_and_cast(
     monkeypatch, before, module, bridge, native_present, dtype
 ):
+    # CUDA now selects #495's capability on non-HIP builds, including CPU doubles.
+    # Exercise its HIP fallback and MUSA's device-gated fallback without changing either oracle.
+    monkeypatch.setattr(torch.version, "hip", "6.4.0")
     x, labels = inputs(dtype, "3d")
     backend = SimpleNamespace()
     if native_present:
@@ -268,6 +271,54 @@ def test_cpu_fallback_selection_and_cast(
     expected = before._FusedLogpAutograd.backward(ctx, upstream)[0]
     assert_bits(actual, expected)
     assert actual.dtype == dtype
+
+
+@pytest.mark.parametrize("native_present", [True, False])
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_cuda_backward_preserves_evidence_runner_patch_surface(
+    monkeypatch, before, native_present, dtype
+):
+    from benchmarks.operators.logprob import fused_logp_backward_evidence as evidence
+
+    monkeypatch.setattr(torch.version, "hip", None)
+    backend = RecordingBackend()
+    chunked = cuda.fused_logp_backward_chunked
+    calls = []
+
+    def native(logits, labels, grad):
+        calls.append("native")
+        assert grad.dtype == torch.float32 and grad.is_contiguous()
+        return chunked(logits, labels, grad, logits.dtype, chunk_elems=7)
+
+    def fallback(logits, labels, grad, out_dtype):
+        calls.append("chunked")
+        assert out_dtype == dtype
+        return chunked(logits, labels, grad, out_dtype, chunk_elems=7)
+
+    if native_present:
+        backend.fused_logp_backward = native
+        dispatched_backend = backend
+    else:
+        monkeypatch.setattr(evidence, "_C", backend)
+        dispatched_backend = evidence._ForwardOnly()
+
+    x, labels = inputs(dtype, "strided")
+    old_x = x.detach().clone().requires_grad_()
+    old = construct(monkeypatch, before, "FusedLogpGenericOp", RecordingBackend())
+    upstream = torch.linspace(-1, 2, 6, dtype=dtype).reshape(2, 3).t()
+    assert not x.is_contiguous() and not upstream.is_contiguous()
+    with evidence._vjp(fallback):
+        output = evidence._autograd_fn(dispatched_backend)(x, labels)
+        saved_x, saved_labels = output.grad_fn.saved_tensors
+        assert saved_x.shape == (6, 7) and saved_x.is_contiguous()
+        assert saved_labels.dtype == torch.long and saved_labels.is_contiguous()
+        output.backward(upstream)
+    old_output = old(old_x, labels)
+    old_output.backward(upstream)
+    assert calls == (["native"] if native_present else ["chunked"])
+    assert_bits(output, old_output)
+    assert_bits(x.grad, old_x.grad)
+    assert cuda.fused_logp_backward_chunked is chunked
 
 
 VARIANTS = {
@@ -375,13 +426,19 @@ def test_musa_missing_native_uses_shared_vjp(monkeypatch):
         calls.append(args)
         return sentinel
 
-    monkeypatch.setattr(musa, "fused_logp_vjp", fallback)
-    assert musa._MusaFusedLogpAutograd.backward(ctx, upstream) == (sentinel, None, None)
+    monkeypatch.setattr(musa, "fused_logp_backward_chunked", fallback)
+    grad, labels_grad, backend_grad = musa._MusaFusedLogpAutograd.backward(ctx, upstream)
+    assert_bits(grad, sentinel)
+    assert labels_grad is None and backend_grad is None
     assert calls[0][0] is logits and calls[0][1] is labels and calls[0][2] is upstream
+    assert calls[0][3] == ctx.input_dtype
 
 
+@pytest.mark.parametrize("bridge", [cuda._FusedLogpAutograd, musa._MusaFusedLogpAutograd])
 @pytest.mark.parametrize("labels", [torch.tensor([-1, 0]), torch.tensor([7, 0])])
-def test_existing_invalid_label_backward_behavior(monkeypatch, before, labels):
+def test_invalid_label_backward_preserves_integrated_main(bridge, labels):
+    # #495 changed the inherited fallback for both backends. The pre-#495 frozen
+    # oracle cannot establish this newer zero-gradient contract for invalid targets.
     x = torch.full((2, 7), float("-inf"))
     ctx = SimpleNamespace(
         saved_tensors=(x, labels),
@@ -389,16 +446,11 @@ def test_existing_invalid_label_backward_behavior(monkeypatch, before, labels):
         input_shape=x.shape,
         input_dtype=x.dtype,
     )
-    results = []
-    for bridge in (before._FusedLogpAutograd, cuda._FusedLogpAutograd):
-        try:
-            results.append(bridge.backward(ctx, torch.ones(2))[0])
-        except IndexError as exc:
-            results.append(str(exc))
-    if isinstance(results[0], str):
-        assert results[0] == results[1]
-    else:
-        assert_bits(results[0], results[1])
+    grad, labels_grad, backend_grad = bridge.backward(ctx, torch.ones(2))
+    assert grad.shape == x.shape and grad.dtype == x.dtype
+    assert_bits(grad[0], torch.zeros_like(x[0]))
+    assert torch.isnan(grad[1]).all()
+    assert labels_grad is None and backend_grad is None
 
 
 @pytest.mark.parametrize("layout", ["2d", "3d", "strided"])
@@ -440,8 +492,8 @@ def test_shared_source_inventory():
     "original,replacement",
     [
         (
-            "probs = torch.softmax(logits.float(), dim=-1)",
-            "probs = torch.zeros_like(logits.float())",
+            "probs = torch.softmax(logits[r0:r1].float(), dim=-1)",
+            "probs = torch.zeros_like(logits[r0:r1].float())",
         ),
         (
             "dtype=torch.long).contiguous()",
@@ -488,6 +540,22 @@ def test_same_module_fingerprint_payload_is_unchanged():
     assert registry.operator_implementation_fingerprint(LocalOp, op) == expected
 
 
+def test_deterministic_autograd_source_changes_runtime_fingerprint(monkeypatch, tmp_path):
+    from rl_engine.backends.cuda.logprob import _deterministic_autograd as helper
+    from rl_engine.runtime.semantic_registry import operator_implementation_fingerprint
+
+    source = Path(helper.__file__).read_text()
+    path = tmp_path / "_deterministic_autograd.py"
+    path.write_text(source)
+    monkeypatch.setattr(helper, "__file__", str(path))
+    op = object.__new__(cuda.DeterministicLogpCUDAOp)
+    before_hash = operator_implementation_fingerprint(type(op), op)
+    changed = source.replace("torch.float64", "torch.float32")
+    assert changed != source
+    path.write_text(changed)
+    assert operator_implementation_fingerprint(type(op), op) != before_hash
+
+
 def test_h100_runner_rejects_missing_cuda(monkeypatch, tmp_path):
     from tools.validation.operators import compare_fused_logp_ownership as runner
 
@@ -495,5 +563,20 @@ def test_h100_runner_rejects_missing_cuda(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "argv", ["compare", "--output", str(output)])
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     with pytest.raises(AssertionError, match="requires a real CUDA device"):
+        runner.main()
+    assert not output.exists()
+
+
+def test_h100_runner_rejects_pre495_extension(monkeypatch, tmp_path):
+    from tools.validation.operators import compare_fused_logp_ownership as runner
+
+    output = tmp_path / "evidence.json"
+    monkeypatch.setattr(sys, "argv", ["compare", "--output", str(output)])
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (9, 0))
+    monkeypatch.setattr(torch.version, "hip", None)
+    monkeypatch.setattr(runner, "_EXT_AVAILABLE", True)
+    monkeypatch.setattr(runner, "_C", SimpleNamespace(fused_logp=lambda *args: None))
+    with pytest.raises(AssertionError, match="requires the merged #495 native backward"):
         runner.main()
     assert not output.exists()

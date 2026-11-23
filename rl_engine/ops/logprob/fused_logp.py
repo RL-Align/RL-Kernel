@@ -7,6 +7,57 @@ from typing import Any, Callable
 
 import torch
 
+# FP32 elements per backward row chunk (512 MiB each; upcast + softmax keep two alive).
+# Smaller chunks cost launch overhead: 2^24 is ~30% slower than unchunked at 32k x 152k.
+FUSED_LOGP_BWD_CHUNK_ELEMS = 1 << 27
+
+
+def fused_logp_backward_rows_per_chunk(
+    vocab: int, chunk_elems: int = FUSED_LOGP_BWD_CHUNK_ELEMS
+) -> int:
+    """Rows of FP32 softmax workspace the chunked backward materializes at once."""
+    return max(1, chunk_elems // max(vocab, 1))
+
+
+def fused_logp_backward_chunked(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    grad_output: torch.Tensor,
+    out_dtype: torch.dtype,
+    chunk_elems: int = FUSED_LOGP_BWD_CHUNK_ELEMS,
+) -> torch.Tensor:
+    """Row-chunked ``dlogits = -grad * (softmax - one_hot(target))``.
+
+    The FP32 workspace is bounded by ``chunk_elems`` instead of growing with
+    ``N * V``, so 8k-32k token rows at 150k+ vocab do not allocate tens of GB
+    of transient softmax.  Each row is computed independently, so the result is
+    bitwise identical for any chunk size.  Rows whose target is outside
+    ``[0, V)`` have a constant forward output of zero and get a zero gradient.
+    """
+    n_rows, vocab = logits.shape
+    # The fused binding rejects these; without the checks a length-1 grad would broadcast.
+    if grad_output.numel() != n_rows:
+        raise ValueError(f"grad_output length {grad_output.numel()} != {n_rows} logits rows")
+    if labels.numel() != n_rows:
+        raise ValueError(f"labels length {labels.numel()} != {n_rows} logits rows")
+    grad_logits = torch.empty((n_rows, vocab), device=logits.device, dtype=out_dtype)
+    neg_grad = -grad_output.reshape(-1).float()
+    valid = (labels >= 0) & (labels < vocab)
+    safe_labels = torch.where(valid, labels, torch.zeros_like(labels))
+    one_hot_scale = valid.float()
+    rows_per_chunk = fused_logp_backward_rows_per_chunk(vocab, chunk_elems)
+    for r0 in range(0, n_rows, rows_per_chunk):
+        r1 = min(r0 + rows_per_chunk, n_rows)
+        probs = torch.softmax(logits[r0:r1].float(), dim=-1)
+        rows = torch.arange(r1 - r0, device=logits.device)
+        probs[rows, safe_labels[r0:r1]] -= one_hot_scale[r0:r1]
+        probs.mul_((neg_grad[r0:r1] * one_hot_scale[r0:r1]).unsqueeze(1))
+        # Multiplication by zero does not clear NaNs from fully masked rows.
+        probs.masked_fill_(~valid[r0:r1].unsqueeze(1), 0)
+        grad_logits[r0:r1].copy_(probs)
+        del probs  # keep at most two FP32 chunks (upcast + softmax) alive
+    return grad_logits
+
 
 class FusedLogpAutogradForward(torch.autograd.Function):
     """Existing forward normalization and saved state for backend-owned bridges."""
@@ -21,20 +72,6 @@ class FusedLogpAutogradForward(torch.autograd.Function):
         ctx.input_shape = tuple(logits.shape)
         ctx.input_dtype = logits.dtype
         return output.reshape(logits.shape[:-1])
-
-
-def fused_logp_vjp(
-    logits: torch.Tensor,
-    labels: torch.Tensor,
-    grad_output: torch.Tensor,
-    input_dtype: torch.dtype,
-    input_shape: tuple[int, ...],
-) -> torch.Tensor:
-    probs = torch.softmax(logits.float(), dim=-1)
-    rows = torch.arange(logits.size(0), device=logits.device)
-    probs[rows, labels] -= 1.0
-    grad = -grad_output.reshape(-1, 1).float() * probs
-    return grad.to(input_dtype).reshape(input_shape)
 
 
 class FusedLogpOp:

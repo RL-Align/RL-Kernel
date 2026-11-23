@@ -6,7 +6,11 @@
 import torch
 
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
-from rl_engine.ops.logprob.fused_logp import FusedLogpAutogradForward, FusedLogpOp, fused_logp_vjp
+from rl_engine.ops.logprob.fused_logp import (
+    FusedLogpAutogradForward,
+    FusedLogpOp,
+    fused_logp_backward_chunked,
+)
 from rl_engine.utils.logger import logger
 
 
@@ -22,10 +26,9 @@ class _MusaFusedLogpAutograd(FusedLogpAutogradForward):
                 labels,
                 grad_output.reshape(-1).contiguous(),
             )
-            return grad.reshape(ctx.input_shape), None, None
-
-        grad = fused_logp_vjp(logits, labels, grad_output, ctx.input_dtype, ctx.input_shape)
-        return grad, None, None
+        else:
+            grad = fused_logp_backward_chunked(logits, labels, grad_output, ctx.input_dtype)
+        return grad.reshape(ctx.input_shape), None, None
 
 
 class MusaFusedLogpOp(FusedLogpOp):

@@ -17,7 +17,7 @@ from rl_engine.backends.cuda.logprob import logp
 from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 from rl_engine.runtime.registry import KernelRegistry
 
-BASE = "49941801f942428fd52ac5b66a1b0c070418724e"
+BASE = "e9d52e95226b62d826f0a224bafad2cab3ed7538"
 ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -43,9 +43,13 @@ def main():
     assert torch.version.hip is None, "requires NVIDIA CUDA, not HIP"
     assert torch.cuda.get_device_capability()[0] == 9, "requires Hopper"
     assert _EXT_AVAILABLE and hasattr(_C, "fused_logp"), "build the CUDA extension first"
+    assert hasattr(_C, "fused_logp_backward"), "requires the merged #495 native backward"
     assert any(
         str(_C.__file__).endswith(suffix) for suffix in importlib.machinery.EXTENSION_SUFFIXES
     ), "requires a binary extension"
+    assert (
+        Path(_C.__file__).resolve().parent == ROOT / "rl_engine"
+    ), "extension from another checkout"
     assert type(KernelRegistry().get_op("logp", device="cuda")) is logp.FusedLogpGenericOp
     source = subprocess.check_output(
         ["git", "show", f"{args.baseline}:rl_engine/backends/cuda/logprob/logp.py"],
@@ -142,7 +146,7 @@ def main():
                 ROOT / "rl_engine/ops/logprob/fused_logp.py",
             )
         },
-        "backward": "existing PyTorch VJP; CUDA native forward and variants",
+        "backward": "native fused_logp_backward; FP32 upstream, input-dtype gradient",
         "cases": cases,
     }
     args.output.write_text(json.dumps(report, indent=2) + "\n")
