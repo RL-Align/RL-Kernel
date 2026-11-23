@@ -178,6 +178,26 @@ def test_spawn_worker_registers_model_before_native_worker_initialization(monkey
     assert calls == ["registered", "native-binary", "native-init"]
 
 
+def test_spawn_worker_sets_the_identity_execution_mode_before_native_initialization(monkeypatch):
+    from types import SimpleNamespace
+
+    from rl_engine.integrations.engines.rollout.vllm import qwen3_next_vllm_worker as worker
+    from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next import profile
+
+    mode, seen = object(), []
+    monkeypatch.setattr(worker, "register_shared_model", lambda: None)
+    monkeypatch.setattr(worker, "imported_provider_identity", lambda: {"test": True})
+    monkeypatch.setattr(profile, "activate_for_identity", lambda identity: identity and mode)
+
+    def native_init(self, *args, **kwargs):
+        seen.append(self.shared_provider_execution_mode)
+
+    monkeypatch.setattr(worker.Worker, "__init__", native_init)
+    config = SimpleNamespace(additional_config={"qwen3_next_shared_identity": {"id": 1}})
+    worker.SharedQwenWorker(vllm_config=config)
+    assert seen == [mode]
+
+
 def test_architecture_registration_is_idempotent_and_rejects_another_model(monkeypatch):
     from vllm.model_executor.models import ModelRegistry
 
