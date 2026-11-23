@@ -141,7 +141,9 @@ class TestOneGPU:
             out = fn(xs, *leaves, **kw)
             y = out[0] if isinstance(out, tuple) else out
             y.backward(dy)
-            return [y.detach(), xs.grad] + [t.grad for t in leaves if t.grad is not None]
+            grads = [t.grad for t in leaves]  # dA and dB in fixed slots
+            assert all(g is not None for g in grads), "a LoRA leaf got no gradient"
+            return [y.detach(), xs.grad, *grads]
 
         def col(xs, al, bl, **kw):
             return pl.column_parallel_lora_linear(xs, [w], [(al, [bl])], 2.0, **kw)
@@ -158,10 +160,10 @@ class TestOneGPU:
         for flag, lora_fn in (("gather", col), ("scatter", row)):
             plain = run(lora_fn, a, b)
             flagged = run(lora_fn, a, b, **{flag: True})
-            assert all(torch.equal(p, q) for p, q in zip(plain, flagged)), flag
+            assert all(torch.equal(p, q) for p, q in zip(plain, flagged, strict=True)), flag
         for flag, fn in (("gather", base_col), ("scatter", base_row)):
             plain, flagged = run(fn), run(fn, **{flag: True})
-            assert all(torch.equal(p, q) for p, q in zip(plain, flagged)), flag
+            assert all(torch.equal(p, q) for p, q in zip(plain, flagged, strict=True)), flag
 
     def test_gradients_are_the_parameter_dtype(self):
         pytest.importorskip("triton")
@@ -286,6 +288,14 @@ def test_lora_block_equals_canonical_bitwise(tp, cp, sp, b_zero, h3_block_weight
     for key in ("out", "dx"):
         got = torch.cat([pieces[(s, k)] for (s, k) in sorted(pieces) if k == key], dim=1)
         assert torch.equal(got.cpu(), ref[key].cpu()), key
+    # base weight gradients: each rank's shard is the canonical gradient cut like its weight
+    from rl_engine.validation.models import h3_parallel_model as pm
+
+    for name in pm.SHARDED_WEIGHTS:
+        canonical = ref["dw." + name].cpu()
+        for r in ranks:
+            want = pm.shard_of(canonical, name, tp, int(r["rank"]) % tp)
+            assert torch.equal(r["dw." + name].cpu(), want), (name, int(r["rank"]))
     # LoRA gradients: each rank's shard is the canonical gradient cut like the parameter
     for target, kind in pl.TARGETS.items():
         for name in h3_lora.leaf_names(target):

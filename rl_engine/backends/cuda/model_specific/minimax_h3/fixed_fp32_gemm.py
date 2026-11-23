@@ -15,7 +15,13 @@ projections of those rows reduce exactly as the rows do:
 * ``out_dtype=torch.float32`` stores the FP32 accumulator unrounded, for the canonical-unit
   partials of the row-parallel reduction (``parallel._units_partial``).
 
-The launch options are pinned and checked by the tests against ``FixedFP32Backend``.
+The launch options are pinned and checked by the tests against ``FixedFP32Backend``. The down row's
+backend (``h3_down_fp32_backend.FixedFP32Backend``, #535) passes the same options except
+``INDEX_64``, which it leaves at the kernel's default ``False``: that only widens the kernel's index
+arithmetic to 64 bits and changes no value while every offset fits in 32 bits (the down operands
+are at most 32768 x 14336 elements). The tests pin that exception, and the SM90 cross-check
+(``tools/validation/models/h3_gemm_rows_crosscheck.py``) finds the down row's ``dX`` and ``dW``
+bitwise.
 """
 
 from __future__ import annotations

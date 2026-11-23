@@ -56,6 +56,24 @@ def test_launch_is_fixed_fp32_backends(monkeypatch):
     assert options == fx.LAUNCH
 
 
+def test_the_down_rows_launch_differs_only_in_index_width(monkeypatch):
+    """#535's down backend leaves ``INDEX_64`` at the kernel's default (``False``); every other
+    option is ``fx.LAUNCH``. The index width changes no value while offsets fit in 32 bits."""
+
+    pytest.importorskip("triton")
+    from rl_engine.backends.shared.triton.gemm import det_gemm, h3_down_fp32_backend
+
+    kernel = _Kernel()
+    monkeypatch.setattr(det_gemm, "_det_gemm_fp32_kernel", kernel)
+    backend = h3_down_fp32_backend.FixedFP32Backend()
+    backend.gemm(torch.zeros(3, 4, dtype=torch.bfloat16), torch.zeros(4, 5, dtype=torch.bfloat16))
+    ((_, options),) = kernel.launches
+    assert "INDEX_64" not in options  # the kernel's default, False
+    defaults = {"COMPENSATED": False, "CHUNK_K": 0, "EVEN_K": False, "EVEN_N": False}
+    assert {**defaults, **options, "INDEX_64": True} == fx.LAUNCH  # the rest is fx.LAUNCH
+    assert 32768 * 14336 < 2**31  # the down row's largest operand: no 32-bit offset overflows
+
+
 def test_rejects_non_bf16_operands():
     x = torch.zeros(2, 3)
     with pytest.raises(TypeError, match="BF16"):
@@ -127,7 +145,8 @@ def test_gate_up_lora_base_is_the_rows_kernel():
     outs = pl.column_parallel_lora_linear(
         x, [hidden, gate], [(a, [b_hidden, b_gate])], 2.0, kernel="fixed"
     )
-    for out, w in zip(outs, (hidden, gate)):
+    assert len(outs) == 2  # hidden and gate, both checked
+    for out, w in zip(outs, (hidden, gate), strict=True):
         assert torch.equal(out.float(), fx.gemm(x, w, b_t=True).float())
 
 
