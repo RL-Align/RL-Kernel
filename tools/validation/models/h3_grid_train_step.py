@@ -268,6 +268,7 @@ def main() -> None:
     model = sl.load_sharded_model(transformer, grid.tp, grid.tp_rank, "cuda").eval()
     _prepare(model)
     runs, exported = [], None
+    rows = int(_inputs(args.size, 0, 0)["token_tags"].numel())  # before the peak is measured
     torch.cuda.reset_peak_memory_stats()
     for _ in range(2 if args.repeat else 1):
         h3_lora.attach_lora(model, grid.tp, grid.tp_rank, **lora_kw)
@@ -299,7 +300,7 @@ def main() -> None:
         "sp": args.sp,
         "cp_mode": args.cp_mode,
         "size": args.size,
-        "rows": int(_inputs(args.size, 0, 0)["token_tags"].numel()),
+        "rows": rows,
         "strict_boundaries": strict,
         "refiner_lora": args.refiner_lora,
         "passes": args.passes,
