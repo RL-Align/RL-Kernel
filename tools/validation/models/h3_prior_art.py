@@ -795,12 +795,35 @@ def candidates(op: str, mode: str) -> list[dict[str, Any]]:
                 ).view(x.shape),
             }
 
+        def sglang_qknorm():
+            from sglang.kernels.ops.layernorm.norm import (
+                can_use_fused_inplace_qknorm,
+                fused_inplace_qknorm,
+            )
+
+            if not can_use_fused_inplace_qknorm(dim, torch.bfloat16):
+                raise RuntimeError("SGLang's fused QK norm kernel did not load")
+
+            def fn(x, w):
+                # the kernel norms q and k in place in one call: both are copies of x
+                q = x.reshape(1, -1, dim).clone()
+                fused_inplace_qknorm(q, q.clone(), w, w, EPS)
+                return q.view(x.shape)
+
+            return {
+                **base,
+                "grads": [],
+                "source": f"SGLang {_version('sglang')} fused_inplace_qknorm (q + k, forward only)",
+                "fn": fn,
+            }
+
         found = [
             ("diffusers", diffusers),
             ("rl_kernel_generic_cuda", rl_kernel_generic_cuda),
             ("rl_kernel_generic_triton", rl_kernel_generic_triton),
             ("transformer_engine", te_norm),
             ("liger", liger),
+            ("sglang_qknorm", sglang_qknorm),
             ("rl_kernel", rl_kernel),
         ]
 
