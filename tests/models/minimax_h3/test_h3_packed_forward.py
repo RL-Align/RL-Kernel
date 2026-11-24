@@ -44,7 +44,7 @@ class _Rope(nn.Module):
 
 
 class _AdaBlock(nn.Module):
-    """A block whose output depends on every ``adaln_indices`` entry (``t * MODALITY_NUM + tag``)."""
+    """A block whose output depends on every ``adaln_indices`` entry."""
 
     def __init__(self, width=16, entries=6):
         super().__init__()
