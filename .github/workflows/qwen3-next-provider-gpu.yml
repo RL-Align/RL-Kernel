@@ -168,14 +168,21 @@ jobs:
           grep -Eq '[0-9]+ passed' "$log"
       - name: Check the vLLM model contract and the EP4 real model (four GPUs)
         # A real VllmConfig on four visible GPUs, the certified cache dtypes, the CUSTOM attention
-        # backend and the EP4 expert map. Fewer than four GPUs would skip these checks, so fail
-        # instead of reporting a pass that did not run them.
+        # backend and the EP4 expert map. Fewer than four GPUs, or a missing vLLM or kernel,
+        # would skip these checks, so fail instead of reporting a pass that did not run them.
         env:
           TRITON_F32_DEFAULT: ieee
         run: |
+          set -o pipefail
           python3 - <<'PY'
           import torch
           assert torch.cuda.device_count() >= 4, "the real-model check needs four GPUs"
           PY
+          log="$RUNNER_TEMP/real-model-pytest.log"
           python3 -m pytest -q -rs tests/models/qwen3_next/check_qwen3_next_vllm_model_contract.py \
-            tests/models/qwen3_next/check_qwen3_next_vllm_real_model.py
+            tests/models/qwen3_next/check_qwen3_next_vllm_real_model.py | tee "$log"
+          if grep -Eq '^SKIPPED|[0-9]+ skipped' "$log"; then
+            echo "::error::a real-model check was skipped"
+            exit 1
+          fi
+          grep -Eq '[0-9]+ passed' "$log"
