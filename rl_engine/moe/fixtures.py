@@ -45,6 +45,18 @@ E2E_CASES: dict[str, dict[str, Any]] = {
     "uneven_experts": {"rows": 24, "offsets": [0, 0, 17, 17, 24], "lora": True},
 }
 
+# P5-7 EP cases: 16 experts so EP=8 still gives every rank two local experts.
+# Kept out of E2E_CASES so the golden manifest is unchanged.
+EP_CASES: dict[str, dict[str, Any]] = {
+    "ep16_base_plus_lora": {"rows": 32, "offsets": list(range(0, 33, 2)), "lora": True},
+    # Experts 2-3 and 10-11 receive no rows: ranks 1 and 5 are empty at EP=8.
+    "ep16_uneven_empty_rank": {
+        "rows": 29,
+        "offsets": [0, 3, 4, 4, 4, 11, 13, 13, 14, 18, 18, 18, 18, 23, 25, 26, 29],
+        "lora": True,
+    },
+}
+
 SHARED_CASES: dict[str, dict[str, Any]] = {
     "shared_t1": {"tokens": 1},
     "shared_t16": {"tokens": 16},
@@ -91,7 +103,7 @@ def _make_lora(g: torch.Generator) -> LoRAParams:
 
 
 def make_expert_batch(name: str) -> ExpertBatch:
-    spec = E2E_CASES[name]
+    spec = E2E_CASES[name] if name in E2E_CASES else EP_CASES[name]
     g = _gen(name)
     rows = spec["rows"]
     offsets = torch.tensor(spec["offsets"], dtype=torch.int32)
