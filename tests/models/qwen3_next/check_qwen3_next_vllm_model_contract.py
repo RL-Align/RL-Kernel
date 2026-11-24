@@ -167,11 +167,42 @@ def test_spawn_worker_registers_model_before_native_worker_initialization(monkey
         "imported_provider_identity",
         lambda: calls.append("native-binary") or {"test": True},
     )
-    monkeypatch.setattr(
-        worker.Worker, "__init__", lambda self, *args, **kwargs: calls.append("native-init")
-    )
+
+    def native_init(self, *args, **kwargs):
+        assert self.shared_l2_trace is None
+        assert self.shared_provider_execution_mode is None
+        calls.append("native-init")
+
+    monkeypatch.setattr(worker.Worker, "__init__", native_init)
     worker.SharedQwenWorker()
     assert calls == ["registered", "native-binary", "native-init"]
+
+
+def test_spawn_worker_sets_the_identity_execution_mode_before_native_initialization(monkeypatch):
+    from types import SimpleNamespace
+
+    from rl_engine.integrations.engines.rollout.vllm import qwen3_next_vllm_worker as worker
+    from rl_engine.integrations.orchestrators.vime.experiments.qwen3_next import profile
+
+    mode, identity = object(), {"id": 1}
+    activated, seen = [], []
+
+    def activate(value):
+        activated.append(value)
+        return mode
+
+    monkeypatch.setattr(worker, "register_shared_model", lambda: None)
+    monkeypatch.setattr(worker, "imported_provider_identity", lambda: {"test": True})
+    monkeypatch.setattr(profile, "activate_for_identity", activate)
+
+    def native_init(self, *args, **kwargs):
+        seen.append(self.shared_provider_execution_mode)
+
+    monkeypatch.setattr(worker.Worker, "__init__", native_init)
+    config = SimpleNamespace(additional_config={"qwen3_next_shared_identity": identity})
+    worker.SharedQwenWorker(vllm_config=config)
+    assert activated == [identity] and activated[0] is identity
+    assert seen == [mode]
 
 
 def test_architecture_registration_is_idempotent_and_rejects_another_model(monkeypatch):

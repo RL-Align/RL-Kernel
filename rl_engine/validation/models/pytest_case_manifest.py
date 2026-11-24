@@ -62,7 +62,11 @@ class CaseRecorder:
         self._progress()
 
     def pytest_runtest_logreport(self, report):
-        outcome = "skipped" if hasattr(report, "wasxfail") else report.outcome
+        # pytest reports an xfail as "skipped" and a non-strict xpass as "passed", both with
+        # wasxfail set. Record each as itself; neither is a completed mandatory case.
+        outcome = report.outcome
+        if hasattr(report, "wasxfail"):
+            outcome = "xpass" if report.outcome == "passed" else "xfail"
         self.outcomes.setdefault(report.nodeid, {})[report.when] = outcome
         self._progress()
 

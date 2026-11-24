@@ -61,6 +61,7 @@ def test_stage_environment_pins_batch_invariance_and_the_declared_memory(tmp_pat
     assert env["QWEN3_NEXT_ALLOCATED_MEMORY"] == "512G"
     assert env["QWEN3_NEXT_ATTEMPT"] == "0"
     assert env["TRITON_F32_DEFAULT"] == "ieee"
+    assert env["CUDA_DEVICE_MAX_CONNECTIONS"] == "1"
     assert env["PYTHONPATH"].endswith("source")
     assert ("QWEN_SHARED_PROFILE_RESULT" in env) == (bi == "1")
 
