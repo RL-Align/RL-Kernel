@@ -190,6 +190,9 @@ def stage_environment(manifest, run_dir, attempt):
         # thread per core on the ~50k small per-tensor loads of the HF import.
         OMP_NUM_THREADS="16",
         MKL_NUM_THREADS="16",
+        # Megatron's argument check refuses tensor parallelism without it (hit by the l2
+        # recompute on H100). It limits hardware work queues, not any kernel's arithmetic.
+        CUDA_DEVICE_MAX_CONNECTIONS="1",
     )
     # Layer gates qualify the providers without vLLM's aten overrides; the
     # certified full-model stages run with them.
