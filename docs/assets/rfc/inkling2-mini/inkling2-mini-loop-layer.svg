@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1330" viewBox="0 0 1600 1330">
+<defs><style>
+.title{font:700 27px Arial,Helvetica,sans-serif;fill:#1f3b2f}
+.sub{font:15px Arial,Helvetica,sans-serif;fill:#506458}
+.label{font:700 18px Arial,Helvetica,sans-serif;fill:#1f3b2f}
+.small{font:15px Arial,Helvetica,sans-serif;fill:#496253}
+.tiny{font:13px Arial,Helvetica,sans-serif;fill:#506458}
+.green{font:700 16px Arial,Helvetica,sans-serif;fill:#16754f}
+.wlabel{font:700 18px Arial,Helvetica,sans-serif;fill:white}
+.wsmall{font:14px Arial,Helvetica,sans-serif;fill:#ecf6f0}
+.foot{font:700 14px Arial,Helvetica,sans-serif;fill:#16754f}
+.box{fill:#fff;stroke:#7b9b88;stroke-width:1.5}
+.dash{fill:#fff;stroke:#84a695;stroke-width:1.5;stroke-dasharray:7 5}
+.panel{fill:#f8fbf9;stroke:#7b9b88;stroke-width:1.5}
+.core{fill:#16754f;stroke:#16754f;stroke-width:1.5}
+.line{stroke:#60806d;stroke-width:1.5;fill:none}
+.dline{stroke:#809c8e;stroke-width:1.5;stroke-dasharray:6 5;fill:none}
+</style><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#60806d"/></marker><marker id="dasharrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#809c8e"/></marker></defs>
+<rect width="1600" height="1330" fill="white"/>
+<text x="80" y="58" class="title" text-anchor="start">One Inkling 2 Mini decoder visit — strict operator boundaries</text>
+<text x="80" y="86" class="sub" text-anchor="start">TorchTitan train / SGLang rollout | physical layer + loop pass + logical visit + layer type</text>
+<rect class="dash" x="522" y="130" width="556" height="82" rx="11"/>
+<text x="800" y="160" class="label" text-anchor="middle">Input hidden state [T, 2304]</text>
+<text x="800" y="185" class="small" text-anchor="middle">from prelude / attention-residual state</text>
+<rect class="box" x="513" y="258" width="574" height="90" rx="11"/>
+<text x="800" y="292" class="label" text-anchor="middle">Block attention residuals</text>
+<text x="800" y="320" class="small" text-anchor="middle">learned block mixing over 6-layer groups</text>
+<path class="line" d="M800 212L800 258" marker-end="url(#arrow)"/>
+<rect class="panel" x="80" y="267" width="342" height="130" rx="11"/>
+<text x="251" y="301" class="label" text-anchor="middle">Previous-pass messages</text>
+<text x="251" y="329" class="small" text-anchor="middle">2 AttnRes blocks from pass p−1</text>
+<text x="251" y="353" class="small" text-anchor="middle">only for loop passes 2 and 3</text>
+<rect class="panel" x="1178" y="267" width="342" height="130" rx="11"/>
+<text x="1349" y="301" class="label" text-anchor="middle">Shared physical weights</text>
+<text x="1349" y="329" class="small" text-anchor="middle">core layers 6–17 reused x3</text>
+<text x="1349" y="353" class="small" text-anchor="middle">deterministic sum of visit gradients</text>
+<rect class="box" x="512" y="405" width="576" height="112" rx="11"/>
+<text x="800" y="439" class="label" text-anchor="middle">Rank-64 message controller</text>
+<text x="800" y="467" class="small" text-anchor="middle">independent Q / K / V / MoE gates</text>
+<text x="800" y="491" class="small" text-anchor="middle">pass 1: none | passes 2–3: gated blend</text>
+<path class="dline" d="M422 332L460 332L460 462L512 462" marker-end="url(#dasharrow)"/>
+<path class="line" d="M800 348L800 405" marker-end="url(#arrow)"/>
+<path class="dline" d="M1088 462L1130 462L1130 331L1178 331" marker-end="url(#dasharrow)"/>
+<rect class="panel" x="80" y="565" width="691" height="521" rx="14"/>
+<text x="426" y="600" class="green" text-anchor="middle">HYBRID RELATIVE ATTENTION</text>
+<rect class="panel" x="829" y="565" width="691" height="521" rx="14"/>
+<text x="1175" y="600" class="green" text-anchor="middle">ROUTED MoE</text>
+<rect class="box" x="130" y="630" width="587" height="83" rx="11"/>
+<text x="423.5" y="660" class="label" text-anchor="middle">Q / K / V projections + QK clipping</text>
+<text x="423.5" y="685" class="small" text-anchor="middle">Q24 / KV8 / D128 | declared accumulation and casts</text>
+<rect class="box" x="883" y="630" width="587" height="83" rx="11"/>
+<text x="1176.5" y="660" class="label" text-anchor="middle">MoE input + short-conv stream</text>
+<text x="1176.5" y="685" class="small" text-anchor="middle">rank-64 message applied before expert path</text>
+<rect class="box" x="130" y="738" width="587" height="83" rx="11"/>
+<text x="423.5" y="768" class="label" text-anchor="middle">Short causal conv streams: Q / K / V</text>
+<text x="423.5" y="793" class="small" text-anchor="middle">kernel size 4 | per-pass conv-state cache</text>
+<rect class="box" x="883" y="738" width="587" height="83" rx="11"/>
+<text x="1176.5" y="768" class="label" text-anchor="middle">Sigmoid router + stable top-8</text>
+<text x="1176.5" y="793" class="small" text-anchor="middle">128 experts | selection-only routing bias</text>
+<path class="line" d="M423 713L423 738" marker-end="url(#arrow)"/>
+<path class="line" d="M1177 713L1177 738" marker-end="url(#arrow)"/>
+<rect class="box" x="130" y="846" width="587" height="83" rx="11"/>
+<text x="423.5" y="876" class="label" text-anchor="middle">Local / global attention + relative bias</text>
+<text x="423.5" y="901" class="small" text-anchor="middle">5 local window 1024 : 1 full | fixed softmax/reduction</text>
+<rect class="box" x="883" y="846" width="587" height="83" rx="11"/>
+<text x="1176.5" y="876" class="label" text-anchor="middle">Expert SwiGLU gate / up / down</text>
+<text x="1176.5" y="901" class="small" text-anchor="middle">gate softcap 4 | up softcap 25 | backward</text>
+<path class="line" d="M423 821L423 846" marker-end="url(#arrow)"/>
+<path class="line" d="M1177 821L1177 846" marker-end="url(#arrow)"/>
+<rect class="box" x="130" y="954" width="587" height="83" rx="11"/>
+<text x="423.5" y="984" class="label" text-anchor="middle">Sink / output gate + O projection</text>
+<text x="423.5" y="1009" class="small" text-anchor="middle">prefill / decode and KV cache parity</text>
+<rect class="box" x="883" y="954" width="587" height="83" rx="11"/>
+<text x="1176.5" y="984" class="label" text-anchor="middle">Fixed expert weighted combine</text>
+<text x="1176.5" y="1009" class="small" text-anchor="middle">routing scale 8 | replay, dispatch and merge</text>
+<path class="line" d="M423 929L423 954" marker-end="url(#arrow)"/>
+<path class="line" d="M1177 929L1177 954" marker-end="url(#arrow)"/>
+<path class="line" d="M800 517L800 539L423 539L423 630" marker-end="url(#arrow)"/>
+<path class="line" d="M800 539L1177 539L1177 630" marker-end="url(#arrow)"/>
+<rect class="core" x="523" y="1130" width="554" height="93" rx="11"/>
+<text x="800" y="1164" class="wlabel" text-anchor="middle">Residual update + output hidden</text>
+<text x="800" y="1192" class="wsmall" text-anchor="middle">fixed forward/backward casts and reduction order</text>
+<path class="line" d="M423 1037L423 1102L800 1102L800 1130" marker-end="url(#arrow)"/>
+<path class="line" d="M1177 1037L1177 1102L800 1102" />
+<rect class="dash" x="559" y="1261" width="482" height="52" rx="11"/>
+<text x="800" y="1291" class="label" text-anchor="middle">WS1 per-visit first-drift trace</text>
+<path class="line" d="M800 1223L800 1261" marker-end="url(#arrow)"/>
+<text x="81" y="1319" class="foot" text-anchor="start">WS2: FSDP2 / EP (plus supported TP / CP) and SGLang rollout preserve the WS1 strict arithmetic contract.</text>
+</svg>
