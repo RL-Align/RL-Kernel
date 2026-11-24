@@ -221,17 +221,21 @@ _BLOCK = 1024
 
 
 def _launch_silu_fwd(x: Tensor) -> Tensor:
+    """Launch on the input device's current stream and restore the caller's device."""
     x_c = x.contiguous()
     y = torch.empty_like(x_c)
     n = x_c.numel()
     if n == 0:
         return y
     grid = (triton.cdiv(n, _BLOCK),)
-    _silu_fwd_kernel[grid](x_c, y, n, BLOCK=_BLOCK)
+    device_module = torch.get_device_module(x_c.device)
+    with device_module.device(x_c.device):
+        _silu_fwd_kernel[grid](x_c, y, n, BLOCK=_BLOCK)
     return y
 
 
 def _launch_silu_bwd(dy: Tensor, x: Tensor) -> Tensor:
+    """Launch on the saved input's device, including direct calls outside autograd."""
     dy_c = dy.contiguous()
     x_c = x.contiguous()
     dx = torch.empty_like(x_c)
@@ -239,7 +243,9 @@ def _launch_silu_bwd(dy: Tensor, x: Tensor) -> Tensor:
     if n == 0:
         return dx
     grid = (triton.cdiv(n, _BLOCK),)
-    _silu_bwd_kernel[grid](dy_c, x_c, dx, n, BLOCK=_BLOCK)
+    device_module = torch.get_device_module(x_c.device)
+    with device_module.device(x_c.device):
+        _silu_bwd_kernel[grid](dy_c, x_c, dx, n, BLOCK=_BLOCK)
     return dx
 
 

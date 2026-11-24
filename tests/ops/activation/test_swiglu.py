@@ -736,8 +736,8 @@ def test_triton_swiglu_noncurrent_device(dtype, method, strided):
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires at least two CUDA devices")
 @pytest.mark.parametrize("dtype", (torch.float16, torch.bfloat16, torch.float32))
 @pytest.mark.parametrize("target", (0, 1))
-def test_triton_swiglu_launchers_use_input_device_and_stream(monkeypatch, dtype, target):
-    """Direct backward must also be guarded, without relying on autograd's device switch."""
+def test_triton_silu_and_swiglu_launchers_use_input_device_and_stream(monkeypatch, dtype, target):
+    """Check each launcher's device and stream, including backward called outside autograd."""
     from rl_engine.backends.shared.triton.activation import swiglu
 
     device = torch.device("cuda", target)
@@ -754,31 +754,43 @@ def test_triton_swiglu_launchers_use_input_device_and_stream(monkeypatch, dtype,
 
         monkeypatch.setattr(kernel, "run", run)
 
-    for kernel in (
+    kernels = (
+        swiglu._silu_fwd_kernel,
+        swiglu._silu_bwd_kernel,
         swiglu._swiglu_fwd_kernel,
         swiglu._swiglu_bwd_kernel,
         swiglu._swiglu_dgate_kernel,
-    ):
+    )
+    for kernel in kernels:
         record_launch(kernel)
 
     with torch.cuda.device(caller), torch.cuda.stream(stream):
         gate = _rand((3, 1025), seed=664, dtype=dtype, device=device)
         up = _rand(gate.shape, seed=665, dtype=dtype, device=device)
         dy = _rand(gate.shape, seed=666, dtype=dtype, device=device)
-        expected = swiglu._launch_swiglu_fwd(gate, up)
-        expected_grads = swiglu._launch_swiglu_bwd(dy, gate, up)
+        with torch.cuda.device(target):
+            expected = (
+                swiglu._launch_silu_fwd(gate),
+                swiglu._launch_silu_bwd(dy, gate),
+                swiglu._launch_swiglu_fwd(gate, up),
+                *swiglu._launch_swiglu_bwd(dy, gate, up),
+            )
         launches.clear()
 
         torch.cuda.set_device(caller)
-        actual = swiglu._launch_swiglu_fwd(gate, up)
+        silu_y = swiglu._launch_silu_fwd(gate)
         assert torch.cuda.current_device() == caller
-        gradients = swiglu._launch_swiglu_bwd(dy, gate, up)
+        silu_dx = swiglu._launch_silu_bwd(dy, gate)
+        assert torch.cuda.current_device() == caller
+        swiglu_y = swiglu._launch_swiglu_fwd(gate, up)
+        assert torch.cuda.current_device() == caller
+        swiglu_grads = swiglu._launch_swiglu_bwd(dy, gate, up)
         assert torch.cuda.current_device() == caller
         assert torch.cuda.current_stream(device) == stream
     stream.synchronize()
 
-    assert launches == [(target, stream)] * 3
-    for result, reference in zip((actual, *gradients), (expected, *expected_grads), strict=True):
+    assert launches == [(target, stream)] * len(kernels)
+    for result, reference in zip((silu_y, silu_dx, swiglu_y, *swiglu_grads), expected, strict=True):
         assert result.device == device
         assert torch.equal(result, reference)
 
