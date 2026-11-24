@@ -206,7 +206,7 @@ __global__ void full_attention_dkv_kernel(
     const scalar_t* __restrict__ query, const scalar_t* __restrict__ grad_output,
     const float* __restrict__ output_gate, scalar_t* __restrict__ dkey,
     scalar_t* __restrict__ dvalue, int64_t batch, int64_t query_len, int64_t key_len,
-    int64_t query_heads, int64_t key_heads, int64_t head_dim, bool causal,
+    int64_t query_heads, int64_t key_heads, int64_t head_dim, float scale, bool causal,
     const int64_t* query_documents, const int64_t* key_documents) {
   const int64_t index = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   const int64_t total = batch * key_heads * key_len * head_dim;
@@ -229,7 +229,7 @@ __global__ void full_attention_dkv_kernel(
           probabilities[row * key_len + k] * static_cast<float>(grad_output[q_offset + d]) * gate;
     }
   }
-  dkey[index] = static_cast<scalar_t>(key_gradient);
+  dkey[index] = static_cast<scalar_t>(key_gradient * scale);
   dvalue[index] = static_cast<scalar_t>(value_gradient);
 }
 
@@ -435,7 +435,8 @@ std::vector<torch::Tensor> inkling2_full_attention_backward(
             dscore.data_ptr<float>(), probabilities.data_ptr<float>(), query.data_ptr<scalar_t>(),
             grad_output.data_ptr<scalar_t>(), optional_ptr<float>(output_gate),
             d_key.data_ptr<scalar_t>(), d_value.data_ptr<scalar_t>(), batch, query_len, key_len,
-            query_heads, key_heads, head_dim, causal, optional_ptr<int64_t>(query_documents),
+            query_heads, key_heads, head_dim, static_cast<float>(scale), causal,
+            optional_ptr<int64_t>(query_documents),
             optional_ptr<int64_t>(key_documents));
         if (relative_bias.numel() != 0) d_relative_bias.copy_(dscore);
         if (sink.numel() != 0) {

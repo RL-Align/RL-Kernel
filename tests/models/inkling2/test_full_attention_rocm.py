@@ -134,7 +134,7 @@ def test_backward_without_optional_inputs():
     for x in inputs:
         x.grad = None
     (ref * w).sum().backward()
-    for g, x in zip(got, inputs):
+    for g, x in zip(got, inputs, strict=True):
         torch.testing.assert_close(g, x.grad, **GRAD_TOL[torch.float32])
 
 
@@ -162,7 +162,7 @@ def test_run_to_run_bitwise_determinism(dtype):
 
     first = run()
     for _ in range(3):
-        for a, b in zip(first, run()):
+        for a, b in zip(first, run(), strict=True):
             assert torch.equal(a, b)
 
 
