@@ -102,6 +102,8 @@ def gemm_rows_supported(device: torch.device | None = None) -> bool:
     ``_det_gemm_fp32_kernel``, so Triton must be importable as well.
     """
 
+    if device is not None and device.type != "cuda":
+        return False  # e.g. weights on the CPU: the rows have no CPU path
     if not torch.cuda.is_available() or torch.cuda.get_device_capability(device) != (9, 0):
         return False
     try:
