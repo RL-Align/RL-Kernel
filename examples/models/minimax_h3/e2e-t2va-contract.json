@@ -1,0 +1,59 @@
+{
+ "schema": 1,
+ "row": "final_e2e_diffusers_cuda",
+ "workflow": "t2va",
+ "model_revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+ "provider_revision": "f53d552036a0d1bd5570782a39cd40cfabf112bc",
+ "transformer_variant": "FL2VA",
+ "height": 256,
+ "width": 384,
+ "num_frames": 121,
+ "resolved_num_frames": 124,
+ "fps": 24,
+ "num_inference_steps": 10,
+ "source": "the verl-omni MiniMax-H3 T2VA LoRA recipe's rollout settings (true_cfg_scale 1.0: the pinned T2VA pipeline has no CFG) and its 4 test prompts, 2 seeds each",
+ "attention_query_chunk": 256,
+ "cases": [
+  {
+   "case": 0,
+   "prompt": "A woodpecker taps rapidly on a tree trunk in a quiet morning forest.",
+   "seed": 42
+  },
+  {
+   "case": 1,
+   "prompt": "A woodpecker taps rapidly on a tree trunk in a quiet morning forest.",
+   "seed": 43
+  },
+  {
+   "case": 2,
+   "prompt": "A church bell rings over the rooftops of a small European town.",
+   "seed": 42
+  },
+  {
+   "case": 3,
+   "prompt": "A church bell rings over the rooftops of a small European town.",
+   "seed": 43
+  },
+  {
+   "case": 4,
+   "prompt": "A chef sizzles vegetables in a hot wok over a roaring flame.",
+   "seed": 42
+  },
+  {
+   "case": 5,
+   "prompt": "A chef sizzles vegetables in a hot wok over a roaring flame.",
+   "seed": 43
+  },
+  {
+   "case": 6,
+   "prompt": "A waterfall pours into a rocky pool, its roar echoing through the canyon.",
+   "seed": 42
+  },
+  {
+   "case": 7,
+   "prompt": "A waterfall pours into a rocky pool, its roar echoing through the canyon.",
+   "seed": 43
+  }
+ ],
+ "contract_sha256": "c47506d7f813e967666cca69f045d5ff2bc4ee8c18ed6fdeedd557f3043b39cd"
+}
