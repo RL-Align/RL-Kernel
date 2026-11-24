@@ -48,7 +48,8 @@ def test_forward_matches_sequential_reference(dtype, shape, use_bias):
     tokens, idx, w, b = _make(*shape, dtype, bias=use_bias)
     out = grouped_expert_gemm_rocm(tokens, idx, w, b)
     ref = _ref(tokens, idx, w, b)
-    torch.testing.assert_close(out.float(), ref.float(), atol=2e-2 if dtype != torch.float32 else 1e-4, rtol=0)
+    atol = 2e-2 if dtype != torch.float32 else 1e-4
+    torch.testing.assert_close(out.float(), ref.float(), atol=atol, rtol=0)
 
 
 def test_forward_real_inkling_shape_tolerance_and_determinism():
