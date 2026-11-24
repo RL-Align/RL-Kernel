@@ -399,6 +399,20 @@ def test_cuda_triton_silu_matches_native_forward_and_backward(impl, dtype, shape
 
 
 @requires_cuda
+@requires_triton_activation
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("method", ["forward", "forward_fp32"])
+def test_triton_silu_preserves_signed_zero(dtype, method):
+    """At ±0, SiLU keeps the input sign and its positive derivative keeps the gradient sign."""
+    x = torch.tensor([0.0, -0.0], device="cuda", dtype=dtype, requires_grad=True)
+    y = getattr(TritonSiLUOp(), method)(x)
+    grad_y = torch.tensor([-0.0, 0.0], device="cuda", dtype=y.dtype)
+    (grad_x,) = torch.autograd.grad(y, x, grad_y)
+    assert torch.equal(y.view(torch.uint8), x.to(y.dtype).view(torch.uint8))
+    assert torch.equal(grad_x.view(torch.uint8), grad_y.to(dtype).view(torch.uint8))
+
+
+@requires_cuda
 @pytest.mark.parametrize("impl", _silu_impls())
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
 @pytest.mark.parametrize(

@@ -149,6 +149,41 @@ def test_saturation_and_zero_match_shared_bits(dtype, order):
     )
 
 
+@pytest.mark.parametrize(
+    ("dtype", "small", "expected_magnitude"),
+    [
+        (torch.float16, 2.0**-14, 0.0),
+        (torch.bfloat16, 2.0**-67, 0.0),
+        (torch.float32, 2.0**-14, 2.0**-29),
+    ],
+)
+@pytest.mark.parametrize("method", ["forward", "forward_fp32"])
+@pytest.mark.parametrize("order", list(SwiGLUPackedOrder))
+def test_signed_zero_in_both_layouts(dtype, small, expected_magnitude, method, order):
+    """Check exact zeros and signed underflow against expected bits in both layouts."""
+    gate = torch.tensor([[-0.0], [0.0], [0.0], [0.0]], device="cuda", dtype=dtype)
+    up = torch.tensor([[1.0], [-0.0], [-small], [small]], device="cuda", dtype=gate.dtype)
+    grad_y = torch.tensor([[1.0], [1.0], [small], [small]], device="cuda", dtype=gate.dtype)
+    halves = (gate, up) if order is SwiGLUPackedOrder.GATE_UP else (up, gate)
+    x = torch.cat(halves, dim=-1).requires_grad_()
+    first, second = x.chunk(2, dim=-1)
+    g, u = (first, second) if order is SwiGLUPackedOrder.GATE_UP else (second, first)
+    fn = getattr(TritonSwiGLUOp(), method)
+
+    expected_y = torch.tensor([[-0.0], [-0.0], [-0.0], [0.0]], device="cuda", dtype=dtype)
+    # At gate = ±0, d_gate = grad_y * up / 2. The last pair has magnitude
+    # small**2 / 2. This rounds to zero in FP16 and BF16 for the inputs above.
+    # All upstream gradients are positive, so d_up keeps the sign of gate.
+    d_gate = torch.tensor(
+        [[0.5], [-0.0], [-expected_magnitude], [expected_magnitude]], device="cuda", dtype=dtype
+    )
+    grads = (d_gate, gate) if order is SwiGLUPackedOrder.GATE_UP else (gate, d_gate)
+    for y in (fn(gate=g, up=u), fn(packed_input=x, packed_order=order)):
+        _assert_bits(y, expected_y.to(y.dtype))
+        (dx,) = torch.autograd.grad(y, x, grad_y.to(y.dtype))
+        _assert_bits(dx, torch.cat(grads, dim=-1))
+
+
 @pytest.mark.parametrize("dtype", _DTYPES)
 @pytest.mark.parametrize("mode", ["forward", "backward", "forward_backward"])
 @pytest.mark.parametrize("order", list(SwiGLUPackedOrder))

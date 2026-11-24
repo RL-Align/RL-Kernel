@@ -8,6 +8,9 @@ dtype on store — the same dual-path contract as the PyTorch references:
   silu(x)      = x * sigmoid(x)
   swiglu(g, u) = silu(g) * u
 
+All launches disable implicit FMA so the multiply and add in the SiLU
+derivative round separately in FP32 on every backend.
+FP16 and BF16 outputs and gradients keep the FP32 product's sign when they round to zero.
 Element-wise and row-independent, so Axis-A batch invariance holds bitwise.
 """
 
@@ -73,6 +76,23 @@ def _validate_swiglu_packed_input(packed_input: Tensor) -> None:
         )
 
 
+@triton.jit
+def _cast_preserving_zero_sign(value, dtype: tl.constexpr):
+    """Cast an FP32 result to its output dtype, preserving the sign when it rounds to zero."""
+    rounded = value.to(dtype)
+    if dtype == tl.float16 or dtype == tl.bfloat16:
+        # Both 16-bit formats use bit 15 for the sign. Check the remaining bits
+        # after rounding so this also covers nonzero FP32 products that underflow.
+        rounded_bits = rounded.to(tl.uint16, bitcast=True)
+        is_zero = (rounded_bits & 0x7FFF) == 0
+        # A fused multiply and conversion can lose the sign of zero. Copy the
+        # original product's sign from bit 31 to bit 15 of the stored zero.
+        fp32_bits = value.to(tl.uint32, bitcast=True)
+        signed_zero = ((fp32_bits >> 16) & 0x8000).to(tl.uint16)
+        return tl.where(is_zero, signed_zero, rounded_bits).to(dtype, bitcast=True)
+    return rounded
+
+
 # Every kernel widens pid to int64 before scaling by BLOCK: in int32 the flat
 # offset wraps negative past 2**31 elements(#640).
 @triton.jit
@@ -83,7 +103,7 @@ def _silu_fwd_kernel(x_ptr, y_ptr, n_elements, BLOCK: tl.constexpr):
     x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     s = tl.div_rn(1.0, 1.0 + tl.exp(-x))
     y = x * s
-    tl.store(y_ptr + offs, y.to(y_ptr.dtype.element_ty), mask=mask)
+    tl.store(y_ptr + offs, _cast_preserving_zero_sign(y, y_ptr.dtype.element_ty), mask=mask)
 
 
 @triton.jit
@@ -96,7 +116,7 @@ def _silu_bwd_kernel(dy_ptr, x_ptr, dx_ptr, n_elements, BLOCK: tl.constexpr):
     s = tl.div_rn(1.0, 1.0 + tl.exp(-x))
     # silu'(x) = s * (1 + x * (1 - s))
     dx = dy * s * (1.0 + x * (1.0 - s))
-    tl.store(dx_ptr + offs, dx.to(dx_ptr.dtype.element_ty), mask=mask)
+    tl.store(dx_ptr + offs, _cast_preserving_zero_sign(dx, dx_ptr.dtype.element_ty), mask=mask)
 
 
 @triton.jit
@@ -108,7 +128,7 @@ def _swiglu_fwd_kernel(gate_ptr, up_ptr, y_ptr, n_elements, BLOCK: tl.constexpr)
     u = tl.load(up_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
     y = (g * s) * u
-    tl.store(y_ptr + offs, y.to(y_ptr.dtype.element_ty), mask=mask)
+    tl.store(y_ptr + offs, _cast_preserving_zero_sign(y, y_ptr.dtype.element_ty), mask=mask)
 
 
 @triton.jit
@@ -122,7 +142,9 @@ def _swiglu_bwd_kernel(dy_ptr, gate_ptr, silu_grad_ptr, d_up_ptr, n_elements, BL
     silu_g = g * s
     d_up = dy * silu_g
     silu_grad = s * (1.0 + g * (1.0 - s))
-    tl.store(d_up_ptr + offs, d_up.to(d_up_ptr.dtype.element_ty), mask=mask)
+    tl.store(
+        d_up_ptr + offs, _cast_preserving_zero_sign(d_up, d_up_ptr.dtype.element_ty), mask=mask
+    )
     tl.store(silu_grad_ptr + offs, silu_grad, mask=mask)
 
 
@@ -140,7 +162,11 @@ def _swiglu_dgate_kernel(
     # latter as FP32 prevents LLVM from reassociating the expression across
     # the function boundary and changing a BF16 tie at rare elements.
     d_gate = (dy * u) * silu_grad
-    tl.store(d_gate_ptr + offs, d_gate.to(d_gate_ptr.dtype.element_ty), mask=mask)
+    tl.store(
+        d_gate_ptr + offs,
+        _cast_preserving_zero_sign(d_gate, d_gate_ptr.dtype.element_ty),
+        mask=mask,
+    )
 
 
 @triton.jit
@@ -159,7 +185,7 @@ def _swiglu_packed_fwd_kernel(
     u = tl.load(packed_input_ptr + up_offsets, mask, other=0).to(tl.float32)
     s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
     y = (g * s) * u
-    tl.store(y_ptr + offsets, y.to(y_ptr.dtype.element_ty), mask)
+    tl.store(y_ptr + offsets, _cast_preserving_zero_sign(y, y_ptr.dtype.element_ty), mask)
 
 
 @triton.jit
@@ -186,7 +212,7 @@ def _swiglu_packed_bwd_up_kernel(
     silu_g = g * s
     d_up = dy * silu_g
     silu_grad = s * (1.0 + g * (1.0 - s))
-    tl.store(dx_ptr + up_offsets, d_up.to(dx_ptr.dtype.element_ty), mask)
+    tl.store(dx_ptr + up_offsets, _cast_preserving_zero_sign(d_up, dx_ptr.dtype.element_ty), mask)
     tl.store(silu_grad_ptr + offsets, silu_grad, mask)
 
 
@@ -214,7 +240,9 @@ def _swiglu_packed_bwd_gate_kernel(
     # Keep the same FP32 workspace boundary as the shared SwiGLU. Fusing the
     # stages could let the compiler reassociate this expression at BF16 ties.
     d_gate = (dy * u) * silu_grad
-    tl.store(dx_ptr + gate_offsets, d_gate.to(dx_ptr.dtype.element_ty), mask)
+    tl.store(
+        dx_ptr + gate_offsets, _cast_preserving_zero_sign(d_gate, dx_ptr.dtype.element_ty), mask
+    )
 
 
 _BLOCK = 1024
@@ -230,7 +258,7 @@ def _launch_silu_fwd(x: Tensor) -> Tensor:
     grid = (triton.cdiv(n, _BLOCK),)
     device_module = torch.get_device_module(x_c.device)
     with device_module.device(x_c.device):
-        _silu_fwd_kernel[grid](x_c, y, n, BLOCK=_BLOCK)
+        _silu_fwd_kernel[grid](x_c, y, n, BLOCK=_BLOCK, enable_fp_fusion=False)
     return y
 
 
@@ -245,7 +273,7 @@ def _launch_silu_bwd(dy: Tensor, x: Tensor) -> Tensor:
     grid = (triton.cdiv(n, _BLOCK),)
     device_module = torch.get_device_module(x_c.device)
     with device_module.device(x_c.device):
-        _silu_bwd_kernel[grid](dy_c, x_c, dx, n, BLOCK=_BLOCK)
+        _silu_bwd_kernel[grid](dy_c, x_c, dx, n, BLOCK=_BLOCK, enable_fp_fusion=False)
     return dx
 
 
@@ -266,7 +294,7 @@ def _launch_swiglu_fwd(gate: Tensor, up: Tensor) -> Tensor:
     # backend's guard (torch.cuda also covers ROCm) and restore the caller on exit.
     device_module = torch.get_device_module(gate_c.device)
     with device_module.device(gate_c.device):
-        _swiglu_fwd_kernel[grid](gate_c, up_c, y, n, BLOCK=_BLOCK)
+        _swiglu_fwd_kernel[grid](gate_c, up_c, y, n, BLOCK=_BLOCK, enable_fp_fusion=False)
     return y
 
 
@@ -298,6 +326,7 @@ def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Te
             d_up,
             n,
             BLOCK=_BLOCK,
+            enable_fp_fusion=False,
         )
         _swiglu_dgate_kernel[grid](
             dy_c,
@@ -306,6 +335,7 @@ def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Te
             d_gate,
             n,
             BLOCK=_BLOCK,
+            enable_fp_fusion=False,
         )
     return d_gate, d_up
 
@@ -333,6 +363,7 @@ def _launch_swiglu_packed_fwd(
             WIDTH=width,
             GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
             BLOCK=_BLOCK,
+            enable_fp_fusion=False,
         )
     return y
 
@@ -359,6 +390,7 @@ def _launch_swiglu_packed_bwd(
             WIDTH=width,
             GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
             BLOCK=_BLOCK,
+            enable_fp_fusion=False,
         )
         _swiglu_packed_bwd_gate_kernel[grid](
             grad_y_c,
@@ -368,6 +400,7 @@ def _launch_swiglu_packed_bwd(
             WIDTH=width,
             GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
             BLOCK=_BLOCK,
+            enable_fp_fusion=False,
         )
     return grad_packed_input
 
