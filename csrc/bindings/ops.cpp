@@ -455,6 +455,15 @@ std::vector<torch::Tensor> deterministic_attention_backward(
     torch::optional<torch::Tensor> key_padding_mask);
 
 #if defined(KERNEL_ALIGN_WITH_ROCM)
+// INK-06 ROCm padded token embedding (csrc/rocm/inkling2/token_embedding.hip).
+torch::Tensor inkling2_token_embedding_rocm(torch::Tensor token_ids, torch::Tensor weight);
+torch::Tensor inkling2_token_embedding_backward_rocm(
+    torch::Tensor token_ids,
+    torch::Tensor grad_output,
+    int64_t vocab_size);
+#endif
+
+#if defined(KERNEL_ALIGN_WITH_ROCM)
 torch::Tensor deterministic_rope_apply_rocm(
     torch::Tensor x,
     torch::Tensor cos,
@@ -779,6 +788,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "deterministic_attention_backward",
         &deterministic_attention_backward,
         "Deterministic standard softmax attention backward (dQ, dK, dV)");
+#if defined(KERNEL_ALIGN_WITH_ROCM)
+    m.def(
+        "inkling2_token_embedding_rocm",
+        &inkling2_token_embedding_rocm,
+        "Inkling 2 padded token embedding gather for ROCm (byte-exact rows)");
+    m.def(
+        "inkling2_token_embedding_backward_rocm",
+        &inkling2_token_embedding_backward_rocm,
+        "Inkling 2 deterministic token embedding backward for ROCm");
+#endif
 #if defined(KERNEL_ALIGN_WITH_ROCM)
     m.def(
         "deterministic_rope_apply_rocm",

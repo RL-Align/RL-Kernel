@@ -235,6 +235,7 @@ def get_extensions():
                 [
                     "csrc/rocm/logprob/hip_deterministic_logp_kernel.hip",
                     "csrc/rocm/collectives/deterministic_collective.hip",
+                    "csrc/rocm/inkling2/token_embedding.hip",
                 ]
             )
         else:
