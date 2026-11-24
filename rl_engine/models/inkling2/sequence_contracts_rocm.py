@@ -301,9 +301,7 @@ def estimate_long_context_memory(
         )
         * b
     )
-    return MemoryEstimate(
-        s, kv_full, kv_local, conv, boundary, work, min(chunk_size, s) * s, s * s
-    )
+    return MemoryEstimate(s, kv_full, kv_local, conv, boundary, work, min(chunk_size, s) * s, s * s)
 
 
 @dataclass(frozen=True)

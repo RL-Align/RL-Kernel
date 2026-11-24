@@ -149,6 +149,12 @@ def test_formula_matches_real_allocations_at_4k():
 def test_long_context_plan_on_real_device_is_honest():
     info = read_rocm_device()
     reports = assess_long_context_plan(info=info)
+    for r in reports:  # visible with -s: real-device readback and per-length verdicts
+        print(
+            f"LONGCTX S={r.sequence_length} {r.status} required={r.estimate.required / GIB:.2f}GiB "
+            f"dominant={r.estimate.dominant} dense_mask={r.estimate.dense_mask / GIB:.2f}GiB "
+            f"budget={r.budget_bytes / GIB:.1f}GiB: {r.reason}"
+        )
     assert [r.sequence_length for r in reports] == list(LongContextPlan().context_lengths)
     budget = int(info.free_memory_bytes * 0.90)
     for r in reports:
