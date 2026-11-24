@@ -228,6 +228,7 @@ def get_extensions():
             "csrc/cuda/activation/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
             "csrc/cuda/inkling2/grouped_gemm.cu",
+            "csrc/cuda/inkling2/expert_mlp.cu",
         ]
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared
