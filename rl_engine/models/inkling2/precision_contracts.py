@@ -57,13 +57,13 @@ class CheckpointFingerprint:
 
 
 def _tensor_bytes(tensor: torch.Tensor) -> bytes:
-    if (
-        not isinstance(tensor, torch.Tensor)
-        or not tensor.is_floating_point()
-        and not tensor.dtype.is_floating_point
-    ):
+    if not isinstance(tensor, torch.Tensor):
         raise TypeError("checkpoint tensors must be torch tensors")
-    return tensor.detach().contiguous().cpu().view(torch.uint8).numpy().tobytes()
+    if tensor.is_complex():
+        tensor = torch.view_as_real(tensor)
+    # Exact storage bytes for every dtype (floating, integer, bool); reshape(-1) keeps
+    # 0-dim tensors viewable as raw bytes.
+    return tensor.detach().contiguous().cpu().reshape(-1).view(torch.uint8).numpy().tobytes()
 
 
 def fingerprint_tensor(name: str, tensor: torch.Tensor) -> TensorFingerprint:
@@ -160,6 +160,17 @@ class QuantizedTensor:
     format: str
 
 
+def _per_tensor_scale(source: torch.Tensor, fmax: float) -> torch.Tensor:
+    """FP32 scale = amax / fmax using a tensor divisor.
+
+    Dividing by a Python scalar can be lowered to a reciprocal multiply on GPU, which
+    differs from the CPU result by 1 ulp; a same-dtype/device tensor divisor is a true
+    IEEE division on every device.
+    """
+    amax = source.abs().amax().clamp_min(torch.finfo(torch.float32).eps)
+    return amax / torch.full_like(amax, fmax)
+
+
 def quantize_per_tensor(tensor: torch.Tensor, *, format: str = "int8_symmetric") -> QuantizedTensor:
     if format not in {"int8_symmetric", "float8_e4m3fn"}:
         raise PrecisionContractError(f"unsupported quantization format {format!r}")
@@ -167,13 +178,13 @@ def quantize_per_tensor(tensor: torch.Tensor, *, format: str = "int8_symmetric")
         raise ValueError("quantization requires a nonempty floating point tensor")
     source = tensor.float()
     if format == "int8_symmetric":
-        scale = source.abs().amax().clamp_min(torch.finfo(torch.float32).eps) / 127.0
+        scale = _per_tensor_scale(source, 127.0)
         values = torch.round(source / scale).clamp(-127, 127).to(torch.int8)
     else:
         dtype = getattr(torch, "float8_e4m3fn", None)
         if dtype is None:
             raise RuntimeError("PyTorch float8_e4m3fn is unavailable")
-        scale = source.abs().amax().clamp_min(torch.finfo(torch.float32).eps) / 448.0
+        scale = _per_tensor_scale(source, 448.0)
         values = (source / scale).to(dtype)
     return QuantizedTensor(values, scale.reshape(()), format)
 
