@@ -20,6 +20,7 @@ nav:
     - Operators:
       - operators/README.md
       - operators/activation.md
+      - Qwen3-Next Reference Primitives: operators/qwen3-next-references.md
       - operators/attention.md
       - operators/fused-logp.md
       - operators/linear-logp.md
