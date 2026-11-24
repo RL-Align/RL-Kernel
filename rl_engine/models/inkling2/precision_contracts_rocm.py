@@ -34,7 +34,6 @@ from .precision_contracts import (
     QuantizedTensor,
     dequantize_per_tensor,
     fingerprint_checkpoint,
-    quantize_per_tensor,
 )
 
 FP8_FNUZ_FORMATS = {
@@ -137,57 +136,38 @@ def build_rocm_quant_matrix(
         return False, f"{arch} ({_GFX_FAMILIES[arch][0]}) not present on this host ({where})"
 
     entries: list[QuantBackendCapability] = []
+
+    def add(platform, backend, fmt, training, inference, available, reason):
+        cap = QuantBackendCapability(platform, backend, fmt, training, inference, available, reason)
+        entries.append(cap)
+
+    nvfp4_why = "NVFP4 is an NVIDIA format; never claimed native on AMD"
     # --- gfx942: int8 + FNUZ FP8 (torch emulated per-tensor quant + FP32 dequant)
     present, why = on_host("gfx942")
-    entries.append(
-        QuantBackendCapability(
-            "rocm:gfx942", "torch", INT8_FORMAT, True, True, present, why
-        )
-    )
+    add("rocm:gfx942", "torch", INT8_FORMAT, True, True, present, why)
     for fmt in FP8_FNUZ_FORMATS:
         ok = present and fnuz_probe
         reason = why or ("" if ok else "FNUZ FP8 device probe failed")
-        entries.append(QuantBackendCapability("rocm:gfx942", "torch", fmt, True, True, ok, reason))
+        add("rocm:gfx942", "torch", fmt, True, True, ok, reason)
     gated_942 = {
         "float8_e4m3fn": "OCP FP8 has no gfx942 hardware path (FNUZ only)",
         "float8_e5m2": "OCP FP8 has no gfx942 hardware path (FNUZ only)",
         "mxfp8": "MXFP8 needs OCP FP8 hardware (gfx950); gfx942 has FNUZ only",
         "mxfp4": "MXFP4 needs gfx950 hardware; gfx942 has no FP4",
-        NVFP4_FORMAT: "NVFP4 is an NVIDIA format; never claimed native on AMD",
+        NVFP4_FORMAT: nvfp4_why,
     }
     for fmt, extra in gated_942.items():
-        cap = QuantBackendCapability("rocm:gfx942", "none", fmt, False, False, False, extra)
-        entries.append(cap)
+        add("rocm:gfx942", "none", fmt, False, False, False, extra)
     # --- gfx950: OCP FP8 + MX declared, gated unless this host really is gfx950
     present, why = on_host("gfx950")
-    entries.append(
-        QuantBackendCapability("rocm:gfx950", "torch", INT8_FORMAT, True, True, present, why)
-    )
+    add("rocm:gfx950", "torch", INT8_FORMAT, True, True, present, why)
     for fmt in (*OCP_FP8_FORMATS, *MX_FORMATS):
-        entries.append(
-            QuantBackendCapability(
-                "rocm:gfx950",
-                "aiter" if fmt in MX_FORMATS else "torch",
-                fmt,
-                False,
-                True,
-                present,
-                why or "declared; not validated on this project's hardware",
-            )
-        )
+        backend = "aiter" if fmt in MX_FORMATS else "torch"
+        reason = why or "declared; not validated on this project's hardware"
+        add("rocm:gfx950", backend, fmt, False, True, present, reason)
     for fmt in FP8_FNUZ_FORMATS:
-        entries.append(
-            QuantBackendCapability(
-                "rocm:gfx950", "none", fmt, False, False, False,
-                "gfx950 uses OCP FP8; FNUZ is the gfx942 flavour",
-            )
-        )
-    entries.append(
-        QuantBackendCapability(
-            "rocm:gfx950", "none", NVFP4_FORMAT, False, False, False,
-            "NVFP4 is an NVIDIA format; never claimed native on AMD",
-        )
-    )
+        add("rocm:gfx950", "none", fmt, False, False, False, "gfx950 uses OCP FP8, not FNUZ")
+    add("rocm:gfx950", "none", NVFP4_FORMAT, False, False, False, nvfp4_why)
     return QuantBackendMatrix(tuple(entries))
 
 
@@ -226,25 +206,40 @@ def require_strict(profile: PrecisionProfile) -> None:
 # --------------------------------------------------------------------------
 # Quantization (device-agnostic, bit-identical to the CPU result)
 # --------------------------------------------------------------------------
+def _per_tensor_scale(source: torch.Tensor, fmax: float) -> torch.Tensor:
+    """FP32 scale = amax / fmax using a tensor divisor.
+
+    Dividing by a Python scalar lets the GPU compile ``x / c`` into ``x * (1 / c)``,
+    which differs from the CPU result by 1 ulp for divisors such as 240 or 57344.
+    A tensor divisor is a true IEEE division on every device.
+    """
+    amax = source.abs().amax().clamp_min(torch.finfo(torch.float32).eps)
+    return amax / torch.full_like(amax, fmax)
+
+
 def quantize_per_tensor_rocm(
     tensor: torch.Tensor, *, format: str = INT8_FORMAT, runtime: RocmRuntime | None = None
 ) -> QuantizedTensor:
     """Per-tensor quantization for the formats the detected arch supports.
 
-    Operates on whichever device ``tensor`` lives on. OCP FP8 is refused unless
-    the detected arch is gfx950; NVFP4/MX are never supported here.
+    Operates on whichever device ``tensor`` lives on and returns bytes identical to
+    the CPU result. OCP FP8 is refused unless the detected arch is gfx950;
+    NVFP4/MX are never supported here.
     """
+    if tensor.numel() == 0 or not tensor.is_floating_point():
+        raise PrecisionContractError("quantization needs a nonempty floating point tensor")
     if format == INT8_FORMAT:
-        return quantize_per_tensor(tensor, format=INT8_FORMAT)
+        source = tensor.float()
+        scale = _per_tensor_scale(source, 127.0)
+        values = torch.round(source / scale).clamp(-127, 127).to(torch.int8)
+        return QuantizedTensor(values, scale.reshape(()), format)
     if format in FP8_FNUZ_FORMATS:
         dtype_name, fmax = FP8_FNUZ_FORMATS[format]
         dtype = getattr(torch, dtype_name, None)
         if dtype is None:
             raise RuntimeError(f"PyTorch {dtype_name} is unavailable")
-        if tensor.numel() == 0 or not tensor.is_floating_point():
-            raise PrecisionContractError("quantization needs a nonempty floating point tensor")
         source = tensor.float()
-        scale = source.abs().amax().clamp_min(torch.finfo(torch.float32).eps) / fmax
+        scale = _per_tensor_scale(source, fmax)
         return QuantizedTensor((source / scale).to(dtype), scale.reshape(()), format)
     if format in OCP_FP8_FORMATS or format in MX_FORMATS or format == NVFP4_FORMAT:
         runtime = runtime if runtime is not None else detect_rocm_runtime()

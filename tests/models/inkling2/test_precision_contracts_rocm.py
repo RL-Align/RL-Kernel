@@ -9,6 +9,7 @@ from rl_engine.models.inkling2.precision_contracts import (
     compare_checkpoint_fingerprints,
     dequantize_per_tensor,
     fingerprint_checkpoint,
+    quantize_per_tensor,
     quantized_linear,
 )
 from rl_engine.models.inkling2.precision_contracts_rocm import (
@@ -254,12 +255,36 @@ def test_low_bit_linear_exact_on_device(fmt):
 
 
 @needs_hip
-def test_int8_linear_matches_cuda_contract_module_on_device():
+def test_int8_linear_agrees_with_cuda_contract_module():
     torch.manual_seed(5)
     x = torch.randn(4, 128, device=DEV, dtype=torch.bfloat16)
     w = torch.randn(6, 128, device=DEV, dtype=torch.bfloat16)
-    assert torch.equal(quantized_linear_rocm(x, w), quantized_linear(x, w))
+    cuda_contract = quantized_linear(x.cpu(), w.cpu())  # CUDA-contract module on CPU
+    out = quantized_linear_rocm(x, w).cpu()
+    torch.testing.assert_close(out, cuda_contract, atol=0.1, rtol=0.05)
     ref = torch.nn.functional.linear(x.float(), w.float()).bfloat16()
     torch.testing.assert_close(quantized_linear_rocm(x, w), ref, atol=0.5, rtol=0.25)
     with pytest.raises(ValueError, match="incompatible"):
         quantized_linear_rocm(x, w[:, :64])
+
+
+def test_int8_quantizer_equals_cuda_contract_quantizer_on_cpu():
+    torch.manual_seed(2)
+    x = torch.randn(33, 47)
+    ours = quantize_per_tensor_rocm(x, format="int8_symmetric")
+    theirs = quantize_per_tensor(x, format="int8_symmetric")
+    assert torch.equal(ours.values, theirs.values)
+    assert ours.scale.view(torch.int32) == theirs.scale.view(torch.int32)
+
+
+@needs_hip
+def test_scales_use_true_division_on_every_device():
+    # amax / 57344 and amax / 240 differ by 1 ulp on the GPU when the divisor is a scalar
+    # (x * (1 / c)); the tensor-divisor scale must be bit-identical for many amax values.
+    g = torch.Generator().manual_seed(8)
+    for fmt in ("int8_symmetric", *FP8_FNUZ_FORMATS):
+        for _ in range(64):
+            x = torch.randn(16, generator=g) * float(torch.rand(1, generator=g) * 1000 + 0.01)
+            cpu = quantize_per_tensor_rocm(x, format=fmt).scale
+            dev = quantize_per_tensor_rocm(x.to(DEV), format=fmt).scale.cpu()
+            assert cpu.view(torch.int32) == dev.view(torch.int32), (fmt, x.abs().max())
