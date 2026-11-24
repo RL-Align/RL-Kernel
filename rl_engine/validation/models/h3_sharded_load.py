@@ -75,6 +75,8 @@ def cut_shard(view, shape: tuple[int, ...], how: str, tp: int, tp_rank: int) -> 
     if how == "rows":
         offset, n = 0, shape[0]
     elif how in ("rows_first_half", "rows_second_half"):
+        if shape[0] % 2:  # a fused [hidden; gate] weight; the runtime refuses an odd one too
+            raise ValueError(f"a fused weight of {shape[0]} rows has no equal halves to cut")
         half = shape[0] // 2
         offset, n = (0 if how == "rows_first_half" else half), half
     else:

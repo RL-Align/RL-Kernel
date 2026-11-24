@@ -15,9 +15,10 @@ return of vLLM-Omni's, and SGLang's loader maps the Diffusers checkpoint the way
 
 ``install_h3_sglang_rollout`` binds the operators of the strict training graph:
 
-* the projections, as ``install_h3_rollout`` (``vllm/h3_omni.py``) does: ``qkv_proj`` / ``fc1``
-  on ``h3-projection-gemm-v1``, ``out_proj`` / ``fc2`` on the canonical row-parallel reduction of
-  ``h3-parallel-v1`` (``h3_tp.run_tp_block_rows``);
+* the projections, as ``install_h3_rollout`` (``vllm/h3_omni.py``) does: ``qkv_proj`` on
+  ``h3-projection-gemm-v1``, ``fc1`` on the gate/up row's fixed FP32-tile GEMM
+  (``fixed_fp32_gemm``), ``out_proj`` / ``fc2`` on the canonical row-parallel reduction of
+  ``h3-parallel-v2`` (``h3_tp.run_tp_block_rows``);
 * in every transformer block (``MiniMaxH3DiTBlock``), the AdaLN path: ``adaln_proj.linear`` on the
   deterministic GEMV of ``adaln_projection_3mod`` (on its TP column shard, which is that row's TP
   layout: SGLang's all-gather of the shards is a copy), ``norm1`` / ``norm2`` with their
@@ -109,7 +110,9 @@ EXTERNAL = [
 # What each bound forward runs, by the kind of module (``handle.implementations``).
 IMPLEMENTATIONS = {
     "column": "h3-projection-gemm-v1 (Triton)",
-    "row": "h3-parallel-v1 canonical row-parallel reduction",
+    "column_fixed": "h3-parallel-v2 column-parallel, the gate/up row's fixed FP32-tile GEMM "
+    "(fixed_fp32_gemm, Triton)",
+    "row": "h3-parallel-v2 canonical row-parallel reduction",
     "adaln": "adaln_projection_3mod / final_adaln_out GEMV: rl_engine._C.h3_det_linear_forward",
     "block": "h3_rmsnorm (modulated) + adaln_gate_residual: rl_engine._C.h3_rmsnorm_forward, "
     "rl_engine._C.h3_gate_residual_forward",
@@ -187,8 +190,10 @@ class H3SGLangRolloutHandle(H3RolloutHandle):
 
 def _kind(name: str, module: torch.nn.Module) -> str:
     leaf = name.rsplit(".", 1)[-1]
-    if leaf in ("qkv_proj", "fc1"):
+    if leaf == "qkv_proj":
         return "column"
+    if leaf == "fc1":
+        return "column_fixed"
     if leaf in ("out_proj", "fc2"):
         return "row"
     if name.endswith("adaln_proj.linear"):

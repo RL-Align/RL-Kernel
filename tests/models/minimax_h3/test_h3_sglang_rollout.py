@@ -565,6 +565,7 @@ def test_the_readback_counts_every_bound_forward_and_the_batching_switch_is_put_
         implementations = report["implementations"]
         assert report["calls"]["blocks.0.attn.qkv_proj"] == 2
         assert implementations["blocks.0.attn.qkv_proj"] == adapter.IMPLEMENTATIONS["column"]
+        assert implementations["blocks.0.mlp.fc1"] == adapter.IMPLEMENTATIONS["column_fixed"]
         assert implementations["blocks.0.mlp.fc2"] == adapter.IMPLEMENTATIONS["row"]
         assert implementations["blocks.0.adaln_proj.linear"] == adapter.IMPLEMENTATIONS["adaln"]
         assert implementations["blocks.0"] == adapter.IMPLEMENTATIONS["block"]
@@ -702,3 +703,19 @@ def test_the_sglang_plugin_installs_the_adapter_in_sglangs_worker_lifecycle(tmp_
         assert rank["forwards_after_refusal"] == 2
         assert "final_layer: ran 2 times in 3 forwards" in rank["bypass_caught"]
         assert rank["forward_restored"]
+
+
+@needs_gpu
+def test_the_bound_fc1_computes_the_gate_up_rows_fixed_kernel():
+    """The label alone cannot tell: the bound ``fc1`` output must be the fixed GEMM's."""
+
+    pytest.importorskip("triton")
+    from rl_engine.backends.cuda.model_specific.minimax_h3 import fixed_fp32_gemm as fx
+
+    model = _model("cuda", torch.bfloat16)
+    fc1 = model.blocks[0].mlp.fc1
+    x = torch.randn(5, fc1.weight.shape[1], device="cuda").bfloat16()
+    with adapter.install_h3_sglang_rollout(model):
+        out = fc1(x)
+        out = out[0] if isinstance(out, tuple) else out
+        assert torch.equal(out, fx.gemm(x, fc1.weight, b_t=True))

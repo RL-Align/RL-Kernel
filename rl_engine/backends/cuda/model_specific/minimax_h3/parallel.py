@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""MiniMax-H3 tensor-, sequence- and context-parallel building blocks (contract ``h3-parallel-v1``).
+"""MiniMax-H3 tensor-, sequence- and context-parallel building blocks (contract ``h3-parallel-v2``).
 
 Rows: ``tp_attention_7168``, ``tp_ffn_14336``, ``cp_full_attention`` (Ulysses here, the ring in
 ``ring_attention.py``), ``cp_metadata_coshard``, ``cp_arbitrary_length``, ``distributed_packed_io``
@@ -11,7 +11,8 @@ Every reduction that crosses ranks is defined on **8 canonical units** so TP 1/2
 same numbers in the same order:
 
 * *row-parallel* (O and FFN-down, ``K`` = 7168 / 14336): the reduction axis is cut into 8
-  equal K-units; a unit is one fixed-order FP32 GEMM (``h3-projection-gemm-v1`` tile, ``K``
+  equal K-units; a unit is one fixed-order FP32 GEMM on the rows' own launch
+  (``fixed_fp32_gemm``, the kernel of ``h3_attention_o_gemm`` / ``h3_ffn_down_gemm``, ``K``
   swept ascending). A rank holding ``8/tp`` consecutive units adds them in balanced-tree
   order and the collective adds the ranks' partials in the same tree: the result is the
   balanced tree over the 8 units for every TP size, rounded to BF16 once.
@@ -20,8 +21,14 @@ same numbers in the same order:
   projection, added in the order given (q, k, v / hidden, gate).
 
 The forward of a column-parallel projection and the backward of a row-parallel one reduce
-over axes that do not depend on the sharding (they are plain ``h3-projection-gemm-v1``), so
-they are bitwise the unsharded result without any collective.
+over axes that do not depend on the sharding, so they are bitwise the unsharded result without
+any collective. Q/K/V run ``h3-projection-gemm-v1`` (the kernel of their row ``h3_qkv_gemm``);
+gate/up, O and down run the kernel of their rows (``fixed_fp32_gemm``), so a gate/up forward, a
+row-parallel ``dX`` and every ``dW`` of those three are bitwise the rows' TP=1 operators on the same
+rows in the same order. The row-parallel forward and the column-parallel ``dX`` are the 8-unit tree
+above, not the rows' single K sweep.
+
+v1 -> v2: gate/up, O and down moved from ``h3-projection-gemm-v1`` to the rows' kernel.
 
 Context parallelism (Ulysses) moves data only: sequence <-> head all-to-alls are exact, so
 attention (per head, full sequence) is the unsharded attention. Weight gradients under
@@ -36,10 +43,23 @@ from dataclasses import dataclass
 import torch
 import torch.distributed as dist
 
+from rl_engine.backends.cuda.model_specific.minimax_h3 import fixed_fp32_gemm as fx
 from rl_engine.backends.shared.triton.gemm import h3_projection as g
 from rl_engine.distributed.algorithms.hierarchical import tree_add
 
-CONTRACT = "h3-parallel-v1"
+CONTRACT = "h3-parallel-v2"
+# Column-parallel kernels: Q/K/V keep their row's ``h3-projection-gemm-v1``; gate/up runs its row's.
+KERNELS = {"projection": g.gemm, "fixed": fx.gemm}
+
+
+def kernel_of(name: str):
+    """The column-parallel kernel ``name`` (``KERNELS``); an unknown name raises."""
+
+    if name not in KERNELS:
+        raise ValueError(f"unknown kernel {name!r}; expected one of {sorted(KERNELS)}")
+    return KERNELS[name]
+
+
 UNITS = 8  # canonical reduction units; TP sizes are the divisors 1, 2, 4, 8
 TP_SIZES = (1, 2, 4, 8)
 HEADS, HEAD_DIM = 56, 128
@@ -48,6 +68,13 @@ FFN = 14336
 
 
 # --- Sharding helpers ---------------------------------------------------------------------------
+
+
+def check_tp_size(tp: int) -> None:
+    """``tp`` must divide the ``UNITS`` canonical units (a TP size of ``TP_SIZES``)."""
+
+    if tp not in TP_SIZES:
+        raise ValueError(f"tp must be one of {TP_SIZES}, got {tp}")
 
 
 def check_tp(tp: int, rank: int) -> None:
@@ -73,7 +100,7 @@ def shard_cols(weight: torch.Tensor, tp: int, rank: int) -> torch.Tensor:
     check_tp(tp, rank)
     k = weight.shape[1]
     unit = k // UNITS
-    if unit * UNITS != k or unit % g.CONFIG_BF16["BLOCK_K"]:
+    if unit * UNITS != k or unit % fx.BLOCK_K:
         raise ValueError(f"K={k} must split into {UNITS} units of a multiple of the GEMM K tile")
     return weight.narrow(1, rank * k // tp, k // tp).contiguous()
 
@@ -101,13 +128,18 @@ def shard_gate_up(weight: torch.Tensor, tp: int, rank: int) -> torch.Tensor:
 # --- Row-parallel linear (reduction over the sharded axis) ---------------------------------------
 
 
-def _units_partial(x: torch.Tensor, w: torch.Tensor, tp: int) -> torch.Tensor:
-    """FP32 balanced-tree sum of this rank's ``8/tp`` K-units of ``x @ w.T``."""
+def _units_partial(x: torch.Tensor, w: torch.Tensor, tp: int, kernel=fx.gemm) -> torch.Tensor:
+    """FP32 balanced-tree sum of this rank's ``8/tp`` K-units of ``x @ w.T``.
 
+    ``kernel`` is the rows' ``fixed_fp32_gemm`` for the O / down base; the LoRA ``z = x A^T`` of
+    those targets (FP32 operands) passes ``h3_projection.gemm``.
+    """
+
+    check_tp_size(tp)
     local = UNITS // tp
     unit = x.shape[1] // local
     parts = [
-        g.gemm(
+        kernel(
             x[:, i * unit : (i + 1) * unit],
             w[:, i * unit : (i + 1) * unit],
             b_t=True,
@@ -145,10 +177,10 @@ class _RowParallel(torch.autograd.Function):
         if ctx.scatter:  # sequence-parallel: the rows of dY are sharded; gather them (exact)
             grad = ctx.collective.all_gather(grad.contiguous())
         grad = grad.contiguous()
-        dx = g.gemm(grad, w)  # reduction over N: independent of the shard
+        dx = fx.gemm(grad, w)  # reduction over N: independent of the shard
         # reduction over tokens: with CP the rows of every CP rank, so the token sweep is the
         # unsharded one (each CP rank computes the same dW; no partial sums are merged)
-        dw = g.gemm(
+        dw = fx.gemm(
             _cp_rows(grad, ctx.cp_shard, ctx.cp_group),
             _cp_rows(x, ctx.cp_shard, ctx.cp_group),
             a_t=True,
@@ -179,14 +211,14 @@ def row_parallel_linear(
 
 class _ColumnParallel(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, collective, tp, gather, cp_shard, cp_group, *weights):
+    def forward(ctx, x, collective, tp, gather, cp_shard, cp_group, kernel, *weights):
         """Gather the rows if asked (SP), then one GEMM per weight shard."""
         ctx.save_for_backward(x, *weights)
         ctx.collective, ctx.tp, ctx.gather = collective, tp, gather
-        ctx.cp_shard, ctx.cp_group = cp_shard, cp_group
+        ctx.cp_shard, ctx.cp_group, ctx.kernel = cp_shard, cp_group, kernel
         full_x = collective.all_gather(x) if gather else x
         ctx.full_x = full_x if gather else None
-        return tuple(g.gemm(full_x, w, b_t=True) for w in weights)
+        return tuple(kernel(full_x, w, b_t=True) for w in weights)
 
     @staticmethod
     def backward(ctx, *grads):
@@ -200,7 +232,7 @@ class _ColumnParallel(torch.autograd.Function):
             acc = None
             for grad, w in zip(grads, weights):
                 width = grad.shape[1] // local
-                piece = g.gemm(
+                piece = ctx.kernel(
                     grad[:, j * width : (j + 1) * width],
                     w[j * width : (j + 1) * width],
                     out_dtype=torch.float32,
@@ -217,9 +249,27 @@ class _ColumnParallel(torch.autograd.Function):
         dx = partial.to(x.dtype)
         rows_x = _cp_rows(full_x, ctx.cp_shard, ctx.cp_group)
         dws = tuple(
-            g.gemm(_cp_rows(grad, ctx.cp_shard, ctx.cp_group), rows_x, a_t=True) for grad in grads
+            ctx.kernel(_cp_rows(grad, ctx.cp_shard, ctx.cp_group), rows_x, a_t=True)
+            for grad in grads
         )
-        return (dx, None, None, None, None, None, *dws)
+        return (dx, None, None, None, None, None, None, *dws)
+
+
+def check_column_widths(weights: Sequence[torch.Tensor], tp: int) -> None:
+    """Each column shard's output width must split into this rank's ``8 / tp`` canonical units.
+
+    The ``dX`` of a column-parallel projection sums ``8 / tp`` equal slices of each output; a
+    width that does not divide would leave its last columns out of every slice.
+    """
+
+    check_tp_size(tp)
+    local = UNITS // tp
+    for i, w in enumerate(weights):
+        if w.shape[0] <= 0 or w.shape[0] % local:
+            raise ValueError(
+                f"column shard {i} has {w.shape[0]} outputs, not a positive multiple of the "
+                f"{local} canonical units of a TP{tp} rank"
+            )
 
 
 def column_parallel_linear(
@@ -230,8 +280,12 @@ def column_parallel_linear(
     gather: bool = False,
     cp_shard=None,
     cp_group=None,
+    kernel: str = "projection",
 ):
     """``[x @ w.T for w in weights]`` with each ``w`` a row shard ``(N/tp, K)``.
+
+    ``kernel`` is ``"projection"`` (Q/K/V, ``h3-projection-gemm-v1``) or ``"fixed"`` (gate/up, the
+    kernel of ``h3_ffn_gate_up_gemm``).
 
     The forward is the unsharded projection's columns (no collective). With ``gather``, ``x`` is
     this rank's rows of a sequence-parallel activation, gathered first (exact), and ``dX`` is
@@ -242,9 +296,10 @@ def column_parallel_linear(
 
     if tp > 1 and collective is None:
         raise ValueError("tp > 1 needs a collective")
+    check_column_widths(weights, tp)
     gather = gather and tp > 1  # one rank holds every row already
     return _ColumnParallel.apply(
-        x.contiguous(), collective, tp, gather, cp_shard, cp_group, *weights
+        x.contiguous(), collective, tp, gather, cp_shard, cp_group, kernel_of(kernel), *weights
     )
 
 

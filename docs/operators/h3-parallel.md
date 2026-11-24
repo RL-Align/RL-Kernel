@@ -4,7 +4,7 @@
 
 RFC #420 rows `tp_attention_7168`, `tp_ffn_14336`, `cp_full_attention` (Ulysses and ring),
 `cp_metadata_coshard`, `cp_arbitrary_length`, `distributed_packed_io`, and closeouts
-`ws2_tp2_tp4_tp8`, `ws2_tp4_cp2`, `ws2_tp4_cp2_sp`. Contract `h3-parallel-v1`
+`ws2_tp2_tp4_tp8`, `ws2_tp4_cp2`, `ws2_tp4_cp2_sp`. Contract `h3-parallel-v2`
 (`rl_engine/backends/cuda/model_specific/minimax_h3/parallel.py`); the ring is
 `.../minimax_h3/ring_attention.py` (`h3-ring-cp-v1`); the block that composes them is
 `rl_engine/validation/models/h3_tp.py`, and the full 50-block model on a grid is
@@ -14,7 +14,8 @@ RFC #420 rows `tp_attention_7168`, `tp_ffn_14336`, `cp_full_attention` (Ulysses 
 Result (H100, 2 nodes x 4 GPUs, block 0 of the pinned checkpoint, 264 packed rows): every rank's
 rows of the forward, the input gradient and every weight-gradient shard are **bitwise equal** to the
 single-GPU canonical block for TP2, TP4, TP8 (two nodes), TP4 x CP2 (two nodes) and TP4 x CP2 + SP.
-Evidence: `reports/experiments/h3-ws2-parallel-h100/*.json`.
+Evidence: `reports/experiments/h3-ws2-parallel-h100/*.json`. That evidence is `h3-parallel-v1`,
+before the gate/up, O and down projections moved to their rows' kernel (next section).
 
 ## The canonical reduction
 
@@ -22,16 +23,38 @@ All cross-rank sums are defined on **8 canonical units** (the divisors of 8 are 
 
 | Layer | Sharding | Reduction | Rule |
 | --- | --- | --- | --- |
-| Q/K/V, gate/up forward | output rows (whole heads / halves) | none | the unsharded GEMM's columns (`h3-projection-gemm-v1`) |
+| Q/K/V, gate/up forward | output rows (whole heads / halves) | none | the unsharded GEMM's columns (see the kernels below) |
 | O (7168 -> 5376), down (14336 -> 5376) forward | reduction axis, `8/tp` K-units per rank | K | each K-unit is one fixed-order FP32 GEMM; a rank adds its units as a balanced tree; the collective adds ranks as the same tree; one BF16 rounding |
 | O / down backward (`dX`, `dW`) | - | N / tokens | plain fixed-order GEMM, independent of the shard |
 | Q/K/V, gate/up backward `dX` | output rows | N | unit `j` = block `j` of every fused weight, summed in the order q,k,v (hidden,gate); tree over units; collective; one rounding |
 
-The unit of the O projection is 896 K (14 K-tiles) and of down 1792 (28 K-tiles), so a unit never
+The unit of the O projection is 896 K (28 K-tiles of 32) and of down 1792 (56), so a unit never
 splits a tile. FP32 partials cross ranks (`DeterministicCollective` fixed tree on a node;
 `HierarchicalCollective` across nodes). The row-parallel contract differs from the single-sweep
 K reduction of the unsharded O/down GEMM rows (claimed by another contributor): it is the
 TP-invariant definition, and TP=1 is that definition, not the sweep.
+
+### GEMM kernels (`h3-parallel-v2`)
+
+Each projection runs the kernel of its RFC row:
+
+| Projection | Kernel | Row operator (TP = 1) |
+|---|---|---|
+| Q/K/V | `h3-projection-gemm-v1` (BF16 tensor-core dot, 128x128x64) | `H3QKVGemmCudaOp` (`h3_qkv_gemm`) |
+| gate/up, O, down | `fixed_fp32_gemm`: `_det_gemm_fp32_kernel` with `FixedFP32Backend`'s launch (BF16 dot, FP32 accumulate over ascending 32-wide K blocks, 64x64 tiles, 4 warps, 2 stages, no FP fusion, no split-K) | `H3FFNGateUpGemmOp`, `H3AttentionOGemmOp` (#554), `H3FFNDownGemmOp` (#535) |
+
+The row operators accept the TP = 1 shapes on SM90 only; `fixed_fp32_gemm` is the same launch at any
+shard shape and on any CUDA device. Against those operators on the same rows in the same order:
+
+- bitwise: the gate/up forward (each output element is one program's K loop, independent of the
+  shard), the O / down `dX` (reduction over the unsharded N), and every `dW` (a sweep over the
+  logical rows; under CP the gathered rows are in packed order, which is the order of the rows'
+  logical keys);
+- not bitwise: the O / down forward and the gate/up `dX`, which are the 8-unit tree above instead of
+  the operators' single K sweep.
+
+`v1 -> v2` changed only gate/up, O and down, from `h3-projection-gemm-v1` to this kernel; Q/K/V and
+every collective are unchanged. The LoRA products stay on `h3-projection-gemm-v1` (FP32 operands).
 
 ## Cross-node collective
 
@@ -115,12 +138,13 @@ twice the 33B weights on top of the weights themselves, which does not fit a 94 
 so its temporaries stay bounded. It is not a hash, but it always sees a change of one or two 16-bit
 words.
 
-## LoRA on the grid (`h3-parallel-lora-v1`)
+## LoRA on the grid (`h3-parallel-lora-v2`)
 
 `rl_engine/backends/cuda/model_specific/minimax_h3/parallel_lora.py` puts a LoRA,
 `y = round(x W^T + s * (x A^T) B^T)`, on the six targets of the verl-omni H3 recipe (Q, K, V, the
-attention output, `ff.net.0.proj`, `ff.net.2`; r = 64, alpha = 128). Every GEMM is
-`h3-projection-gemm-v1`; `A` and `B` may be stored in BF16 (the recipe's adapters), are read as FP32,
+attention output, `ff.net.0.proj`, `ff.net.2`; r = 64, alpha = 128). The base GEMMs run each
+projection's kernel (above); every LoRA product is `h3-projection-gemm-v1` with FP32 operands. `A` and
+`B` may be stored in BF16 (the recipe's adapters), are read as FP32,
 and their gradients are rounded once to their dtype. Every sum that crosses ranks uses the canonical
 units above, so every layout equals the canonical `Grid(1, 1)` run bit for bit:
 
@@ -243,7 +267,7 @@ this is the time of a whole `block_case(..., backward=False)` call, not of the k
   the rows or heads this rank holds and their gradients are not reduced across ranks: under CP, SP
   or (for the QK norms) TP each rank holds a partial gradient. The full-model runner freezes them
   and compares the 350 shard gradients only; training them on a grid needs a reduction that is not
-  part of `h3-parallel-v1`.
+  part of `h3-parallel-v2`.
 - The compute paths (`seq_sharded_linear`, `run_tp_block`, `run_tp_block_rows`, hence the full
   model) need at least one row on every CP rank; the ring and the packed IO themselves accept ranks
   that hold no rows.
