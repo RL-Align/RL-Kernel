@@ -235,6 +235,7 @@ def get_extensions():
                 [
                     "csrc/rocm/logprob/hip_deterministic_logp_kernel.hip",
                     "csrc/rocm/collectives/deterministic_collective.hip",
+                    "csrc/rocm/inkling2/router.hip",
                     "csrc/rocm/inkling2/short_conv.hip",
                 ]
             )
@@ -242,6 +243,7 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            cuda_sources.append("csrc/cuda/inkling2/router.cu")
             cuda_sources.append("csrc/cuda/inkling2/short_conv.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
