@@ -12,7 +12,11 @@ from .expert_mlp import (
     softcap,
     expert_gate_up_rocm,
 )
-from .attention_residual import attention_o_residual, attention_o_residual_cuda
+from .attention_residual import (
+    attention_o_residual,
+    attention_o_residual_cuda,
+    attention_o_residual_rocm,
+)
 from .dynamic_kv_conv import (
     dynamic_kv_conv,
     dynamic_kv_conv_cuda,
@@ -94,4 +98,5 @@ __all__ = [
     "accumulate_shared_weight_gradients_rocm",
     "grouped_expert_gemm_rocm",
     "expert_gate_up_rocm",
+    "attention_o_residual_rocm",
 ]
