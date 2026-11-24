@@ -5,6 +5,7 @@ from .grouped_gemm import grouped_expert_gemm, grouped_expert_gemm_cuda
 from .expert_mlp import expert_gate_up, expert_gate_up_cuda, softcap
 from .attention_residual import attention_o_residual, attention_o_residual_cuda
 from .dynamic_kv_conv import dynamic_kv_conv, dynamic_kv_conv_cuda
+from .full_attention import full_attention, full_attention_cuda
 from .router import (
     RoutingResult,
     route_topk_sigmoid,
@@ -41,6 +42,8 @@ __all__ = [
     "clone_visit_state_cuda",
     "dynamic_kv_conv",
     "dynamic_kv_conv_cuda",
+    "full_attention",
+    "full_attention_cuda",
     "route_topk_sigmoid",
     "route_topk_sigmoid_cuda",
     "route_topk_sigmoid_rocm",

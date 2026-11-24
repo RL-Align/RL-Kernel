@@ -420,6 +420,34 @@ def inkling2_dynamic_kv_conv_backward(
 def inkling2_router_forward(
     logits: torch.Tensor, selection_bias: torch.Tensor, top_k: int, route_scale: float
 ) -> tuple[torch.Tensor, torch.Tensor]: ...
+def inkling2_full_attention_forward(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    relative_bias: torch.Tensor,
+    sink: torch.Tensor,
+    output_gate: torch.Tensor,
+    query_documents: torch.Tensor,
+    key_documents: torch.Tensor,
+    causal: bool,
+    scale: float,
+) -> list[torch.Tensor]: ...
+def inkling2_full_attention_backward(
+    grad_output: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    probabilities: torch.Tensor,
+    pre_gate: torch.Tensor,
+    sink_probability: torch.Tensor,
+    relative_bias: torch.Tensor,
+    sink: torch.Tensor,
+    output_gate: torch.Tensor,
+    query_documents: torch.Tensor,
+    key_documents: torch.Tensor,
+    causal: bool,
+    scale: float,
+) -> list[torch.Tensor]: ...
 def inkling2_expert_gate_up_forward(
     hidden: torch.Tensor,
     gate_weight: torch.Tensor,
