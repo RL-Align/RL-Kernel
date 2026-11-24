@@ -104,3 +104,67 @@ def test_binding_twice_is_refused():
         with pytest.raises(RuntimeError, match="already wrapped"):
             with _bound(scheduler):
                 pass
+
+
+class _ShiftedGrid:
+    """A sigma op whose grid is off by one bit: the binding must refuse it."""
+
+    def __call__(self, num_inference_steps, *, shift, device=None):
+        grid = NativeH3SigmaScheduleOp()(num_inference_steps, shift=shift, device=device)
+        sigmas = grid.sigmas.clone()
+        sigmas[1] = torch.nextafter(sigmas[1], torch.tensor(2.0))
+        return type(grid)(**{**grid.__dict__, "sigmas": sigmas})
+
+
+def test_a_sigma_grid_that_differs_from_the_providers_is_refused():
+    scheduler = scheduling.MiniMaxH3Scheduler(shift=12.0)
+    with hss.bind(
+        scheduler, sigma_op=_ShiftedGrid(), step_op=NativeH3OdeStepOp(), grid_device="cpu"
+    ) as calls:
+        with pytest.raises(RuntimeError, match="differs from the provider's grid"):
+            scheduler.set_timesteps(10, device="cpu")
+    assert calls["grids"] == 0
+
+
+def test_extra_arguments_are_the_providers_and_are_counted():
+    scheduler = scheduling.MiniMaxH3Scheduler(shift=12.0)
+    x = torch.zeros(4, 8)
+    with _bound(scheduler) as calls:
+        scheduler.set_timesteps(10, device="cpu")
+        out = scheduler.step(torch.ones(4, 8), scheduler.timesteps[0], x, True)  # 4th positional
+        scheduler._step_index = None
+        out2 = scheduler.step(torch.ones(4, 8), scheduler.timesteps[0], x, return_dict=False)
+    assert isinstance(out, scheduling.MiniMaxH3SchedulerOutput)
+    assert isinstance(out2, tuple)
+    assert calls["row"] == 1 and calls["provider"] == 1 and calls["provider_steps"] == [None]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_the_production_ops_bind_on_cuda_bitwise():
+    """The candidate arm's ops, ``H3SigmaScheduleCudaOp`` and ``H3OdeStepCUDAOp``, on CUDA."""
+
+    from rl_engine.backends.cuda.flow.ode_step import H3OdeStepCUDAOp
+    from rl_engine.backends.cuda.model_specific.minimax_h3.sigma_schedule import (
+        H3SigmaScheduleCudaOp,
+    )
+
+    try:
+        sigma_op, step_op = H3SigmaScheduleCudaOp(), H3OdeStepCUDAOp()
+    except (ImportError, RuntimeError) as exc:
+        pytest.skip(f"the CUDA ops are not available here: {exc}")
+    gen = torch.Generator("cuda").manual_seed(0)
+    steps, shift = 10, 12.0
+    want = scheduling.MiniMaxH3Scheduler(shift=shift)
+    want.set_timesteps(steps, device="cuda")
+    got_sched = scheduling.MiniMaxH3Scheduler(shift=shift)
+    x = torch.randn(37, 48, device="cuda", generator=gen)
+    w = x.clone()
+    with hss.bind(got_sched, sigma_op=sigma_op, step_op=step_op, grid_device="cuda") as calls:
+        got_sched.set_timesteps(steps, device="cuda")
+        assert torch.equal(_bits(got_sched.sigmas.cpu()), _bits(want.sigmas.cpu()))
+        for t in want.timesteps:
+            v = torch.randn(37, 48, device="cuda", generator=gen)
+            w = want.step(v, t, w, return_dict=False)[0]
+            x = got_sched.step(v, t, x, return_dict=False)[0]
+            assert torch.equal(_bits(x), _bits(w))
+    assert calls["grids"] == 1 and calls["row"] > 0

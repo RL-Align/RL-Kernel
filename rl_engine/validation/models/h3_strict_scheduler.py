@@ -7,7 +7,9 @@ Two rows replace the provider scheduler's arithmetic:
 * ``h3_sigma_schedule`` builds the sigma grid. It is byte-frozen against the provider's
   ``set_timesteps`` (see ``rl_engine.reference.minimax_h3.sigma_schedule``), so the bound
   ``set_timesteps`` passes the op's grid to the provider as an explicit ``sigmas`` schedule,
-  which the provider uses verbatim. ``timesteps = 1 - sigmas[:-1]`` stays the provider's.
+  which the provider uses verbatim. Before that it builds the provider's own grid on a copy of
+  the scheduler and requires the op's grid to equal it bitwise; a difference raises.
+  ``timesteps = 1 - sigmas[:-1]`` stays the provider's.
 * ``h3_ode_step`` is the Euler step ``x0 = x_t + sigma * v``,
   ``x_next = r * x_t + (1 - r) * x0`` with ``r = sigma_next / sigma``, in FP32.
 
@@ -21,6 +23,7 @@ counted. ``bind`` yields those counts, so a report states how many steps ran eac
 
 from __future__ import annotations
 
+import copy
 from contextlib import contextmanager
 from typing import Any, Iterator
 
@@ -52,6 +55,13 @@ def bind(
     cls = type(scheduler)
     calls: dict[str, Any] = {"grids": 0, "row": 0, "provider": 0, "provider_steps": []}
 
+    def provider_grid(num_inference_steps: int) -> torch.Tensor:
+        probe = copy.copy(scheduler)
+        for name in ("set_timesteps", "step"):
+            probe.__dict__.pop(name, None)
+        cls.set_timesteps(probe, num_inference_steps, device="cpu")
+        return probe.sigmas
+
     def set_timesteps(num_inference_steps=None, device=None, sigmas=None, **kwargs):
         if sigmas is not None or num_inference_steps is None:
             # an explicit schedule is the caller's, not the row's
@@ -59,14 +69,29 @@ def bind(
                 scheduler, num_inference_steps, device=device, sigmas=sigmas, **kwargs
             )
         grid = sigma_op(int(num_inference_steps), shift=float(scheduler.shift), device=grid_device)
+        if not _same_bits(provider_grid(int(num_inference_steps)), grid.sigmas.cpu()):
+            raise RuntimeError("the sigma-grid row differs from the provider's grid")
         calls["grids"] += 1
         return cls.set_timesteps(
             scheduler, None, device=device, sigmas=grid.sigmas.detach().cpu(), **kwargs
         )
 
-    def step(model_output, timestep, sample, return_dict=True, **kwargs):
-        if kwargs or not isinstance(timestep, torch.Tensor) or not timestep.is_floating_point():
-            return cls.step(scheduler, model_output, timestep, sample, return_dict, **kwargs)
+    def step(model_output, timestep, sample, *args, return_dict=True, **kwargs):
+        # anything the row does not represent (extra arguments, an integer timestep) is the
+        # provider's, forwarded as given and counted
+        if (
+            args
+            or kwargs
+            or not isinstance(timestep, torch.Tensor)
+            or not timestep.is_floating_point()
+        ):
+            calls["provider"] += 1
+            calls["provider_steps"].append(None)
+            if args:  # the provider's own 4th positional is ``return_dict``: pass it as given
+                return cls.step(scheduler, model_output, timestep, sample, *args, **kwargs)
+            return cls.step(
+                scheduler, model_output, timestep, sample, return_dict=return_dict, **kwargs
+            )
         index = scheduler.step_index
         if index is None:
             index = (
@@ -85,7 +110,7 @@ def bind(
         ):
             calls["provider"] += 1
             calls["provider_steps"].append(int(index))
-            return cls.step(scheduler, model_output, timestep, sample, return_dict)
+            return cls.step(scheduler, model_output, timestep, sample, return_dict=return_dict)
         x_next, _ = step_op(sample.contiguous(), model_output.contiguous(), sigma, sigma_next)
         scheduler._step_index = index + 1
         calls["row"] += 1
