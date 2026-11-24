@@ -795,12 +795,21 @@ def test_a_hybrid_replayed_node_reports_the_provider_not_its_row():
 
     from rl_engine.validation.models import h3_block
 
+    class Ops:
+        attention_h3 = object()
+
+        def gemm_op(self, row):
+            return object()
+
     trace = _complete_trace()
     trace.candidate = True
     trace.provider_nodes = ("o_proj",)
     for i in range(50):
         for node in h3_block.NODES:
             trace.candidate_calls[f"block.{i}.{node.name}"] = 1
+    with pytest.raises(ValueError, match="without its ops"):  # nothing says what was bound
+        trace.validate()
+    trace.ops = Ops()
     report = trace.validate()
     assert report["bindings"]["o_proj"] == {
         "rfc_row": "h3_attention_o_gemm",
@@ -808,6 +817,8 @@ def test_a_hybrid_replayed_node_reports_the_provider_not_its_row():
         "backend": "provider",
     }
     assert report["bindings"]["ffn_down"]["status"] == "row"  # the rest keep their binding
+    trace.ops = object()  # ops without the GEMM rows: the interim GEMM ran
+    assert trace.validate()["bindings"]["ffn_down"]["status"] == "interim"
 
 
 def test_the_default_ops_probe_the_weights_device(monkeypatch):

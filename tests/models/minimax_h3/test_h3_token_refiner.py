@@ -109,8 +109,8 @@ def test_report_names_rows_status_and_backend_per_node(refiner_weights):
     assert by["q_proj"]["status"] == "row" and by["q_proj"]["rfc_row"] == "h3_qkv_gemm"
     # what CandidateOps loaded, not hb.bindings (the function under test)
     assert by["attention"]["status"] == ("row" if ops.attention_h3 is not None else "interim")
-    for name in hb.GEMM_ROWS:  # the rows' operators on SM90, the interim GEMM elsewhere
-        assert by[name]["status"] == ("row" if hb.gemm_rows_supported() else "interim")
+    for name, row in hb.GEMM_ROWS.items():
+        assert by[name]["status"] == ("row" if ops.gemm_op(row) is not None else "interim")
     assert by["residual_attn"]["rfc_row"] == "token_refiner_block"
     assert all(len(e["candidate_sha256"]) == 64 for e in report["nodes"])
 
