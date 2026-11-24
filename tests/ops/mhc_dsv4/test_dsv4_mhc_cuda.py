@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA requ
 
 @pytest.fixture(scope="module")
 def ops():
-    from rl_engine.kernels.ops.cuda import mhc_dsv4 as c
+    from rl_engine.kernels.ops.cuda import mhc as c
 
     try:
         c.dsv4_mhc._extension()

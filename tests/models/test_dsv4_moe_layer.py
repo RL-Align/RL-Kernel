@@ -21,7 +21,7 @@ def _ready() -> bool:
         return False
     try:
         import rl_engine._C as ext
-        from rl_engine.kernels.ops.cuda.deepgemm import deepgemm_available
+        from rl_engine.kernels.ops.cuda.matmul.deepgemm import deepgemm_available
     except ImportError:
         return False
     need = ("moe_slot_sum", "dsv4_router_topk", "sm90_moe_fc1_swiglu_quant_forward")

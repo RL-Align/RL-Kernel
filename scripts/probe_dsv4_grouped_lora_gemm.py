@@ -42,7 +42,7 @@ def _ms(fn, iters=10):
 
 
 def main() -> int:
-    from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+    from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 
     dg, _ = require_deepgemm(torch.device("cuda"))
     align = dg.get_mk_alignment_for_contiguous_layout()

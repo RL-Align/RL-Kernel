@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda.deepgemm import deepgemm_available
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import deepgemm_available
 from rl_engine.kernels.ops.pytorch.attention_dsv4 import inv_rope_fp8, kv_entry, q_norm_rope
 
 
@@ -42,7 +42,7 @@ def _entry(cache, slot):
 @pytest.mark.parametrize("scale", [1.0, 1e-3, 300.0])
 @pytest.mark.parametrize("heads,padded", [(64, 64), (40, 64)])
 def test_q_norm_rope_kv_insert_matches_golden(scale, heads, padded):
-    from rl_engine.kernels.ops.cuda.dsv4_attention import q_norm_rope_kv_insert
+    from rl_engine.kernels.ops.cuda.attention.dsv4_attention import q_norm_rope_kv_insert
 
     gen = torch.Generator().manual_seed(int(scale * 10) + heads)
     t = 300
@@ -69,7 +69,7 @@ def test_q_norm_rope_kv_insert_matches_golden(scale, heads, padded):
 
 @pytest.mark.parametrize("scale", [1.0, 1e-4, 500.0])
 def test_inv_rope_fp8_matches_golden(scale):
-    from rl_engine.kernels.ops.cuda import dsv4_attention as core
+    from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core
 
     gen = torch.Generator().manual_seed(3)
     t = 257
@@ -87,8 +87,8 @@ def test_inv_rope_fp8_matches_golden(scale):
 def test_output_projection_composition_and_batch_invariance():
     import deep_gemm
 
-    from rl_engine.kernels.ops.cuda.dsv4_attention import OutputProjection
-    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8Linear, quantize_weight
+    from rl_engine.kernels.ops.cuda.attention.dsv4_attention import OutputProjection
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8Linear, quantize_weight
 
     gen = torch.Generator().manual_seed(5)
     groups, rank, hidden = 8, 1024, 4096

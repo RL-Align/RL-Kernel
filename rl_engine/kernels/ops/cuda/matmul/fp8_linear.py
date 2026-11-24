@@ -32,7 +32,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 from rl_engine.kernels.ops.cuda.quant import Fp8GroupQuantCudaOp
 
 BLOCK = 128

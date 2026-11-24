@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 from rl_engine.kernels.ops.cuda.router import route_backward_dx_cuda, route_topk_cuda
 
 

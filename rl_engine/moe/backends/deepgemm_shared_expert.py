@@ -12,7 +12,7 @@ The SwiGLU and the second quantization run as one CUDA kernel
 (``csrc/cuda/activation/silu_and_mul_clamp.cu``) whose bytes equal vLLM's two
 separate kernels; the SwiGLU backward is a CUDA kernel too.
 
-Both GEMMs (forward and dgrad) are :class:`~rl_engine.kernels.ops.cuda.fp8_linear.Fp8Linear`,
+Both GEMMs (forward and dgrad) are :class:`~rl_engine.kernels.ops.cuda.matmul.fp8_linear.Fp8Linear`,
 the DSv4 dense FP8 linear shared with the attention projections.
 
 Weights are 128x128-block FP8 with UE8M0-valued FP32 scales, the checkpoint
@@ -46,8 +46,8 @@ import torch
 from torch import Tensor
 
 from rl_engine.kernels.ops.cuda.activation import silu_and_mul_clamp as cuda_swiglu
-from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
-from rl_engine.kernels.ops.cuda.fp8_linear import Fp8BlockWeight, Fp8Linear, quantize_weight
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
+from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8BlockWeight, Fp8Linear, quantize_weight
 from rl_engine.kernels.ops.cuda.quant import Fp8GroupQuantCudaOp
 from rl_engine.kernels.ops.pytorch.activation.silu_and_mul_clamp import SWIGLU_LIMIT
 from rl_engine.moe.contract import SharedBatch

@@ -38,7 +38,7 @@ SEEDS = (0, 1, 2)
 
 
 def _fm():
-    from rl_engine.kernels.ops.cuda.flashmla import require_flashmla
+    from rl_engine.kernels.ops.cuda.attention.flashmla import require_flashmla
 
     return require_flashmla()[0]
 

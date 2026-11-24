@@ -33,19 +33,19 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from rl_engine.kernels.ops.cuda import dsv4_attention as core
+from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core
 from rl_engine.kernels.ops.cuda.compressor import (
     compress_indexer_cuda,
     compress_main_cuda,
     save_states_cuda,
 )
-from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
-from rl_engine.kernels.ops.cuda.fp8_linear import Fp8BlockWeight, Fp8Linear
 from rl_engine.kernels.ops.cuda.indexer import (
     indexer_q_rope_fp8_cuda,
     indexer_select_decode,
     indexer_select_prefill,
 )
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
+from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8BlockWeight, Fp8Linear
 
 STATE_BLOCK = 16
 KV_BLOCK = 64
@@ -390,7 +390,7 @@ class Dsv4Attention:
 
 def random_layer(config: Dsv4AttentionConfig, seed: int = 0, device: str = "cuda"):
     """Random weights in checkpoint formats (FP8 block weights from BF16), for tests/benchmarks."""
-    from rl_engine.kernels.ops.cuda.fp8_linear import quantize_weight
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import quantize_weight
 
     gen = torch.Generator().manual_seed(seed)
     c = config

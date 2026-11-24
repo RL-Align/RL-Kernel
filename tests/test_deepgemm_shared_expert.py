@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda.deepgemm import deepgemm_available
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import deepgemm_available
 from rl_engine.kernels.ops.pytorch.activation.silu_and_mul_clamp import (
     silu_and_mul_clamp,
     silu_and_mul_clamp_backward,

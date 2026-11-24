@@ -51,8 +51,8 @@ def main() -> None:
     from vllm.models.deepseek_v4.common.ops.fused_inv_rope_fp8_quant import fused_inv_rope_fp8_quant
     from vllm.utils.deep_gemm import fp8_einsum
 
-    from rl_engine.kernels.ops.cuda import dsv4_attention as core
-    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8Linear, quantize_weight
+    from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8Linear, quantize_weight
 
     g = torch.Generator(device="cuda").manual_seed(0)
     inv = 1.0 / (10000 ** (torch.arange(0, 64, 2, device="cuda").float() / 64))

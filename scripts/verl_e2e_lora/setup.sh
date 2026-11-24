@@ -83,7 +83,7 @@ setup_rlkernel() {
   say "DeepGEMM $DEEPGEMM_COMMIT (+ the paged-MQA empty-batch fix)"
   clone "$DEEPGEMM_REPO" "$DEEPGEMM_COMMIT" "$SRC_DIR/DeepGEMM" submodules
   # Build from the clean tree: on a dirty one the version becomes 2.6.1+local, which
-  # rl_engine/kernels/ops/cuda/deepgemm.py refuses. The fix goes into the installed headers,
+  # rl_engine/kernels/ops/cuda/matmul/deepgemm.py refuses. The fix goes into the installed headers,
   # which are what DeepGEMM's runtime JIT compiles.
   git -C "$SRC_DIR/DeepGEMM" checkout -q -- .
   # setup.py imports its namespace package `scripts`; once verl is installed (editable), verl's

@@ -31,7 +31,7 @@ import torch
 from torch import Tensor
 from torch.version import hip as torch_hip
 
-from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 from rl_engine.kernels.ops.pytorch.logprob_dsv4 import NUM_TILES, PROFILE
 
 _SYMBOLS = ("dsv4_logprob_tile_stats", "dsv4_logprob_merge", "dsv4_logprob_backward")

@@ -86,7 +86,7 @@ def main() -> int:
     p.add_argument("--tokens", default="1,64,1024,4096,16384")
     p.add_argument("--hidden", type=int, default=4096)
     args = p.parse_args()
-    from rl_engine.kernels.ops.cuda import mhc_dsv4 as ours
+    from rl_engine.kernels.ops.cuda import mhc as ours
 
     try:
         from vllm.model_executor.kernels.mhc.tilelang import mhc_post_tilelang, mhc_pre_tilelang

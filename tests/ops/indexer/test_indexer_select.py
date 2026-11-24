@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda.deepgemm import deepgemm_available
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import deepgemm_available
 from rl_engine.kernels.ops.pytorch.indexer import indexer_q_rope_fp8
 from rl_engine.kernels.ops.pytorch.topk import stable_topk_per_row
 

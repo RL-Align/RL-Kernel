@@ -56,8 +56,8 @@ A tolerance never stands in for it.
 | GPU | H100 / H200 (SM90, 132 SMs) | The BI probes ran at 132 SMs; re-run them on another SM count |
 | PyTorch | 2.13 with CUDA 13.0 | Earlier work ran torch 2.9 / CUDA 12.8; reports for both exist |
 | CUDA toolkit | 13.0 (`nvcc` on `PATH`, `CUDA_HOME` set) | DeepGEMM JIT-compiles at runtime and needs `nvcc` >= 12.8 |
-| DeepGEMM | `vllm-project/DeepGEMM@e21c821f` (`2.6.1+e21c821`) | `pip install -e ".[dsv4]"` or build from a clean checkout with `--no-build-isolation`; `rl_engine/kernels/ops/cuda/deepgemm.py` fails closed on another version |
-| FlashMLA | `1.0.0+b70aff3` or `1.0.0+a8f794d` | SM90 sources identical to vLLM's pin; `FLASH_MLA_DISABLE_SM100=1 pip install --no-build-isolation --no-deps ./FlashMLA`; checked by `rl_engine/kernels/ops/cuda/flashmla.py` |
+| DeepGEMM | `vllm-project/DeepGEMM@e21c821f` (`2.6.1+e21c821`) | `pip install -e ".[dsv4]"` or build from a clean checkout with `--no-build-isolation`; `rl_engine/kernels/ops/cuda/matmul/deepgemm.py` fails closed on another version |
+| FlashMLA | `1.0.0+b70aff3` or `1.0.0+a8f794d` | SM90 sources identical to vLLM's pin; `FLASH_MLA_DISABLE_SM100=1 pip install --no-build-isolation --no-deps ./FlashMLA`; checked by `rl_engine/kernels/ops/cuda/attention/flashmla.py` |
 | cuDNN frontend | `nvidia-cudnn-frontend==1.31.0` | Training only (sparse attention backward, `dsa_backward.py`) |
 
 Every dependency check fails closed (rule 7 below). `RL_KERNEL_FLASHMLA_ALLOW_UNPINNED=1`
@@ -180,16 +180,16 @@ scored top-6 otherwise.
 | Module | Python entry | CUDA kernels | Operator page | Tests |
 |---|---|---|---|---|
 | Model, layer, loader, RoPE | `rl_engine/models/deepseek_v4/{model,loader,config,rope}.py` | (composes the rest) | [dsv4-model](../operators/dsv4-model.md) | `tests/models/deepseek_v4/` |
-| mHC + fused norms | `rl_engine/kernels/ops/cuda/mhc_dsv4/` | `csrc/cuda/mhc/dsv4_mhc.cu` + DeepGEMM `tf32_hc_prenorm_gemm` | [dsv4-mhc](../operators/dsv4-mhc.md) | `tests/ops/mhc_dsv4/` |
+| mHC + fused norms | `rl_engine/kernels/ops/cuda/mhc/` | `csrc/cuda/mhc/dsv4_mhc.cu` + DeepGEMM `tf32_hc_prenorm_gemm` | [dsv4-mhc](../operators/dsv4-mhc.md) | `tests/ops/mhc_dsv4/` |
 | Attention layer | `rl_engine/models/deepseek_v4/attention.py` | see below | this page, 5.2 | `tests/models/test_dsv4_attention_layer.py` |
-| Dense FP8 linear | `rl_engine/kernels/ops/cuda/fp8_linear.py` | DeepGEMM `fp8_gemm_nt` / `fp8_einsum` | [fp8-group-quant](../operators/fp8-group-quant.md) | `tests/ops/gemm/test_dsv4_fp8_linear.py` |
+| Dense FP8 linear | `rl_engine/kernels/ops/cuda/matmul/fp8_linear.py` | DeepGEMM `fp8_gemm_nt` / `fp8_einsum` | [fp8-group-quant](../operators/fp8-group-quant.md) | `tests/ops/gemm/test_dsv4_fp8_linear.py` |
 | FP8 activation quant | `rl_engine/kernels/ops/cuda/quant/` | `csrc/cuda/quant/fp8_group_quant.cu` | [fp8-group-quant](../operators/fp8-group-quant.md) | `tests/ops/quant/` |
-| q / KV side, output projection, caches | `rl_engine/kernels/ops/cuda/dsv4_attention.py` | `csrc/cuda/attention/dsv4_qo.cu`, `dsv4_cache.cu` | this page, 5.2 | `tests/ops/attention_dsv4/` |
+| q / KV side, output projection, caches | `rl_engine/kernels/ops/cuda/attention/dsv4_attention.py` | `csrc/cuda/attention/dsv4_qo.cu`, `dsv4_cache.cu` | this page, 5.2 | `tests/ops/attention_dsv4/` |
 | KV compressors | `rl_engine/kernels/ops/cuda/compressor/` | `csrc/cuda/compressor/compress_fp8.cu` | [compressor](../operators/compressor.md) | `tests/ops/compressor/` |
 | Indexer query | `rl_engine/kernels/ops/cuda/indexer/indexer_q.py` | `csrc/cuda/indexer/indexer_q_rope_fp8.cu` | [indexer-q](../operators/indexer-q.md) | `tests/ops/indexer/` |
 | Indexer logits + selection | `rl_engine/kernels/ops/cuda/indexer/select.py` | DeepGEMM MQA logits + `csrc/cuda/topk/stable_topk.cu` | [stable-topk](../operators/stable-topk.md) | `tests/ops/indexer/test_indexer_select.py`, `tests/ops/topk/` |
-| Sparse attention core | `rl_engine/kernels/ops/cuda/flashmla.py`, `dsv4_attention.py` | FlashMLA `flash_mla_sparse_fwd` | this page, 5.2 | `tests/ops/attention_dsv4/test_sparse_core.py` |
-| Attention backward | `rl_engine/models/deepseek_v4/attention_backward.py`, `kernels/ops/cuda/dsa_backward.py` | cuDNN `dsa_bwd_sm90`, `csrc/cuda/attention/dsv4_attn_bwd.cu` | this page, 7 | `tests/models/test_dsv4_attention_backward.py`, `tests/ops/attention_dsv4/test_sparse_backward.py` |
+| Sparse attention core | `rl_engine/kernels/ops/cuda/attention/flashmla.py`, `dsv4_attention.py` | FlashMLA `flash_mla_sparse_fwd` | this page, 5.2 | `tests/ops/attention_dsv4/test_sparse_core.py` |
+| Attention backward | `rl_engine/models/deepseek_v4/attention_backward.py`, `kernels/ops/cuda/attention/dsa_backward.py` | cuDNN `dsa_bwd_sm90`, `csrc/cuda/attention/dsv4_attn_bwd.cu` | this page, 7 | `tests/models/test_dsv4_attention_backward.py`, `tests/ops/attention_dsv4/test_sparse_backward.py` |
 | Router | `rl_engine/models/deepseek_v4/router.py`, `kernels/ops/cuda/router/` | `csrc/cuda/router/dsv4_router.cu` + DeepGEMM gate | [dsv4-router](../operators/dsv4-router.md) | `tests/ops/router/`, `tests/models/test_dsv4_router_layer.py` |
 | MoE block (plan, dispatch, combine, EP) | `rl_engine/models/deepseek_v4/moe.py`, `kernels/ops/cuda/moe/` | `csrc/cuda/moe/moe_route_plan.cu`, `moe_slot_sum.cu` | [dsv4-moe](../operators/dsv4-moe.md) | `tests/models/test_dsv4_moe_layer.py`, `tests/ops/moe/` |
 | MXFP8 activation quant | `rl_engine/kernels/ops/cuda/moe/mxfp8_act_quant.py` | `csrc/cuda/moe/mxfp8_act_quant.cu` | [dsv4-moe](../operators/dsv4-moe.md) | `tests/ops/moe/test_mxfp8_act_quant.py` |

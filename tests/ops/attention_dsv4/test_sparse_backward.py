@@ -9,13 +9,13 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda.flashmla import flashmla_available
+from rl_engine.kernels.ops.cuda.attention.flashmla import flashmla_available
 
 
 def _ready() -> bool:
     if not (torch.cuda.is_available() and flashmla_available()):
         return False
-    from rl_engine.kernels.ops.cuda.dsa_backward import cudnn_dsa_available
+    from rl_engine.kernels.ops.cuda.attention.dsa_backward import cudnn_dsa_available
 
     return cudnn_dsa_available()
 
@@ -61,8 +61,8 @@ def _rel(a, b):
 
 @pytest.mark.parametrize("t,s,w", [(96, 1024, 256), (64, 300, 640)])
 def test_backward_matches_reference(t, s, w):
-    from rl_engine.kernels.ops.cuda import dsv4_attention as core
-    from rl_engine.kernels.ops.cuda.dsa_backward import sparse_attention_backward
+    from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core
+    from rl_engine.kernels.ops.cuda.attention.dsa_backward import sparse_attention_backward
 
     q, ws, idx, lens, sink, dout = _case(t, s, w, seed=t + s)
     out, lse = core.sparse_attention(q, ws, idx, lens, sink, SCALE)

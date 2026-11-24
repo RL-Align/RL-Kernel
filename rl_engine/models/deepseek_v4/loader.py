@@ -155,7 +155,7 @@ def _mx(codes: list[Tensor], scales: list[Tensor], n: int, k: int):
 
 
 def _attention(src, c: Dsv4Config, i: int, max_model_len: int, device):
-    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8Linear
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8Linear
     from rl_engine.models.deepseek_v4.attention import Dsv4Attention, Dsv4AttentionWeights
     from rl_engine.models.deepseek_v4.rope import rope_cos_sin
 
@@ -199,8 +199,8 @@ def _attention(src, c: Dsv4Config, i: int, max_model_len: int, device):
 
 def load_output_projection(src, c: Dsv4Config, i: int, device):
     """Layer ``i``'s ``wo_a`` + ``wo_b`` (``dsv4_attention.OutputProjection``)."""
-    from rl_engine.kernels.ops.cuda import dsv4_attention as core
-    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8BlockWeight, Fp8Linear
+    from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8BlockWeight, Fp8Linear
 
     a = f"layers.{i}.attn."
 
@@ -334,7 +334,7 @@ def random_checkpoint(
     MXFP4); norms 1 + N(0, 0.1); mHC ``fn`` N(0, 1 / sqrt(K)), so ``fn . x / rms(x)`` is
     O(1); other floats N(0, 0.1). Routing tables draw distinct experts per token.
     """
-    from rl_engine.kernels.ops.cuda.fp8_linear import quantize_weight
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import quantize_weight
     from rl_engine.moe.mx_format import mx_quantize
 
     g = torch.Generator(device=device).manual_seed(seed)

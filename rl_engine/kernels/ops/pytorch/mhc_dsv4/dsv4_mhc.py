@@ -142,7 +142,7 @@ def gemm_partials(residual: Tensor, fn: Tensor) -> tuple[Tensor, Tensor]:
 
     ``fn`` rows are zero-padded to a multiple of 8 (``hc_head`` has 4).
     """
-    from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+    from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 
     dg, _ = require_deepgemm(residual.device)
     t = residual.shape[0]

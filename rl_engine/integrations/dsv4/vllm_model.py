@@ -103,7 +103,7 @@ def _use_pinned_flashmla() -> None:
             "rl_engine.integrations.dsv4.vllm_model before vLLM's attention ops "
             "(the RL_KERNEL_DSV4_ROLLOUT=1 plugin does)"
         )
-    from rl_engine.kernels.ops.cuda.flashmla import _import_interface
+    from rl_engine.kernels.ops.cuda.attention.flashmla import _import_interface
 
     _import_interface()  # loads flash_mla/_flashmla_C.abi3.so
     alias = types.ModuleType("vllm._flashmla_C")
@@ -279,7 +279,7 @@ def _accept_pinned_deepgemm() -> None:
 
     vLLM fails closed unless DeepGEMM exposes ``set_batch_invariant`` (a fork whose flag makes
     its grouped MoE GEMMs invariant). This model runs no vLLM MoE kernel, and RL-Kernel's
-    pinned DeepGEMM (``rl_engine.kernels.ops.cuda.deepgemm``) is batch-invariant at the DSv4
+    pinned DeepGEMM (``rl_engine.kernels.ops.cuda.matmul.deepgemm``) is batch-invariant at the DSv4
     shapes as built (``scripts/probe_dsv4_deepgemm_bi.py``), so the check becomes the pin
     check. A DeepGEMM with the flag is left to vLLM."""
     import vllm.utils.deep_gemm as vdg
@@ -288,7 +288,7 @@ def _accept_pinned_deepgemm() -> None:
         return
 
     def enable() -> None:
-        from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+        from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 
         require_deepgemm()
 
@@ -580,7 +580,7 @@ def _rlk_qnorm_rope_insert(attn, q, kv, positions, attn_metadata):
     """``DeepseekV4Attention._fused_qnorm_rope_kv_insert`` on RL-Kernel's kernel."""
     if not isinstance(attn_metadata, dict):  # profile run: vLLM pads Q, no cache write
         return attn.rlk_vllm_insert(q, kv, positions, attn_metadata)
-    from rl_engine.kernels.ops.cuda import dsv4_attention as core
+    from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core
 
     md = attn_metadata.get(attn.swa_cache_layer.prefix)
     cache = attn.swa_cache_layer.kv_cache
@@ -632,7 +632,7 @@ class RlkDecoderLayer(vm.DeepseekV4DecoderLayer):
     """``DeepseekV4DecoderLayer`` on RL-Kernel's mHC (instances are re-classed)."""
 
     def forward(self, x, positions, input_ids, post_mix=None, res_mix=None, residual=None):
-        from rl_engine.kernels.ops.cuda.mhc_dsv4 import mhc_post_cuda, mhc_pre_cuda
+        from rl_engine.kernels.ops.cuda.mhc import mhc_post_cuda, mhc_pre_cuda
 
         streams = x
         h, post, comb = mhc_pre_cuda(
@@ -785,7 +785,7 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
             layer.ffn.moe.lora = moe_lora
 
     def forward(self, input_ids, positions, intermediate_tensors=None, inputs_embeds=None):
-        from rl_engine.kernels.ops.cuda.mhc_dsv4 import hc_head_cuda
+        from rl_engine.kernels.ops.cuda.mhc import hc_head_cuda
 
         h = inputs_embeds if inputs_embeds is not None else self.embed_input_ids(input_ids)
         streams = h.unsqueeze(1).expand(-1, self.hc_mult, -1).contiguous()

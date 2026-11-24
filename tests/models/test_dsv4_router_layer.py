@@ -17,7 +17,7 @@ def _ready() -> bool:
         return False
     try:
         import rl_engine._C as ext
-        from rl_engine.kernels.ops.cuda.deepgemm import deepgemm_available
+        from rl_engine.kernels.ops.cuda.matmul.deepgemm import deepgemm_available
     except ImportError:
         return False
     return hasattr(ext, "dsv4_router_topk") and deepgemm_available()

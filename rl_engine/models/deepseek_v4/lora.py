@@ -108,7 +108,7 @@ def _padded(ad: LoraAdapter) -> tuple[Tensor, Tensor]:
 
 
 def _gemm_nt(x: Tensor, w: Tensor) -> Tensor:
-    from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+    from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 
     out = torch.empty(x.shape[0], w.shape[0], dtype=torch.float32, device=x.device)
     if x.shape[0]:

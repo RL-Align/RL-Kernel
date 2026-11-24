@@ -10,7 +10,7 @@ import types
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda import deepgemm as dg
+from rl_engine.kernels.ops.cuda.matmul import deepgemm as dg
 
 
 @pytest.fixture(autouse=True)

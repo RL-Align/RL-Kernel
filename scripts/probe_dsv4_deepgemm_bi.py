@@ -43,7 +43,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rl_engine.kernels.ops.cuda.deepgemm import (  # noqa: E402
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import (  # noqa: E402
     DEEPGEMM_COMMIT,
     DeepGemmUnavailable,
     require_deepgemm,

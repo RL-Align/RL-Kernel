@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda.deepgemm import deepgemm_available
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import deepgemm_available
 from rl_engine.kernels.ops.pytorch.quant import fp8_group_quant
 
 
@@ -45,7 +45,7 @@ FP8_REL_ERR = 0.06  # E4M3 operand rounding gives ~3.8% on Gaussian data
 
 
 def _linear(n: int, k: int, seed: int = 0):
-    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8Linear
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8Linear
 
     gen = torch.Generator().manual_seed(seed)
     w = (torch.randn(n, k, generator=gen) / k**0.5).to(torch.bfloat16).cuda()
@@ -89,7 +89,7 @@ def test_forward_and_dx_are_batch_invariant(name, n, k):
 
 
 def test_dx_equals_forward_through_transposed_weight():
-    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8Linear
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8Linear
 
     lin, w = _linear(1024, 4096)
     dy = _rand(130, 1024, seed=4)
@@ -136,7 +136,7 @@ def test_empty_batches_launch_nothing():
 
 
 def test_checkpoint_weights_and_input_validation():
-    from rl_engine.kernels.ops.cuda.fp8_linear import Fp8Linear
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8Linear
 
     lin, _ = _linear(256, 512)
     again = Fp8Linear.from_fp8(*lin.weight.pair())

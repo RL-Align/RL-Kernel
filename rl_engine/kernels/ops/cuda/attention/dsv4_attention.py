@@ -36,9 +36,9 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
-from rl_engine.kernels.ops.cuda.flashmla import require_flashmla
-from rl_engine.kernels.ops.cuda.fp8_linear import Fp8BlockWeight, Fp8Linear
+from rl_engine.kernels.ops.cuda.attention.flashmla import require_flashmla
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
+from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8BlockWeight, Fp8Linear
 
 HEAD_DIM = 512
 NOPE = 448

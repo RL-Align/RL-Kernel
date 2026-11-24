@@ -35,7 +35,7 @@ rocm = ["aiter"]
 vllm = ["vllm>=0.6.0"]
 # DSv4 SM90 FP8 GEMMs. Pinned to the vLLM fork's DeepGEMM commit validated by
 # scripts/probe_dsv4_deepgemm_bi.py; build with CUDA_HOME at CUDA 12.8+ and
-# --no-build-isolation (see rl_engine/kernels/ops/cuda/deepgemm.py).
+# --no-build-isolation (see rl_engine/kernels/ops/cuda/matmul/deepgemm.py).
 dsv4 = [
     "deep_gemm @ git+https://github.com/vllm-project/DeepGEMM.git@e21c821f39a2056d68067a466c64ddc942200106",
 ]

@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda.deepgemm import deepgemm_available
-from rl_engine.kernels.ops.cuda.flashmla import flashmla_available
+from rl_engine.kernels.ops.cuda.attention.flashmla import flashmla_available
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import deepgemm_available
 
 pytestmark = pytest.mark.skipif(
     not (torch.cuda.is_available() and deepgemm_available()), reason="SM90 + DeepGEMM"

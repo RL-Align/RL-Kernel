@@ -26,7 +26,7 @@ Backward order, for dy -> dh:
     [d qr | d kv] through fused_wqa_wkv dX                            -> d h
 
 **Not deterministic:** cuDNN accumulates d workspace with FP32 atomics
-(``rl_engine/kernels/ops/cuda/dsa_backward.py``; the user does not require a deterministic
+(``rl_engine/kernels/ops/cuda/attention/dsa_backward.py``; the user does not require a deterministic
 backward). Everything else here is gathers and row-local FP32 math. The o / q / kv /
 q_norm steps (RoPE transposes and RMSNorm backwards) run in one fused kernel,
 ``csrc/cuda/attention/dsv4_attn_bwd.cu`` (``_norm_rope_bwd``); the compressor backward
@@ -40,8 +40,8 @@ from __future__ import annotations
 import torch
 from torch import Tensor
 
-from rl_engine.kernels.ops.cuda.dsa_backward import sparse_attention_backward
-from rl_engine.kernels.ops.cuda.fp8_linear import Fp8Linear
+from rl_engine.kernels.ops.cuda.attention.dsa_backward import sparse_attention_backward
+from rl_engine.kernels.ops.cuda.matmul.fp8_linear import Fp8Linear
 
 NOPE, ROPE = 448, 64
 
@@ -138,7 +138,7 @@ def _compressor_backward(attn, hidden: Tensor, batch, d_src: Tensor, src_base: l
     """
     import importlib
 
-    from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+    from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
     from rl_engine.models.deepseek_v4.attention import _bf16_gemm
 
     c, w = attn.c, attn.w
@@ -230,7 +230,7 @@ def _compressor_backward_reference(attn, hidden: Tensor, batch, d_entries: list[
         start += length
     out = torch.empty(hidden.shape[0], hidden.shape[1], dtype=torch.float32, device=hidden.device)
     if hidden.shape[0]:
-        from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+        from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 
         dg, _ = require_deepgemm(hidden.device)
         dg.bf16_gemm_nn(d_score.bfloat16().contiguous(), w.wkv_wgate.contiguous(), out)

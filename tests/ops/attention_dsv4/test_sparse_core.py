@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.kernels.ops.cuda.flashmla import flashmla_available
+from rl_engine.kernels.ops.cuda.attention.flashmla import flashmla_available
 from rl_engine.kernels.ops.pytorch.compressor import quant_ds_mla
 
 pytestmark = pytest.mark.skipif(
@@ -27,7 +27,7 @@ ROW = 576 + 8
 
 
 def _core():
-    from rl_engine.kernels.ops.cuda import dsv4_attention
+    from rl_engine.kernels.ops.cuda.attention import dsv4_attention
 
     return dsv4_attention
 
@@ -130,7 +130,7 @@ class Setup:
 
     def reference(self, r, p, out_row):
         """Eager attention for request r, position p over its selected entries."""
-        from rl_engine.kernels.ops.cuda.dsv4_attention import read_ds_mla
+        from rl_engine.kernels.ops.cuda.attention.dsv4_attention import read_ds_mla
 
         rows = []
         lo = max(0, p - WINDOW + 1)
@@ -212,8 +212,8 @@ def test_index_layout():
 
 
 def test_gather_and_save_states_match_goldens():
+    from rl_engine.kernels.ops.cuda.attention.dsv4_attention import ds_mla_gather
     from rl_engine.kernels.ops.cuda.compressor import save_states_cuda
-    from rl_engine.kernels.ops.cuda.dsv4_attention import ds_mla_gather
     from rl_engine.kernels.ops.pytorch.compressor import dequant_ds_mla, save_states
 
     gen = torch.Generator().manual_seed(9)
@@ -249,7 +249,7 @@ def test_gather_and_save_states_match_goldens():
 
 @pytest.mark.parametrize("ratio", [4, 128, 1])
 def test_compact_workspace_equals_slab(ratio):
-    from rl_engine.kernels.ops.cuda import dsv4_attention as core
+    from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core
 
     seq_lens = [9, 300, 700] if ratio != 128 else [130, 300, 700]
     s = Setup(seq_lens, ratio, seed=13)

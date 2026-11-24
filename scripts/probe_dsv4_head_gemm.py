@@ -41,7 +41,7 @@ def _time(fn, iters=10) -> float:
 
 
 def main() -> int:
-    from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+    from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 
     dg, _ = require_deepgemm(torch.device("cuda"))
     g = torch.Generator(device="cuda").manual_seed(0)

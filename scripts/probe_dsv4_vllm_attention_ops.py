@@ -18,7 +18,7 @@ import torch
 def main() -> int:
     import vllm._custom_ops  # noqa: F401  (registers torch.ops._C)
 
-    from rl_engine.kernels.ops.cuda import dsv4_attention as core
+    from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core
     from rl_engine.models.deepseek_v4.config import Dsv4Config
     from rl_engine.models.deepseek_v4.rope import rope_cos_sin
 

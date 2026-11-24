@@ -16,7 +16,7 @@ Batch-invariant manifold-constrained hyper-connections for DeepSeek-V4 (SM90), p
 |---|---|
 | Golden (contract) | `rl_engine/kernels/ops/pytorch/mhc_dsv4/dsv4_mhc.py` |
 | CUDA kernels | `csrc/cuda/mhc/dsv4_mhc.cu` |
-| Python wrapper + autograd | `rl_engine/kernels/ops/cuda/mhc_dsv4/dsv4_mhc.py` (`mhc_pre`, `mhc_post`, `hc_head`) |
+| Python wrapper + autograd | `rl_engine/kernels/ops/cuda/mhc/dsv4_mhc.py` (`mhc_pre`, `mhc_post`, `hc_head`) |
 | Tests | `tests/ops/mhc_dsv4/test_dsv4_mhc_golden.py` (CPU), `tests/ops/mhc_dsv4/test_dsv4_mhc_cuda.py` |
 | Benchmark | `benchmarks/benchmark_dsv4_mhc.py` |
 

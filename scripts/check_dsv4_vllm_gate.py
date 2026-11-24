@@ -182,7 +182,7 @@ def compare(args, dump: pathlib.Path) -> dict:
     caches = model.new_caches(len(fed), args.max_len)
     hidden, streams = model.forward_batch(ids, batch, caches, return_streams=True)
     # Per-layer intermediates (attention in / out, MoE in / out) of the same packed prefill.
-    from rl_engine.kernels.ops.cuda.mhc_dsv4 import mhc_post_cuda, mhc_pre_cuda
+    from rl_engine.kernels.ops.cuda.mhc import mhc_post_cuda, mhc_pre_cuda
 
     detail = []
     inner = []

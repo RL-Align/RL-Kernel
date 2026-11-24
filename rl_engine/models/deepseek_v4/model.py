@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from rl_engine.kernels.ops.cuda.mhc_dsv4 import hc_head_cuda, mhc_post_cuda, mhc_pre_cuda
+from rl_engine.kernels.ops.cuda.mhc import hc_head_cuda, mhc_post_cuda, mhc_pre_cuda
 from rl_engine.models.deepseek_v4.attention import Dsv4Attention, Dsv4Batch, LayerCaches, new_caches
 from rl_engine.models.deepseek_v4.config import Dsv4Config
 from rl_engine.models.deepseek_v4.moe import Dsv4MoE
@@ -80,7 +80,7 @@ class Dsv4DecoderLayer:
         self, streams: Tensor, batch: Dsv4Batch, caches: LayerCaches, input_ids: Tensor
     ) -> Tensor:
         """:meth:`forward_batch` under autograd (same bytes); full-prefill batches."""
-        from rl_engine.kernels.ops.cuda.mhc_dsv4 import mhc_post, mhc_pre
+        from rl_engine.kernels.ops.cuda.mhc import mhc_post, mhc_pre
         from rl_engine.models.deepseek_v4.attention_backward import attention_train
 
         p = self.hc_attn
@@ -229,7 +229,7 @@ class Dsv4Model:
         layer's backward reads, and the backward runs each layer's forward again. Same
         forward bytes, same gradients; the caches stay alive until the backward.
         """
-        from rl_engine.kernels.ops.cuda.mhc_dsv4 import hc_head
+        from rl_engine.kernels.ops.cuda.mhc import hc_head
 
         input_ids = input_ids.long()
         streams = self.embed_streams(input_ids)

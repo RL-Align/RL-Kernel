@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from torch import Tensor
 
-from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
+from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
 from rl_engine.kernels.ops.cuda.topk import stable_topk_per_row_cuda
 
 SM90_PAGED_BLOCK_KV = 64

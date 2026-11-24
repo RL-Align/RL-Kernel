@@ -20,7 +20,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _cudnn():
-    from rl_engine.kernels.ops.cuda.dsa_backward import cudnn_dsa_available
+    from rl_engine.kernels.ops.cuda.attention.dsa_backward import cudnn_dsa_available
 
     return cudnn_dsa_available()
 

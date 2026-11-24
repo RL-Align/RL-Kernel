@@ -71,9 +71,9 @@ def _graph_us(fn, iters: int = 20) -> float:
 
 
 def main() -> int:
-    from rl_engine.kernels.ops.cuda import dsv4_attention as core
-    from rl_engine.kernels.ops.cuda.deepgemm import require_deepgemm
-    from rl_engine.kernels.ops.cuda.fp8_linear import quantize_weight
+    from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core
+    from rl_engine.kernels.ops.cuda.matmul.deepgemm import require_deepgemm
+    from rl_engine.kernels.ops.cuda.matmul.fp8_linear import quantize_weight
 
     dg, _ = require_deepgemm(torch.device("cuda"))
     g = torch.Generator(device="cuda").manual_seed(0)
