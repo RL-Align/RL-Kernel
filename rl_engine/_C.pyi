@@ -420,6 +420,17 @@ def inkling2_dynamic_kv_conv_backward(
 def inkling2_router_forward(
     logits: torch.Tensor, selection_bias: torch.Tensor, top_k: int, route_scale: float
 ) -> tuple[torch.Tensor, torch.Tensor]: ...
+def inkling2_shared_weight_grad_forward(
+    gradients: torch.Tensor, shard_start: int, shard_end: int
+) -> torch.Tensor: ...
+def inkling2_shared_weight_grad_backward(
+    grad_output: torch.Tensor,
+    visits: int,
+    full_rows: int,
+    elements: int,
+    shard_start: int,
+    shard_end: int,
+) -> torch.Tensor: ...
 def inkling2_full_attention_forward(
     query: torch.Tensor,
     key: torch.Tensor,

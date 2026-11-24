@@ -233,6 +233,7 @@ def get_extensions():
             "csrc/cuda/inkling2/visit_cache.cu",
             "csrc/cuda/inkling2/dynamic_kv_conv.cu",
             "csrc/cuda/inkling2/full_attention.cu",
+            "csrc/cuda/inkling2/shared_weight_grad.cu",
         ]
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared

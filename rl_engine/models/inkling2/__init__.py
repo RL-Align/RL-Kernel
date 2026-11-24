@@ -21,6 +21,10 @@ from .short_conv import (
     causal_short_conv_streams,
 )
 from .visit_cache import VisitKey, VisitState, VisitStateCache, clone_visit_state_cuda
+from .shared_weight_grad import (
+    accumulate_shared_weight_gradients,
+    accumulate_shared_weight_gradients_cuda,
+)
 
 __all__ = [
     "KERNEL_SIZE",
@@ -44,6 +48,8 @@ __all__ = [
     "dynamic_kv_conv_cuda",
     "full_attention",
     "full_attention_cuda",
+    "accumulate_shared_weight_gradients",
+    "accumulate_shared_weight_gradients_cuda",
     "route_topk_sigmoid",
     "route_topk_sigmoid_cuda",
     "route_topk_sigmoid_rocm",

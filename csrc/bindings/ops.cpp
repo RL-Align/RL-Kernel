@@ -267,6 +267,11 @@ std::vector<torch::Tensor> swiglu_backward_cuda(
     torch::Tensor dy,
     torch::Tensor gate,
     torch::Tensor up);
+torch::Tensor inkling2_shared_weight_grad_forward(
+    torch::Tensor gradients, int64_t shard_start, int64_t shard_end);
+torch::Tensor inkling2_shared_weight_grad_backward(
+    torch::Tensor grad_output, int64_t visits, int64_t full_rows, int64_t elements,
+    int64_t shard_start, int64_t shard_end);
 torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
 torch::Tensor inkling2_attention_o_residual_forward(
     torch::Tensor attention,
@@ -835,6 +840,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Inkling 2 Mini native CUDA attention O residual forward");
     m.def("inkling2_attention_o_residual_backward", &inkling2_attention_o_residual_backward,
           "Inkling 2 Mini native CUDA attention O residual backward");
+    m.def("inkling2_shared_weight_grad_forward", &inkling2_shared_weight_grad_forward,
+          "Inkling 2 Mini native CUDA shared-weight gradient fold");
+    m.def("inkling2_shared_weight_grad_backward", &inkling2_shared_weight_grad_backward,
+          "Inkling 2 Mini native CUDA shared-weight gradient backward");
     m.def("swiglu_backward", &swiglu_backward, "Batch-invariant SwiGLU backward CUDA");
     m.def("inkling2_dynamic_kv_conv_forward", &inkling2_dynamic_kv_conv_forward,
           "Inkling 2 Mini CUDA dynamic K/V convolution forward");
