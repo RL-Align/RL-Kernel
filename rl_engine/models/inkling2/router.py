@@ -79,7 +79,7 @@ def route_topk_sigmoid_cuda(
         selection_bias = torch.zeros(experts, device=logits.device, dtype=torch.float32)
     else:
         selection_bias = selection_bias.to(device=logits.device, dtype=torch.float32).contiguous()
-    packed = _C.inkling2_router_forward(
+    expert_indices, weights = _C.inkling2_router_forward(
         logits.contiguous(), selection_bias, int(top_k), float(route_scale)
     )
-    return RoutingResult(expert_indices=packed[0], weights=packed[1])
+    return RoutingResult(expert_indices=expert_indices, weights=weights)

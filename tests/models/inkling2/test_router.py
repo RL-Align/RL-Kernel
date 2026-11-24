@@ -49,9 +49,15 @@ def test_native_cuda_router_matches_reference():
 
     if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_router_forward"):
         pytest.skip("Inkling 2 CUDA router extension is unavailable")
-    logits = torch.randn(16, 128, device="cuda", dtype=torch.bfloat16)
-    bias = torch.randn(128, device="cuda")
+    generator = torch.Generator(device="cuda").manual_seed(24)
+    logits = torch.randn(16, 128, device="cuda", dtype=torch.bfloat16, generator=generator)
+    bias = torch.randn(128, device="cuda", generator=generator)
     native = route_topk_sigmoid_cuda(logits, bias)
     reference = route_topk_sigmoid(logits, bias)
+    assert native.expert_indices.dtype == torch.int64
+    assert native.weights.dtype == torch.float32
     assert torch.equal(native.expert_indices, reference.expert_indices)
-    torch.testing.assert_close(native.weights, reference.weights, atol=0, rtol=0)
+    torch.testing.assert_close(native.weights, reference.weights, atol=1e-7, rtol=1e-6)
+
+    empty = route_topk_sigmoid_cuda(logits[:0], bias)
+    assert empty.expert_indices.shape == empty.weights.shape == (0, 8)

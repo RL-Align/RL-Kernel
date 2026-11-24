@@ -8,8 +8,10 @@
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
-#include <limits>
 #include <torch/extension.h>
+
+#include <cfloat>
+#include <tuple>
 
 namespace {
 constexpr int kMaxTopK = 8;
@@ -30,11 +32,11 @@ __global__ void router_kernel(
 
   float selected_scores[kMaxTopK];
   float selected_probs[kMaxTopK];
-  int selected_ids[kMaxTopK];
+  int64_t selected_ids[kMaxTopK];
   for (int i = 0; i < kMaxTopK; ++i) {
-    selected_scores[i] = -3.402823466e+38F;
+    selected_scores[i] = 0.0f;
     selected_probs[i] = 0.0f;
-    selected_ids[i] = 2147483647;
+    selected_ids[i] = -1;
   }
 
   for (int64_t expert = 0; expert < experts; ++expert) {
@@ -43,8 +45,9 @@ __global__ void router_kernel(
     const float score = probability + bias[expert];
     int insert_at = top_k;
     for (int i = 0; i < top_k; ++i) {
-      if (score > selected_scores[i] ||
-          (score == selected_scores[i] && expert < selected_ids[i])) {
+      // Experts are visited in ascending ID order, which preserves ties.
+      if (selected_ids[i] < 0 || score > selected_scores[i] ||
+          (isnan(score) && !isnan(selected_scores[i]))) {
         insert_at = i;
         break;
       }
@@ -57,21 +60,21 @@ __global__ void router_kernel(
     }
     selected_scores[insert_at] = score;
     selected_probs[insert_at] = probability;
-    selected_ids[insert_at] = static_cast<int>(expert);
+    selected_ids[insert_at] = expert;
   }
 
   float sum = 0.0f;
   for (int i = 0; i < top_k; ++i) sum += selected_probs[i];
-  const float inverse_sum = 1.0f / fmaxf(sum, 1.17549435e-38F);
+  const float denominator = sum < FLT_MIN ? FLT_MIN : sum;
   for (int i = 0; i < top_k; ++i) {
     indices[token * top_k + i] = selected_ids[i];
-    weights[token * top_k + i] = selected_probs[i] * inverse_sum * route_scale;
+    weights[token * top_k + i] = (selected_probs[i] / denominator) * route_scale;
   }
 }
 
 }  // namespace
 
-torch::Tensor inkling2_router_forward(
+std::tuple<torch::Tensor, torch::Tensor> inkling2_router_forward(
     torch::Tensor logits,
     torch::Tensor selection_bias,
     int64_t top_k,
@@ -79,6 +82,7 @@ torch::Tensor inkling2_router_forward(
   TORCH_CHECK(logits.is_cuda() && logits.is_contiguous(), "logits must be contiguous CUDA");
   TORCH_CHECK(selection_bias.is_cuda() && selection_bias.is_contiguous(),
               "selection_bias must be contiguous CUDA");
+  TORCH_CHECK(selection_bias.device() == logits.device(), "selection_bias must share the logits device");
   TORCH_CHECK(logits.dim() == 2, "logits must have shape [tokens, experts]");
   TORCH_CHECK(selection_bias.dim() == 1 && selection_bias.size(0) == logits.size(1),
               "selection_bias must have shape [experts]");
@@ -93,6 +97,7 @@ torch::Tensor inkling2_router_forward(
   auto bias = selection_bias.to(torch::kFloat32).contiguous();
   auto indices = torch::empty({logits.size(0), top_k}, logits.options().dtype(torch::kInt64));
   auto weights = torch::empty({logits.size(0), top_k}, logits.options().dtype(torch::kFloat32));
+  if (logits.size(0) == 0) return {indices, weights};
   auto stream = at::cuda::getCurrentCUDAStream();
   AT_DISPATCH_FLOATING_TYPES_AND2(at::kHalf, at::kBFloat16, logits.scalar_type(),
                                   "inkling2_router_forward", [&] {
@@ -102,5 +107,5 @@ torch::Tensor inkling2_router_forward(
         static_cast<float>(route_scale));
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
-  return torch::stack({indices, weights});
+  return {indices, weights};
 }

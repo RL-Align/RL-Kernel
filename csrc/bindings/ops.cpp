@@ -268,7 +268,7 @@ std::vector<torch::Tensor> swiglu_backward_cuda(
     torch::Tensor gate,
     torch::Tensor up);
 torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
-torch::Tensor inkling2_router_forward(
+std::tuple<torch::Tensor, torch::Tensor> inkling2_router_forward(
     torch::Tensor logits, torch::Tensor selection_bias, int64_t top_k, double route_scale);
 std::vector<torch::Tensor> swiglu_packed_backward_cuda(
     torch::Tensor dy,
