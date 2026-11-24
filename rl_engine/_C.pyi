@@ -392,6 +392,9 @@ def deterministic_collective_rocm_ipc_all_gather_input(
     output: torch.Tensor,
 ) -> None: ...
 
+def inkling2_router_forward(
+    logits: torch.Tensor, selection_bias: torch.Tensor, top_k: int, route_scale: float
+) -> tuple[torch.Tensor, torch.Tensor]: ...
 def inkling2_expert_gate_up_forward(
     hidden: torch.Tensor,
     gate_weight: torch.Tensor,
