@@ -72,10 +72,28 @@ def _reference(op, x, w, grad):
     return y.detach(), xs.grad, ws.grad
 
 
-def _diff(a, b):
+def _error_bound(lhs, rhs, terms, a, b):
+    """Elementwise bound on ``|a - b|`` for two FP32 sums of the same terms in different orders.
+
+    ``lhs @ rhs`` is summed over ``terms`` terms per element. Any summation order is within
+    ``gamma(terms) * (|lhs| @ |rhs|)`` of the exact value (``gamma`` with FP32 unit roundoff
+    ``2**-24``), and each of the two results is then rounded once to BF16 (relative ``2**-9``).
+    """
+
+    import torch
+
+    absolute = lhs.float().abs() @ rhs.float().abs()
+    u = 2.0**-24
+    gamma = (terms * u) / (1 - terms * u)
+    return 2 * gamma * absolute + 2.0**-8 * torch.maximum(a.float().abs(), b.float().abs())
+
+
+def _diff(a, b, bound=None):
     """``bitwise``: same dtype, shape and bytes (``torch.equal`` compares values, so ``-0.0`` and
-    ``+0.0`` would match). ``finite``: both sides finite; ``max_abs`` is ``None`` otherwise, so the
-    report stays strict JSON, and the check fails (finite inputs must give finite results)."""
+    ``+0.0`` would match). ``finite``: both sides finite; ``max_abs`` is ``None`` otherwise (or if
+    the shapes or dtypes differ), so the report stays strict JSON, and the check fails (finite
+    inputs must give finite results). ``within_bound`` is ``None`` without ``bound``, else whether
+    every element is within it (``_error_bound``)."""
 
     import torch
 
@@ -87,7 +105,12 @@ def _diff(a, b):
     return {
         "bitwise": bool(bitwise),
         "finite": finite,
-        "max_abs": float((a.float() - b.float()).abs().max()) if finite else None,
+        "max_abs": float((a.float() - b.float()).abs().max()) if (finite and same) else None,
+        "within_bound": (
+            bool(((a.float() - b.float()).abs() <= bound).all())
+            if bound is not None and finite and same
+            else (None if bound is None else False)
+        ),
         "differing": int((a != b).sum()) if same else None,
     }
 
@@ -118,7 +141,8 @@ def check(row: str, rows: int, seed: int) -> dict:
                 dx_parts.append(fx.gemm(grad, ws))
                 dw_parts.append(fx.gemm(grad, x[:, cols].contiguous(), a_t=True))
             y = tree_add(partials).to(torch.bfloat16)
-            entry["reported"]["forward"] = _diff(y, y_ref)
+            bound = _error_bound(x, w.t(), k, y, y_ref)  # y = x @ w^T, k terms per element
+            entry["reported"]["forward"] = _diff(y, y_ref, bound)
             entry["expected_bitwise"]["dx"] = _diff(torch.cat(dx_parts, 1), dx_ref)
             entry["expected_bitwise"]["dw"] = _diff(torch.cat(dw_parts, 1), dw_ref)
         else:
@@ -151,9 +175,12 @@ def check(row: str, rows: int, seed: int) -> dict:
             entry["expected_bitwise"]["forward"] = _diff(torch.cat([y_hid, y_gate], 1), y_ref)
             dw = torch.cat([torch.cat([d[0] for d in dws]), torch.cat([d[1] for d in dws])])
             entry["expected_bitwise"]["dw"] = _diff(dw, dw_ref)
-            entry["reported"]["dx"] = _diff(tree_add(dx_partials).to(torch.bfloat16), dx_ref)
+            dx = tree_add(dx_partials).to(torch.bfloat16)
+            # dX = grad @ w, n terms per element
+            entry["reported"]["dx"] = _diff(dx, dx_ref, _error_bound(grad, w, n, dx, dx_ref))
         ok &= all(v["bitwise"] and v["finite"] for v in entry["expected_bitwise"].values())
-        ok &= all(v["finite"] for v in entry["reported"].values())  # informational, but finite
+        # informational order, but finite and within the summation error bound of the reference
+        ok &= all(v["finite"] and v["within_bound"] for v in entry["reported"].values())
         out["tp"][str(tp)] = entry
     out["pass"] = ok
     return out
