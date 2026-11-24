@@ -82,6 +82,7 @@ torch::Tensor linear_logp_logits_bf16_to_dlogits(torch::Tensor logits,
 torch::Tensor rope_apply_sm90(torch::Tensor x, torch::Tensor cos, torch::Tensor sin, double sin_sign);
 torch::Tensor embedding_sm90_forward(torch::Tensor token_ids, torch::Tensor weight);
 torch::Tensor embedding_sm90_forward_fp32(torch::Tensor token_ids, torch::Tensor weight);
+torch::Tensor det_gemm_rowwise_fwd_fp32(torch::Tensor a, torch::Tensor b);
 torch::Tensor lm_head_sm90_forward(torch::Tensor hidden,
                                    torch::Tensor weight,
                                    torch::optional<torch::Tensor> bias);
@@ -255,6 +256,7 @@ void deterministic_collective_rocm_ipc_all_gather_input(
 // Batch-Invariant Deterministic GEMM Declarations
 bool det_gemm_sm90_compiled();
 torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b);
+torch::Tensor det_gemm_fwd_fp32(torch::Tensor a, torch::Tensor b);
 torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b);
 torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc);
@@ -568,6 +570,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Single-card SM90 batch-invariant embedding forward");
     m.def("embedding_sm90_forward_fp32", &embedding_sm90_forward_fp32,
           "Single-card SM90 batch-invariant embedding forward with fp32 output");
+    m.def("det_gemm_rowwise_fwd_fp32", &det_gemm_rowwise_fwd_fp32,
+          "Fixed-order rowwise GEMM with FP32 accumulation and output");
     m.def("lm_head_sm90_forward", &lm_head_sm90_forward,
           "Single-card SM90 batch-invariant LM-head forward");
     m.def("lm_head_sm90_forward_fp32", &lm_head_sm90_forward_fp32,
@@ -738,6 +742,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("det_gemm_sm90_compiled", &det_gemm_sm90_compiled,
           "Whether the extension contains the SM90 deterministic GEMM implementation");
     m.def("det_gemm_fwd", &det_gemm_fwd, "Batch-invariant deterministic GEMM forward (C=A@B)");
+    m.def("det_gemm_fwd_fp32", &det_gemm_fwd_fp32,
+          "Deterministic BF16-tree GEMM with the root widened to FP32");
     m.def(
         "det_gemm_fwd_rhs_transposed",
         &det_gemm_fwd_rhs_transposed,

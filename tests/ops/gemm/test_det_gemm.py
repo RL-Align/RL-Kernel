@@ -28,14 +28,16 @@ try:
         _copy_tree_root_kernel,
         _det_gemm_tree_leaf_kernel,
         _det_gemm_tree_reduce_kernel,
-        _det_gemm_tree_reduce_to_output_kernel,
+        _det_gemm_tree_reduce_to_output_rocm_kernel,
         _device_tree_plan,
         _gfx942_qwen_tree_leaf_config,
         _triton_tree_gemm,
     )
 
     _HAS_TRITON = True
-except ImportError:
+except ImportError as exc:
+    if exc.name != "triton":
+        raise
     _HAS_TRITON = False
 
 torch.backends.cuda.matmul.allow_tf32 = False
@@ -633,7 +635,7 @@ def test_triton_final_tree_level_direct_output_matches_legacy_copy_raw_bytes():
     )
 
     actual = torch.empty_like(expected)
-    _det_gemm_tree_reduce_to_output_kernel[(triton.cdiv(actual.numel(), block),)](
+    _det_gemm_tree_reduce_to_output_rocm_kernel[(triton.cdiv(actual.numel(), block),)](
         workspace,
         actual,
         lower,
