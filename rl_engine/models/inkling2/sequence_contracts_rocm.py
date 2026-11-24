@@ -16,27 +16,37 @@ Two jobs:
    device budget and a probe allocation of that size succeeded, not that a
    full model run at that length was executed.
 
-Estimate formula (batch 1, bf16 activations / KV, S = context length)::
+Estimate formula (batch 1, bf16 activations / KV, S = context length). The model
+facts come from RFC #736 (Inkling 2 Mini): 24 stored decoder layers executed as 48
+logical visits per token (prelude L0-5 once, core L6-17 x3, coda L18-23 once);
+every visit has its own KV and short-conv state; attention is 5 local : 1 global
+per 6 stored layers, i.e. 40 local-attention visits and 8 full-attention visits;
+the local window is 1024 causal tokens, so a local visit caches at most
+min(S, 1024) tokens; KV heads 8, head dim 128, BF16; hidden 2304; short-conv
+kernel 4, i.e. 3 carried frames::
 
-    kv_cache     = layers * S * 2 * kv_heads * head_dim * 2              bytes
-    boundary_act = layers * S * hidden * 2                               bytes
-                   (activation checkpointing keeps one layer input per layer)
+    kv_full      = FULL_VISITS  * S * 2 * kv_heads * head_dim * 2        bytes
+    kv_local     = LOCAL_VISITS * min(S, 1024) * 2 * kv_heads * head_dim * 2
+    conv_state   = LOGICAL_VISITS * 3 * (q_dim + 2 * kv_dim + moe_intermediate) * 2
+                   (Q/K/V/MLP streams; the MLP stream width is taken as the
+                   expert intermediate size, an assumption; the term is tiny)
+    boundary_act = LOGICAL_VISITS * S * hidden * 2                       bytes
+                   (activation checkpointing keeps one input per logical visit)
     layer_work   = S * (4 * hidden + (q_heads + 2 * kv_heads) * head_dim
                         + 3 * top_k * moe_intermediate) * 2              bytes
-                   (peak transient of one layer being (re)computed; attention is
+                   (peak transient of one visit being (re)computed; attention is
                    assumed flash-style, so no S x S score matrix)
     mask_block   = chunk * S                                             bytes
                    (bool mask for one prefill chunk; ``dense_mask`` = S * S is
                    what ``causal_position_mask`` materializes for the whole
                    sequence and is reported separately)
-    required     = kv_cache + boundary_act + layer_work + mask_block
+    required     = kv_full + kv_local + conv_state + boundary_act + layer_work
+                   + mask_block
     budget       = free_device_memory * safety_fraction   (default 0.90)
 
-The layer count is not fixed by this repository, so ``physical_layers`` is an
-explicit input; the default of 32 is an assumption and is echoed in every
-report. A plan is ``gated`` when required > budget (the reason states the numbers
-and the minimum number of devices under sequence-sharded context parallelism),
-when the probe allocation fails, or when no ROCm device is present.
+A plan is ``gated`` when required > budget (the reason states the numbers, the
+dominant term and the minimum number of devices under sequence-sharded context
+parallelism), when the probe allocation fails, or when no ROCm device is present.
 """
 
 from __future__ import annotations
@@ -60,6 +70,16 @@ from .sequence_contracts import (
 )
 
 GIB = 1024**3
+
+# RFC #736 (Inkling 2 Mini) model facts used by the estimate.
+STORED_LAYERS = 24
+LOGICAL_VISITS = 48  # prelude L0-5 x1 + core L6-17 x3 + coda L18-23 x1 = 6 + 36 + 6
+FULL_ATTENTION_VISITS = 8
+LOCAL_ATTENTION_VISITS = 40  # 5 local : 1 global per 6 stored layers
+LOCAL_WINDOW = 1024
+CONV_KERNEL = 4
+CONV_STATE_FRAMES = CONV_KERNEL - 1
+assert LOGICAL_VISITS == FULL_ATTENTION_VISITS + LOCAL_ATTENTION_VISITS
 
 
 # --------------------------------------------------------------------------
@@ -223,23 +243,42 @@ class InklingDims:
     head_dim: int = 128
     moe_top_k: int = 8
     moe_intermediate: int = 1152
-    # NOT pinned by this repository: assumption, override with the real value.
-    physical_layers: int = 32
     activation_bytes: int = 2  # bf16
 
 
 @dataclass(frozen=True)
 class MemoryEstimate:
     sequence_length: int
-    kv_cache: int
+    kv_full: int
+    kv_local: int
+    conv_state: int
     boundary_activations: int
     layer_work: int
     mask_block: int
     dense_mask: int
 
     @property
+    def kv_cache(self) -> int:
+        return self.kv_full + self.kv_local
+
+    @property
     def required(self) -> int:
-        return self.kv_cache + self.boundary_activations + self.layer_work + self.mask_block
+        return sum(self.components().values())
+
+    def components(self) -> dict[str, int]:
+        return {
+            "kv_full": self.kv_full,
+            "kv_local": self.kv_local,
+            "conv_state": self.conv_state,
+            "boundary_activations": self.boundary_activations,
+            "layer_work": self.layer_work,
+            "mask_block": self.mask_block,
+        }
+
+    @property
+    def dominant(self) -> str:
+        parts = self.components()
+        return max(parts, key=parts.__getitem__)
 
 
 def estimate_long_context_memory(
@@ -247,8 +286,12 @@ def estimate_long_context_memory(
 ) -> MemoryEstimate:
     """Apply the module-docstring formula (bytes, batch 1)."""
     s, b = sequence_length, dims.activation_bytes
-    kv = dims.physical_layers * s * 2 * dims.kv_heads * dims.head_dim * b
-    boundary = dims.physical_layers * s * dims.hidden * b
+    kv_token = 2 * dims.kv_heads * dims.head_dim * b
+    kv_full = FULL_ATTENTION_VISITS * s * kv_token
+    kv_local = LOCAL_ATTENTION_VISITS * min(s, LOCAL_WINDOW) * kv_token
+    streams = dims.q_heads * dims.head_dim + 2 * dims.kv_heads * dims.head_dim
+    conv = LOGICAL_VISITS * CONV_STATE_FRAMES * (streams + dims.moe_intermediate) * b
+    boundary = LOGICAL_VISITS * s * dims.hidden * b
     work = (
         s
         * (
@@ -258,7 +301,9 @@ def estimate_long_context_memory(
         )
         * b
     )
-    return MemoryEstimate(s, kv, boundary, work, min(chunk_size, s) * s, s * s)
+    return MemoryEstimate(
+        s, kv_full, kv_local, conv, boundary, work, min(chunk_size, s) * s, s * s
+    )
 
 
 @dataclass(frozen=True)
@@ -269,7 +314,7 @@ class LongContextReadiness:
     estimate: MemoryEstimate
     budget_bytes: int
     min_devices_context_parallel: int
-    assumed_layers: int
+    logical_visits: int
     probe_allocated: bool = False
     notes: tuple[str, ...] = field(default_factory=tuple)
 
@@ -302,7 +347,9 @@ def assess_long_context_plan(
         notes = (
             f"dense causal_position_mask would need {est.dense_mask / GIB:.3f} GiB; "
             "long contexts must build masks per chunk",
-            f"estimate assumes {dims.physical_layers} physical layers (not pinned by the repo)",
+            f"estimate uses RFC #736: {LOGICAL_VISITS} logical visits, "
+            f"{FULL_ATTENTION_VISITS} full + {LOCAL_ATTENTION_VISITS} local "
+            f"(window {LOCAL_WINDOW}) attention visits",
             "estimate, not a measurement: no model forward was run at this length",
         )
         if not info.is_rocm:
@@ -311,7 +358,8 @@ def assess_long_context_plan(
             status = "gated"
             reason = (
                 f"estimated {est.required / GIB:.1f} GiB > budget {budget / GIB:.1f} GiB "
-                f"({safety_fraction:.0%} of {info.free_memory_bytes / GIB:.1f} GiB free on "
+                f"(dominant term {est.dominant}: {est.components()[est.dominant] / GIB:.1f} GiB; "
+                f"{safety_fraction:.0%} of {info.free_memory_bytes / GIB:.1f} GiB free on "
                 f"{info.gcn_arch_name}); needs >= {devices} devices with sequence-sharded "
                 "context parallelism"
             )
@@ -327,7 +375,7 @@ def assess_long_context_plan(
                 )
         reports.append(
             LongContextReadiness(
-                length, status, reason, est, budget, devices, dims.physical_layers, allocated, notes
+                length, status, reason, est, budget, devices, LOGICAL_VISITS, allocated, notes
             )
         )
     return tuple(reports)

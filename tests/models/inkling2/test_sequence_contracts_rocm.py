@@ -6,8 +6,13 @@ import torch
 
 from rl_engine.models.inkling2.sequence_contracts import LongContextPlan, causal_position_mask
 from rl_engine.models.inkling2.sequence_contracts_rocm import (
+    CONV_STATE_FRAMES,
+    FULL_ATTENTION_VISITS,
     GIB,
-    InklingDims,
+    LOCAL_ATTENTION_VISITS,
+    LOCAL_WINDOW,
+    LOGICAL_VISITS,
+    STORED_LAYERS,
     RocmDeviceInfo,
     assess_long_context_plan,
     device_cpu_parity,
@@ -95,37 +100,49 @@ def test_causal_mask_batch_row_invariance_on_device():
 
 # ---------------------------------------------------------------- long context
 def test_memory_formula_matches_hand_computation():
-    dims = InklingDims(physical_layers=32)
-    est = estimate_long_context_memory(4096, dims)
-    assert est.kv_cache == 32 * 4096 * 2 * 8 * 128 * 2
-    assert est.boundary_activations == 32 * 4096 * 2304 * 2
+    # RFC #736: 48 logical visits = 8 full + 40 local (window 1024), KV 8 x 128 bf16.
+    assert (STORED_LAYERS, LOGICAL_VISITS) == (24, 6 + 12 * 3 + 6)
+    assert (FULL_ATTENTION_VISITS, LOCAL_ATTENTION_VISITS, LOCAL_WINDOW) == (8, 40, 1024)
+    assert CONV_STATE_FRAMES == 3
+    kv_token = 2 * 8 * 128 * 2
+    est = estimate_long_context_memory(4096)
+    assert est.kv_full == 8 * 4096 * kv_token
+    assert est.kv_local == 40 * 1024 * kv_token  # bounded by the window
+    assert est.conv_state == 48 * 3 * (24 * 128 + 2 * 8 * 128 + 1152) * 2
+    assert est.boundary_activations == 48 * 4096 * 2304 * 2
     assert est.layer_work == 4096 * (4 * 2304 + (24 + 16) * 128 + 3 * 8 * 1152) * 2
     assert est.mask_block == 4096 * 4096
     assert est.dense_mask == 4096 * 4096
-    assert est.required == est.kv_cache + est.boundary_activations + est.layer_work + est.mask_block
-    big = estimate_long_context_memory(1048576, dims)
+    assert est.required == (
+        est.kv_full
+        + est.kv_local
+        + est.conv_state
+        + est.boundary_activations
+        + est.layer_work
+        + est.mask_block
+    )
+    # Short contexts: local visits cache only S tokens, not the window.
+    assert estimate_long_context_memory(512).kv_local == 40 * 512 * kv_token
+    big = estimate_long_context_memory(1048576)
+    assert big.kv_full == 32 * GIB  # 8 * 2 * 8 * 128 * 2 B * 1M
+    assert big.kv_local == est.kv_local  # independent of S beyond the window
     assert big.dense_mask == 1 << 40  # 1 TiB: dense mask materialization is impossible
     assert big.mask_block == 4096 * 1048576
+    assert big.dominant == "boundary_activations"  # 216 GiB, not the 32 GiB full KV
+    assert 330 * GIB < big.required < 340 * GIB
 
 
 @needs_hip
 def test_formula_matches_real_allocations_at_4k():
-    dims = InklingDims()
-    est = estimate_long_context_memory(4096, dims)
-    kv = torch.empty(
-        dims.physical_layers,
-        2,
-        4096,
-        dims.kv_heads,
-        dims.head_dim,
-        dtype=torch.bfloat16,
-        device="cuda",
-    )
-    assert kv.numel() * kv.element_size() == est.kv_cache
+    est = estimate_long_context_memory(4096)
+    kv_full = torch.empty(8, 2, 4096, 8, 128, dtype=torch.bfloat16, device="cuda")
+    kv_local = torch.empty(40, 2, 1024, 8, 128, dtype=torch.bfloat16, device="cuda")
+    nbytes = kv_full.numel() * kv_full.element_size() + kv_local.numel() * kv_local.element_size()
+    assert nbytes == est.kv_cache
     pos = torch.arange(4096, device="cuda")[None]
     mask = causal_position_mask(pos, pos)
     assert mask.numel() * mask.element_size() == est.dense_mask
-    del kv, mask
+    del kv_full, kv_local, mask
 
 
 @needs_hip
@@ -135,7 +152,7 @@ def test_long_context_plan_on_real_device_is_honest():
     assert [r.sequence_length for r in reports] == list(LongContextPlan().context_lengths)
     budget = int(info.free_memory_bytes * 0.90)
     for r in reports:
-        assert r.budget_bytes == budget and r.assumed_layers == 32
+        assert r.budget_bytes == budget and r.logical_visits == 48
         assert any("not a measurement" in n for n in r.notes)
         assert any("dense causal_position_mask" in n for n in r.notes)
         if r.estimate.required > budget:
@@ -149,7 +166,7 @@ def test_long_context_plan_on_real_device_is_honest():
     assert by_len[4096].ready
     required = [r.estimate.required for r in reports]
     assert required == sorted(required)
-    # 1M context at 32 assumed layers is ~360 GiB: gated on a single MI300X (192 GB).
+    # 1M context is ~334 GiB (boundary activations dominate): gated on one MI300X (192 GB).
     if info.total_memory_bytes < 300 * GIB:
         assert not by_len[1048576].ready
         assert "context parallelism" in by_len[1048576].reason
