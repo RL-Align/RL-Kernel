@@ -231,6 +231,7 @@ def get_extensions():
             "csrc/cuda/inkling2/expert_mlp.cu",
             "csrc/cuda/inkling2/attention_o_residual.cu",
             "csrc/cuda/inkling2/visit_cache.cu",
+            "csrc/cuda/inkling2/dynamic_kv_conv.cu",
         ]
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared

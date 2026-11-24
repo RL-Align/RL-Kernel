@@ -280,6 +280,12 @@ std::vector<torch::Tensor> inkling2_attention_o_residual_backward(
     torch::Tensor weight,
     bool need_bias);
 torch::Tensor inkling2_visit_state_clone(torch::Tensor source);
+torch::Tensor inkling2_dynamic_kv_conv_forward(
+    torch::Tensor x, torch::Tensor coefficients, torch::Tensor state);
+std::vector<torch::Tensor> inkling2_dynamic_kv_conv_forward_with_state(
+    torch::Tensor x, torch::Tensor coefficients, torch::Tensor state);
+std::vector<torch::Tensor> inkling2_dynamic_kv_conv_backward(
+    torch::Tensor grad_output, torch::Tensor x, torch::Tensor coefficients, torch::Tensor state);
 std::tuple<torch::Tensor, torch::Tensor> inkling2_router_forward(
     torch::Tensor logits, torch::Tensor selection_bias, int64_t top_k, double route_scale);
 torch::Tensor inkling2_short_conv_forward(torch::Tensor x, torch::Tensor weight, torch::Tensor state);
@@ -821,6 +827,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("inkling2_attention_o_residual_backward", &inkling2_attention_o_residual_backward,
           "Inkling 2 Mini native CUDA attention O residual backward");
     m.def("swiglu_backward", &swiglu_backward, "Batch-invariant SwiGLU backward CUDA");
+    m.def("inkling2_dynamic_kv_conv_forward", &inkling2_dynamic_kv_conv_forward,
+          "Inkling 2 Mini CUDA dynamic K/V convolution forward");
+    m.def("inkling2_dynamic_kv_conv_forward_with_state",
+          &inkling2_dynamic_kv_conv_forward_with_state,
+          "Inkling 2 Mini CUDA dynamic K/V convolution forward with next state");
+    m.def("inkling2_dynamic_kv_conv_backward", &inkling2_dynamic_kv_conv_backward,
+          "Inkling 2 Mini CUDA dynamic K/V convolution backward");
     m.def("inkling2_router_forward", &inkling2_router_forward,
           "Inkling 2 Mini CUDA deterministic sigmoid top-k router");
     m.def("inkling2_short_conv_forward", &inkling2_short_conv_forward,
