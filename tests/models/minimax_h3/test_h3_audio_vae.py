@@ -390,6 +390,7 @@ def test_outer_cpu_autocast_does_not_change_hashes(contract):
     wave = stereo(1600)
     expected = _encode_decode_digests(contract, wave)
     with torch.autocast("cpu", dtype=torch.bfloat16):
+        assert torch.is_autocast_enabled("cpu")  # the outer autocast is really on
         assert _encode_decode_digests(contract, wave) == expected
     assert torch.is_autocast_enabled("cpu") is False
 
@@ -401,8 +402,8 @@ def test_outer_cuda_autocast_does_not_change_hashes(tiny_model, tiny_stats, dtyp
     wave = stereo(1600)
     expected = _encode_decode_digests(contract, wave)
     with torch.autocast("cuda", dtype=dtype):
+        assert torch.is_autocast_enabled("cuda")  # the outer autocast is really on
         assert _encode_decode_digests(contract, wave) == expected
-        assert torch.is_autocast_enabled("cuda")
 
 
 def test_provenance_records_policies(contract):
@@ -856,7 +857,7 @@ def test_released_matches_diffusers(released):
     ref = diffusers.AutoencoderKLMiniMaxH3Audio(
         latents_mean=list(ck.latents_mean), latents_std=list(ck.latents_std)
     )
-    ref.load_state_dict(load_file(str(ck.path / "model.safetensors")), strict=True)
+    ref.load_state_dict(load_file(str(ck.weights_path)), strict=True)
     ref = ref.cuda().eval()
     wave = released_clip(0)
     enc = contract.encode_stereo(wave)
