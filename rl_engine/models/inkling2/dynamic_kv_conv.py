@@ -94,3 +94,20 @@ def dynamic_kv_conv_cuda(
     if not state.is_cuda:
         raise ValueError("native dynamic K/V convolution state must be CUDA")
     return _NativeDynamicKVConvFunction.apply(x, coefficients, state)
+
+
+def dynamic_kv_conv_rocm(
+    x: torch.Tensor,
+    coefficients: torch.Tensor,
+    state: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Run the native ROCm INK-16 kernel (csrc/rocm/inkling2/dynamic_kv_conv.hip)."""
+    if torch.version.hip is None:
+        raise RuntimeError("native ROCm dynamic K/V convolution requires a ROCm PyTorch build")
+    if not x.is_cuda or not coefficients.is_cuda:
+        raise ValueError("native ROCm dynamic K/V convolution requires device tensors")
+    if state is None:
+        state = torch.zeros((x.shape[0], 2, x.shape[3], 3), device=x.device, dtype=x.dtype)
+    if not state.is_cuda:
+        raise ValueError("native ROCm dynamic K/V convolution state must be a device tensor")
+    return _NativeDynamicKVConvFunction.apply(x, coefficients, state)

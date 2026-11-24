@@ -4,7 +4,11 @@
 from .grouped_gemm import grouped_expert_gemm, grouped_expert_gemm_cuda
 from .expert_mlp import expert_gate_up, expert_gate_up_cuda, softcap
 from .attention_residual import attention_o_residual, attention_o_residual_cuda
-from .dynamic_kv_conv import dynamic_kv_conv, dynamic_kv_conv_cuda
+from .dynamic_kv_conv import (
+    dynamic_kv_conv,
+    dynamic_kv_conv_cuda,
+    dynamic_kv_conv_rocm,
+)
 from .full_attention import full_attention, full_attention_cuda
 from .router import (
     RoutingResult,
@@ -64,4 +68,5 @@ __all__ = [
     "token_embedding",
     "token_embedding_cuda",
     "softcap",
+    "dynamic_kv_conv_rocm",
 ]
