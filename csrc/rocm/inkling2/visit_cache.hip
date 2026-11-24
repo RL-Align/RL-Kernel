@@ -72,14 +72,14 @@ torch::Tensor inkling2_visit_state_clone(torch::Tensor source) {
     if (vectors > 0) {
       visit_state_copy_vec_kernel<<<blocks_for(vectors), kThreads, 0, stream>>>(
           reinterpret_cast<const Vec16*>(src), reinterpret_cast<Vec16*>(dst), vectors);
-      C10_HIP_KERNEL_LAUNCH_CHECK();
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
     }
   }
   const int64_t tail = bytes - vector_bytes;
   if (tail > 0) {
     visit_state_copy_bytes_kernel<<<blocks_for(tail), kThreads, 0, stream>>>(
         src + vector_bytes, dst + vector_bytes, tail);
-    C10_HIP_KERNEL_LAUNCH_CHECK();
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
   }
   return destination;
 }
