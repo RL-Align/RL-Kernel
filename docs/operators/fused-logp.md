@@ -35,6 +35,19 @@ reference = logp_ref.forward_fp32(logits, token_ids)
 | Ascend NPU | `FusedLogpAscendOp` | `_C_npu.fused_logp_ascend` | Batch-invariant Ascend C forward: two-pass (row max, then sum-exp) fp32 reduction with a fixed tile order, mirroring the CUDA deterministic kernel. Output is fp32, matching `DeterministicLogpCUDAOp`'s contract; out-of-range targets yield 0.0. |
 | PyTorch native | `NativeLogpOp` | None | PyTorch baseline/reference path. |
 
+`rl_engine/ops/logprob/fused_logp.py` owns shared input preparation, native variant
+delegation, autograd forward/saved state, and the chunked PyTorch backward.
+CUDA and MUSA own their wrappers, native extension binding, and backward dispatch.
+CUDA's canonical and legacy leaf imports must share one module object, with
+`_FusedLogpAutograd` and the public `fused_logp_backward_chunked`,
+`fused_logp_backward_rows_per_chunk`, and `FUSED_LOGP_BWD_CHUNK_ELEMS` available
+from the CUDA module. Backward must resolve the backend module's fallback attribute
+at call time to support monkeypatching.
+
+Shared source is included in the gradient audit inventory and runtime implementation
+fingerprints. Delegating SM90 and deterministic wrappers declare shared source
+dependencies; the latter also includes its `_deterministic_autograd` helper.
+
 ## Tensor Contract
 
 | Argument | Shape | Dtype | Requirements |
@@ -67,6 +80,9 @@ rejects that path on ROCm, including with an older extension that still exports 
 ROCm and CUDA builds without the symbol use `fused_logp_backward_chunked`, with at most
 `2**27` FP32 elements per workspace chunk (or one vocabulary row when larger). No ROCm
 fused-backward build or runtime validation is claimed.
+
+MUSA uses its native backward when available, otherwise the same shared fallback,
+which computes each row independently in FP32 and returns gradients in the logits dtype.
 
 ## Backward evidence (generic CUDA op)
 
@@ -115,6 +131,7 @@ not establish invariance under a change of chunking.
 
 ```bash
 python -m pytest tests/ops/logprob/test_logp.py -q
+python -m pytest tests/ops/logprob/test_fused_logp_ownership.py -q
 python -m pytest tests/backends/cuda/test_fused_logp_chunked_backward.py -q
 python -m pytest tests/benchmarks/test_fused_logp_provider_evidence.py -q
 python -m pytest tests/ops/test_op_accuracy.py -q
@@ -127,10 +144,16 @@ operator accuracy tests continue to validate native/CUDA fused API compatibility
 bounded fallback workspace, invalid targets, batch invariance, multi-GPU device/stream
 handling, `INT_MAX` loop arithmetic, and ROCm fallback dispatch.
 
+`tests/ops/logprob/test_fused_logp_ownership.py` covers shared preparation, native
+variant delegation, backend binding/dispatch, compatibility imports and monkeypatching,
+and shared-source fingerprints using CPU recording backends.
+
 ## Implementation Files
 
 - `rl_engine/runtime/registry.py`
 - `rl_engine/reference/logprob/logp.py` — PyTorch native reference
+- `rl_engine/ops/logprob/fused_logp.py` — shared preparation, variants, autograd forward, and chunked backward
+- `rl_engine/backends/musa/logprob/logp.py` — MUSA binding and backward dispatch
 - `rl_engine/backends/cuda/logprob/logp.py` — CUDA fused LogP (SM90 + generic)
 - `rl_engine/backends/ascend/logprob/logp.py` — Ascend deterministic op
 - `csrc/bindings/ops.cpp`
