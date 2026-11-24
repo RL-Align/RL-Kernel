@@ -1,0 +1,271 @@
+{
+ "contract_id": "h3-qwen3vl-layer50-v1",
+ "model_id": "MiniMaxAI/MiniMax-H3",
+ "revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+ "reference": {
+  "diffusers": "f53d5520 (modular_pipelines/minimax_h3/encoders.py get_qwen3vl_prompt_embeds)",
+  "transformers": "5.17.0 (Qwen3VLForConditionalGeneration)",
+  "torch": "2.13.0+cu130"
+ },
+ "text_config": {
+  "hidden_size": 5120,
+  "num_hidden_layers": 64,
+  "num_attention_heads": 64,
+  "num_key_value_heads": 8,
+  "head_dim": 128,
+  "intermediate_size": 25600,
+  "vocab_size": 151936,
+  "rms_norm_eps": 1e-06,
+  "hidden_act": "silu",
+  "attention_bias": false
+ },
+ "vision_config": {
+  "depth": 27,
+  "hidden_size": 1152,
+  "out_hidden_size": 5120,
+  "patch_size": 16,
+  "spatial_merge_size": 2,
+  "temporal_patch_size": 2,
+  "deepstack_visual_indexes": [
+   8,
+   16,
+   24
+  ],
+  "num_position_embeddings": 2304
+ },
+ "special_tokens": {
+  "<|endoftext|>": 151643,
+  "<|im_start|>": 151644,
+  "<|im_end|>": 151645,
+  "<|object_ref_start|>": 151646,
+  "<|object_ref_end|>": 151647,
+  "<|box_start|>": 151648,
+  "<|box_end|>": 151649,
+  "<|quad_start|>": 151650,
+  "<|quad_end|>": 151651,
+  "<|vision_start|>": 151652,
+  "<|vision_end|>": 151653,
+  "<|vision_pad|>": 151654,
+  "<|image_pad|>": 151655,
+  "<|video_pad|>": 151656,
+  "<d>": 151669,
+  "</d>": 151670,
+  "<|cutoff|>": 151671,
+  "<|lyrics_start|>": 151672,
+  "<|lyrics_end|>": 151673,
+  "<|caption_start|>": 151674,
+  "<|caption_end|>": 151675
+ },
+ "tokenizer": {
+  "class": "Qwen2Tokenizer",
+  "len": 151676,
+  "probe_prompt": "A red fox runs through fresh snow at dawn, 镜头缓慢推进。",
+  "probe_ids": [
+   32,
+   2518,
+   38835,
+   8473,
+   1526,
+   7722,
+   11794,
+   518,
+   38393,
+   11,
+   18137,
+   243,
+   250,
+   64355,
+   107335,
+   99664,
+   1773
+  ]
+ },
+ "processor": {
+  "image_processor": {
+   "patch_size": 16,
+   "temporal_patch_size": 2,
+   "merge_size": 2,
+   "image_mean": [
+    0.5,
+    0.5,
+    0.5
+   ],
+   "image_std": [
+    0.5,
+    0.5,
+    0.5
+   ],
+   "size": {
+    "longest_edge": 16777216,
+    "shortest_edge": 65536
+   }
+  },
+  "video_processor": {
+   "patch_size": 16,
+   "temporal_patch_size": 2,
+   "merge_size": 2,
+   "image_mean": [
+    0.5,
+    0.5,
+    0.5
+   ],
+   "image_std": [
+    0.5,
+    0.5,
+    0.5
+   ],
+   "size": {
+    "longest_edge": 25165824,
+    "shortest_edge": 4096
+   }
+  }
+ },
+ "rope": {
+  "mrope_interleaved": true,
+  "mrope_section": [
+   24,
+   20,
+   20
+  ],
+  "rope_type": "default",
+  "rope_theta": 5000000
+ },
+ "files": {
+  "processor/chat_template.json": {
+   "sha256": "5c72a170d2a4a1a3bc5adad2e689ae28138a9700e5b8c96c0266331e86c0acce",
+   "size_bytes": 5499
+  },
+  "processor/merges.txt": {
+   "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+   "size_bytes": 1671839
+  },
+  "processor/preprocessor_config.json": {
+   "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516",
+   "size_bytes": 390
+  },
+  "processor/tokenizer.json": {
+   "sha256": "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7",
+   "size_bytes": 7032403
+  },
+  "processor/tokenizer_config.json": {
+   "sha256": "a07e942ac874baa13758de8d1fbdb186683cc03416b5589e1b6671c6b3057c68",
+   "size_bytes": 11003
+  },
+  "processor/video_preprocessor_config.json": {
+   "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13",
+   "size_bytes": 385
+  },
+  "processor/vocab.json": {
+   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+   "size_bytes": 2776833
+  },
+  "text_encoder/chat_template.json": {
+   "sha256": "5c72a170d2a4a1a3bc5adad2e689ae28138a9700e5b8c96c0266331e86c0acce",
+   "size_bytes": 5499
+  },
+  "text_encoder/config.json": {
+   "sha256": "d2dd0c60d01b9e195d9447c52da61c7302d28828524914c044d9c6e1b81d0427",
+   "size_bytes": 1474
+  },
+  "text_encoder/merges.txt": {
+   "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+   "size_bytes": 1671839
+  },
+  "text_encoder/model-00001-of-00014.safetensors": {
+   "sha256": "6b9dfbc930e505402ae9d7e5091a9d7d656cda5f34614f01cfe70bfb0cca27cb",
+   "size_bytes": 4932328944
+  },
+  "text_encoder/model-00002-of-00014.safetensors": {
+   "sha256": "d8bb44b4ff303fe76fe9e894022fb3dc71b15a2e716592790fe0e3c3e60478fa",
+   "size_bytes": 4875990528
+  },
+  "text_encoder/model-00003-of-00014.safetensors": {
+   "sha256": "54f22e8b3168f8dc962fac0d313607ebf52a12b433d4cf3098a0d82d9f042940",
+   "size_bytes": 4875990552
+  },
+  "text_encoder/model-00004-of-00014.safetensors": {
+   "sha256": "ad09c74d3c13ee29b5d0d84548fd8a3424a651564eaccd519946c296e59c557f",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00005-of-00014.safetensors": {
+   "sha256": "fc993c8a0e2a5b0570f383e1a95dc3a1281d1b224b6f3ee908f4827941e1dfc2",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00006-of-00014.safetensors": {
+   "sha256": "82f05620d1f718a90c362b221d6a184ff1a0f53301d706882d3df49695fa1974",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00007-of-00014.safetensors": {
+   "sha256": "fb91da8cb01ff4de3eef0eab1c3e769a734b3a1aafc61734068638a0d6c86934",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00008-of-00014.safetensors": {
+   "sha256": "431ca56535c8781944ce3801f5eb61c45531e853ecc5846d936ebaf4761b764f",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00009-of-00014.safetensors": {
+   "sha256": "3825e3f4302f4d2f7d76aa7430d2ce0864fde6b9e540a5806bf0d8e38e4d9f47",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00010-of-00014.safetensors": {
+   "sha256": "aded5a4d1d5e22dbd8b6f79266b6eb88c840411b09527c53917a1419ace22e2f",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00011-of-00014.safetensors": {
+   "sha256": "3820ffe8d8d6477f6fe8d614ef3c87abb264ee39accebf43a1507b970d80946f",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00012-of-00014.safetensors": {
+   "sha256": "05ad2d08ce71963121c9b03f1d9ec5d7641052f4b23c6c12b80d71065eb8e98e",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00013-of-00014.safetensors": {
+   "sha256": "b64f2289871261fdd1abbd3b78bcd66011b341de3dc8eeb2ed1a473ee7c8d95c",
+   "size_bytes": 4875990584
+  },
+  "text_encoder/model-00014-of-00014.safetensors": {
+   "sha256": "e45b6c9998c77ee5a6577f9f47bc76416c1d4d387169e50c4c9d3134ea51b13b",
+   "size_bytes": 3270697008
+  },
+  "text_encoder/model.safetensors.index.json": {
+   "sha256": "06c952c569285870b811989b794b9766493e280fb77fbcb957fc4e5fcf25403a",
+   "size_bytes": 97831
+  },
+  "text_encoder/preprocessor_config.json": {
+   "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516",
+   "size_bytes": 390
+  },
+  "text_encoder/tokenizer.json": {
+   "sha256": "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7",
+   "size_bytes": 7032403
+  },
+  "text_encoder/tokenizer_config.json": {
+   "sha256": "a07e942ac874baa13758de8d1fbdb186683cc03416b5589e1b6671c6b3057c68",
+   "size_bytes": 11003
+  },
+  "text_encoder/video_preprocessor_config.json": {
+   "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13",
+   "size_bytes": 385
+  },
+  "text_encoder/vocab.json": {
+   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+   "size_bytes": 2776833
+  },
+  "tokenizer/merges.txt": {
+   "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+   "size_bytes": 1671839
+  },
+  "tokenizer/tokenizer.json": {
+   "sha256": "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7",
+   "size_bytes": 7032403
+  },
+  "tokenizer/tokenizer_config.json": {
+   "sha256": "a07e942ac874baa13758de8d1fbdb186683cc03416b5589e1b6671c6b3057c68",
+   "size_bytes": 11003
+  },
+  "tokenizer/vocab.json": {
+   "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+   "size_bytes": 2776833
+  }
+ }
+}

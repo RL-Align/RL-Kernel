@@ -242,3 +242,16 @@ def test_tables_are_written_as_utf8_under_any_locale(plot, tmp_path) -> None:
     table = (out / "h3-visual-vae-accuracy-b200.md").read_text(encoding="utf-8")
     assert "max \\|Δ\\|" in table
     assert (out / "h3-visual-vae-batch-invariance-b200-vs-h100.md").exists()
+
+
+def test_a_single_repeat_is_rejected(monkeypatch, tmp_path) -> None:
+    """One run gives one digest per step, and run-to-run determinism would pass unchecked."""
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    out = tmp_path / "evidence.json"
+    argv = ["ev", "--vae-dir", str(tmp_path), "--out", str(out), "--repeats", "1"]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as exc:
+        ev.main()
+    assert exc.value.code == 2
+    assert not out.exists()
