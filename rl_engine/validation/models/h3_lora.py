@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Seeded H3 LoRA for the parallel harness (``h3-parallel-lora-v1``).
+"""Seeded H3 LoRA for the parallel harness (``h3-parallel-lora-v2``).
 
 ``make_block_lora`` draws one block's full LoRA from a seed: for each of the six targets of the
 verl-omni H3 recipe, ``A (r, K)`` normal with mean 0 and standard deviation ``1 / r`` (peft's
@@ -43,7 +43,14 @@ def make_block_lora(
     """``{target: {"A": (r, K), "B": (N, r)}}`` for block ``block``, BF16."""
 
     out = {}
-    for i, (target, (k, n)) in enumerate((shapes or SHAPES).items()):
+    known, extra = list(SHAPES), 0
+    for target, (k, n) in (shapes or SHAPES).items():
+        # a recipe target draws with its index in the recipe's map, whatever subset or order of
+        # targets ``shapes`` lists; other names follow, in their order
+        if target in SHAPES:
+            i = known.index(target)
+        else:
+            i, extra = len(known) + extra, extra + 1
         gen = torch.Generator().manual_seed((seed * 1009 + block) * 31 + i)
         a = torch.randn(rank, k, generator=gen) / rank  # std 1 / r, as peft's gaussian init
         b = torch.zeros(n, rank) if b_zero else torch.randn(n, rank, generator=gen) * b_std
