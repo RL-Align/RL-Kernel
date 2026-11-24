@@ -25,10 +25,18 @@ from .shared_weight_grad import (
     accumulate_shared_weight_gradients,
     accumulate_shared_weight_gradients_cuda,
 )
+from .token_embedding import (
+    PADDED_VOCAB_SIZE,
+    VALID_VOCAB_SIZE,
+    token_embedding,
+    token_embedding_cuda,
+)
 
 __all__ = [
     "KERNEL_SIZE",
     "STREAMS",
+    "PADDED_VOCAB_SIZE",
+    "VALID_VOCAB_SIZE",
     "RoutingResult",
     "causal_short_conv",
     "causal_short_conv_cuda",
@@ -53,5 +61,7 @@ __all__ = [
     "route_topk_sigmoid",
     "route_topk_sigmoid_cuda",
     "route_topk_sigmoid_rocm",
+    "token_embedding",
+    "token_embedding_cuda",
     "softcap",
 ]
