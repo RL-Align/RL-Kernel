@@ -150,3 +150,27 @@ def expert_gate_up_cuda(
     return _NativeExpertGateUpFunction.apply(
         hidden, gate_weight, up_weight, gate_bias, up_bias, float(gate_cap), float(up_cap)
     )
+
+
+def expert_gate_up_rocm(
+    hidden: torch.Tensor,
+    gate_weight: torch.Tensor,
+    up_weight: torch.Tensor,
+    gate_bias: torch.Tensor | None = None,
+    up_bias: torch.Tensor | None = None,
+    *,
+    gate_cap: float = 4.0,
+    up_cap: float = 25.0,
+) -> torch.Tensor:
+    """Run the native ROCm (MI300X-tuned) softcapped expert gate/up forward and backward.
+
+    Same contract and autograd function as the CUDA entry point; the ``_C``
+    binding is backed by ``csrc/rocm/inkling2/expert_mlp.hip`` on ROCm builds.
+    """
+    if torch.version.hip is None:
+        raise RuntimeError("expert_gate_up_rocm requires a ROCm (HIP) PyTorch build")
+    if not hidden.is_cuda:
+        raise ValueError("native expert hidden must be a 2-D ROCm device tensor")
+    return expert_gate_up_cuda(
+        hidden, gate_weight, up_weight, gate_bias, up_bias, gate_cap=gate_cap, up_cap=up_cap
+    )
