@@ -11,6 +11,7 @@ are resolved by :class:`OperatorBridge`; Logp uses the existing contract-aware
 from __future__ import annotations
 
 from functools import lru_cache
+from types import SimpleNamespace
 from typing import Any, Mapping, cast
 
 import torch
@@ -30,6 +31,7 @@ from rl_engine.integrations.common.operators import (
     _compact_attention_provenance,
     _dense_attention_contract,
     _device_name,
+    _is_npu_tensor,
     _require_attention_accelerator,
     _require_nvidia_cuda,
     _split_gate_up,
@@ -275,10 +277,18 @@ class MegatronAttentionOperator:
         if query.ndim != expected_ndim or key.ndim != expected_ndim or value.ndim != expected_ndim:
             layout = "[T, H, D]" if packed_seq_params is not None else "[S, B, H, D]"
             raise RuntimeError(f"Megatron Attention Q/K/V must use {layout}")
-        runtime_platform = _require_attention_accelerator(query)
-        strict_core_id, strict_schedule, communication_backend = (
-            _strict_attention_platform_contract(runtime_platform)
-        )
+        ascend_attention = None
+        if _is_npu_tensor(query):
+            runtime_platform = "npu"
+            communication_backend = "none"
+            strict_core_id = None
+            strict_schedule = None
+            ascend_attention = self._npu_attention()
+        else:
+            runtime_platform = _require_attention_accelerator(query)
+            strict_core_id, strict_schedule, communication_backend = (
+                _strict_attention_platform_contract(runtime_platform)
+            )
 
         parallel_state = _megatron_parallel_state()
         cp_world = int(parallel_state.get_context_parallel_world_size())
@@ -286,15 +296,22 @@ class MegatronAttentionOperator:
         tp_world = int(parallel_state.get_tensor_model_parallel_world_size())
         tp_rank = int(parallel_state.get_tensor_model_parallel_rank())
         cp_group = parallel_state.get_context_parallel_group() if cp_world > 1 else None
-        operator = self._handle.get(
-            query,
-            topology={
-                "world_size": tp_world * cp_world,
-                "tensor_parallel_size": tp_world,
-                "context_parallel_size": cp_world,
-            },
-        )
-        operator.bind_accelerator_runtime(query, process_group=cp_group)
+        if ascend_attention is not None and (tp_world != 1 or cp_world != 1):
+            raise RuntimeError(
+                "strict Ascend Attention requires TP=1 and CP=1, "
+                f"got TP={tp_world} CP={cp_world}"
+            )
+        operator = None
+        if ascend_attention is None:
+            operator = self._handle.get(
+                query,
+                topology={
+                    "world_size": tp_world * cp_world,
+                    "tensor_parallel_size": tp_world,
+                    "context_parallel_size": cp_world,
+                },
+            )
+            operator.bind_accelerator_runtime(query, process_group=cp_group)
         scale = float(getattr(module, "softmax_scale", query.size(-1) ** -0.5))
 
         def execute_sequence(
@@ -304,6 +321,20 @@ class MegatronAttentionOperator:
             *,
             global_sequence_length: int,
         ) -> Any:
+            if ascend_attention is not None:
+                out, _lse = ascend_attention.forward_with_lse(
+                    q_ready,
+                    k_ready,
+                    v_ready,
+                    causal=True,
+                    scale=scale,
+                )
+                return SimpleNamespace(
+                    out=out,
+                    provenance={
+                        "actual_backend": "rlkernel.ascend.deterministic_attention",
+                    },
+                )
             positions, block_indices, block_starts, block_offsets = _megatron_zigzag_layout(
                 q_ready.size(2),
                 cp_rank=cp_rank,
@@ -455,6 +486,17 @@ class MegatronAttentionOperator:
         }
         return output
 
+    def _npu_attention(self) -> Any:
+        attention = getattr(self, "_ascend_attention", None)
+        if attention is None:
+            from rl_engine.backends.ascend.attention.deterministic_attn import (
+                DeterministicAttentionAscendOp,
+            )
+
+            attention = DeterministicAttentionAscendOp()
+            self._ascend_attention = attention
+        return attention
+
 
 class _MegatronCPWeightGradient(torch.autograd.Function):
     """Cancel the extra CP replica count before Megatron reduces parameter grads.
@@ -522,6 +564,8 @@ class MegatronFFNOperator:
                 raise RuntimeError("strict dense Qwen3 FFN does not accept expert token scaling")
         if per_token_scale is not None:
             raise RuntimeError("strict dense Qwen3 FFN does not accept expert token scaling")
+        if _is_npu_tensor(hidden_states):
+            return self._call_npu(module, hidden_states)
         _require_nvidia_cuda(hidden_states, "FFN")
         config = module.config
         if bool(getattr(config, "add_bias_linear", False)):
@@ -596,6 +640,62 @@ class MegatronFFNOperator:
             "triton_used": torch.version.hip is not None,
         }
         return output, None
+
+    def _call_npu(self, module: Any, hidden_states: torch.Tensor) -> tuple[torch.Tensor, None]:
+        config = module.config
+        if bool(getattr(config, "add_bias_linear", False)):
+            raise RuntimeError("strict Qwen3 FFN requires bias-free projections")
+        if not bool(getattr(config, "gated_linear_unit", False)):
+            raise RuntimeError("strict Qwen3 FFN requires a gated linear unit")
+        if bool(getattr(config, "sequence_parallel", False)):
+            raise RuntimeError("strict Ascend FFN does not support sequence parallelism")
+        parallel_state = _megatron_parallel_state()
+        cp_world = int(parallel_state.get_context_parallel_world_size())
+        tp_world = int(parallel_state.get_tensor_model_parallel_world_size())
+        if cp_world != 1 or tp_world != 1:
+            raise RuntimeError(
+                "strict Ascend FFN requires TP=1 and CP=1, "
+                f"got TP={tp_world} CP={cp_world}"
+            )
+        hidden_states = _fused_rms_norm_input(module.linear_fc1, hidden_states, "linear_fc1")
+        gate, up = _split_gate_up(_weight(module.linear_fc1, "linear_fc1"), "linear_fc1")
+        down = _weight(module.linear_fc2, "linear_fc2").contiguous()
+        flat = hidden_states.reshape(-1, hidden_states.shape[-1]).contiguous()
+        gemm = self._npu_gemm()
+        swiglu = self._npu_swiglu()
+        activated = swiglu(gemm.linear(flat, gate), gemm.linear(flat, up))
+        output = gemm.linear(activated, down).reshape(*hidden_states.shape[:-1], down.shape[0])
+        self._last_provenance = {
+            "framework_layout": "megatron_sequence_parallel",
+            "cp_world_size": cp_world,
+            "tp_world_size": tp_world,
+            "runtime_platform": "npu",
+            "actual_backend": "rlkernel.ascend.det_gemm_swiglu",
+            "gemm_backend": "rlkernel.ascend.det_gemm",
+            "fallback": False,
+            "gate_up_projection": "separate_linear",
+            "deterministic_all_reduce_backend": "none",
+            "triton_used": False,
+        }
+        return output, None
+
+    def _npu_gemm(self) -> Any:
+        gemm = getattr(self, "_ascend_gemm", None)
+        if gemm is None:
+            from rl_engine.backends.ascend.gemm.det_gemm import DetGemmAscendOp
+
+            gemm = DetGemmAscendOp()
+            self._ascend_gemm = gemm
+        return gemm
+
+    def _npu_swiglu(self) -> Any:
+        swiglu = getattr(self, "_ascend_swiglu", None)
+        if swiglu is None:
+            from rl_engine.backends.ascend.activation.swiglu import SwiGLUAscendOp
+
+            swiglu = SwiGLUAscendOp()
+            self._ascend_swiglu = swiglu
+        return swiglu
 
 
 class MegatronLogpOperator:

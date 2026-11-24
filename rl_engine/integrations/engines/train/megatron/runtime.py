@@ -17,7 +17,11 @@ import torch
 
 from rl_engine.distributed.algorithms import canonical_cp
 from rl_engine.integrations.common.linear_logp import LinearLogpWrapper
-from rl_engine.integrations.common.operators import _strict_attention_projection_op
+from rl_engine.integrations.common.operators import (
+    _is_npu_tensor,
+    _npu_available,
+    _strict_attention_projection_op,
+)
 from rl_engine.integrations.common.state import get_active_integration, set_active_integration
 from rl_engine.integrations.engines.train.megatron.adapter import MegatronIntegration
 from rl_engine.integrations.engines.train.megatron.operators import (
@@ -38,6 +42,8 @@ _STRICT_ATTENTION_CORE_MARKER = "__rl_kernel_strict_attention_core__"
 _STRICT_TE_RMS_NORM_PATCH_MARKER = "__rl_kernel_original_strict_rms_norm_forward__"
 _STRICT_LOGP_OUTPUT_PATCH_MARKER = "__rl_kernel_original_strict_logp_output_forward__"
 _STRICT_LOGP_REUSABLE_MARKER = "__rl_kernel_reusable_local_logits__"
+_NPU_OUTPUT_LAYER_MARKER = "_rlk_npu_output_layer"
+_NPU_LOGP_PATCH_MARKER = "_rlk_npu_logp_patched"
 _STRICT_ROCM_ROPE_PATCH_MARKER = "__rl_kernel_original_rocm_rope_apply__"
 _STRICT_LAYER_DIAGNOSTIC_PATCH_MARKER = "__rl_kernel_original_layer_diagnostic_forward__"
 
@@ -450,6 +456,10 @@ def _module_tp_group(module: Any) -> Any | None:
         return None
 
 
+def _tensor_on_npu(tensor: torch.Tensor) -> bool:
+    return tensor.device.type == "npu"
+
+
 def _tp_world_size(group: Any | None) -> int:
     if (
         group is None
@@ -725,17 +735,27 @@ def _patch_strict_attention_projections(
             def linear(x, w):
                 return det_gemm(x, w.t().contiguous())
 
-        output_2d = (
-            _CanonicalColumnProjection.apply(input_2d, weight, linear, column_tp_world)
-            if column_tp_world is not None
-            else (
-                canonical_cp.CPRowLinear.apply(
-                    input_2d, weight, linear, canonical_cp.current_layout()
+        if _tensor_on_npu(input_2d):
+            if column_tp_world not in (None, 1):
+                raise RuntimeError(
+                    "strict Ascend Attention projection requires TP=1, "
+                    f"got TP={column_tp_world}"
                 )
-                if canonical_cp.current_layout() is not None
-                else linear(input_2d, weight)
+            if canonical_cp.current_layout() is not None:
+                raise RuntimeError("strict Ascend Attention projection requires CP=1")
+            output_2d = linear(input_2d, weight)
+        else:
+            output_2d = (
+                _CanonicalColumnProjection.apply(input_2d, weight, linear, column_tp_world)
+                if column_tp_world is not None
+                else (
+                    canonical_cp.CPRowLinear.apply(
+                        input_2d, weight, linear, canonical_cp.current_layout()
+                    )
+                    if canonical_cp.current_layout() is not None
+                    else linear(input_2d, weight)
+                )
             )
-        )
         output = output_2d.reshape(*input_value.shape[:-1], weight.shape[0])
         return output if bias is None else output + bias
 
@@ -748,6 +768,10 @@ def _patch_strict_attention_projections(
         """Use the configured canonical TP tree for row-parallel projection."""
 
         tp_world = _tp_world_size(_module_tp_group(module))
+        if _tensor_on_npu(input_value) and tp_world != 1:
+            raise RuntimeError(
+                f"strict Ascend Attention projection requires TP=1, got TP={tp_world}"
+            )
         canonical_tp = int(os.getenv("RL_KERNEL_STRICT_CANONICAL_TP", str(tp_world)))
         if canonical_tp < tp_world or canonical_tp % tp_world:
             raise RuntimeError(
@@ -792,6 +816,8 @@ def _patch_strict_attention_projections(
         core_attention: Any,
         input_value: torch.Tensor,
     ) -> torch.Tensor:
+        if _tensor_on_npu(input_value) and _tp_world_size(_module_tp_group(module)) != 1:
+            raise RuntimeError("strict Ascend Attention projection requires TP=1")
         if copy_to_tp is not None:
             record_collective_backend(
                 core_attention,
@@ -812,6 +838,8 @@ def _patch_strict_attention_projections(
         core_attention: Any,
         input_value: torch.Tensor,
     ) -> torch.Tensor:
+        if _tensor_on_npu(input_value) and _tp_world_size(_module_tp_group(module)) != 1:
+            raise RuntimeError("strict Ascend Attention projection requires TP=1")
         if reduce_from_tp is not None:
             record_collective_backend(
                 core_attention,
@@ -1083,6 +1111,94 @@ def _patch_strict_logp_output_layer(
     linear_cross_entropy_cls.forward = wrapped
 
 
+def _patch_npu_logp() -> None:
+    """Send verl's existing LM head and vocab cross entropy through Ascend ops."""
+
+    import megatron.core.tensor_parallel as tensor_parallel
+    import megatron.core.tensor_parallel.cross_entropy as cross_entropy
+    from megatron.core import parallel_state
+    from megatron.core.models.gpt.gpt_model import GPTModel
+    from megatron.core.tensor_parallel.layers import ColumnParallelLinear
+
+    from rl_engine.backends.ascend.gemm.det_gemm import DetGemmAscendOp
+    from rl_engine.backends.ascend.logprob.logp import FusedLogpAscendOp
+
+    if getattr(GPTModel, _NPU_LOGP_PATCH_MARKER, False):
+        return
+    if (
+        parallel_state.model_parallel_is_initialized()
+        and parallel_state.get_tensor_model_parallel_world_size() != 1
+    ):
+        raise RuntimeError("strict Ascend logprob requires TP=1")
+
+    gemm = DetGemmAscendOp()
+    logp = FusedLogpAscendOp()
+    original_init = GPTModel.__init__
+
+    def init_wrapped(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        layer = getattr(self, "output_layer", None)
+        if not isinstance(layer, ColumnParallelLinear):
+            raise RuntimeError("strict Ascend logprob requires ColumnParallelLinear output_layer")
+        if (
+            parallel_state.model_parallel_is_initialized()
+            and parallel_state.get_tensor_model_parallel_world_size() != 1
+        ):
+            raise RuntimeError("strict Ascend logprob requires TP=1")
+        if bool(getattr(layer, "sequence_parallel", False)):
+            raise RuntimeError("strict Ascend logprob requires sequence_parallel=False")
+        if getattr(layer, "bias", None) is not None:
+            raise RuntimeError("strict Ascend logprob does not support output bias")
+        setattr(layer, _NPU_OUTPUT_LAYER_MARKER, True)
+
+    GPTModel.__init__ = init_wrapped
+    original_forward = ColumnParallelLinear.forward
+
+    def forward_wrapped(self, input_, weight=None, runtime_gather_output=None):
+        if getattr(self, _NPU_OUTPUT_LAYER_MARKER, False) and _is_npu_tensor(input_):
+            if parallel_state.get_tensor_model_parallel_world_size() != 1:
+                raise RuntimeError("strict Ascend logprob requires TP=1")
+            if weight is None:
+                weight = self.weight
+            if weight is None:
+                raise RuntimeError("strict Ascend logprob requires an output weight")
+            if input_.ndim != 3:
+                raise RuntimeError(
+                    f"strict Ascend logprob expects [S,B,H] hidden states, got {tuple(input_.shape)}"
+                )
+            sequence, batch, _hidden = input_.shape
+            logits = gemm.linear(input_.reshape(sequence * batch, _hidden), weight)
+            return logits.reshape(sequence, batch, -1), None
+        return original_forward(
+            self,
+            input_,
+            weight=weight,
+            runtime_gather_output=runtime_gather_output,
+        )
+
+    ColumnParallelLinear.forward = forward_wrapped
+    original_cross_entropy = tensor_parallel.vocab_parallel_cross_entropy
+
+    def cross_entropy_wrapped(vocab_parallel_logits, target, label_smoothing=0.0):
+        if _is_npu_tensor(vocab_parallel_logits):
+            if label_smoothing != 0.0:
+                raise RuntimeError("strict Ascend logprob does not support label smoothing")
+            if parallel_state.get_tensor_model_parallel_world_size() != 1:
+                raise RuntimeError("strict Ascend logprob requires TP=1")
+            # FusedLogpAscendOp returns log p. Megatron's cross entropy returns -log p,
+            # and verl negates that result again in vocab_parallel_log_probs_from_logits.
+            return -logp(vocab_parallel_logits, target)
+        return original_cross_entropy(
+            vocab_parallel_logits,
+            target,
+            label_smoothing=label_smoothing,
+        )
+
+    tensor_parallel.vocab_parallel_cross_entropy = cross_entropy_wrapped
+    cross_entropy.vocab_parallel_cross_entropy = cross_entropy_wrapped
+    setattr(GPTModel, _NPU_LOGP_PATCH_MARKER, True)
+
+
 def install_megatron_integration(
     plan: IntegrationPlan,
     *,
@@ -1124,8 +1240,15 @@ def install_megatron_integration(
 
     set_active_integration("megatron", integration)
     _patch_layer_alignment_diagnostics()
+    npu_logp_patched = False
     if plan.implementation_for("logp", "training") is Implementation.RL_KERNEL:
-        _patch_strict_logp_output_layer()
+        try:
+            _patch_strict_logp_output_layer()
+        except ModuleNotFoundError:
+            pass
+        if _npu_available():
+            _patch_npu_logp()
+            npu_logp_patched = True
     if plan.implementation_for("attention", "training") is Implementation.RL_KERNEL:
         _patch_strict_rocm_rope()
         _patch_strict_attention_projections()
@@ -1146,11 +1269,18 @@ def install_megatron_integration(
             ",".join(f"{cls.__module__}.{cls.__name__}.forward" for cls in resolved_ffn),
         )
     if plan.implementation_for("logp", "training") is Implementation.RL_KERNEL:
-        integration.record_installed_hook(
-            "logp",
-            "rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider.provider,"
-            "megatron.core.transformer.linear_cross_entropy.LinearCrossEntropyModule.forward",
-        )
+        if npu_logp_patched:
+            integration.record_installed_hook(
+                "logp",
+                "megatron.core.models.gpt.gpt_model.GPTModel.output_layer,"
+                "megatron.core.tensor_parallel.vocab_parallel_cross_entropy",
+            )
+        else:
+            integration.record_installed_hook(
+                "logp",
+                "rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider.provider,"
+                "megatron.core.transformer.linear_cross_entropy.LinearCrossEntropyModule.forward",
+            )
     return integration
 
 
