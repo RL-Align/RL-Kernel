@@ -4,7 +4,7 @@
 
     logits = hidden @ W.T        DeepGEMM bf16_gemm_nt, FP32 output (batch-invariant and
                                  vocab-shard invariant; scripts/probe_dsv4_head_gemm.py)
-    (logp, lse) = tile stats + fixed-order merge (csrc/cuda/logprob_dsv4/dsv4_logprob.cu),
+    (logp, lse) = tile stats + fixed-order merge (csrc/cuda/logprob/dsv4_logprob.cu),
                   byte-equal to the golden rl_engine.kernels.ops.pytorch.logprob_dsv4
 
 Tokens are processed in chunks of ``chunk_rows`` so the FP32 logits never exist for the

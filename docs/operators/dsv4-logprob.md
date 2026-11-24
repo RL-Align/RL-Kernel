@@ -11,7 +11,7 @@ state.
 | Piece | Where |
 |---|---|
 | Golden (contract) | `rl_engine/kernels/ops/pytorch/logprob_dsv4/dsv4_logprob.py` |
-| CUDA kernels | `csrc/cuda/logprob_dsv4/dsv4_logprob.cu` |
+| CUDA kernels | `csrc/cuda/logprob/dsv4_logprob.cu` |
 | Python wrapper + autograd | `rl_engine/kernels/ops/cuda/logprob_dsv4/dsv4_logprob.py` (`selected_logprob`) |
 | Model entry | `Dsv4Model.selected_logprob(hidden, targets, temperature)` |
 | GEMM probe | `scripts/probe_dsv4_head_gemm.py` |

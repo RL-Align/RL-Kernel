@@ -577,14 +577,14 @@ void dsv4_ds_mla_gather(torch::Tensor cache, int64_t block_size, torch::Tensor s
                         torch::Tensor out);
 void dsv4_save_states(torch::Tensor kv, torch::Tensor score, torch::Tensor ape,
                       torch::Tensor positions, torch::Tensor state, torch::Tensor slots);
-// DSv4 selected-token log-probability (csrc/cuda/logprob_dsv4/dsv4_logprob.cu)
+// DSv4 selected-token log-probability (csrc/cuda/logprob/dsv4_logprob.cu)
 std::vector<torch::Tensor> dsv4_logprob_tile_stats(torch::Tensor z, int64_t tile_len,
                                                    double temperature);
 std::vector<torch::Tensor> dsv4_logprob_merge(torch::Tensor m, torch::Tensor s, torch::Tensor zt,
                                               double temperature);
 torch::Tensor dsv4_logprob_backward(torch::Tensor z, torch::Tensor targets, torch::Tensor lse,
                                     torch::Tensor grad, double temperature, int64_t col_offset);
-// DSv4 mHC (csrc/cuda/mhc_dsv4/dsv4_mhc.cu)
+// DSv4 mHC (csrc/cuda/mhc/dsv4_mhc.cu)
 std::vector<torch::Tensor> dsv4_mhc_pre(torch::Tensor res, torch::Tensor pmix, torch::Tensor pss,
                                         torch::Tensor scale, torch::Tensor base, double rms_eps,
                                         double eps, int64_t iters, double post_mult,

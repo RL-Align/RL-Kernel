@@ -3,7 +3,7 @@
 """DSv4 selected-token log-probability, numeric profile ``dsv4-logprob-v1`` (golden).
 
 This module is the arithmetic contract; the CUDA kernels in
-``csrc/cuda/logprob_dsv4/dsv4_logprob.cu`` are byte-equal to it. Run it on CUDA:
+``csrc/cuda/logprob/dsv4_logprob.cu`` are byte-equal to it. Run it on CUDA:
 ``torch.exp`` / ``torch.log`` there are libdevice ``expf`` / ``logf``, the functions
 the kernels call (CPU differs in the last bit).
 

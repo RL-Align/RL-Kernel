@@ -180,7 +180,7 @@ scored top-6 otherwise.
 | Module | Python entry | CUDA kernels | Operator page | Tests |
 |---|---|---|---|---|
 | Model, layer, loader, RoPE | `rl_engine/models/deepseek_v4/{model,loader,config,rope}.py` | (composes the rest) | [dsv4-model](../operators/dsv4-model.md) | `tests/models/deepseek_v4/` |
-| mHC + fused norms | `rl_engine/kernels/ops/cuda/mhc_dsv4/` | `csrc/cuda/mhc_dsv4/dsv4_mhc.cu` + DeepGEMM `tf32_hc_prenorm_gemm` | [dsv4-mhc](../operators/dsv4-mhc.md) | `tests/ops/mhc_dsv4/` |
+| mHC + fused norms | `rl_engine/kernels/ops/cuda/mhc_dsv4/` | `csrc/cuda/mhc/dsv4_mhc.cu` + DeepGEMM `tf32_hc_prenorm_gemm` | [dsv4-mhc](../operators/dsv4-mhc.md) | `tests/ops/mhc_dsv4/` |
 | Attention layer | `rl_engine/models/deepseek_v4/attention.py` | see below | this page, 5.2 | `tests/models/test_dsv4_attention_layer.py` |
 | Dense FP8 linear | `rl_engine/kernels/ops/cuda/fp8_linear.py` | DeepGEMM `fp8_gemm_nt` / `fp8_einsum` | [fp8-group-quant](../operators/fp8-group-quant.md) | `tests/ops/gemm/test_dsv4_fp8_linear.py` |
 | FP8 activation quant | `rl_engine/kernels/ops/cuda/quant/` | `csrc/cuda/quant/fp8_group_quant.cu` | [fp8-group-quant](../operators/fp8-group-quant.md) | `tests/ops/quant/` |
@@ -196,7 +196,7 @@ scored top-6 otherwise.
 | Routed experts | `rl_engine/moe/backends/sm90_fused_mlp.py` | `csrc/cuda/moe/sm90_fused_moe_mlp.cu`, `sm90_moe_mlp_backward.cu`, `moe_swiglu_quant.cu` | [dsv4-moe](../operators/dsv4-moe.md) | `tests/test_sm90_fused_moe_mlp.py`, `tests/test_sm90_moe_backward.py` |
 | Shared expert | `rl_engine/moe/backends/deepgemm_shared_expert.py` | DeepGEMM + `csrc/cuda/activation/silu_and_mul_clamp.cu` | [dsv4-moe](../operators/dsv4-moe.md) | `tests/test_deepgemm_shared_expert.py`, `tests/ops/activation/` |
 | LoRA | `rl_engine/models/deepseek_v4/lora.py` | DeepGEMM BF16 GEMMs | this page, 7.1 | `tests/models/test_dsv4_lora.py`, `test_dsv4_moe_lora.py` |
-| Logprob head | `rl_engine/kernels/ops/cuda/logprob_dsv4/` | `csrc/cuda/logprob_dsv4/dsv4_logprob.cu` + DeepGEMM | [dsv4-logprob](../operators/dsv4-logprob.md) | `tests/ops/logprob_dsv4/` |
+| Logprob head | `rl_engine/kernels/ops/cuda/logprob_dsv4/` | `csrc/cuda/logprob/dsv4_logprob.cu` + DeepGEMM | [dsv4-logprob](../operators/dsv4-logprob.md) | `tests/ops/logprob_dsv4/` |
 | Sampling gate, M10 | `rl_engine/validation/sampling_params/`, `rl_engine/validation/m10/` | none | [dsv4-sampling-contract](../contracts/dsv4-sampling-contract.md) | `tests/validation/sampling_params/`, `tests/validation/m10/` |
 | Layerwise gate | `rl_engine/models/deepseek_v4/layerwise_gate.py` | none | section 8.3 | `tests/models/deepseek_v4/test_dsv4_layerwise_gate.py` |
 

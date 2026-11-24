@@ -4,7 +4,7 @@
 
 - **Controller GEMM**: DeepGEMM ``tf32_hc_prenorm_gemm`` with 16 fixed splits, which is
   batch-invariant.
-- **Everything after the GEMM**: ``csrc/cuda/mhc_dsv4/dsv4_mhc.cu``, byte-equal to the golden
+- **Everything after the GEMM**: ``csrc/cuda/mhc/dsv4_mhc.cu``, byte-equal to the golden
   ``rl_engine.kernels.ops.pytorch.mhc_dsv4`` given the same GEMM partials.
 - **Fused RMSNorm**: with ``norm_weight`` (BF16 [H]), ``mhc_pre`` / ``hc_head`` return
   ``RMSNorm(y) * w`` (the layer's attn_norm / ffn_norm / final norm) instead of ``y``.
