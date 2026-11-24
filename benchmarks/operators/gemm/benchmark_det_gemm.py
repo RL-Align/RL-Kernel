@@ -104,6 +104,8 @@ def _muse_time(op, x, weight, dy, warmup, iters, trace):
                 step(x, weight)
                 torch.cuda.synchronize()
             launches = [
+                # start_us is relative to this case/backend's profiler session.
+                # Compare start times only within the same trace entry.
                 dict(name=e.name, start_us=e.time_range.start, duration_us=e.device_time_total)
                 for e in prof.events()
                 if e.device_type == torch.autograd.DeviceType.CUDA
@@ -195,8 +197,8 @@ def main():
     if args.model == "muse-glimmer":
         warmup = 2 if args.warmup is None else args.warmup
         iters = 5 if args.iters is None else args.iters
-        if warmup < 0 or iters < 1:
-            ap.error("warmup must be nonnegative and iters must be positive")
+        if warmup < 1 or iters < 1:
+            ap.error("warmup must be positive and iters must be positive")
         md = benchmark_muse_glimmer(warmup, iters, args.trace_out)
     else:
         if any(value is not None for value in (args.warmup, args.iters, args.trace_out)):

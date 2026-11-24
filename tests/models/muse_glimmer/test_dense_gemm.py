@@ -22,6 +22,13 @@ requires_cuda = pytest.mark.skipif(
 _PROJECTIONS = MuseGlimmerSpec.from_manifest().gemm_shape_groups()
 
 
+def test_rejects_empty_batch():
+    x = torch.empty((0, 6656), device="meta", dtype=torch.bfloat16)
+    weight = x.new_empty((256, 6656))
+    with pytest.raises(ValueError, match="positive M"):
+        dense_gemm(x, weight, backend="cuda")
+
+
 @pytest.mark.parametrize("n", (4096 + 256 + 256, 4096 + 256 + 256 + 4096, 19968 * 2))
 def test_rejects_fused_projection_weights(n):
     x = torch.empty((1, 6656), device="meta", dtype=torch.bfloat16)
@@ -184,6 +191,9 @@ def test_projection_partial_tile_and_offset_views(m):
     x = torch.randn(m * k + 1, **options)[1:].view(m, k)
     w = torch.randn(n * k + 1, **options)[1:].view(n, k)
     expected = dense_gemm(x, w, backend="cuda")
+    sample_rows = min(m, 2)
+    gold = DetGemmTreeReferenceOp()(x[:sample_rows].cpu(), w[:4].T.cpu())
+    _assert_bits(expected[:sample_rows, :4].cpu(), gold, f"M={m} offset PyTorch tree")
     for backend in ("cuda", "triton"):
         _assert_bits(dense_gemm(x.clone(), w.clone(), backend=backend), expected, backend)
         _assert_bits(dense_gemm(x, w, backend=backend), expected, backend)
