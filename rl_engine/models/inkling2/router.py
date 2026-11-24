@@ -83,3 +83,30 @@ def route_topk_sigmoid_cuda(
         logits.contiguous(), selection_bias, int(top_k), float(route_scale)
     )
     return RoutingResult(expert_indices=expert_indices, weights=weights)
+
+
+def route_topk_sigmoid_rocm(
+    logits: torch.Tensor,
+    selection_bias: torch.Tensor | None = None,
+    *,
+    top_k: int = 8,
+    route_scale: float = 8.0,
+) -> RoutingResult:
+    """Run the native ROCm wave64 deterministic top-k router forward kernel."""
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+    if torch.version.hip is None:
+        raise RuntimeError("route_topk_sigmoid_rocm requires a ROCm (HIP) build of PyTorch")
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_router_forward"):
+        raise RuntimeError("Inkling 2 ROCm router extension is unavailable")
+    if not logits.is_cuda or logits.ndim != 2:
+        raise ValueError("native router logits must be a 2-D ROCm tensor")
+    experts = logits.shape[1]
+    if selection_bias is None:
+        selection_bias = torch.zeros(experts, device=logits.device, dtype=torch.float32)
+    else:
+        selection_bias = selection_bias.to(device=logits.device, dtype=torch.float32).contiguous()
+    expert_indices, weights = _C.inkling2_router_forward(
+        logits.contiguous(), selection_bias, int(top_k), float(route_scale)
+    )
+    return RoutingResult(expert_indices=expert_indices, weights=weights)
