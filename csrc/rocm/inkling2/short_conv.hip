@@ -28,6 +28,15 @@
 
 namespace {
 
+// The empty asm pins the rounded product in a register so the backend cannot fold the
+// following add into an FMA (HIP maps __fmul_rn to a plain multiply).
+__device__ __forceinline__ float mul_nofuse(float a, float b) {
+  float p = a * b;
+  asm volatile("" : "+v"(p));
+  return p;
+}
+
+
 constexpr int kKernelSize = 4;
 constexpr int kStateSize = 3;
 constexpr int kWave = 64;
@@ -66,7 +75,7 @@ __global__ __launch_bounds__(kThreads) void short_conv_forward_kernel(
         ? load_f(state + (b * hidden + h) * kStateSize + source_t)
         : load_f(x + (b * time + source_t - kStateSize) * hidden + h);
     // Separate multiply and add keep the reference rounding (no FMA contraction).
-    const float prod = __fmul_rn(source, load_f(weight + h * kKernelSize + tap));
+    const float prod = mul_nofuse(source, load_f(weight + h * kKernelSize + tap));
     acc = __fadd_rn(acc, prod);
   }
   output[linear] = static_cast<scalar_t>(acc);
@@ -123,7 +132,7 @@ __global__ __launch_bounds__(kThreads) void short_conv_backward_dx_kernel(
     if (output_t >= 0 && output_t < time) {
       acc = __fadd_rn(
           acc,
-          __fmul_rn(
+          mul_nofuse(
               load_f(grad_output + (b * time + output_t) * hidden + h),
               load_f(weight + h * kKernelSize + tap)));
     }
@@ -165,7 +174,7 @@ __global__ __launch_bounds__(kWave* kDwRowGroups) void short_conv_backward_dw_ke
         const float source = source_t < kStateSize
             ? load_f(state + (b * hidden + h) * kStateSize + source_t)
             : load_f(x + (b * time + source_t - kStateSize) * hidden + h);
-        acc[tap] = __fadd_rn(acc[tap], __fmul_rn(go, source));
+        acc[tap] = __fadd_rn(acc[tap], mul_nofuse(go, source));
       }
     }
   }
