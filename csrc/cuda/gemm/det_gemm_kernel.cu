@@ -21,6 +21,7 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
 #include <cuda_bf16.h>
+#include <algorithm>
 #include <cstdint>
 
 #if defined(__CUDACC__) && !defined(__HIPCC__) && __has_include(<cute/tensor.hpp>)
@@ -391,7 +392,7 @@ struct LeafMerge {
   uint8_t joins;
 };
 
-constexpr LeafMerge leaf_merge(int leaf, int leaves) {
+__host__ __device__ constexpr LeafMerge leaf_merge(int leaf, int leaves) {
   LeafMerge merge{};
   while (leaves > 1) {
     const int half = leaves / 2;
@@ -476,6 +477,38 @@ struct FixedOperandTile {
       const int64_t offset = INNER_K ? static_cast<int64_t>(src) * stride + k
                                      : static_cast<int64_t>(k) * stride + src;
       packets[slot] = load_fixed_vector(input + offset, aligned);
+    }
+  }
+
+  template <bool PARTIAL_K, bool STRIDED>
+  __device__ void load_wgrad(const nv_bf16* input, int origin, int k0, int extent, int leaf_len,
+                             int64_t token_stride, int64_t feature_stride) {
+    static_assert(!INNER_K);
+    if constexpr (!STRIDED) {
+      token_stride = extent;
+      feature_stride = 1;
+    }
+    const bool aligned = (reinterpret_cast<std::uintptr_t>(input) % alignof(Bf16Vector)) == 0 &&
+                         token_stride % 8 == 0;
+#pragma unroll
+    for (int slot = 0; slot < cdiv(vectors, THREADS); ++slot) {
+      const int i = threadIdx.x + slot * THREADS;
+      if (i >= vectors) continue;
+      const int k = k_offset(i);
+      if constexpr (PARTIAL_K) {
+        if (k >= leaf_len) {
+#pragma unroll
+          for (int j = 0; j < 8; ++j) packets[slot].values[j] = __float2bfloat16_rn(0.0f);
+          continue;
+        }
+      }
+      const auto* base = input + (k0 + k) * token_stride + (origin + feature(i)) * feature_stride;
+      if (feature_stride == 1) {
+        packets[slot] = load_fixed_vector(base, aligned);
+      } else {
+#pragma unroll
+        for (int j = 0; j < 8; ++j) packets[slot].values[j] = base[j * feature_stride];
+      }
     }
   }
 
@@ -612,20 +645,145 @@ template <int K>
 void launch_fixed_tiles(const torch::Tensor& a, const torch::Tensor& b, torch::Tensor& c,
                         int M, int N, bool transpose_rhs, cudaStream_t stream) {
   constexpr int groups = K == 256 ? 1 : FIXED_GROUPS;
-  auto partial = groups == 1 ? c : torch::empty({groups, M, N}, c.options());
-  const dim3 grid(N / TILE_COLS, cdiv(M, TILE_ROWS), groups);
-  if (transpose_rhs)
-    det_gemm_fixed_tiles<K, groups, true><<<grid, TILE_THREADS, 0, stream>>>(
-        bf16(a), bf16(b), bf16o(partial), M, N);
-  else
-    det_gemm_fixed_tiles<K, groups, false><<<grid, TILE_THREADS, 0, stream>>>(
-        bf16(a), bf16(b), bf16o(partial), M, N);
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  constexpr int max_grid_rows = 65535 * TILE_ROWS;
+  int chunk_m = min(M, max_grid_rows);
+  torch::Tensor partial;
   if constexpr (groups > 1) {
-    det_gemm_fixed_tile_roots<<<cdiv(M * N, 128), 128, 0, stream>>>(
-        bf16(partial), bf16o(c), M * N);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    constexpr int max_elements = (64 << 20) / (groups * sizeof(nv_bf16));
+    int max_chunk_m = min(max_grid_rows, max_elements / N);
+    if (max_chunk_m < 1) {
+      for (int64_t row = 0; row < M; row += 65535 * NAIVE_TILE) {
+        const int rows = std::min<int64_t>(M - row, 65535 * NAIVE_TILE);
+        launch_naive<nv_bf16, false, true>(bf16(a) + row * K, bf16(b), bf16o(c) + row * N,
+                                          rows, N, K, stream, transpose_rhs);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      }
+      return;
+    }
+    if (max_chunk_m >= TILE_ROWS) max_chunk_m = max_chunk_m / TILE_ROWS * TILE_ROWS;
+    chunk_m = min(M, max_chunk_m);
+    partial = torch::empty({groups, chunk_m, N}, c.options());
   }
+
+  for (int64_t row = 0; row < M; row += chunk_m) {
+    const int rows = std::min<int64_t>(chunk_m, M - row);
+    const auto* lhs = bf16(a) + row * K;
+    auto* output = bf16o(c) + row * N;
+    auto* dst = groups == 1 ? output : bf16o(partial);
+    const dim3 grid(N / TILE_COLS, cdiv(rows, TILE_ROWS), groups);
+    if (transpose_rhs)
+      det_gemm_fixed_tiles<K, groups, true><<<grid, TILE_THREADS, 0, stream>>>(
+          lhs, bf16(b), dst, rows, N);
+    else
+      det_gemm_fixed_tiles<K, groups, false><<<grid, TILE_THREADS, 0, stream>>>(
+          lhs, bf16(b), dst, rows, N);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    if constexpr (groups > 1) {
+      const int elements = rows * N;
+      det_gemm_fixed_tile_roots<<<cdiv(elements, 128), 128, 0, stream>>>(
+          dst, output, elements);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+  }
+}
+
+constexpr int WGRAD_PER_ROW = 4, WGRAD_PER_COL = 4;
+constexpr int WGRAD_OPERAND_SMEM = (TILE_ROWS + TILE_COLS) * K_TREE_LEAF * sizeof(float);
+
+template <bool FULL_LEAF>
+__device__ __forceinline__ void fixed_wgrad_leaf(
+    const FloatQuad* dy, const FloatQuad* x, int row, int col, int leaf_len,
+    float (&acc)[WGRAD_PER_ROW][WGRAD_PER_COL]) {
+#pragma unroll (FULL_LEAF ? K_TREE_LEAF : 1)
+  for (int k = 0; k < (FULL_LEAF ? K_TREE_LEAF : leaf_len); ++k) {
+    const auto lhs = dy[fixed_quad_index<TILE_ROWS, false>(row, k)];
+    const auto rhs = x[fixed_quad_index<TILE_COLS, false>(col, k)];
+#pragma unroll
+    for (int r = 0; r < WGRAD_PER_ROW; ++r) {
+#pragma unroll
+      for (int j = 0; j < WGRAD_PER_COL; ++j)
+        acc[r][j] = __fmaf_rn(rhs.values[j], lhs.values[r], acc[r][j]);
+    }
+  }
+}
+
+template <bool STRIDED>
+__global__ void det_gemm_fixed_wgrad(const nv_bf16* __restrict__ dy,
+                                     const nv_bf16* __restrict__ x,
+                                     nv_bf16* __restrict__ dw, int tokens, int leaves,
+                                     int out_features, int in_features, int64_t dy_token_stride,
+                                     int64_t dy_feature_stride, int64_t x_token_stride,
+                                     int64_t x_feature_stride) {
+  extern __shared__ Bf16Quad wgrad_pending[][WGRAD_PER_ROW][TILE_THREADS];
+  __shared__ FloatQuad shared_dy[TILE_ROWS * K_TREE_LEAF / 4];
+  __shared__ FloatQuad shared_x[TILE_COLS * K_TREE_LEAF / 4];
+  const int row0 = blockIdx.y * TILE_ROWS, col0 = blockIdx.x * TILE_COLS;
+  const int row = threadIdx.x / (TILE_COLS / WGRAD_PER_COL) * WGRAD_PER_ROW;
+  const int col = threadIdx.x % (TILE_COLS / WGRAD_PER_COL) * WGRAD_PER_COL;
+  FixedOperandTile<TILE_ROWS, TILE_THREADS, false> dy_tile;
+  FixedOperandTile<TILE_COLS, TILE_THREADS, false> x_tile;
+
+  for (int leaf = 0; leaf < leaves; ++leaf) {
+    const int k0 = leaf * K_TREE_LEAF;
+    const int leaf_len = min(tokens - k0, K_TREE_LEAF);
+    const bool full_leaf = leaf_len == K_TREE_LEAF;
+    if (full_leaf) {
+      dy_tile.load_wgrad<false, STRIDED>(dy, row0, k0, out_features, leaf_len,
+                                         dy_token_stride, dy_feature_stride);
+      x_tile.load_wgrad<false, STRIDED>(x, col0, k0, in_features, leaf_len,
+                                        x_token_stride, x_feature_stride);
+    } else {
+      dy_tile.load_wgrad<true, STRIDED>(dy, row0, k0, out_features, leaf_len,
+                                        dy_token_stride, dy_feature_stride);
+      x_tile.load_wgrad<true, STRIDED>(x, col0, k0, in_features, leaf_len,
+                                       x_token_stride, x_feature_stride);
+    }
+    dy_tile.store(shared_dy);
+    x_tile.store(shared_x);
+    __syncthreads();
+
+    float acc[WGRAD_PER_ROW][WGRAD_PER_COL] = {};
+    if (full_leaf) {
+      fixed_wgrad_leaf<true>(shared_dy, shared_x, row, col, leaf_len, acc);
+    } else {
+      // Padded zero FMAs could change a negative zero from the last valid term.
+      fixed_wgrad_leaf<false>(shared_dy, shared_x, row, col, leaf_len, acc);
+    }
+    __syncthreads();
+
+    const LeafMerge merge = leaf_merge(leaf, leaves);
+#pragma unroll
+    for (int r = 0; r < WGRAD_PER_ROW; ++r) {
+      Bf16Quad value;
+#pragma unroll
+      for (int j = 0; j < WGRAD_PER_COL; ++j) value.values[j] = __float2bfloat16_rn(acc[r][j]);
+      for (int i = 0; i < merge.joins; ++i) {
+        const auto left = wgrad_pending[merge.depth - 1 - i][r][threadIdx.x];
+#pragma unroll
+        for (int j = 0; j < WGRAD_PER_COL; ++j) value.values[j] = bf16_add(left.values[j], value.values[j]);
+      }
+      if (leaf + 1 < leaves) {
+        wgrad_pending[merge.depth - merge.joins - 1][r][threadIdx.x] = value;
+      } else {
+        auto* dst = dw + static_cast<int64_t>(row0 + row + r) * in_features + col0 + col;
+        *reinterpret_cast<Bf16Quad*>(dst) = value;
+      }
+    }
+  }
+}
+
+template <bool STRIDED>
+void launch_fixed_wgrad(const torch::Tensor& x, const torch::Tensor& dy, torch::Tensor& dw,
+                        int tokens, int leaves, int stack_bytes, int optin_bytes) {
+  if (optin_bytes != 0)
+    C10_CUDA_CHECK(cudaFuncSetAttribute(det_gemm_fixed_wgrad<STRIDED>,
+                   cudaFuncAttributeMaxDynamicSharedMemorySize, optin_bytes));
+  const int out_features = dy.size(1), in_features = x.size(1);
+  const dim3 grid(in_features / TILE_COLS, out_features / TILE_ROWS);
+  det_gemm_fixed_wgrad<STRIDED><<<grid, TILE_THREADS, stack_bytes, at::cuda::getCurrentCUDAStream()>>>(
+      bf16(dy), bf16(x), bf16o(dw), tokens, leaves, out_features, in_features,
+      dy.stride(0), dy.stride(1), x.stride(0), x.stride(1));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 #if defined(RL_KERNEL_ENABLE_SM90)
@@ -888,10 +1046,8 @@ torch::Tensor gemm_dispatch(const torch::Tensor& a, const torch::Tensor& rhs,
   if (fixed_leaf_tree) {
     check_fixed_leaf_math();
     const bool transpose_rhs = rhs_layout == RhsLayout::kNK;
-    // Bound the 16 BF16 partials per output to 64 MiB. Thin token batches
-    // use the vectorized row kernel or the general tree below.
-    if (!transpose_output && M >= 16 && N > 0 && N % TILE_COLS == 0 &&
-        static_cast<int64_t>(M) * N <= (64 << 20) / (FIXED_GROUPS * sizeof(nv_bf16))) {
+    // Thin forward batches still use the vectorized row kernel below.
+    if (!transpose_output && M >= (transpose_rhs ? 16 : 1) && N > 0 && N % TILE_COLS == 0) {
       switch (K) {
         case 256:
           launch_fixed_tiles<256>(a, rhs, c, M, N, transpose_rhs, stream);
@@ -1062,17 +1218,37 @@ torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc, bool fix
   TORCH_CHECK(dc.size(0) == tokens, "det_gemm_db_transposed: M mismatch");
   if (fixed_leaf_tree) check_fixed_leaf_math();
 
-  if (fixed_leaf_tree && tokens == 3 * K_TREE_LEAF && in_features > 0 && out_features > 0 &&
+  if (fixed_leaf_tree && tokens >= K_TREE_LEAF && in_features > 0 && out_features > 0 &&
       in_features % TILE_COLS == 0 && out_features % TILE_ROWS == 0 &&
       out_features / TILE_ROWS <= 65535) {
-    a = a.contiguous();
-    dc = dc.contiguous();
-    auto output = torch::empty({out_features, in_features}, a.options());
-    det_gemm_fixed_tiles<96, 1, false, true>
-        <<<dim3(in_features / TILE_COLS, cdiv(out_features, WGRAD_TILE_ROWS)), TILE_THREADS, 0,
-           at::cuda::getCurrentCUDAStream()>>>(bf16(dc), bf16(a), bf16o(output), out_features, in_features);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
-    return output;
+    if (tokens == 3 * K_TREE_LEAF) {
+      a = a.contiguous();
+      dc = dc.contiguous();
+      auto output = torch::empty({out_features, in_features}, a.options());
+      det_gemm_fixed_tiles<96, 1, false, true>
+          <<<dim3(in_features / TILE_COLS, cdiv(out_features, WGRAD_TILE_ROWS)), TILE_THREADS, 0,
+             at::cuda::getCurrentCUDAStream()>>>(bf16(dc), bf16(a), bf16o(output), out_features, in_features);
+      C10_CUDA_KERNEL_LAUNCH_CHECK();
+      return output;
+    }
+
+    const int leaves = 1 + (tokens - 1) / K_TREE_LEAF;
+    const int stack_bytes = fixed_tree_depth(leaves) * WGRAD_PER_ROW * TILE_THREADS * sizeof(Bf16Quad);
+    const int total_smem = WGRAD_OPERAND_SMEM + stack_bytes;
+    const int default_smem = 48 * 1024;
+    const int smem_limit = total_smem <= default_smem
+                               ? default_smem
+                               : at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
+    if (total_smem <= smem_limit) {
+      // Set a device-wide limit independent of this launch's stack depth.
+      const int optin_bytes = total_smem > default_smem ? smem_limit - WGRAD_OPERAND_SMEM : 0;
+      auto output = torch::empty({out_features, in_features}, a.options());
+      if (a.is_contiguous() && dc.is_contiguous())
+        launch_fixed_wgrad<false>(a, dc, output, tokens, leaves, stack_bytes, optin_bytes);
+      else
+        launch_fixed_wgrad<true>(a, dc, output, tokens, leaves, stack_bytes, optin_bytes);
+      return output;
+    }
   }
 
   // The normal SM90 path expects A^T to be physically contiguous. For short

@@ -190,20 +190,93 @@ def test_projection_partial_tile_and_offset_views(m):
 
 
 @requires_cuda
-def test_fixed_weight_gradient_partial_tile_with_offset_inputs():
+@pytest.mark.parametrize("m", [5, 128, 130, 512])
+def test_projection_arbitrary_batch(m):
+    n, k = (256, 6656) if m == 5 else (19968, 6656)
+    generator = torch.Generator(device="cuda").manual_seed(501)
+    options = dict(device="cuda", dtype=torch.bfloat16, generator=generator)
+
+    def inputs(rows, cols):
+        if m == 130:
+            return torch.randn(rows * cols + 1, **options)[1:].view(rows, cols)
+        return torch.randn(rows, cols, **options)
+
+    x, weight, dy = inputs(m, k), inputs(n, k), inputs(m, n)
+    cuda, triton = (_evaluate(backend, x, weight, dy) for backend in ("cuda", "triton"))
+    gold = DetGemmTreeReferenceOp()
+    # Row 96 is the first row of the second CUDA forward chunk on the gate
+    # projection. The last row also covers the short final chunk at M=130.
+    rows = slice(96, 98) if m >= 128 else slice(3, 5)
+    for name, left, right, lhs, rhs, sample in (
+        ("Y", cuda[0], triton[0], x, weight.T, rows),
+        ("dX", cuda[1], triton[1], dy, weight, rows),
+        ("dW", cuda[2], triton[2], dy.T, x, slice(96, 98)),
+    ):
+        assert left.is_contiguous() and right.is_contiguous()
+        _assert_bits(left, right, f"M={m} {name}")
+        expected = gold(lhs[sample].cpu(), rhs[:, :4].cpu())
+        _assert_bits(left[sample, :4].cpu(), expected, f"M={m} {name} PyTorch tree")
+
+    if m >= 128:
+        for backend, (y, dx, _) in zip(("cuda", "triton"), (cuda, triton), strict=True):
+            for row in (slice(96, 97), slice(m - 1, m)):
+                token = x[row].detach().requires_grad_()
+                single_y = dense_gemm(token, weight, backend=backend)
+                (single_dx,) = torch.autograd.grad(single_y, token, dy[row])
+                _assert_bits(single_y, y[row], f"{backend} M={m} single-row Y")
+                _assert_bits(single_dx, dx[row], f"{backend} M={m} single-row dX")
+
+
+@requires_cuda
+@pytest.mark.parametrize("tokens", [96, 130])
+def test_fixed_weight_gradient_partial_tile_with_offset_inputs(tokens):
     # The extension also accepts projections whose last 64-row dW tile is half full.
     from rl_engine.backends.extension import _C
 
     options = dict(device="cuda", dtype=torch.bfloat16)
     gen = torch.Generator(device="cuda").manual_seed(501)
-    tokens, inputs, outputs = 96, 128, 96
+    inputs, outputs = 128, 96
     x = torch.randn(tokens * inputs + 1, generator=gen, **options)[1:].view(tokens, inputs)
     dy = torch.randn(tokens * outputs + 1, generator=gen, **options)[1:].view(tokens, outputs)
     expected = DetGemmTreeReferenceOp()(x.T.cpu(), dy.cpu()).T.contiguous()
     for a, grad in ((x, dy), (x.clone(), dy.clone())):
         actual = _C.det_gemm_db_transposed(a, grad, fixed_leaf_tree=True)
-        _assert_bits(actual.cpu(), expected, "CUDA partial dW with 96 tokens")
+        _assert_bits(actual.cpu(), expected, f"CUDA partial dW with {tokens} tokens")
         triton = _triton_tree_gemm(
             a.T, grad, transpose_output=True, preserve_a_strides=True, fixed_leaf_tree=True
         )
-        _assert_bits(triton.cpu(), expected, "Triton partial dW with 96 tokens")
+        _assert_bits(triton.cpu(), expected, f"Triton partial dW with {tokens} tokens")
+
+
+@requires_cuda
+@pytest.mark.parametrize("tokens", [5, 35, 257, 16385, 524289])
+def test_fixed_weight_gradient_preserves_signed_zero_and_special_values(tokens):
+    from rl_engine.backends.extension import _C
+
+    # Exercise a short leaf in both Triton schedules and the CUDA shared
+    # memory opt-in at 513 leaves. The largest case also covers Triton's
+    # bounded per-CTA root reduction. The views have offsets and strides.
+    options = dict(device="cuda", dtype=torch.bfloat16)
+    x = torch.zeros((tokens, 129), **options)[:, 1::2]
+    dy = torch.zeros((tokens, 65), **options)[:, 1::2]
+    dy[:, 0] = 2**-100
+    x[31::32, 0] = -(2**-100)
+    x[-1, 0] = -(2**-100)
+    # Each leaf ends in a negative FP32 underflow. An extra +0 FMA would
+    # erase its sign, and one +0 leaf would erase the final root's sign.
+    x[0, 1:4] = torch.tensor([float("inf"), -float("inf"), float("nan")], **options)
+    if tokens > 64:
+        right_start = ((tokens + 31) // 32 // 2) * 32
+        x[0, 4], x[right_start, 4], x[-1, 4] = 256, 1, -256
+
+    cuda = _C.det_gemm_db_transposed(x, dy, fixed_leaf_tree=True)
+    triton = _triton_tree_gemm(
+        x.T, dy, transpose_output=True, preserve_a_strides=True, fixed_leaf_tree=True
+    )
+    _assert_bits(triton, cuda, f"M={tokens} special dW")
+    assert cuda[0, 0].view(torch.int16).item() == -32768
+    assert cuda[0, 1].item() == float("inf")
+    assert cuda[0, 2].item() == -float("inf")
+    assert torch.isnan(cuda[0, 3]).item()
+    if tokens > 64:
+        assert cuda[0, 4].item() == 2**-100

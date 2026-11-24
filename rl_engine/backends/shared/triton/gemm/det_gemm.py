@@ -387,9 +387,9 @@ if _TRITON_AVAILABLE:
             return _fixed_ordered_fmas(xr, wr, acc, WIDTH // 2, OUTER, COLUMN_FIRST)
 
     @triton.jit
-    def _fixed_subtree(group, LEAVES: tl.constexpr, LEVELS: tl.constexpr):
+    def _fixed_subtree(group, leaves, LEVELS: tl.constexpr):
         start = group * 0
-        count = start + LEAVES
+        count = start + leaves
         for level in tl.static_range(LEVELS):
             right = (group & (1 << (LEVELS - level - 1))) != 0
             half = count // 2
@@ -457,6 +457,32 @@ if _TRITON_AVAILABLE:
         return acc.to(tl.bfloat16)
 
     @triton.jit
+    def _fixed_partial_wgrad_leaf(
+        a,
+        b,
+        rows,
+        cols,
+        start,
+        length,
+        M,
+        N: tl.constexpr,
+        AM: tl.constexpr,
+        AK: tl.constexpr,
+        BK: tl.constexpr,
+        BN: tl.constexpr,
+    ):
+        acc = tl.full((rows.shape[0], cols.shape[0]), 0, tl.float32)
+        for pack in range(0, length, 4):
+            for offset in tl.static_range(4):
+                active = pack + offset < length
+                k = (start + pack + offset).to(tl.int64)
+                x = tl.load(a + rows * AM + k * AK, (rows < M) & active, 0).to(tl.float32)
+                w = tl.load(b + cols * BN + k * BK, (cols < N) & active, 0).to(tl.float32)
+                # Inactive FMAs must preserve the sign of a zero accumulator.
+                acc = tl.where(active, tl.fma(x[:, None], w[None, :], acc), acc)
+        return acc.to(tl.bfloat16)
+
+    @triton.jit
     def _fixed_tile_node(
         a,
         b,
@@ -472,6 +498,7 @@ if _TRITON_AVAILABLE:
         BN: tl.constexpr,
         PACK: tl.constexpr,
         COLUMN_FIRST: tl.constexpr = False,
+        tail_length=0,
     ):
         # Each half of this two- to four-leaf subtree contains one or two leaves.
         half = count // 2
@@ -483,14 +510,25 @@ if _TRITON_AVAILABLE:
                 a, b, rows, cols, (start + 1) * 32, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
             )
             left = _fixed_add(left, sibling)
-        right = _fixed_full_leaf(
-            a, b, rows, cols, (start + half) * 32, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
-        )
-        if count - half == 2:
-            sibling = _fixed_full_leaf(
-                a, b, rows, cols, (start + half + 1) * 32, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+        right_start = (start + half) * 32
+        if count - half == 1 and tail_length != 0:
+            right = _fixed_partial_wgrad_leaf(
+                a, b, rows, cols, right_start, tail_length, M, N, AM, AK, BK, BN
             )
-            right = _fixed_add(right, sibling)
+        else:
+            right = _fixed_full_leaf(
+                a, b, rows, cols, right_start, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+            )
+            if count - half == 2:
+                if tail_length != 0:
+                    sibling = _fixed_partial_wgrad_leaf(
+                        a, b, rows, cols, right_start + 32, tail_length, M, N, AM, AK, BK, BN
+                    )
+                else:
+                    sibling = _fixed_full_leaf(
+                        a, b, rows, cols, right_start + 32, M, N, AM, AK, BK, BN, PACK, COLUMN_FIRST
+                    )
+                right = _fixed_add(right, sibling)
         return _fixed_add(left, right)
 
     @triton.jit
@@ -554,6 +592,136 @@ if _TRITON_AVAILABLE:
         tl.store(dst + offsets, value, mask=(row < M) & (col < N))
 
     @triton.jit
+    def _fixed_wgrad_small_tree(
+        a,
+        b,
+        rows,
+        cols,
+        length,
+        M,
+        N: tl.constexpr,
+        AM: tl.constexpr,
+        AK: tl.constexpr,
+        BK: tl.constexpr,
+        BN: tl.constexpr,
+        START: tl.constexpr,
+        LEAVES: tl.constexpr,
+        HAS_TAIL: tl.constexpr,
+    ):
+        if LEAVES == 1:
+            if HAS_TAIL:
+                return _fixed_partial_wgrad_leaf(
+                    a, b, rows, cols, START * 32, length, M, N, AM, AK, BK, BN
+                )
+            return _fixed_full_leaf(a, b, rows, cols, START * 32, M, N, AM, AK, BK, BN, 8)
+        else:
+            half: tl.constexpr = LEAVES // 2
+            left = _fixed_wgrad_small_tree(
+                a, b, rows, cols, length, M, N, AM, AK, BK, BN, START, half, False
+            )
+            right = _fixed_wgrad_small_tree(
+                a,
+                b,
+                rows,
+                cols,
+                length,
+                M,
+                N,
+                AM,
+                AK,
+                BK,
+                BN,
+                START + half,
+                LEAVES - half,
+                HAS_TAIL,
+            )
+            return _fixed_add(left, right)
+
+    @triton.jit(do_not_specialize=["tokens"])
+    def _fixed_wgrad_kernel(
+        a,
+        b,
+        dst,
+        M,
+        tokens,
+        N: tl.constexpr,
+        AM: tl.constexpr,
+        AK: tl.constexpr,
+        BK: tl.constexpr,
+        BN: tl.constexpr,
+        BLOCK_M: tl.constexpr,
+        BLOCK_N: tl.constexpr,
+        DIRECT_LEAVES: tl.constexpr,
+        GROUP_LEVELS: tl.constexpr,
+        HAS_TAIL: tl.constexpr,
+        GROUP_LEAVES: tl.constexpr = 0,
+    ):
+        n_tiles: tl.constexpr = triton.cdiv(N, BLOCK_N)
+        pid = tl.program_id(0)
+        row_tile, col_tile = pid // n_tiles, pid % n_tiles
+        if not DIRECT_LEAVES:
+            if GROUP_LEVELS <= 15:
+                group = tl.program_id(1)
+            else:
+                group = row_tile // tl.cdiv(M, BLOCK_M)
+                row_tile %= tl.cdiv(M, BLOCK_M)
+        rows = row_tile.to(tl.int64) * BLOCK_M + tl.arange(0, BLOCK_M)
+        cols = col_tile.to(tl.int64) * BLOCK_N + tl.arange(0, BLOCK_N)
+        if DIRECT_LEAVES:
+            value = _fixed_wgrad_small_tree(
+                a, b, rows, cols, tokens % 32, M, N, AM, AK, BK, BN, 0, DIRECT_LEAVES, HAS_TAIL
+            )
+        else:
+            if GROUP_LEAVES:
+                start, count = group * GROUP_LEAVES, GROUP_LEAVES
+            else:
+                leaves = 1 + (tokens - 1) // 32
+                start, count = _fixed_subtree(group, leaves, GROUP_LEVELS)
+            if HAS_TAIL:
+                length = tl.where(group == (1 << GROUP_LEVELS) - 1, tokens % 32, 0)
+            else:
+                length = 0
+            value = _fixed_tile_node(
+                a, b, rows, cols, start, count, M, N, AM, AK, BK, BN, 8, tail_length=length
+            )
+        offsets = rows[:, None] * N + cols[None, :]
+        if not DIRECT_LEAVES:
+            offsets += group.to(tl.int64) * M * N
+        tl.store(dst + offsets, value, (rows[:, None] < M) & (cols[None, :] < N))
+
+    @triton.jit
+    def _fixed_wgrad_large_root(
+        leaves_ptr, offsets, elements, BLOCK: tl.constexpr, LEVELS: tl.constexpr
+    ):
+        # Keep per-CTA storage bounded even when there are thousands of
+        # subtree roots. Each chunk is itself a complete canonical subtree.
+        chunk_levels: tl.constexpr = 7
+        chunk_groups: tl.constexpr = 1 << chunk_levels
+        chunks: tl.constexpr = 1 << (LEVELS - chunk_levels)
+        depth_slots: tl.constexpr = triton.next_power_of_2(LEVELS - chunk_levels)
+        slots = tl.arange(0, depth_slots)
+        pending = tl.full((BLOCK, depth_slots), 0, tl.bfloat16)
+        root = tl.full((BLOCK,), 0, tl.bfloat16)
+        for chunk in range(chunks):
+            groups = chunk * chunk_groups + tl.arange(0, chunk_groups)
+            nodes = tl.load(
+                leaves_ptr + groups[None, :] * elements + offsets[:, None],
+                offsets[:, None] < elements,
+                0,
+            )
+            root = _fixed_root(nodes, BLOCK, chunk_levels)
+            path = chunk
+            depth = 0
+            while (path & 1) != 0:
+                index = tl.full((BLOCK, 1), depth, tl.int32)
+                left = tl.gather(pending, index, axis=1).reshape((BLOCK,))
+                root = _fixed_add(left, root)
+                path //= 2
+                depth += 1
+            pending = tl.where(slots[None, :] == depth, root[:, None], pending)
+        return root
+
+    @triton.jit
     def _fixed_projection_root_kernel(
         leaves_ptr,
         output_ptr,
@@ -566,30 +734,32 @@ if _TRITON_AVAILABLE:
     ):
         offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
         width: tl.constexpr = 1 << LEVELS
-        group = tl.arange(0, width)
         elements = M * N
-        if LEAVES == width:
+        if LEAVES == width and width > 4096:
+            root = _fixed_wgrad_large_root(leaves_ptr, offsets, elements, BLOCK, LEVELS)
+        elif LEAVES == width:
+            group = tl.arange(0, width)
             nodes = tl.load(
                 leaves_ptr + group[None, :] * elements + offsets[:, None],
                 mask=offsets[:, None] < elements,
                 other=0,
             )
+            root = _fixed_root(nodes, BLOCK, LEVELS)
         else:
             # At this depth every midpoint-tree branch has one or two leaves.
             # Descend with the same floor midpoint as the registered reference.
-            start, count = _fixed_subtree(group, LEAVES, LEVELS)
+            start, count = _fixed_subtree(tl.arange(0, width), LEAVES, LEVELS)
             ptr = leaves_ptr + start[None, :] * elements + offsets[:, None]
             lower = tl.load(ptr, mask=offsets[:, None] < elements, other=0)
             paired = count[None, :] == 2
             upper = tl.load(ptr + elements, mask=(offsets[:, None] < elements) & paired, other=0)
             nodes = tl.where(paired, _fixed_add(lower, upper), lower)
+            root = _fixed_root(nodes, BLOCK, LEVELS)
 
         # These levels are complete. Merge adjacent children and round every
         # parent, including the root, before writing the final output.
         output_offsets = (offsets // N).to(tl.int64) * OUTPUT_STRIDE + offsets % N
-        tl.store(
-            output_ptr + output_offsets, _fixed_root(nodes, BLOCK, LEVELS), mask=offsets < elements
-        )
+        tl.store(output_ptr + output_offsets, root, mask=offsets < elements)
 
     @triton.jit(do_not_specialize=["M"])
     def _det_gemm_tree_leaf_kernel(
@@ -1065,7 +1235,7 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         groups = triton.next_power_of_2(leaves) // 4
         # The wide, non-power-of-two projections reuse a column-major register tile.
         # The 128-leaf O projection has a fully unrolled four-leaf subtree.
-        column_first = m == 96 and b.stride(0) == 1 and k in (6656, 19968) and n >= 4096
+        column_first = m >= 32 and b.stride(0) == 1 and k in (6656, 19968) and n >= 4096
         pack = 16 if b.stride(0) == 1 and not column_first else 8
     else:
         block_m = min(128, triton.next_power_of_2(m))
@@ -1104,7 +1274,7 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             GROUP_LEVELS=groups.bit_length() - 1,
             PACK=pack,
             COLUMN_FIRST=column_first,
-            STATIC_M=96 if column_first else 0,
+            STATIC_M=96 if column_first and m == 96 else 0,
             num_warps=2 if block_m == 1 else 4,
         )
         _fixed_projection_root_kernel[(triton.cdiv(m * chunk_n, root_block),)](
@@ -1117,6 +1287,74 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
             groups.bit_length() - 1,
             BLOCK=root_block,
         )
+    return result
+
+
+def _triton_fixed_wgrad(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Evaluate the fixed tree for dY.T @ X in native [out, in] order."""
+    m, tokens = a.shape
+    n = b.size(1)
+    result = a.new_empty((m, n))
+    leaves = triton.cdiv(tokens, _BLOCK_K)
+    direct = leaves <= 8
+    levels = 0 if direct else leaves.bit_length() - 2
+    groups = 1 << levels
+    group_leaves = leaves // groups if not direct and leaves % groups == 0 else 0
+    has_tail = tokens % _BLOCK_K != 0
+    # Two full leaves fit the wider row tile without increasing live ranges
+    # across the extra leaves of an uneven or deeper subtree.
+    block_m, block_n = (64 if group_leaves == 2 and not has_tail else 32), 64
+    if direct:
+        rows, columns = m, n
+        workspace = result
+    else:
+        # Each group covers a canonical two- to four-leaf subtree. Bound the
+        # scratch allocation and reuse it across output column chunks. Split
+        # rows as well when all rows cannot fit one column tile.
+        max_outputs = _MAX_TREE_WORKSPACE_ELEMENTS // groups
+        rows = min(m, max(1, max_outputs // min(n, block_n)))
+        column_limit = max_outputs // rows
+        columns = min(
+            n, column_limit if column_limit < block_n else column_limit // block_n * block_n
+        )
+        workspace = a.new_empty((groups, rows, columns))
+    root_block = 32 if groups > 4096 else min(128, 4096 // groups)
+    for row in range(0, m, rows):
+        chunk_m = min(rows, m - row)
+        lhs = a if row == 0 else a[row:]
+        for col in range(0, n, columns):
+            chunk_n = min(columns, n - col)
+            tiles = triton.cdiv(chunk_m, block_m) * triton.cdiv(chunk_n, block_n)
+            rhs = b if col == 0 else b[:, col:]
+            grid = (tiles, groups) if levels <= 15 else (tiles * groups,)
+            _fixed_wgrad_kernel[grid](
+                lhs,
+                rhs,
+                workspace,
+                chunk_m,
+                tokens,
+                chunk_n,
+                *a.stride(),
+                *b.stride(),
+                BLOCK_M=block_m,
+                BLOCK_N=block_n,
+                DIRECT_LEAVES=leaves if direct else 0,
+                GROUP_LEVELS=levels,
+                HAS_TAIL=has_tail,
+                GROUP_LEAVES=group_leaves,
+                num_warps=4,
+            )
+            if not direct:
+                _fixed_projection_root_kernel[(triton.cdiv(chunk_m * chunk_n, root_block),)](
+                    workspace,
+                    result[row:, col:],
+                    chunk_m,
+                    chunk_n,
+                    n,
+                    groups,
+                    levels,
+                    BLOCK=root_block,
+                )
     return result
 
 
@@ -1177,6 +1415,9 @@ def _triton_tree_gemm(
                 num_warps=4,
             )
             return result
+        if transpose_output and k_size > 0:
+            # (A @ B).T = B.T @ A.T, both as stride-only views.
+            return _triton_fixed_wgrad(b.T, a.T)
         if (
             not transpose_output
             and k_size in (256, 4096, 6656, 19968)
