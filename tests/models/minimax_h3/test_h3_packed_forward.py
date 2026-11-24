@@ -43,6 +43,19 @@ class _Rope(nn.Module):
         return position_ids.float()
 
 
+class _AdaBlock(nn.Module):
+    """A block whose output depends on every ``adaln_indices`` entry (``t * MODALITY_NUM + tag``)."""
+
+    def __init__(self, width=16, entries=6):
+        super().__init__()
+        gen = torch.Generator().manual_seed(17)
+        self.table = nn.Parameter(torch.randn(entries, width, generator=gen))
+
+    def forward(self, hidden_states, temb, adaln_indices, rotary_emb):
+        assert adaln_indices.max() < self.table.shape[0]
+        return hidden_states + self.table[adaln_indices].to(hidden_states.dtype)
+
+
 class _Model(nn.Module):
     def __init__(self, text_dtype=torch.bfloat16):
         super().__init__()
@@ -56,7 +69,7 @@ class _Model(nn.Module):
         self.proj_out = _Identity(torch.float32)
         self.audio_proj_out = _Identity(torch.float32)
         self.rope = _Rope()
-        self.transformer_blocks = nn.ModuleList()
+        self.transformer_blocks = nn.ModuleList([_AdaBlock()])
         self.gradient_checkpointing = False
 
 
@@ -70,8 +83,8 @@ def _inputs(batch=2, width=16, text=5, video=6, audio=3):
     ]
     kwargs = dict(
         timestep=torch.tensor([0.25, 1.0]),
-        timestep_indices=torch.zeros(seq, dtype=torch.int64),
-        token_tags=torch.zeros(seq, dtype=torch.int64),
+        timestep_indices=torch.arange(seq) % 2,  # two timesteps
+        token_tags=torch.arange(seq) % 3,  # the three modality tags
         position_ids=torch.zeros(seq, 3),
         video_indices=v_idx,
         audio_indices=a_idx,
@@ -100,9 +113,18 @@ def test_the_installed_provider_forward_is_known():
     assert hpf.forward_source_sha256(MODEL) in hpf.KNOWN_FORWARDS
 
 
-@pytest.mark.parametrize("variant", ["weight", "parameter"])
+def _variant() -> str:
+    """The installed provider's own dtype-reading variant."""
+
+    digest = hpf.forward_source_sha256(MODEL)
+    if digest not in hpf.KNOWN_FORWARDS:
+        pytest.skip("unknown provider forward")
+    return hpf.KNOWN_FORWARDS[digest]
+
+
 @pytest.mark.parametrize("text_dtype", [torch.bfloat16, torch.float32])
-def test_packed_forward_is_bitwise_the_providers(variant, text_dtype):
+def test_packed_forward_is_bitwise_the_providers(text_dtype):
+    variant = _variant()
     model = _Model(text_dtype)
     provider = inspect.unwrap(MODEL.forward)
     ours = inspect.unwrap(hpf._packed_forward(MODEL, NativePackedIndexCopyOp(), variant))
@@ -170,14 +192,14 @@ def _run_cuda(forward, model):
 
 
 @needs_cuda
-@pytest.mark.parametrize("variant", ["weight", "parameter"])
 @pytest.mark.parametrize("text_dtype", [torch.bfloat16, torch.float32])
-def test_the_cuda_row_is_bitwise_the_providers(variant, text_dtype):
+def test_the_cuda_row_is_bitwise_the_providers(text_dtype):
     """The registry's CUDA ``packed_index_copy`` (what ``h3_full_model`` binds), on a GPU."""
 
     from rl_engine.backends.cuda.packing.packed_index_copy import PackedIndexCopyCudaOp
     from rl_engine.runtime.registry import KernelRegistry
 
+    variant = _variant()
     op = KernelRegistry().get_op("packed_index_copy", device="cuda")
     assert isinstance(op, PackedIndexCopyCudaOp)
     model = _Model(text_dtype).cuda()
