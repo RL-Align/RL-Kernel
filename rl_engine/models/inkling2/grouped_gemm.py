@@ -140,3 +140,21 @@ def grouped_expert_gemm_cuda(
     if bias.device != tokens.device or bias.dtype != tokens.dtype:
         raise ValueError("native grouped GEMM tensors must share device and dtype")
     return _NativeGroupedExpertGemmFunction.apply(tokens, expert_indices, weights, bias)
+
+
+def grouped_expert_gemm_rocm(
+    tokens: torch.Tensor,
+    expert_indices: torch.Tensor,
+    weights: torch.Tensor,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Run the native ROCm (MI300X-tuned) deterministic grouped expert GEMM.
+
+    Same contract and autograd function as the CUDA entry point; the ``_C``
+    binding is backed by ``csrc/rocm/inkling2/grouped_gemm.hip`` on ROCm builds.
+    """
+    if torch.version.hip is None:
+        raise RuntimeError("grouped_expert_gemm_rocm requires a ROCm (HIP) PyTorch build")
+    if not tokens.is_cuda:
+        raise ValueError("native grouped GEMM tokens must be a 2-D ROCm device tensor")
+    return grouped_expert_gemm_cuda(tokens, expert_indices, weights, bias)
