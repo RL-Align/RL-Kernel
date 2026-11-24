@@ -268,6 +268,17 @@ std::vector<torch::Tensor> swiglu_backward_cuda(
     torch::Tensor gate,
     torch::Tensor up);
 torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
+torch::Tensor inkling2_attention_o_residual_forward(
+    torch::Tensor attention,
+    torch::Tensor residual,
+    torch::Tensor weight,
+    torch::Tensor bias);
+std::vector<torch::Tensor> inkling2_attention_o_residual_backward(
+    torch::Tensor dy,
+    torch::Tensor attention,
+    torch::Tensor residual,
+    torch::Tensor weight,
+    bool need_bias);
 std::tuple<torch::Tensor, torch::Tensor> inkling2_router_forward(
     torch::Tensor logits, torch::Tensor selection_bias, int64_t top_k, double route_scale);
 torch::Tensor inkling2_short_conv_forward(torch::Tensor x, torch::Tensor weight, torch::Tensor state);
@@ -804,6 +815,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Inkling 2 Mini native CUDA grouped expert GEMM forward");
     m.def("inkling2_grouped_gemm_backward", &inkling2_grouped_gemm_backward,
           "Inkling 2 Mini native CUDA grouped expert GEMM backward");
+    m.def("inkling2_attention_o_residual_forward", &inkling2_attention_o_residual_forward,
+          "Inkling 2 Mini native CUDA attention O residual forward");
+    m.def("inkling2_attention_o_residual_backward", &inkling2_attention_o_residual_backward,
+          "Inkling 2 Mini native CUDA attention O residual backward");
     m.def("swiglu_backward", &swiglu_backward, "Batch-invariant SwiGLU backward CUDA");
     m.def("inkling2_router_forward", &inkling2_router_forward,
           "Inkling 2 Mini CUDA deterministic sigmoid top-k router");

@@ -3,6 +3,7 @@
 
 from .grouped_gemm import grouped_expert_gemm, grouped_expert_gemm_cuda
 from .expert_mlp import expert_gate_up, expert_gate_up_cuda, softcap
+from .attention_residual import attention_o_residual, attention_o_residual_cuda
 from .router import (
     RoutingResult,
     route_topk_sigmoid,
@@ -30,6 +31,8 @@ __all__ = [
     "grouped_expert_gemm_cuda",
     "expert_gate_up",
     "expert_gate_up_cuda",
+    "attention_o_residual",
+    "attention_o_residual_cuda",
     "route_topk_sigmoid",
     "route_topk_sigmoid_cuda",
     "route_topk_sigmoid_rocm",
