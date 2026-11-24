@@ -268,6 +268,8 @@ std::vector<torch::Tensor> swiglu_backward_cuda(
     torch::Tensor gate,
     torch::Tensor up);
 torch::Tensor swiglu_packed_forward_cuda(torch::Tensor gate_up);
+std::tuple<torch::Tensor, torch::Tensor> inkling2_router_forward(
+    torch::Tensor logits, torch::Tensor selection_bias, int64_t top_k, double route_scale);
 torch::Tensor inkling2_short_conv_forward(torch::Tensor x, torch::Tensor weight, torch::Tensor state);
 std::vector<torch::Tensor> inkling2_short_conv_forward_with_state(
     torch::Tensor x, torch::Tensor weight, torch::Tensor state);
@@ -769,6 +771,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("silu_backward", &silu_backward, "Batch-invariant SiLU backward CUDA");
     m.def("swiglu_forward", &swiglu_forward, "Batch-invariant SwiGLU forward CUDA");
     m.def("swiglu_backward", &swiglu_backward, "Batch-invariant SwiGLU backward CUDA");
+    m.def("inkling2_router_forward", &inkling2_router_forward,
+          "Inkling 2 Mini CUDA deterministic sigmoid top-k router");
     m.def("inkling2_short_conv_forward", &inkling2_short_conv_forward,
           "Inkling 2 Mini CUDA causal short convolution forward");
     m.def("inkling2_short_conv_forward_with_state", &inkling2_short_conv_forward_with_state,
