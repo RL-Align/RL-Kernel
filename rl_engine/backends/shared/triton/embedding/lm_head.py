@@ -103,6 +103,25 @@ class TritonLMHeadOp:
             raise TypeError("TritonLMHeadOp requires BF16 hidden and weight")
         return _TritonLMHeadFn.apply(hidden, weight, bias, True)
 
+    def forward_fp32_prepared(self, hidden: torch.Tensor, weight_t: torch.Tensor) -> torch.Tensor:
+        """Inference with a lifecycle-managed contiguous BF16 ``[K,V]`` weight.
+
+        Execute the same FP32 GEMM as ``forward_fp32`` without materializing
+        the vocabulary-weight transpose on each call. The caller must refresh
+        the prepared weight after every load; training uses the original API.
+        """
+        if hidden.dtype != torch.bfloat16 or weight_t.dtype != torch.bfloat16:
+            raise TypeError("TritonLMHeadOp requires BF16 hidden and weight")
+        if hidden.ndim < 1 or weight_t.ndim != 2 or hidden.size(-1) != weight_t.size(0):
+            raise ValueError("prepared LM head requires aligned hidden [...,K] and weight [K,V]")
+        if hidden.device != weight_t.device or not weight_t.is_contiguous():
+            raise ValueError("prepared LM-head weight must be contiguous on the hidden device")
+        if torch.is_grad_enabled() and (hidden.requires_grad or weight_t.requires_grad):
+            raise RuntimeError("prepared LM head is inference-only; use forward_fp32 for gradients")
+        flat = hidden.reshape(-1, hidden.size(-1)).contiguous()
+        result = _triton_gemm(flat, weight_t, output_dtype=torch.float32)
+        return result.reshape(*hidden.shape[:-1], weight_t.size(1))
+
     def parameter_vjp_contributions_fp32(self, *, hidden, weight, grad_output, bias=None):
         del weight, bias
         rows_h = hidden.reshape(-1, hidden.size(-1)).float()
