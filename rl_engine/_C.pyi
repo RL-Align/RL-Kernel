@@ -394,6 +394,19 @@ def deterministic_collective_rocm_ipc_all_gather_input(
 def inkling2_router_forward(
     logits: torch.Tensor, selection_bias: torch.Tensor, top_k: int, route_scale: float
 ) -> tuple[torch.Tensor, torch.Tensor]: ...
+def inkling2_grouped_gemm_forward(
+    tokens: torch.Tensor,
+    expert_indices: torch.Tensor,
+    expert_weights: torch.Tensor,
+    bias: torch.Tensor,
+) -> torch.Tensor: ...
+def inkling2_grouped_gemm_backward(
+    dy: torch.Tensor,
+    tokens: torch.Tensor,
+    expert_indices: torch.Tensor,
+    expert_weights: torch.Tensor,
+    need_bias: bool,
+) -> list[torch.Tensor]: ...
 def inkling2_short_conv_forward(
     x: torch.Tensor, weight: torch.Tensor, state: torch.Tensor
 ) -> torch.Tensor: ...
