@@ -158,6 +158,27 @@ def _schedule(actor, opt, args, cut, inject=None) -> list[dict]:
     return steps
 
 
+def _export(actor, out: Path, *, injected: bool) -> dict:
+    """Export the LoRA and check the file against it.
+
+    In an injected run the CP replicas may no longer agree (``export`` then raises on every rank):
+    that is recorded, so the run still reports whether the injection was detected.
+    """
+
+    try:
+        path = actor.export(str(out / "export"))["path"]
+    except RuntimeError as exc:
+        if not injected:
+            raise
+        return {"error": str(exc), "file_digests_equal": False, "cp_replicas_agree": False}
+    back = torch.load(path, weights_only=True)
+    return {
+        "path": os.path.relpath(path, out),
+        "file_digests_equal": back["digests"] == actor.digests(),
+        "cp_replicas_agree": True,  # export raises otherwise
+    }
+
+
 def _compare(reference: list[dict], run: list[dict]) -> dict:
     out = []
     for i, (ref, got) in enumerate(zip(reference, run)):
@@ -233,7 +254,8 @@ def main() -> None:
     ap.add_argument(
         "--inject",
         help="NAME:RANK, e.g. 17.attn.to_v.A:2: perturb that gradient on that rank in the first "
-        "grid run (negative control; pass = the mismatch is reported there). A block tensor only",
+        "grid run (negative control; the verdict is inject_detected, pass is then false). A block "
+        "tensor only",
     )
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
@@ -303,13 +325,7 @@ def main() -> None:
             inject = (name, int(at))
         runs.append(_schedule(actor, opt, args, lambda name, t: t, inject))
         if exported is None:
-            exported = actor.export(str(args.out / "export"))
-            back = torch.load(exported["path"], weights_only=True)
-            exported = {
-                "path": os.path.relpath(exported["path"], args.out),
-                "file_digests_equal": back["digests"] == actor.digests(),
-                "cp_replicas_agree": True,  # export raises otherwise
-            }
+            exported = _export(actor, args.out, injected=inject is not None)
         readback = actor.readback()
         del actor, opt
 

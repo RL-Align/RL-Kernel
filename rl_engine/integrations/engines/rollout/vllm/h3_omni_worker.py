@@ -253,6 +253,8 @@ class H3OmniWorkerExtension:
 
         handle = self._rlk_handle()
         grid = handle.binding.grid
+        if refiner:
+            h3_lora.require_provider_refiner(strict_boundaries=handle.binding.strict_boundaries)
         h3_lora.attach_lora(
             handle.binding.model,
             grid.tp,
@@ -273,8 +275,9 @@ class H3OmniWorkerExtension:
         ``lora_digests`` and the scale ``alpha / r`` it trained with), and ``"refiner"`` (a whole
         LoRA per token-refiner block) when the actor trains one. ``scale`` must equal the file's:
         the digests cover the tensors only, so a different scale would pass them and still compute
-        another LoRA. All ranks or none: if any rank's shards are refused (scale, shape or digest),
-        every rank keeps its previous LoRA and the call raises.
+        another LoRA. A refiner LoRA is refused on a strict-boundary binding, whose refiner row
+        would ignore it. All ranks or none: if any rank's shards are refused (scale, refiner, shape
+        or digest), every rank keeps its previous LoRA and the call raises.
         """
 
         from rl_engine.validation.models import h3_lora
@@ -300,6 +303,8 @@ class H3OmniWorkerExtension:
                 raise ValueError(
                     f"the LoRA file's scale {sent_scale} differs from the scale to apply {scale}"
                 )
+            if sent.get("refiner"):  # the binding's forward would refuse it on the first request
+                h3_lora.require_provider_refiner(strict_boundaries=handle.binding.strict_boundaries)
             return h3_lora.install_lora_shards(
                 handle.binding.model,
                 sent["shards"],

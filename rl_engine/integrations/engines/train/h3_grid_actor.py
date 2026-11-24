@@ -116,7 +116,11 @@ class H3GridActor:
                     self._add(f"{index}.{target}.{part}", p)
                     self._by_leaf[(index, f"lora.{target}.{part}")] = p
                     self._counted[id(p)] = pl.lora_counted(target, part, grid.tp_rank, grid.cp_rank)
-        for index, block in enumerate(h3_lora.refiner_blocks(model)):
+        refiners = h3_lora.refiner_blocks(model)
+        bare = [i for i, b in enumerate(refiners) if h3_lora.REFINER_ATTR not in b.__dict__]
+        if 0 < len(bare) < len(refiners):  # state and names index the refiner blocks by position
+            raise ValueError(f"refiner blocks {bare} hold no LoRA, the others do")
+        for index, block in enumerate(refiners):
             lora = block.__dict__.get(h3_lora.REFINER_ATTR)
             if lora is None:
                 continue

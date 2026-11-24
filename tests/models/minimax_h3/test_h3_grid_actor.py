@@ -68,6 +68,13 @@ def _actor(model=None, strict=False, **grid):
 
 
 class TestParameters:
+    @pytest.mark.parametrize("bare", [0, 1])
+    def test_a_refiner_lora_on_some_blocks_only_is_refused(self, bare):
+        model = _model()
+        h3_lora.refiner_blocks(model)[bare].__dict__.pop(h3_lora.REFINER_ATTR)
+        with pytest.raises(ValueError, match=rf"refiner blocks \[{bare}\] hold no LoRA"):
+            _actor(model)
+
     def test_every_lora_tensor_is_a_parameter_in_a_fixed_order(self):
         model = _model()
         actor = _actor(model)
@@ -358,6 +365,27 @@ class TestG5Cut:
             for target, parts in canonical.items():
                 for part, t in parts.items():
                     assert torch.equal(_cut(f"3.{target}.{part}", t, tp, rank), mine[target][part])
+
+
+class TestG5Export:
+    def test_a_replica_mismatch_is_recorded_in_an_injected_run_only(self, tmp_path):
+        from tools.validation.models.h3_grid_train_step import _export
+
+        class Diverged:
+            def export(self, directory):
+                raise RuntimeError("the CP replicas of TP rank 1 hold different LoRA")
+
+        got = _export(Diverged(), tmp_path, injected=True)
+        assert "CP replicas" in got["error"]
+        assert not got["file_digests_equal"] and not got["cp_replicas_agree"]
+        with pytest.raises(RuntimeError, match="CP replicas"):
+            _export(Diverged(), tmp_path, injected=False)
+
+    def test_a_good_export_is_checked_against_its_file(self, tmp_path):
+        from tools.validation.models.h3_grid_train_step import _export
+
+        got = _export(_actor(), tmp_path, injected=False)
+        assert got["file_digests_equal"] and got["cp_replicas_agree"] and "error" not in got
 
 
 class TestG5Arguments:

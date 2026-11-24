@@ -215,7 +215,14 @@ def has_refiner_lora(model) -> bool:
 def require_refiner_lora_supported(model, *, strict_boundaries: bool) -> None:
     """The strict refiner row does not apply a LoRA: refuse that combination."""
 
-    if strict_boundaries and has_refiner_lora(model):
+    if has_refiner_lora(model):
+        require_provider_refiner(strict_boundaries=strict_boundaries)
+
+
+def require_provider_refiner(*, strict_boundaries: bool) -> None:
+    """Refuse a refiner LoRA under strict boundaries (before one is installed, too)."""
+
+    if strict_boundaries:
         raise ValueError(
             "refiner LoRA runs on the provider refiner (strict_boundaries=False); the strict "
             "refiner row would ignore it"
