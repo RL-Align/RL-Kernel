@@ -6,6 +6,7 @@ from .short_conv import (
     STREAMS,
     causal_short_conv,
     causal_short_conv_cuda,
+    causal_short_conv_rocm,
     causal_short_conv_streams,
 )
 
@@ -14,5 +15,6 @@ __all__ = [
     "STREAMS",
     "causal_short_conv",
     "causal_short_conv_cuda",
+    "causal_short_conv_rocm",
     "causal_short_conv_streams",
 ]
