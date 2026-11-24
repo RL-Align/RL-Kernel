@@ -56,6 +56,7 @@ def test_all_ws1_single_ops_are_registered():
         "adaln_projection_3mod",
         "adaln_row_gather",
         "h3_rmsnorm",
+        "h3_qk_rmsnorm_d128",
         "adaln_gate_residual",
         "final_adaln_out",
     } <= names

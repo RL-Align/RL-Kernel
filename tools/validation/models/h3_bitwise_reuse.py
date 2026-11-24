@@ -49,6 +49,7 @@ SIZES = {
     "adaln_projection": (1, 4, 64, 2048),
     "adaln_row_gather": (1, 257, 4097, 32768),
     "norm_modulate": (1, 257, 4097, 32768),
+    "qk_norm": (1, 257, 925, 4097),
     "gate_residual": (1, 257, 4097, 32768),
     "final_adaln_out": (1, 257, 4097, 32768),
 }

@@ -94,8 +94,8 @@ def _head_norm_node(name: str, source: str, weight: str) -> Node:
     return Node(
         name=name,
         inputs=(source,),
-        binding=Binding("h3_qk_rmsnorm_d128", "interim", "H3RMSNormCudaOp.forward"),
-        candidate=lambda ops, ctx, x: ops.norm(hb._heads(x), _w(ctx, weight)),
+        binding=Binding("h3_qk_rmsnorm_d128", "row", "H3QKRMSNormCudaOp.forward"),
+        candidate=lambda ops, ctx, x: ops.qk_norm(hb._heads(x), _w(ctx, weight)),
         provider=lambda ctx, x: prov.provider_head_rmsnorm(hb._heads(x), _w(ctx, weight)),
         golden=lambda ctx, x: gold.golden_rmsnorm(hb._heads(x), _w(ctx, weight)),
         provider_bitwise_isolated=True,

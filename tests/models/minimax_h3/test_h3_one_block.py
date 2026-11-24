@@ -77,6 +77,7 @@ def test_graph_is_well_formed():
         "h3_rmsnorm",
         "adaln_gate_residual",
         "h3_qkv_gemm",
+        "h3_qk_rmsnorm_d128",
     }
 
 

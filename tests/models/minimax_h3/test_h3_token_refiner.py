@@ -50,7 +50,12 @@ def test_graph_is_well_formed_and_owners_are_declared():
     own = {n.name for n in hr.NODES if n.binding.rfc_row == "token_refiner_block"}
     assert own == {"residual_attn", "residual_mlp"}  # the row owns only the plain adds
     rows_with_kernels = {n.binding.rfc_row for n in hr.NODES if n.binding.status == "row"}
-    assert rows_with_kernels == {"h3_rmsnorm", "h3_qkv_gemm", "token_refiner_block"}
+    assert rows_with_kernels == {
+        "h3_rmsnorm",
+        "h3_qk_rmsnorm_d128",
+        "h3_qkv_gemm",
+        "token_refiner_block",
+    }
 
 
 def test_refiner_has_no_adaln_and_no_rope_nodes():
