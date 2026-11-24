@@ -44,7 +44,7 @@ those two modules to `video_input_projection_fp32` / `video_output_projection_fp
 
 - No FP32 full-model golden (132 GB of weights); agreement is against the provider and its
   kernel-choice spread. Per-block FP32 golden evidence is in the one-block and refiner rows.
-- Attention, O/gate_up/down GEMMs, SwiGLU and QK norm are still `interim` bindings (see the
+- Attention, O/gate_up/down GEMMs and SwiGLU are still `interim` bindings (see the
   operator trace); `time_proj` uses the provider in this harness.
 - Parameter-gradient fingerprints are GPU-side position-weighted checksums, not SHA-256.
 - Sampler is the deterministic Euler ODE; the stochastic `cps` transition is a separate row.

@@ -14,7 +14,8 @@ residual_attn -> norm2 -> gate_up -> swiglu -> down -> residual_mlp
 
 The row owns the two residual adds (`residual_attn`, `residual_mlp`, FP32 add of the
 BF16 operands rounded once to BF16) and the graph itself; every other node is bound to
-the operator that already exists for it: `h3_rmsnorm`, `h3_qkv_gemm` (Q/K/V, from the
+the operator that already exists for it: `h3_rmsnorm`, `h3_qk_rmsnorm_d128` (the
+[per-head norms](h3-qk-rmsnorm-d128.md)), `h3_qkv_gemm` (Q/K/V, from the
 [projection rows](h3-projection-rows.md)) and the still-`interim` stand-ins for attention,
 SwiGLU and the O/gate_up/down GEMMs (claimed by other contributors; they are replaced when
 those rows land, without changing the graph).
