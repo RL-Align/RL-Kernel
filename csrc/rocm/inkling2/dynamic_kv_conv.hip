@@ -28,6 +28,15 @@
 
 namespace {
 
+// The empty asm pins the rounded product in a register so the backend cannot fold the
+// following add into an FMA (HIP maps __fmul_rn to a plain multiply).
+__device__ __forceinline__ float mul_nofuse(float a, float b) {
+  float p = a * b;
+  asm volatile("" : "+v"(p));
+  return p;
+}
+
+
 constexpr int kKernelSize = 4;
 constexpr int kStateSize = 3;
 constexpr int kKVStreams = 2;
@@ -73,7 +82,7 @@ __global__ __launch_bounds__(kThreads) void forward_kernel(
 #pragma unroll
   for (int tap = 0; tap < kKernelSize; ++tap) {
     const float source = input_at(x, state, b, t + tap, s, h, time, hidden);
-    acc = __fadd_rn(acc, __fmul_rn(source, static_cast<float>(coeff[tap])));
+    acc = __fadd_rn(acc, mul_nofuse(source, static_cast<float>(coeff[tap])));
   }
   output[linear] = static_cast<scalar_t>(acc);
 }
@@ -132,7 +141,7 @@ __global__ __launch_bounds__(kThreads) void backward_x_state_kernel(
       const int64_t out = ((b * time + output_t) * kKVStreams + s) * hidden + h;
       acc = __fadd_rn(
           acc,
-          __fmul_rn(
+          mul_nofuse(
               static_cast<float>(grad_output[out]),
               static_cast<float>(coefficients[out * kKernelSize + tap])));
     }
@@ -167,7 +176,7 @@ __global__ __launch_bounds__(kThreads) void backward_coeff_kernel(
   const int64_t t = (out / (hidden * kKVStreams)) % time;
   const int64_t b = out / (hidden * kKVStreams * time);
   grad_coeff[linear] = static_cast<scalar_t>(
-      __fmul_rn(static_cast<float>(grad_output[out]), input_at(x, state, b, t + tap, s, h, time, hidden)));
+      mul_nofuse(static_cast<float>(grad_output[out]), input_at(x, state, b, t + tap, s, h, time, hidden)));
 }
 
 void check_tensor(const torch::Tensor& tensor, const char* name) {
