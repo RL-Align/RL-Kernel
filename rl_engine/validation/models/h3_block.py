@@ -638,11 +638,16 @@ def _weights_device(weights: Mapping[str, torch.Tensor]) -> torch.device:
 def run_isolated(
     ctx: dict[str, Any], ops: CandidateOps, provider: dict[str, Any]
 ) -> dict[str, Any]:
-    """Each candidate node fed the provider's inputs to that node."""
+    """Each candidate node fed the provider's inputs to that node (forward only).
+
+    The nodes are evaluated one by one on the provider's values, so there is no graph to run a
+    backward through. Without ``no_grad`` a weight that requires grad would make the GEMM rows ask
+    for a canonical backward session.
+    """
 
     ctx = evaluation_ctx(ctx)
     # as in ``run_graph``: the GEMM rows refuse TF32, which a caller may have enabled
-    with strict_fp32_matmul():
+    with torch.no_grad(), strict_fp32_matmul():
         return {
             node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
             for node in NODES

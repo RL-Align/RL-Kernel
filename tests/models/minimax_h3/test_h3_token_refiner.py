@@ -207,10 +207,12 @@ def test_operator_trace_covers_the_refiner_paths(refiner_weights):
             )
     if ops.attention_h3 is None:
         expected["attention"] = ("interim", hb.INTERIM_ATTENTION)
+    # the rows from the fingerprint's own table, not from ``bound``
+    graph_rows = {n.path: n.row for n in fp.build_graph()}
     for call in trace.calls:
         node = call.path.rsplit(".", 1)[1]
         assert (call.status, call.backend) == expected[node], node
-        assert call.row == bound[node].rfc_row  # the row comes from the graph, not the binding
+        assert call.row == graph_rows[call.path]
     assert trace.violations(paths=paths)  # the hook does not observe fallback state
     assert (
         trace.violations(paths=paths, allowed_statuses=("row", "interim"), require_observed=False)

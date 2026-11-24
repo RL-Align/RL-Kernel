@@ -418,9 +418,10 @@ def block_observer(
     Records each node as the block runs it. ``stage`` is ``"transformer_blocks"`` (the 17-node
     block) or ``"token_refiner"`` (the 14-node refiner block). ``bindings`` maps a node name
     to a ``Binding`` (status, backend) and is required: it is the run's own, from
-    ``h3_block.bindings(ops, nodes)``. The nodes' static bindings are the production ones and
-    do not say whether this run used the interim GEMM or attention. Node order and row ownership
-    are verified by ``record``.
+    ``h3_block.bindings(ops)`` for the block and ``h3_block.bindings(ops, h3_refiner.NODES)``
+    for the refiner. The nodes' static bindings are the production ones and do not say whether
+    this run used the interim GEMM or attention. Node order and row ownership are verified by
+    ``record``.
 
     The hook only learns the node name, so the accumulator, split policy and fallback state
     are recorded as not observed rather than copied from the contract: ``violations`` reports

@@ -29,8 +29,8 @@ text = hr.run_refiner("candidate", weights, hidden, ops)      # 2 blocks + final
 report = hr.run_refiner_case(weights, block=0, tokens=257)    # per-node evidence
 ```
 
-`operator_trace.block_observer(trace, block_index=b, stage="token_refiner")` records the
-refiner nodes under their fingerprint paths (`token_refiner.refiner_blocks.b.<node>`), so
+`operator_trace.block_observer(trace, block_index=b, stage="token_refiner",
+bindings=hb.bindings(ops, hr.NODES))` records the refiner nodes under their fingerprint paths (`token_refiner.refiner_blocks.b.<node>`), so
 `trace.coverage(paths=...)` can be checked against `fingerprint.build_graph()`.
 
 ## Contract
