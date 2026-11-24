@@ -313,6 +313,11 @@ def test_gemm_rows_need_triton_as_well_as_sm90(monkeypatch):
     assert h3_block.gemm_rows_supported()
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (10, 0))
     assert not h3_block.gemm_rows_supported()
+    # weights on the CPU: no probe of a CUDA capability, and no row
+    monkeypatch.setattr(
+        torch.cuda, "get_device_capability", lambda device=None: pytest.fail("probed a CPU device")
+    )
+    assert not h3_block.gemm_rows_supported(torch.device("cpu"))
 
 
 needs_sm90 = pytest.mark.skipif(
