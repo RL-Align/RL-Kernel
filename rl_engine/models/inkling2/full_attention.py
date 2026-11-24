@@ -221,9 +221,7 @@ def full_attention_cuda(
     if relative_bias is None:
         relative_bias = torch.empty(0, device=query.device, dtype=torch.float32)
     elif relative_bias.shape == (query_heads, query_len, key_len):
-        relative_bias = relative_bias.float().unsqueeze(0).expand(
-            batch, -1, -1, -1
-        ).contiguous()
+        relative_bias = relative_bias.float().unsqueeze(0).expand(batch, -1, -1, -1).contiguous()
     elif relative_bias.shape == (batch, query_heads, query_len, key_len):
         relative_bias = relative_bias.float().contiguous()
     else:
