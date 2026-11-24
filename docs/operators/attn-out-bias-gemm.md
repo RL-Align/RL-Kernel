@@ -102,12 +102,28 @@ If denormal flushing is enabled, the reference raises an error. Disable it with
 ## Performance Notes
 
 ```bash
-python benchmarks/benchmark_attn_out_bias_gemm.py --dtype bf16
-python benchmarks/benchmark_attn_out_bias_gemm.py --rows 512,4096,6889 --backward
+python benchmarks/benchmark_attn_out_bias_gemm.py --dtype bf16 --skip-reference
+python benchmarks/benchmark_attn_out_bias_gemm.py --dtype bf16 --skip-reference --backward
 ```
 
-The commands above report average elapsed time and speedup relative to the
-PyTorch reference running on the same GPU. The comparison below measures
+The default row counts are 512, 4096, 6032 and 6889. For both GPU backends the
+script reports mean latency and peak allocated memory above the live inputs.
+It also prints CUDA time divided by Triton time when both backends are available.
+Omit `--skip-reference` to include the compensated PyTorch reference on the same GPU.
+Timing uses three warm-ups and ten iterations bracketed by CUDA synchronization by default. Peak memory
+uses a separate iteration with the upstream gradient already allocated in backward mode.
+
+Measured on one RTX 5090 (BF16, K=N=3072, driver 595.71.05, PyTorch 2.13.0+cu130,
+Triton 3.7.1). Each pair of values is Triton / native CUDA.
+
+| Rows | Forward ms | Forward peak MiB | CUDA / Triton time | Forward + backward ms | Forward + backward peak MiB | CUDA / Triton time |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 512 | 1.42 / 13.35 | 48.00 / 45.01 | 9.43× | 6.48 / 29.03 | 66.00 / 66.00 | 4.48× |
+| 4096 | 9.70 / 107.30 | 132.00 / 108.01 | 11.06× | 48.30 / 255.47 | 180.00 / 180.00 | 5.29× |
+| 6032 | 14.21 / 158.33 | 177.39 / 142.04 | 11.14× | 73.14 / 383.64 | 248.06 / 248.06 | 5.25× |
+| 6889 | 19.27 / 180.78 | 201.84 / 157.11 | 9.38× | 91.29 / 434.59 | 278.19 / 278.19 | 4.76× |
+
+The historical comparison below measures
 the change from the leaf-chunk implementation in `1ebd373` to the per-tile
 tree on one RTX 5090 (sm_120, PyTorch 2.13.0+cu130, bf16 with bias,
 K=N=3072). Each timing averages ten iterations after three warm-ups.

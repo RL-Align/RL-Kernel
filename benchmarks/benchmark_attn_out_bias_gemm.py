@@ -7,10 +7,12 @@
 Compares the FP32 tree reference against the Triton per-tile tree backend and
 the CUDA per-thread-tree backend (forward and forward+backward) across the
 selected token counts. The reference runs on the same GPU. The benchmark
-reports mean elapsed time and speedup relative to the reference.
+reports synchronized elapsed time, peak allocated memory above live inputs,
+and speedups between the available backends.
 """
 
 import argparse
+import gc
 import time
 import warnings
 
@@ -47,7 +49,7 @@ def _maybe_cuda_op():
         return None
 
 
-def _bench_ms(fn, warmup=3, iters=10):
+def _measure(fn, warmup=3, iters=10):
     for _ in range(warmup):
         fn()
     torch.cuda.synchronize()
@@ -55,7 +57,17 @@ def _bench_ms(fn, warmup=3, iters=10):
     for _ in range(iters):
         fn()
     torch.cuda.synchronize()
-    return (time.perf_counter() - start) / iters * 1000.0
+    elapsed_ms = (time.perf_counter() - start) / iters * 1000.0
+
+    # Measure memory separately so collection and synchronization do not affect latency.
+    gc.collect()
+    torch.cuda.synchronize()
+    baseline = torch.cuda.memory_allocated()
+    torch.cuda.reset_peak_memory_stats()
+    fn()
+    torch.cuda.synchronize()
+    peak_mib = (torch.cuda.max_memory_allocated() - baseline) / 2**20
+    return elapsed_ms, peak_mib
 
 
 def main() -> None:
@@ -64,32 +76,40 @@ def main() -> None:
     parser.add_argument(
         "--rows",
         type=str,
-        default="512,4096,6889",
-        help="comma-separated token tiers (issue acceptance: 4096/6889 for 1024^2/1328^2)",
+        default="512,4096,6032,6889",
+        help="comma-separated row counts (6032 covers the 1664 x 928 image tier)",
     )
     parser.add_argument("--dtype", type=str, default="bf16", choices=["bf16", "fp32"])
     parser.add_argument("--backward", action="store_true", help="time forward+backward")
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--iters", type=int, default=10)
+    parser.add_argument("--skip-reference", action="store_true", help="time only Triton and CUDA")
     args = parser.parse_args()
+    if args.iters < 1 or args.warmup < 0:
+        parser.error("--iters must be positive and --warmup must be nonnegative")
 
     dtype = torch.bfloat16 if args.dtype == "bf16" else torch.float32
     device = torch.device("cuda")
 
-    reference = NativeAttnOutBiasGemmOp()
+    reference = None if args.skip_reference else NativeAttnOutBiasGemmOp()
     triton_op = _maybe_triton_op()
     # The constructor validates all forward/backward symbols together.
     cuda_op = _maybe_cuda_op()
+
+    backends = {"ref": reference, "triton": triton_op, "cuda": cuda_op}
+    if not any(op is not None for op in backends.values()):
+        parser.error("no requested backend is available")
 
     def closures(op, x, w, b):
         if args.backward:
             xd = x.clone().requires_grad_(True)
             wd = w.clone().requires_grad_(True)
             bd = b.clone().requires_grad_(True)
+            dy = x.new_ones((x.shape[0], w.shape[0]))
 
             def fwd_bwd():
                 out = op(xd, wd, bias=bd)
-                out.backward(torch.ones_like(out))
+                out.backward(dy)
                 xd.grad = None
                 wd.grad = None
                 bd.grad = None
@@ -107,15 +127,20 @@ def main() -> None:
         w = torch.randn(args.dim, args.dim, generator=gen).to(dtype).to(device)
         b = torch.randn(args.dim, generator=gen).to(dtype).to(device)
 
-        ref_ms = _bench_ms(closures(reference, x, w, b), args.warmup, args.iters)
-        line = f"S={rows:>5}  ref {ref_ms:8.2f} ms"
-        if triton_op is not None:
-            t = _bench_ms(closures(triton_op, x, w, b), args.warmup, args.iters)
-            line += f"  | triton {t:8.2f} ms  speedup {ref_ms / t:6.1f}x"
-        if cuda_op is not None:
-            c = _bench_ms(closures(cuda_op, x, w, b), args.warmup, args.iters)
-            line += f"  | cuda {c:8.2f} ms  speedup {ref_ms / c:6.1f}x"
-        print(line, flush=True)
+        timings = {}
+        fields = [f"S={rows:>5}"]
+        for name, op in backends.items():
+            if op is None:
+                continue
+            ms, peak_mib = _measure(closures(op, x, w, b), args.warmup, args.iters)
+            timings[name] = ms
+            field = f"{name} {ms:.3f} ms, peak {peak_mib:.2f} MiB"
+            if name != "ref" and "ref" in timings:
+                field += f", speedup vs ref {timings['ref'] / ms:.2f}x"
+            fields.append(field)
+        if "triton" in timings and "cuda" in timings:
+            fields.append(f"Triton speedup vs CUDA {timings['cuda'] / timings['triton']:.2f}x")
+        print(" | ".join(fields), flush=True)
 
 
 if __name__ == "__main__":

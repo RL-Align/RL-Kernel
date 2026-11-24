@@ -47,6 +47,19 @@ def assert_bits(actual, expected):
     )
 
 
+def test_bias_is_added_before_bf16_output_cast(backend):
+    _, op, device, _ = backend
+    x = torch.tensor([[1 + 2**-7]], dtype=torch.bfloat16, device=device)
+    weight = x.clone()
+    bias = torch.tensor([2**-8], dtype=torch.bfloat16, device=device)
+
+    # The exact dot product is 1 + 2^-6 + 2^-14. Its low bit puts the
+    # biased result above the BF16 midpoint. Casting before bias loses
+    # that bit and rounds the tie down to 1.015625 instead.
+    expected = torch.tensor([[1.0234375]], dtype=torch.bfloat16)
+    assert_bits(op(x, weight, bias=bias), expected)
+
+
 @pytest.mark.parametrize(
     "invalid",
     [

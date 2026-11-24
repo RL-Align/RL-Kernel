@@ -1171,7 +1171,7 @@ class KernelRegistry:
                 # The CPU gold is callable directly without exporting it to NPU's inherited map.
                 candidates = [OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM]
             elif platform == "cuda":
-                candidates = platform_ops[op_type]
+                candidates = platform_ops.get(op_type, [])
             else:
                 raise RuntimeError(
                     "attn_out_bias_gemm requires NVIDIA CUDA or a CPU reference: "

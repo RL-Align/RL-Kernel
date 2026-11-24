@@ -371,10 +371,6 @@ def test_registry_dispatches_attn_out_bias_gemm():
     assert hasattr(op, "forward") and hasattr(op, "forward_fp32")
 
 
-@pytest.mark.skipif(
-    not torch.cuda.is_available() or _HAS_CUDA_OP is False or _HAS_TRITON_OP is False,
-    reason="shape sweep needs CUDA with triton and cuda backends",
-)
 class TestRealDimShapeSweep:
     """Acceptance tiers at the real 3072 dim (issue #386 resolution shapes).
 
@@ -386,6 +382,8 @@ class TestRealDimShapeSweep:
     _DIM = 3072
     _TIERS = [1, 2, 7, 20, 300, 4096, 6032, 6889]
 
+    @requires_cuda_ext
+    @requires_triton_cuda
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @pytest.mark.parametrize("rows", _TIERS)
     def test_tier_cross_backend_bitwise(self, dtype, rows):
@@ -405,6 +403,7 @@ class TestRealDimShapeSweep:
             head = triton_op(x[:1], w, bias=b).cpu()
             assert_bitwise_equal(head, out_triton[:1], f"tier slice S={rows}")
 
+    @requires_cuda_ext
     @pytest.mark.parametrize("rows", [1, 7, 300])
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     def test_small_tier_vs_reference(self, dtype, rows):
@@ -952,6 +951,32 @@ def test_triton_grid_spans_wide_output():
     expected = values.view(1, width)
     assert torch.equal(triton_tree_gemm(one, values.view(width, 1)), expected)
     assert torch.equal(triton_dw_left_fold(one, expected), expected)
+
+
+@requires_triton_cuda
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize(("block_m", "block_n"), [(32, 64), (16, 32)])
+def test_triton_tile_geometry_preserves_bits(dtype, block_m, block_n, monkeypatch):
+    from rl_engine.backends.shared.triton.gemm import attn_out_bias_gemm as triton_gemm
+
+    # K=201 gives seven leaves with a short tail. S and N leave partial tiles.
+    generator = torch.Generator().manual_seed(386)
+    x, weight, bias, dy = (
+        torch.randn(shape, generator=generator).to(dtype)
+        for shape in ((35, 201), (97, 201), (97,), (35, 97))
+    )
+
+    def forward_and_grads(op, device):
+        inputs = tuple(t.detach().to(device).requires_grad_(True) for t in (x, weight, bias))
+        y = op(inputs[0], inputs[1], bias=inputs[2])
+        return y, *torch.autograd.grad(y, inputs, dy.to(device))
+
+    expected = forward_and_grads(NativeAttnOutBiasGemmOp(), "cpu")
+    monkeypatch.setattr(triton_gemm, "_BLOCK_M", block_m)
+    monkeypatch.setattr(triton_gemm, "_BLOCK_N", block_n)
+    actual = forward_and_grads(triton_gemm.TritonAttnOutBiasGemmOp(), "cuda")
+    for name, got, gold in zip(("y", "dx", "dW", "db"), actual, expected, strict=True):
+        assert_bitwise_equal(got, gold, f"{name} with Triton tile {block_m}x{block_n}")
 
 
 @requires_triton_cuda
