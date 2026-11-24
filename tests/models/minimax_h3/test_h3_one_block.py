@@ -82,6 +82,28 @@ def test_graph_is_well_formed():
     }
 
 
+# (RFC row, status) the block declares per node, written out rather than read from ``NODES``
+DECLARED_BINDINGS = {
+    "adaln_projection": ("adaln_projection_3mod", "row"),
+    "norm1": ("h3_rmsnorm", "row"),
+    "q_proj": ("h3_qkv_gemm", "row"),
+    "k_proj": ("h3_qkv_gemm", "row"),
+    "v_proj": ("h3_qkv_gemm", "row"),
+    "q_norm": ("h3_qk_rmsnorm_d128", "interim"),
+    "k_norm": ("h3_qk_rmsnorm_d128", "interim"),
+    "rope_q": ("h3_mm_rope_3axis_partial", "reference"),
+    "rope_k": ("h3_mm_rope_3axis_partial", "reference"),
+    "attention": ("h3_full_attention", "row"),
+    "o_proj": ("h3_attention_o_gemm", "row"),
+    "residual_attn": ("adaln_gate_residual", "row"),
+    "norm2": ("h3_rmsnorm", "row"),
+    "ffn_gate_up": ("h3_ffn_gate_up_gemm", "row"),
+    "swiglu": ("h3_swiglu", "interim"),
+    "ffn_down": ("h3_ffn_down_gemm", "row"),
+    "residual_mlp": ("adaln_gate_residual", "row"),
+}
+
+
 class _Ops:
     """Stand-in ops: which GEMM rows and attention operator a run bound."""
 
@@ -95,9 +117,7 @@ class _Ops:
 
 def test_bindings_report_the_operators_that_ran():
     static = h3_block.bindings(None)
-    assert {n: b.status for n, b in static.items()} == {
-        n.name: n.binding.status for n in h3_block.NODES
-    }
+    assert {n: (b.rfc_row, b.status) for n, b in static.items()} == DECLARED_BINDINGS
     for name, row in h3_block.GEMM_ROWS.items():
         assert static[name].rfc_row == row
         assert static[name].backend == h3_block.GEMM_ROW_OPS[row]
@@ -350,8 +370,9 @@ def test_ops_without_gemm_op_report_the_interim_gemm():
 
 
 @pytest.mark.parametrize("module", ["h3_block", "h3_refiner"])
-def test_isolated_replay_runs_without_tf32_and_restores_it(monkeypatch, module):
-    """The GEMM rows refuse TF32: isolated replay turns it off, as ``run_graph`` does."""
+def test_isolated_replay_runs_without_tf32_and_without_grad(monkeypatch, module):
+    """The GEMM rows refuse TF32, and a trainable weight outside a canonical backward session:
+    isolated replay turns both off and restores the caller's settings."""
 
     import importlib
     from types import SimpleNamespace
@@ -360,7 +381,7 @@ def test_isolated_replay_runs_without_tf32_and_restores_it(monkeypatch, module):
     seen = []
 
     def candidate(ops, ctx, x):
-        seen.append(torch.backends.cuda.matmul.allow_tf32)
+        seen.append((torch.backends.cuda.matmul.allow_tf32, torch.is_grad_enabled()))
         return x
 
     monkeypatch.setattr(
@@ -370,7 +391,8 @@ def test_isolated_replay_runs_without_tf32_and_restores_it(monkeypatch, module):
     try:
         torch.backends.cuda.matmul.allow_tf32 = True
         assert mod.run_isolated({}, None, {"x": 1}) == {"n": 1}
-        assert seen == [False]
+        assert seen == [(False, False)]
+        assert torch.is_grad_enabled()  # the caller's
         assert torch.backends.cuda.matmul.allow_tf32 is True  # the caller's setting is back
     finally:
         torch.backends.cuda.matmul.allow_tf32 = before
