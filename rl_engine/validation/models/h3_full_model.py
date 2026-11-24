@@ -147,6 +147,8 @@ class FullModelTrace:
             ]
             if missing_nodes:
                 raise ValueError(f"candidate nodes did not execute: {missing_nodes}")
+            if self.ops is None:  # the static table would report rows this run did not bind
+                raise ValueError("a candidate trace without its ops cannot report its bindings")
         return dict(
             candidate_calls=dict(self.candidate_calls),
             execution_order=self.execution_order,
