@@ -104,7 +104,7 @@ def run_speculative_parity(*, seed: int = 0, batch: int = 16, steps: int = 4) ->
         cut = row % (steps + 1)
         if cut < steps:
             draft[row, cut] += 1
-    # Plant an EOS at step 1 on rows 1, 6, 11, ... (diverged rows are re-aligned) (accepted, then acceptance stops).
+    # Plant an EOS at step 1 on rows 1, 6, 11, ... (re-aligned): accepted, then acceptance stops.
     for row in range(1, batch, 5):
         draft[row, 1] = eos
         target[row, 1] = eos
