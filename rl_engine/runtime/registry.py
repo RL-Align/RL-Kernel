@@ -999,11 +999,9 @@ class KernelRegistry:
     def _adjust_priority_for_hardware(self):
         """Adjust CUDA priorities for hardware-gated kernels."""
 
-        if device_ctx.device_type != "cuda":
+        if device_ctx.device_type != "cuda" or not torch.cuda.is_available():
             return
         try:
-            import torch
-
             from rl_engine.backends.extension import _C, _EXT_AVAILABLE
 
             cc_major, cc_minor = torch.cuda.get_device_capability()

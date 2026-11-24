@@ -1,0 +1,17 @@
+# rlkernel actor config, inheriting from verl's trainer/config/actor/actor.yaml
+defaults:
+  # verl's optimizer config (build_optimizer on the FP32 adapter masters)
+  - ../optim@optim: fsdp
+
+  # rlkernel engine config
+  - ../engine@rlkernel: rlkernel
+
+  - actor
+
+  - _self_
+
+_target_: rl_engine.integrations.dsv4.verl_engine.RlkActorConfig
+
+strategy: rlkernel
+
+use_remove_padding: True

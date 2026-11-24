@@ -149,6 +149,13 @@ jobs:
             tests/backends/rocm/test_rocm_paged_workspace.py \
             tests/distributed/collectives/test_collective_ipc_errors.py
 
+      - name: Run DSv4 Sampling Gate and M10 Logprob Tests (CPU-safe)
+        run: |
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -rs \
+            tests/validation/sampling_params/test_sampling_gate.py \
+            tests/validation/m10/test_m10_precheck.py \
+            tests/validation/m10/test_m10_score.py
+
   docs:
     runs-on: ubuntu-latest
     steps:
