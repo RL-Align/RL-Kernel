@@ -66,16 +66,13 @@ def test_miles_rocm_spec_environment():
 
 
 def test_miles_rocm_spec_inherits_or_omits_hip_visible_devices():
-    assert build_miles_rocm_spec(inherit_environment={"HIP_VISIBLE_DEVICES": "7"}).environment[
-        "HIP_VISIBLE_DEVICES"
-    ] == "7"
+    inherited = build_miles_rocm_spec(inherit_environment={"HIP_VISIBLE_DEVICES": "7"})
+    assert inherited.environment["HIP_VISIBLE_DEVICES"] == "7"
     assert "HIP_VISIBLE_DEVICES" not in build_miles_rocm_spec(inherit_environment={}).environment
-    assert (
-        build_miles_rocm_spec(
-            visible_devices="1", inherit_environment={"HIP_VISIBLE_DEVICES": "7"}
-        ).environment["HIP_VISIBLE_DEVICES"]
-        == "1"
+    explicit = build_miles_rocm_spec(
+        visible_devices="1", inherit_environment={"HIP_VISIBLE_DEVICES": "7"}
     )
+    assert explicit.environment["HIP_VISIBLE_DEVICES"] == "1"
     for bad in ("a", "1,1", "-1", "1,,2"):
         with pytest.raises(RuntimeContractError, match="HIP_VISIBLE_DEVICES"):
             build_miles_rocm_spec(visible_devices=bad)
