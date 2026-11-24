@@ -698,7 +698,7 @@ Kept in the tree, not on the DSv4 path, and without DSv4 tests:
 
 | Code | What it was |
 |---|---|
-| `rl_engine/mhc/` (oracle, providers, `fp32_gemm_rms`, `rmsnorm_residual`, `h_aggregate`), `csrc/cuda/mhc/fp32_gemm_rms.cu` | P1 unfused canonical mHC + RMSNorm. DSv4 uses `dsv4-mhc-v1` |
+| `rl_engine/mhc/` (oracle, providers, `fp32_gemm_rms`, `rmsnorm_residual`, `h_aggregate`), `csrc/cuda/mhc/fp32_gemm_rms.cu`, `rmsnorm_residual.cu`, `rl_engine/kernels/ops/{triton,pytorch}/mhc.py` | P1 unfused canonical mHC + RMSNorm. DSv4 uses `dsv4-mhc-v1`. The `mhc_pre_h_aggregate` CUDA backend was removed (2026-11-24); Triton and PyTorch remain |
 | `rl_engine/moe/backends/` other than `sm90_fused_mlp.py` and `deepgemm_shared_expert.py` (providers, LoRA delta, clamp SwiGLU, BF16 / det_gemm shared expert, Triton lanes), `rl_engine/moe/triton_grouped_gemm_wgmma.py` | P5 provider harness and portable Triton lanes |
 | `csrc/cuda/moe/mxfp8_mxfp4_grouped_gemm*.cu` | Earlier routed-expert GEMMs, superseded by `sm90_fused_moe_mlp.cu` |
 | `rl_engine/moe/oracle.py`, `rl_engine/moe/contract.py`, `rl_engine/moe/mx_format.py` | Still used: the FP32 MoE oracle and MX format are references for the DSv4 MoE tests (`tests/ops/moe/`) |

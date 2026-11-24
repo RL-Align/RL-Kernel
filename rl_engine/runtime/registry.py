@@ -166,7 +166,6 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
         "rl_engine.kernels.ops.pytorch.norm.rmsnorm_residual.NativeRMSNormResidualOp"
     )
 
-    CUDA_MHC_PRE_H_AGGREGATE = "rl_engine.kernels.ops.cuda.mhc.MHCPreHAggregateCudaOp"
     TRITON_MHC_PRE_H_AGGREGATE = "rl_engine.kernels.ops.triton.mhc.MHCPreHAggregateTritonOp"
     PYTORCH_MHC_PRE_H_AGGREGATE = "rl_engine.kernels.ops.pytorch.mhc.NativeMHCPreHAggregateOp"
 
@@ -577,7 +576,6 @@ class KernelRegistry:
         self._priority_map = {
             "cuda": {
                 "mhc_pre_h_aggregate": [
-                    OpBackend.CUDA_MHC_PRE_H_AGGREGATE,
                     OpBackend.TRITON_MHC_PRE_H_AGGREGATE,
                     OpBackend.PYTORCH_MHC_PRE_H_AGGREGATE,
                 ],

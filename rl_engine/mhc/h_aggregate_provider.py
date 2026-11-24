@@ -23,15 +23,6 @@ class _HAggregateProvider(ReferenceProvider):
         return self.op.backward_fp32(dh, r_old, pre)
 
 
-class CudaHAggregateProvider(_HAggregateProvider):
-    name = "cuda-h-aggregate"
-
-    def __init__(self):
-        from rl_engine.kernels.ops.cuda.mhc import MHCPreHAggregateCudaOp
-
-        self.op = MHCPreHAggregateCudaOp()
-
-
 class TritonHAggregateProvider(_HAggregateProvider):
     name = "triton-h-aggregate"
 

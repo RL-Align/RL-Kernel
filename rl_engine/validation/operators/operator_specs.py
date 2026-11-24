@@ -39,7 +39,6 @@ OP_SPECS = {
         gold_method="forward_fp32",
         candidate_paths={
             "pytorch": ("rl_engine.kernels.ops.pytorch.mhc.NativeMHCPreHAggregateOp"),
-            "cuda": "rl_engine.kernels.ops.cuda.mhc.MHCPreHAggregateCudaOp",
             "triton": "rl_engine.kernels.ops.triton.mhc.MHCPreHAggregateTritonOp",
         },
         grad_input_names=("residual", "pre"),

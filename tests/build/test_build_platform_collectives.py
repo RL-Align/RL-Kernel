@@ -64,7 +64,6 @@ def test_rocm_build_excludes_cuda_ipc_collective_and_driver(monkeypatch) -> None
     assert "-DKERNEL_ALIGN_WITH_ROCM" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" not in extension["extra_compile_args"]["cxx"]
     assert "-lcuda" not in extension["extra_link_args"]
-    assert "csrc/cuda/mhc/mhc_pre_h_aggregate.cu" not in extension["sources"]
     assert mhc_extension["name"] == "rl_engine._C_mhc"
     assert "-ffp-contract=off" in mhc_extension["extra_compile_args"]["nvcc"]
     assert "--use_fast_math" not in mhc_extension["extra_compile_args"]["nvcc"]
@@ -77,7 +76,6 @@ def test_cuda_build_keeps_existing_ipc_collective(monkeypatch) -> None:
     assert "-DKERNEL_ALIGN_WITH_CUDA" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" not in extension["extra_compile_args"]["cxx"]
     assert "-lcuda" in extension["extra_link_args"]
-    assert "csrc/cuda/mhc/mhc_pre_h_aggregate.cu" in extension["sources"]
     assert mhc_extension["name"] == "rl_engine._C_mhc"
     assert mhc_extension["sources"] == ["csrc/cuda/mhc/fp32_gemm_rms.cu"]
     assert "-fmad=false" in mhc_extension["extra_compile_args"]["nvcc"]

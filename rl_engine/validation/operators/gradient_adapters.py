@@ -113,11 +113,8 @@ GRADIENT_ADAPTERS: dict[str, GradientAdapterSpec] = {
         tensors=(_DRESIDUAL, _DPRE),
         requirement="optional_fused",
         source_files=(
-            "rl_engine/kernels/ops/cuda/mhc.py",
             "rl_engine/kernels/ops/triton/mhc.py",
             "rl_engine/kernels/ops/pytorch/mhc.py",
-            "csrc/cuda/mhc/mhc_pre_h_aggregate.cu",
-            "csrc/cuda/mhc/mhc_pre_h_aggregate_kernel.cuh",
         ),
     ),
     "rms_norm": GradientAdapterSpec(

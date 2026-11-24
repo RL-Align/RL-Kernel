@@ -246,7 +246,6 @@ def get_extensions():
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
-            cuda_sources.append("csrc/cuda/mhc/mhc_pre_h_aggregate.cu")
             # DSv4 FP8 activation quantization for DeepGEMM (uses cuda_fp8.h).
             cuda_sources.append("csrc/cuda/quant/fp8_group_quant.cu")
             # DSv4 shared-expert clamped SwiGLU (fused with the FP8 quant above).

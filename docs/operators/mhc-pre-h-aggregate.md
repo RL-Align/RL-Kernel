@@ -4,6 +4,10 @@
 > work package) and stays in the tree, but the DSv4 model does not call it; see
 > [DSv4 design](../architecture/dsv4-design.md), section 11. Its `scripts/check_p1.py`
 > harness and tests were removed, so commands below that use them no longer run.
+>
+> **The CUDA backend was removed (2026-11-24)**: `MHCPreHAggregateCudaOp`,
+> `csrc/cuda/mhc/mhc_pre_h_aggregate*` and `CudaHAggregateProvider`. Triton and PyTorch
+> remain; CUDA mentions below describe the removed backend.
 
 `mhc_pre_h_aggregate` collapses four residual streams into the hidden activation
 used by the mHC controller. It provides CUDA, Triton, and PyTorch implementations
