@@ -36,7 +36,7 @@ import hashlib
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import torch
 
@@ -129,7 +129,8 @@ class CandidateOps:
     ``gemm_rows`` binds ``o_proj`` / ``ffn_gate_up`` / ``ffn_down``: ``"row"`` to their rows'
     operators (``GEMM_ROW_OPS``; SM90 with Triton, raises elsewhere), ``"interim"`` to the interim
     FP32-K-loop GEMM, ``"auto"`` (the default) to the rows where they run and to the interim
-    GEMM otherwise. ``bindings(ops)`` states which one ran, per node.
+    GEMM otherwise. ``device`` is the device the ops will run on (the probe needs its capability;
+    ``None`` is the current one). ``bindings(ops)`` states which one ran, per node.
     """
 
     def __init__(
@@ -137,6 +138,7 @@ class CandidateOps:
         registry: KernelRegistry | None = None,
         attention: str = "auto",
         gemm_rows: str = "auto",
+        device: torch.device | None = None,
     ) -> None:
         from rl_engine.backends.cuda.activation.swiglu import SwiGLUCudaOp
         from rl_engine.backends.cuda.attention.deterministic_attn import DeterministicAttentionOp
@@ -167,9 +169,9 @@ class CandidateOps:
                     raise
         self.swiglu = SwiGLUCudaOp()
         self.o_gemm = self.gate_up_gemm = self.down_gemm = None
-        if gemm_rows == "row" and not gemm_rows_supported():
+        if gemm_rows == "row" and not gemm_rows_supported(device):
             raise RuntimeError("the H3 GEMM rows (#535, #554) need SM90 and Triton")
-        if gemm_rows == "row" or (gemm_rows == "auto" and gemm_rows_supported()):
+        if gemm_rows == "row" or (gemm_rows == "auto" and gemm_rows_supported(device)):
             for row, attr in _GEMM_ATTRS.items():
                 setattr(self, attr, _gemm_row_op(row))
 
@@ -625,6 +627,12 @@ def run_graph(mode: str, ctx: dict[str, Any], ops: CandidateOps | None = None) -
     return values
 
 
+def _weights_device(weights: Mapping[str, torch.Tensor]) -> torch.device:
+    """The device the block's weights (and so its ops) live on."""
+
+    return next(iter(weights.values())).device
+
+
 def run_isolated(
     ctx: dict[str, Any], ops: CandidateOps, provider: dict[str, Any]
 ) -> dict[str, Any]:
@@ -740,7 +748,7 @@ def run_block_case(
 ) -> dict[str, Any]:
     """Forward replay of block 0: per-node agreement, invariance, accuracy and first drift."""
 
-    ops = ops or CandidateOps()
+    ops = ops or CandidateOps(device=_weights_device(weights))
     ctx = make_block_context(weights, layout=layout, seed=seed, batch=1)
     ctx2 = make_block_context(weights, layout=layout, seed=seed, batch=2)
     with torch.no_grad():
@@ -907,7 +915,7 @@ def run_block_backward(
     gradients sum over the batch and are not part of the batch check.
     """
 
-    ops = ops or CandidateOps()
+    ops = ops or CandidateOps(device=_weights_device(weights))
     ctx = make_block_context(weights, layout=layout, seed=seed, batch=1)
     ctx2 = make_block_context(weights, layout=layout, seed=seed, batch=2)
     generator = torch.Generator().manual_seed(seed + 11)
