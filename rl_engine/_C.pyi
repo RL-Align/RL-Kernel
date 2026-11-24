@@ -404,3 +404,6 @@ def inkling2_dynamic_kv_conv_backward(
     coefficients: torch.Tensor,
     state: torch.Tensor,
 ) -> list[torch.Tensor]: ...
+def inkling2_router_forward(
+    logits: torch.Tensor, selection_bias: torch.Tensor, top_k: int, route_scale: float
+) -> tuple[torch.Tensor, torch.Tensor]: ...
