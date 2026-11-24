@@ -1,6 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Golden DSv4 mHC (profile ``dsv4-mhc-v1``): forward and dX-only backward."""
+"""PyTorch mHC.
+
+- ``dsv4_mhc``: the golden DSv4 mHC (profile ``dsv4-mhc-v1``), forward and dX-only
+  backward.
+- ``h_aggregate``: the legacy generic ``mhc_pre_h_aggregate`` operator (not used by DSv4;
+  design doc section 11), re-exported here for its registry and validation paths.
+"""
 
 from .dsv4_mhc import (
     HC,
@@ -27,8 +33,18 @@ from .dsv4_mhc import (
     slice_dot,
     split_sum,
 )
+from .h_aggregate import (
+    MHC_PRE_HC_MULT,
+    MHC_PRE_HIDDEN_SIZE,
+    MHC_PRE_SUPPORTED_HIDDEN_SIZES,
+    NativeMHCPreHAggregateOp,
+)
 
 __all__ = [
+    "MHC_PRE_HC_MULT",
+    "MHC_PRE_HIDDEN_SIZE",
+    "MHC_PRE_SUPPORTED_HIDDEN_SIZES",
+    "NativeMHCPreHAggregateOp",
     "HC",
     "HC_EPS",
     "NORM_EPS",

@@ -114,7 +114,7 @@ GRADIENT_ADAPTERS: dict[str, GradientAdapterSpec] = {
         requirement="optional_fused",
         source_files=(
             "rl_engine/kernels/ops/triton/mhc.py",
-            "rl_engine/kernels/ops/pytorch/mhc.py",
+            "rl_engine/kernels/ops/pytorch/mhc/h_aggregate.py",
         ),
     ),
     "rms_norm": GradientAdapterSpec(

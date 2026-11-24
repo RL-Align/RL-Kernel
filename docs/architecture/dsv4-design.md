@@ -84,7 +84,7 @@ The full DSv4 regression on one GPU (H200: 1217 passed, 72 skipped, 80 s):
 ```bash
 export DSV4_META=/path/to/dsv4-meta DSV4_REF=/path/to/dsv4-inference   # optional, see below
 python -m pytest -q -p no:cacheprovider \
-    tests/ops/logprob_dsv4 tests/ops/mhc_dsv4 tests/models tests/ops/router tests/ops/moe \
+    tests/ops/logprob_dsv4 tests/ops/mhc tests/models tests/ops/router tests/ops/moe \
     tests/ops/compressor tests/ops/indexer tests/ops/topk tests/ops/attention_dsv4 \
     tests/ops/quant tests/ops/activation tests/ops/gemm/test_dsv4_fp8_linear.py \
     tests/ops/gemm/test_deepgemm_capability.py tests/test_deepgemm_shared_expert.py \
@@ -180,7 +180,7 @@ scored top-6 otherwise.
 | Module | Python entry | CUDA kernels | Operator page | Tests |
 |---|---|---|---|---|
 | Model, layer, loader, RoPE | `rl_engine/models/deepseek_v4/{model,loader,config,rope}.py` | (composes the rest) | [dsv4-model](../operators/dsv4-model.md) | `tests/models/deepseek_v4/` |
-| mHC + fused norms | `rl_engine/kernels/ops/cuda/mhc/` | `csrc/cuda/mhc/dsv4_mhc.cu` + DeepGEMM `tf32_hc_prenorm_gemm` | [dsv4-mhc](../operators/dsv4-mhc.md) | `tests/ops/mhc_dsv4/` |
+| mHC + fused norms | `rl_engine/kernels/ops/cuda/mhc/` | `csrc/cuda/mhc/dsv4_mhc.cu` + DeepGEMM `tf32_hc_prenorm_gemm` | [dsv4-mhc](../operators/dsv4-mhc.md) | `tests/ops/mhc/` |
 | Attention layer | `rl_engine/models/deepseek_v4/attention.py` | see below | this page, 5.2 | `tests/models/test_dsv4_attention_layer.py` |
 | Dense FP8 linear | `rl_engine/kernels/ops/cuda/matmul/fp8_linear.py` | DeepGEMM `fp8_gemm_nt` / `fp8_einsum` | [fp8-group-quant](../operators/fp8-group-quant.md) | `tests/ops/gemm/test_dsv4_fp8_linear.py` |
 | FP8 activation quant | `rl_engine/kernels/ops/cuda/quant/` | `csrc/cuda/quant/fp8_group_quant.cu` | [fp8-group-quant](../operators/fp8-group-quant.md) | `tests/ops/quant/` |
@@ -698,7 +698,7 @@ Kept in the tree, not on the DSv4 path, and without DSv4 tests:
 
 | Code | What it was |
 |---|---|
-| `rl_engine/mhc/` (oracle, providers, `fp32_gemm_rms`, `rmsnorm_residual`, `h_aggregate`), `csrc/cuda/mhc/fp32_gemm_rms.cu`, `rmsnorm_residual.cu`, `rl_engine/kernels/ops/{triton,pytorch}/mhc.py` | P1 unfused canonical mHC + RMSNorm. DSv4 uses `dsv4-mhc-v1`. The `mhc_pre_h_aggregate` CUDA backend was removed (2026-11-24); Triton and PyTorch remain |
+| `rl_engine/mhc/` (oracle, providers, `fp32_gemm_rms`, `rmsnorm_residual`, `h_aggregate`), `csrc/cuda/mhc/fp32_gemm_rms.cu`, `rmsnorm_residual.cu`, `rl_engine/kernels/ops/triton/mhc.py`, `rl_engine/kernels/ops/pytorch/mhc/h_aggregate.py` | P1 unfused canonical mHC + RMSNorm. DSv4 uses `dsv4-mhc-v1`. The `mhc_pre_h_aggregate` CUDA backend was removed (2026-11-24); Triton and PyTorch remain |
 | `rl_engine/moe/backends/` other than `sm90_fused_mlp.py` and `deepgemm_shared_expert.py` (providers, LoRA delta, clamp SwiGLU, BF16 / det_gemm shared expert, Triton lanes), `rl_engine/moe/triton_grouped_gemm_wgmma.py` | P5 provider harness and portable Triton lanes |
 | `csrc/cuda/moe/mxfp8_mxfp4_grouped_gemm*.cu` | Earlier routed-expert GEMMs, superseded by `sm90_fused_moe_mlp.cu` |
 | `rl_engine/moe/oracle.py`, `rl_engine/moe/contract.py`, `rl_engine/moe/mx_format.py` | Still used: the FP32 MoE oracle and MX format are references for the DSv4 MoE tests (`tests/ops/moe/`) |

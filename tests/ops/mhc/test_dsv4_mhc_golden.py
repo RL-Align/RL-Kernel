@@ -12,7 +12,7 @@ from fractions import Fraction
 import pytest
 import torch
 
-from rl_engine.kernels.ops.pytorch import mhc_dsv4 as g
+from rl_engine.kernels.ops.pytorch import mhc as g
 
 DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 

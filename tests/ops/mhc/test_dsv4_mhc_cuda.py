@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from rl_engine.kernels.ops.pytorch import mhc_dsv4 as g
+from rl_engine.kernels.ops.pytorch import mhc as g
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
 

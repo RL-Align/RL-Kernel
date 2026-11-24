@@ -97,7 +97,7 @@ class Dsv4Config:
     def check_supported(self) -> None:
         """Raise ``ValueError`` on anything the kernel set does not implement."""
         from rl_engine.kernels.ops.cuda.router.dsv4_router import TOP_K
-        from rl_engine.kernels.ops.pytorch.mhc_dsv4 import (
+        from rl_engine.kernels.ops.pytorch.mhc import (
             HC_EPS,
             NORM_EPS,
             POST_MULT,

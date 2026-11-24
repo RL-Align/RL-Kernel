@@ -2,7 +2,7 @@
 // Copyright (c) 2026 RL-Kernel Contributors
 //
 // DSv4 manifold hyper-connections (mHC), numeric profile dsv4-mhc-v1. Byte-equal to the
-// golden rl_engine.kernels.ops.pytorch.mhc_dsv4 (its docstring is the arithmetic
+// golden rl_engine.kernels.ops.pytorch.mhc (its docstring is the arithmetic
 // contract). Forward: mhc_pre, mhc_post, hc_head. Backward: dX only (frozen parameters).
 //
 // Every FP32 step outside the long reductions is spelled __f*_rn, so nothing is contracted
