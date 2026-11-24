@@ -18,6 +18,7 @@ from .short_conv import (
     causal_short_conv_rocm,
     causal_short_conv_streams,
 )
+from .visit_cache import VisitKey, VisitState, VisitStateCache, clone_visit_state_cuda
 
 __all__ = [
     "KERNEL_SIZE",
@@ -33,6 +34,10 @@ __all__ = [
     "expert_gate_up_cuda",
     "attention_o_residual",
     "attention_o_residual_cuda",
+    "VisitKey",
+    "VisitState",
+    "VisitStateCache",
+    "clone_visit_state_cuda",
     "route_topk_sigmoid",
     "route_topk_sigmoid_cuda",
     "route_topk_sigmoid_rocm",

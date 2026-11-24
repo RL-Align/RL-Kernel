@@ -279,6 +279,7 @@ std::vector<torch::Tensor> inkling2_attention_o_residual_backward(
     torch::Tensor residual,
     torch::Tensor weight,
     bool need_bias);
+torch::Tensor inkling2_visit_state_clone(torch::Tensor source);
 std::tuple<torch::Tensor, torch::Tensor> inkling2_router_forward(
     torch::Tensor logits, torch::Tensor selection_bias, int64_t top_k, double route_scale);
 torch::Tensor inkling2_short_conv_forward(torch::Tensor x, torch::Tensor weight, torch::Tensor state);
@@ -836,6 +837,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Inkling 2 Mini native CUDA softcapped expert gate/up forward");
     m.def("inkling2_expert_gate_up_backward", &inkling2_expert_gate_up_backward,
           "Inkling 2 Mini native CUDA softcapped expert gate/up backward");
+    m.def("inkling2_visit_state_clone", &inkling2_visit_state_clone,
+          "Inkling 2 Mini native CUDA visit-state clone");
 
     // Deterministic standard-softmax attention (issue #147)
     m.def(
