@@ -73,9 +73,12 @@ class _NativeDynamicKVConvFunction(torch.autograd.Function):
         x, coefficients, state = ctx.saved_tensors
         if grad_next_state is not None and torch.any(grad_next_state != 0):
             raise RuntimeError("native dynamic K/V convolution state gradients are not supported")
-        return _C.inkling2_dynamic_kv_conv_backward(
+        # The C++ binding returns a std::vector, which pybind exposes as one Python
+        # list; autograd needs one gradient per forward input (x, coefficients, state).
+        grad_x, grad_coefficients, grad_state = _C.inkling2_dynamic_kv_conv_backward(
             grad_output.contiguous(), x, coefficients, state
         )
+        return grad_x, grad_coefficients, grad_state
 
 
 def dynamic_kv_conv_cuda(
