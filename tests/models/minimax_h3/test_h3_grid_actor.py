@@ -193,17 +193,33 @@ class TestState:
         with pytest.raises(ValueError, match="checkpoint"):
             _actor(_model(tp_rank=2), tp_rank=2).load_checkpoint_state(saved)
 
-    def test_a_failed_write_raises_after_the_gather(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("failing", [0, 1])
+    def test_a_failed_write_raises_on_every_rank_after_the_gather(
+        self, tmp_path, monkeypatch, failing
+    ):
+        """This rank is 0 of two: whichever rank failed, it joins the gather and then raises."""
+
         actor = _actor()
+        actor.world = 2
+        gathered = []
+
+        def all_gather_object(out, mine, group=None):
+            gathered.append(mine)
+            other = (mine[0], {}, "OSError: disk full") if failing == 1 else (mine[0], {}, None)
+            out[:] = [mine, other]
 
         def fail(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(ga.torch, "save", fail)
+        monkeypatch.setattr(ga.dist, "all_gather_object", all_gather_object)
+        if failing == 0:
+            monkeypatch.setattr(ga.torch, "save", fail)
         with pytest.raises(
-            RuntimeError, match=r"export failed on ranks \[\(0, 'OSError: disk full'"
+            RuntimeError, match=rf"export failed on ranks \[\({failing}, 'OSError: disk full'"
         ):
             actor.export(str(tmp_path))
+        assert len(gathered) == 1
+        assert (gathered[0][2] is not None) == (failing == 0)
 
     def test_export_is_what_the_rollout_installs(self, tmp_path):
         actor = _actor()
@@ -342,6 +358,35 @@ class TestG5Cut:
             for target, parts in canonical.items():
                 for part, t in parts.items():
                     assert torch.equal(_cut(f"3.{target}.{part}", t, tp, rank), mine[target][part])
+
+
+class TestG5Arguments:
+    def _check(self, **kw):
+        import argparse
+
+        from tools.validation.models.h3_grid_train_step import _check_args
+
+        args = dict(optimizer_steps=2, passes=3, inject=None, tp=4, cp=2)
+        _check_args(argparse.ArgumentParser(), argparse.Namespace(**{**args, **kw}))
+
+    @pytest.mark.parametrize("inject", [None, "17.attn.to_v.A:2", "3.ff.net.0.proj.B.gate:7"])
+    def test_accepts(self, inject):
+        self._check(inject=inject)
+
+    @pytest.mark.parametrize(
+        "kw",
+        [
+            dict(optimizer_steps=0),
+            dict(passes=0),
+            dict(inject="17.attn.to_v.A"),
+            dict(inject="17.attn.to_v.A:x"),
+            dict(inject="17.attn.to_v.A:8"),
+            dict(inject="refiner.0.attn.to_q.A:1"),
+        ],
+    )
+    def test_refuses_a_run_that_would_prove_nothing(self, kw):
+        with pytest.raises(SystemExit):
+            self._check(**kw)
 
 
 class TestRefinerBroadcast:

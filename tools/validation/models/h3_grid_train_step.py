@@ -17,8 +17,11 @@ optimizer step the canonical run records the gradient norm and the SHA-256 of th
 every accumulated gradient (after the refiner broadcast, before the clip) and of every updated LoRA
 tensor; the grid run must match them all. ``--repeat`` runs the grid schedule a
 second time from the same initial LoRA, which is where a non-repeatable backward (the provider
-refiner on B200) would show. The grid run also exports its LoRA as the rollout reads it and checks
-that both CP replicas of each TP rank hold the same tensors.
+refiner on B200) would show. Each rank compares with its own single-GPU run: the grid's refiner
+gradients are global rank 0's (``finish_grads``), so ``refiner_bitwise`` on another rank also asks
+that rank's refiner backward to equal rank 0's. That is stricter than the training step needs, and
+can only fail a run, not pass one. The grid run also exports its LoRA as the rollout reads it and
+checks that both CP replicas of each TP rank hold the same tensors.
 
     srun --ntasks 8 python tools/validation/models/h3_grid_train_step.py \\
         --checkpoint <dir with transformer/> --tp 4 --cp 2 --sp --cp-mode ring --size 925 \\
@@ -190,6 +193,23 @@ def _compare(reference: list[dict], run: list[dict]) -> dict:
     }
 
 
+def _check_args(ap: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Refuse arguments with which a run would prove nothing."""
+
+    if args.optimizer_steps < 1 or args.passes < 1:
+        ap.error("--optimizer-steps and --passes must be at least 1")
+    if args.inject is None:
+        return
+    name, colon, at = args.inject.rpartition(":")
+    if not colon or not at.isdecimal():
+        ap.error("--inject takes NAME:RANK")
+    if int(at) >= args.tp * args.cp:
+        ap.error(f"--inject: no rank {at} in a tp {args.tp} x cp {args.cp} grid")
+    if name.startswith("refiner."):
+        # finish_grads replaces every rank's refiner gradients with rank 0's
+        ap.error("--inject: the refiner broadcast would overwrite it; name a block tensor")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--checkpoint", type=Path, required=True)
@@ -213,10 +233,11 @@ def main() -> None:
     ap.add_argument(
         "--inject",
         help="NAME:RANK, e.g. 17.attn.to_v.A:2: perturb that gradient on that rank in the first "
-        "grid run (negative control; pass = the mismatch is reported there)",
+        "grid run (negative control; pass = the mismatch is reported there). A block tensor only",
     )
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
+    _check_args(ap, args)
 
     rank, world = int(os.environ["SLURM_PROCID"]), int(os.environ["SLURM_NTASKS"])
     local = int(os.environ["SLURM_LOCALID"])
