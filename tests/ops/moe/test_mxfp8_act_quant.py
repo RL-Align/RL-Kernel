@@ -28,15 +28,6 @@ DEV = "cuda"
 
 def _backends():
     backends = []
-    try:
-        from rl_engine.kernels.ops.triton.moe import (
-            mxfp8_act_quant_bwd_triton,
-            mxfp8_act_quant_fwd_triton,
-        )
-
-        backends.append(("triton", mxfp8_act_quant_fwd_triton, mxfp8_act_quant_bwd_triton))
-    except ImportError:  # pragma: no cover - triton is an optional dependency
-        pass
     from rl_engine.kernels.ops.cuda.moe import mxfp8_act_quant_bwd_cuda, mxfp8_act_quant_fwd_cuda
 
     # The CUDA backend needs either the AOT rl_engine._C symbols or a working
@@ -200,14 +191,6 @@ def test_matches_triton_kernels_reference_cast(name, fwd):
     assert torch.equal(got.scales, scales.view(torch.uint8).reshape(got.scales.shape))
 
 
-def test_backends_agree_bitwise():
-    if len(BACKENDS) < 2:
-        pytest.skip("needs both the CUDA and the Triton backend")
-    x = _wide_range(64, 256).to(torch.bfloat16)
-    (_, fwd_a, _), (_, fwd_b, _) = BACKENDS[0], BACKENDS[1]
-    _assert_byte_equal(fwd_a(x), fwd_b(x), "triton vs cuda")
-
-
 @pytest.mark.parametrize("name,bwd", BWD, ids=BACKEND_IDS)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32, torch.float64])
 def test_backward_is_straight_through(name, bwd, dtype):
@@ -236,52 +219,6 @@ def test_forward_rejects_bad_shapes_and_devices(name, fwd):
         fwd(torch.randn(2, MX_BLOCK, dtype=torch.bfloat16))
     with pytest.raises(TypeError):
         fwd(torch.randn(2, MX_BLOCK, device=DEV, dtype=torch.float64))
-
-
-@pytest.mark.parametrize(
-    "provider_cls",
-    ["TritonMXFP8ActQuantProvider", "CudaMXFP8ActQuantProvider"],
-)
-def test_provider_pipeline_is_byte_equal_to_oracle(provider_cls):
-    """Full routed forward/backward with the kernel provider, hashed per boundary.
-
-    This is the start-kit acceptance path (``scripts/check_p5.py``) narrowed to
-    one fixture so it stays cheap in unit-test CI.
-    """
-    from rl_engine.moe import oracle
-    from rl_engine.moe.backends import mxfp8_act_quant as backends
-    from rl_engine.moe.trace import ExpertTrace, first_divergence
-
-    if provider_cls == "CudaMXFP8ActQuantProvider" and not _HAS_CUDA_BACKEND:
-        pytest.skip(f"CUDA backend unavailable: {_CUDA_BACKEND_ERROR}")
-    provider = getattr(backends, provider_cls)()
-    batch = fixtures.make_expert_batch("base_only_packed").to(DEV)
-
-    gold_trace = ExpertTrace(numeric_profile="oracle")
-    y_gold, saved_gold = oracle.routed_expert_forward(batch, gold_trace)
-    dy = fixtures.make_grad_output("base_only_packed", tuple(y_gold.shape)).to(DEV)
-    grads_gold = oracle.routed_expert_backward(batch, saved_gold, dy, gold_trace)
-
-    cand_trace = ExpertTrace(numeric_profile=provider.numeric_profile)
-    _, saved_cand = oracle.routed_expert_forward(batch, cand_trace, ops=provider)
-    grads_cand = oracle.routed_expert_backward(batch, saved_cand, dy, cand_trace, ops=provider)
-
-    assert first_divergence(gold_trace, cand_trace) is None
-    # P5-1 spec s6: both call sites are hashed and the backward is marked STE.
-    names = [r.name for r in cand_trace.records]
-    for boundary in (
-        "act_quant1.codes",
-        "act_quant1.scales",
-        "act_quant2.codes",
-        "act_quant2.scales",
-    ):
-        assert boundary in names
-    assert cand_trace.notes["act_quant_bwd"] == "ste"
-    for key, grad in grads_gold.items():
-        if grad is None:
-            assert grads_cand[key] is None
-            continue
-        assert tensor_sha256(grads_cand[key]) == tensor_sha256(grad), f"grad.{key}"
 
 
 def test_cuda_kernel_is_fast_math_immune():
@@ -328,30 +265,3 @@ def test_forward_bitwise_at_production_shapes(name, fwd, shape, dtype):
     """
     x = _wide_range(*shape, device=DEV, seed=11).to(dtype)
     _assert_byte_equal(fwd(x), mx_quantize(x, "e4m3"), f"{name} {shape} {dtype}")
-
-
-def test_triton_offsets_do_not_wrap_past_int32():
-    """2**31 elements: int32 element offsets would wrap negative and read before the buffer.
-
-    The oracle cannot be run on a tensor this size (it materializes FP32 copies), so the
-    check leans on the row-local contract: rows at the far end of the tensor must quantize
-    to exactly what they quantize to on their own.
-    """
-    if "triton" not in BACKEND_IDS:
-        pytest.skip("triton backend unavailable")
-    rows, cols = 2**31 // 8192, 8192  # 2**31 bf16 elements: 4 GiB in, 2 GiB + 64 MiB out
-    need = rows * cols * (2 + 1) + rows * (cols // MX_BLOCK) + (1 << 30)
-    free, _ = torch.cuda.mem_get_info()
-    if free < need:
-        pytest.skip(f"needs ~{need / 2**30:.1f} GiB free on the device, have {free / 2**30:.1f}")
-    fwd = dict(FWD)["triton"]
-    # Generate in bf16 directly: an fp32 randn followed by .to(bf16) would need
-    # an 8 GiB temporary on top of the 4 GiB input, blowing past the gate above.
-    x = torch.randn(rows, cols, device=DEV, dtype=torch.bfloat16).mul_(3.0)
-    full = fwd(x)
-    for lo in (0, rows // 2, rows - 64):
-        part = mx_quantize(x[lo : lo + 64], "e4m3")
-        assert torch.equal(full.codes[lo : lo + 64], part.codes), f"rows {lo}..{lo + 64}"
-        assert torch.equal(full.scales[lo : lo + 64], part.scales), f"rows {lo}..{lo + 64}"
-    del x, full
-    torch.cuda.empty_cache()

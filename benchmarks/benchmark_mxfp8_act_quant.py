@@ -61,16 +61,6 @@ from rl_engine.moe.mx_format import MX_BLOCK, mx_quantize
 from rl_engine.moe.oracle import mxfp8_act_quant_bwd
 
 try:
-    from rl_engine.kernels.ops.triton.moe import (
-        mxfp8_act_quant_bwd_triton,
-        mxfp8_act_quant_fwd_triton,
-    )
-
-    _HAS_TRITON = True
-except ImportError:  # pragma: no cover - triton is an optional dependency
-    _HAS_TRITON = False
-
-try:
     from torchao.prototype.mx_formats.mx_tensor import to_mx as _torchao_to_mx
 
     _HAS_TORCHAO = True
@@ -128,10 +118,6 @@ def _bandwidth_gbps(x: torch.Tensor, ms: float) -> float:
     return moved / (ms * 1e-3) / 1e9
 
 
-def _fmt(ms: float) -> str:
-    return "n/a" if ms != ms else f"{ms:.4f}"
-
-
 def build_candidates(check_finite: bool):
     """(label, note, callable) triples, ordered slowest-family first."""
     candidates = [("torch-native", "P5 oracle", lambda t: mx_quantize(t, "e4m3"))]
@@ -169,14 +155,6 @@ def build_candidates(check_finite: bool):
                 lambda t: per_token_group_quant_fp8(t, MX_BLOCK, use_ue8m0=True),
             ),
         ]
-    if _HAS_TRITON:
-        candidates.append(
-            (
-                "ours-triton",
-                "MX",
-                lambda t: mxfp8_act_quant_fwd_triton(t, check_finite=check_finite),
-            )
-        )
     candidates.append(
         ("ours-cuda", "MX", lambda t: mxfp8_act_quant_fwd_cuda(t, check_finite=check_finite))
     )
@@ -211,9 +189,6 @@ def verify_baselines_are_byte_equal(dtype: torch.dtype) -> None:
             codes, scales
         ), "triton_kernels(ROUND_DOWN) is not byte-identical to the P5 oracle"
         print("triton_kernels(ROUND_DOWN) byte-identical to the P5 oracle: True")
-    if _HAS_TRITON:
-        got = mxfp8_act_quant_fwd_triton(x)
-        assert same(got.codes, got.scales)
     got = mxfp8_act_quant_fwd_cuda(x)
     assert same(got.codes, got.scales)
 
@@ -254,15 +229,14 @@ def run(dtype: torch.dtype, iters: int, check_finite: bool) -> None:
 def run_backward(dtype: torch.dtype, iters: int) -> None:
     """STE backward (dX = dY): a pure copy, so ``clone()`` is the right baseline."""
     print(f"\nbackward (STE, dX = dY)  dtype={dtype}")
-    header = f"{'shape':<20}{'torch clone (ms)':>20}{'triton (ms)':>14}{'cuda (ms)':>12}"
+    header = f"{'shape':<20}{'torch clone (ms)':>20}{'cuda (ms)':>12}"
     print(header)
     print("-" * len(header))
     for name, rows, cols in SHAPES:
         dy = (torch.randn(rows, cols, device=DEV) * 3.0).to(dtype)
         native = _time(mxfp8_act_quant_bwd, dy, iters)
         cuda = _time(mxfp8_act_quant_bwd_cuda, dy, iters)
-        triton_ms = _time(mxfp8_act_quant_bwd_triton, dy, iters) if _HAS_TRITON else float("nan")
-        print(f"{name:<20}{native:>20.4f}{_fmt(triton_ms):>14}{cuda:>12.4f}")
+        print(f"{name:<20}{native:>20.4f}{cuda:>12.4f}")
 
 
 def main() -> None:
@@ -279,8 +253,6 @@ def main() -> None:
 
     if not torch.cuda.is_available():
         raise SystemExit("benchmark requires a CUDA device")
-    if not _HAS_TRITON:
-        print("warning: triton is unavailable; the triton column will be n/a")
     if not _HAS_TORCHAO:
         print("warning: torchao is unavailable; the SOTA baseline columns are skipped")
 

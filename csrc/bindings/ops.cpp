@@ -652,12 +652,6 @@ void stable_topk_per_row_out(torch::Tensor logits, torch::Tensor row_starts,
 std::vector<torch::Tensor> silu_and_mul_clamp_quant_forward(torch::Tensor z, double limit,
                                                             bool scale_ue8m0, bool write_h);
 torch::Tensor silu_and_mul_clamp_backward_cuda(torch::Tensor dh, torch::Tensor z, double limit);
-std::vector<torch::Tensor> mhc_rmsnorm_residual_forward(torch::Tensor x, torch::Tensor gamma, double eps);
-std::vector<torch::Tensor> mhc_rmsnorm_residual_backward(torch::Tensor dy,
-                                                         torch::Tensor dr,
-                                                         torch::Tensor x,
-                                                         torch::Tensor gamma,
-                                                         torch::Tensor r);
 #endif
 
 // PyBind11 Module Registration
@@ -747,8 +741,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "vLLM silu_and_mul_with_clamp fused with per-token-group FP8 quantization");
     m.def("silu_and_mul_clamp_backward", &silu_and_mul_clamp_backward_cuda,
           "Deterministic backward of the clamped SwiGLU");
-    m.def("mhc_rmsnorm_residual_forward", &mhc_rmsnorm_residual_forward);
-    m.def("mhc_rmsnorm_residual_backward", &mhc_rmsnorm_residual_backward);
 #endif
 
 #if defined(__CUDACC__) || defined(KERNEL_ALIGN_WITH_SM90)

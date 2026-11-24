@@ -430,22 +430,15 @@ y        = fp8_gemm_nt(h_q, W2)                  DeepGEMM, BF16 out
 - H200, H 4096, F 2048, T = 16..4096: forward + backward 0.71-0.78x of eager BF16
   (`benchmarks/benchmark_shared_expert_mlp.py`).
 
-## Legacy backends (not used by DSv4)
+## Legacy code (not used by DSv4)
 
-These stay in the tree but are not on the DSv4 path and have no DSv4 tests:
+The P5 provider backends and portable Triton lanes were removed (2026-11-24). Still in the
+tree:
 
-- The FP32-oracle provider harness (`rl_engine/moe/provider.py`) and its per-operator
-  backends: `backends.mxfp8_act_quant` (provider wrapper; DSv4 calls
-  `rl_engine/kernels/ops/cuda/moe/mxfp8_act_quant.py` directly), `backends.grouped_gemm`,
-  `backends.lora_delta`, `backends.clamp_swiglu`, `backends.shared_expert` (strict
-  serial and det_gemm BF16 shared experts, profiles `oracle-fp32-serial-v1` /
-  `p5-det-gemm-v1`).
-- The portable Triton lanes (`backends.triton_fused_mlp`, `rl_engine/moe/triton_*`;
-  profiles `p5-triton-*`), written for ROCm (MI300X).
-- `csrc/cuda/moe/mxfp8_mxfp4_grouped_gemm*.cu`, earlier routed-expert GEMMs superseded by
-  `sm90_fused_moe_mlp.cu`.
-
-The FP32 oracle (`rl_engine/moe/oracle.py`), the batch contract (`rl_engine/moe/contract.py`)
-and the MX format (`rl_engine/moe/mx_format.py`) are still used as references by the DSv4
-MoE tests. The MX quantizer reproduces the committed golden manifest
-(`tests/fixtures/moe/golden_hashes.json`).
+- `csrc/cuda/moe/mxfp8_mxfp4_grouped_gemm*.cu`, `clamp_swiglu_weighted.cu`,
+  `shared_expert_mlp.cu` and `fused_shared_expert_mlp.cu`: earlier kernels, superseded by
+  `sm90_fused_moe_mlp.cu` and the DeepGEMM shared expert.
+- The FP32 oracle (`rl_engine/moe/oracle.py`), the batch contract
+  (`rl_engine/moe/contract.py`), the MX format (`rl_engine/moe/mx_format.py`) and the
+  fixtures (`rl_engine/moe/fixtures.py`) are references for the DSv4 MoE tests. The MX
+  quantizer reproduces the committed golden manifest (`tests/fixtures/moe/golden_hashes.json`).

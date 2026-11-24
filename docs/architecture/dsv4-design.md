@@ -694,18 +694,14 @@ correlation id give a replay's breakdown.
 
 ## 11. Legacy code not used by DSv4
 
-Kept in the tree, not on the DSv4 path, and without DSv4 tests:
+The P1 unfused mHC (`rl_engine/mhc/`, `fp32_gemm_rms`, `rmsnorm_residual`,
+`mhc_pre_h_aggregate`) and the P5 MoE provider backends and Triton lanes were removed
+(2026-11-24); none was on the DSv4 path. Still in the tree:
 
-| Code | What it was |
+| Code | What it is |
 |---|---|
-| `rl_engine/mhc/` (oracle, providers, `fp32_gemm_rms`, `rmsnorm_residual`, `h_aggregate`), `csrc/cuda/mhc/fp32_gemm_rms.cu`, `rmsnorm_residual.cu`, `rl_engine/kernels/ops/triton/mhc.py`, `rl_engine/kernels/ops/pytorch/mhc/h_aggregate.py` | P1 unfused canonical mHC + RMSNorm. DSv4 uses `dsv4-mhc-v1`. The `mhc_pre_h_aggregate` CUDA backend was removed (2026-11-24); Triton and PyTorch remain |
-| `rl_engine/moe/backends/` other than `sm90_fused_mlp.py` and `deepgemm_shared_expert.py` (providers, LoRA delta, clamp SwiGLU, BF16 / det_gemm shared expert, Triton lanes), `rl_engine/moe/triton_grouped_gemm_wgmma.py` | P5 provider harness and portable Triton lanes |
-| `csrc/cuda/moe/mxfp8_mxfp4_grouped_gemm*.cu` | Earlier routed-expert GEMMs, superseded by `sm90_fused_moe_mlp.cu` |
-| `rl_engine/moe/oracle.py`, `rl_engine/moe/contract.py`, `rl_engine/moe/mx_format.py` | Still used: the FP32 MoE oracle and MX format are references for the DSv4 MoE tests (`tests/ops/moe/`) |
-| `docs/operators/fp32-gemm-rms.md`, `mhc-pre-h-aggregate.md`, `rmsnorm-residual.md`, `moe-merge.md` | Pages for the legacy operators |
-
-Their old harness scripts (`check_p1.py`, `check_p5.py`) and tests were removed with the
-start kits; docstrings in the legacy modules may still mention them.
+| `csrc/cuda/moe/mxfp8_mxfp4_grouped_gemm*.cu`, `clamp_swiglu_weighted.cu`, `shared_expert_mlp.cu`, `fused_shared_expert_mlp.cu` | Earlier MoE kernels, superseded by `sm90_fused_moe_mlp.cu` and the DeepGEMM shared expert (`fused_shared_expert_mlp.cu` is still compiled into `_C`) |
+| `rl_engine/moe/oracle.py`, `contract.py`, `mx_format.py`, `fixtures.py` | Still used: the FP32 MoE oracle, the MX format and the fixtures are references for the DSv4 MoE tests (`tests/ops/moe/`) |
 
 ## 12. Status and open work
 
@@ -793,7 +789,6 @@ Open, single GPU, deprioritized:
       requirement.
 - [ ] The det_gemm BF16 shared-expert reference needs a `KERNEL_ALIGN_DET_GEMM_SM90=1`
       build to be fast.
-- [ ] Triton path (`rl_engine/kernels/ops/triton/mhc.py` uses FTZ libdevice ops).
 
 Out of scope for v1: DCP / CP attention, a bitwise sparse attention backward, ROCm,
 writing the vLLM fork into the formal anchor.

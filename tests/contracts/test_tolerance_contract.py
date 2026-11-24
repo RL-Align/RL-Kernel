@@ -36,13 +36,7 @@ from rl_engine.contracts.numerical import (
 def test_load_contract_contains_expected_operator_classes():
     contract = load_contract()
     accuracy = contract["accuracy"]["default"]
-    assert set(accuracy) == {
-        "elementwise",
-        "reduction",
-        "logprob",
-        "attention",
-        "mhc_controller",
-    }
+    assert set(accuracy) == {"elementwise", "reduction", "logprob", "attention"}
 
 
 def test_load_contract_contains_expected_dtypes():

@@ -18,13 +18,11 @@ Every operator page should include:
 
 ## Current Pages
 
-- [MHC H Aggregate](mhc-pre-h-aggregate.md) (legacy, not used by DSv4)
 - [SiLU / SwiGLU Activation](activation.md)
 - [Standard Attention](attention.md)
 - [Fused LogP](fused-logp.md)
 - [Fused Linear LogP](linear-logp.md)
 - [Batch-Invariant LogP](batch-invariant-logp.md)
-- [RMSNorm with a Residual Fork](rmsnorm-residual.md) (legacy, not used by DSv4)
 - [Fused Linear LogP TP Test Runbook](linear-logp-tp-test.md)
 - [GRPO Loss](grpo-loss.md)
 - [RoPE](rope.md)

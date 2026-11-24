@@ -57,36 +57,29 @@ def _load_extension_config(
 
 
 def test_rocm_build_excludes_cuda_ipc_collective_and_driver(monkeypatch) -> None:
-    extension, mhc_extension = _load_extension_config(monkeypatch, hip="test")
+    (extension,) = _load_extension_config(monkeypatch, hip="test")
 
     assert "csrc/cuda/collectives/deterministic_collective.cu" not in extension["sources"]
     assert "csrc/rocm/collectives/deterministic_collective.hip" in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" not in extension["extra_compile_args"]["cxx"]
     assert "-lcuda" not in extension["extra_link_args"]
-    assert mhc_extension["name"] == "rl_engine._C_mhc"
-    assert "-ffp-contract=off" in mhc_extension["extra_compile_args"]["nvcc"]
-    assert "--use_fast_math" not in mhc_extension["extra_compile_args"]["nvcc"]
 
 
 def test_cuda_build_keeps_existing_ipc_collective(monkeypatch) -> None:
-    extension, mhc_extension = _load_extension_config(monkeypatch, hip=None)
+    (extension,) = _load_extension_config(monkeypatch, hip=None)
 
     assert "csrc/cuda/collectives/deterministic_collective.cu" in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" not in extension["extra_compile_args"]["cxx"]
     assert "-lcuda" in extension["extra_link_args"]
-    assert mhc_extension["name"] == "rl_engine._C_mhc"
-    assert mhc_extension["sources"] == ["csrc/cuda/mhc/fp32_gemm_rms.cu"]
-    assert "-fmad=false" in mhc_extension["extra_compile_args"]["nvcc"]
-    assert "--use_fast_math" not in mhc_extension["extra_compile_args"]["nvcc"]
 
 
 SM90_MOE_SOURCE = "csrc/cuda/moe/sm90_fused_moe_mlp.cu"
 
 
 def test_default_cuda_build_excludes_sm90_moe(monkeypatch) -> None:
-    extension, _ = _load_extension_config(monkeypatch, hip=None, capability=(9, 0))
+    (extension,) = _load_extension_config(monkeypatch, hip=None, capability=(9, 0))
 
     assert SM90_MOE_SOURCE not in extension["sources"]
     assert "-DRL_KERNEL_ENABLE_MOE_SM90" not in extension["extra_compile_args"]["cxx"]
@@ -95,7 +88,7 @@ def test_default_cuda_build_excludes_sm90_moe(monkeypatch) -> None:
 def test_det_gemm_sm90_does_not_bind_sm90_moe(monkeypatch) -> None:
     # det_gemm also defines RL_KERNEL_ENABLE_SM90; the sm90_moe_* bindings must
     # not follow it, or ops.cpp would reference symbols that are not compiled.
-    extension, _ = _load_extension_config(
+    (extension,) = _load_extension_config(
         monkeypatch, hip=None, env={"KERNEL_ALIGN_DET_GEMM_SM90": "1"}, capability=(9, 0)
     )
 
@@ -105,7 +98,7 @@ def test_det_gemm_sm90_does_not_bind_sm90_moe(monkeypatch) -> None:
 
 
 def test_moe_sm90_build_compiles_only_sm90a(monkeypatch) -> None:
-    extension, _ = _load_extension_config(
+    (extension,) = _load_extension_config(
         monkeypatch, hip=None, env={"KERNEL_ALIGN_MOE_SM90": "1"}, capability=(9, 0)
     )
     nvcc = extension["extra_compile_args"]["nvcc"]
@@ -126,7 +119,7 @@ def test_moe_sm90_build_rejects_non_hopper(monkeypatch) -> None:
 
 
 def test_rocm_build_excludes_sm90_moe(monkeypatch) -> None:
-    extension, _ = _load_extension_config(
+    (extension,) = _load_extension_config(
         monkeypatch, hip="test", env={"KERNEL_ALIGN_MOE_SM90": "1"}
     )
 

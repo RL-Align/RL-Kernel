@@ -13,7 +13,7 @@ The routed-expert kernel (P5) multiplies each row by its route weight ``p_s``
 once (``already-weighted-per-slot-rows``, P6 policy), and a row's bytes depend
 only on that row, so where a row lands inside its expert does not change it.
 
-Combine (P6 ``fixed_order_combine_fwd`` + ``shared_residual_merge_fwd``), per token,
+Combine (``combine_cuda``, ``csrc/cuda/moe/moe_slot_sum.cu``), per token,
 in FP32: the slot-0 row is copied, slots 1..5 are added in order, then the shared
 expert output is added once and the residual once, and the result is rounded to
 BF16 (RNE)::

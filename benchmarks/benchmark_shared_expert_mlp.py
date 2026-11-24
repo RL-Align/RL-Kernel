@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""P5-5 (#64) shared_expert_mlp benchmark: torch-native vs Triton vs CUDA.
+"""DSv4 shared-expert MLP benchmark: eager BF16 vs the DeepGEMM FP8 shared expert.
 
-torch-native is the non-deterministic cuBLAS/eager reference (speed ceiling);
-the Triton and CUDA rows are the strict ``oracle-fp32-serial-v1`` kernels this
-PR delivers. Alignment between the strict backends is asserted on every shape.
+torch-native is the non-deterministic cuBLAS/eager reference (speed baseline). The
+``deepgemm-*`` rows are ``rl_engine.moe.backends.deepgemm_shared_expert`` (profile
+``dsv4-deepgemm-fp8-v1``): FP8 dX by default, BF16 det_gemm dX as the reference.
 
     python benchmarks/benchmark_shared_expert_mlp.py [--tokens 16,256,2048]
 """
@@ -23,7 +23,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from rl_engine.moe.contract import SharedBatch, tensor_sha256  # noqa: E402
+from rl_engine.moe.contract import SharedBatch  # noqa: E402
 
 
 def torch_native(batch: SharedBatch, dy: torch.Tensor):
@@ -78,30 +78,20 @@ def main() -> int:
     runners: dict[str, object] = {"torch-native": torch_native}
     # Each provider fails closed on a batch that declares another numeric profile.
     profiles: dict[str, str] = {}
-    strict: dict[str, object] = {}
-    for label, spec, is_strict in (
-        ("triton", "rl_engine.moe.backends.shared_expert:TritonSharedExpertProvider", True),
-        ("cuda", "rl_engine.moe.backends.shared_expert:CudaSharedExpertProvider", True),
-        ("triton-det", "rl_engine.moe.backends.shared_expert:TritonDetSharedExpertProvider", False),
-        ("cuda-det", "rl_engine.moe.backends.shared_expert:CudaDetSharedExpertProvider", False),
+    for label, spec in (
         (
             "deepgemm-fp8",
             "rl_engine.moe.backends.deepgemm_shared_expert:DeepGemmSharedExpertProvider",
-            False,
         ),
         (
             "deepgemm-bf16bwd",
             "rl_engine.moe.backends.deepgemm_shared_expert:DeepGemmSharedExpertBf16BwdProvider",
-            False,
         ),
     ):
         try:
             provider = resolve_provider(spec)
-            runner = make_runner(provider)
-            runners[label] = runner
+            runners[label] = make_runner(provider)
             profiles[label] = provider.numeric_profile
-            if is_strict:
-                strict[label] = runner
         except (NotImplementedError, RuntimeError) as exc:  # RuntimeError: DeepGemmUnavailable
             print(f"[skip] {label}: {exc}")
 
@@ -125,7 +115,6 @@ def main() -> int:
         batch = SharedBatch(x=x, w_fc1=w1, w_fc2=w2)
         dy = torch.randn(t, args.hidden, generator=gen).to(torch.bfloat16).to(device)
 
-        outputs = {}
         base_ms = None
         for label, fn in runners.items():
             run_batch = (
@@ -134,21 +123,10 @@ def main() -> int:
                 else batch
             )
             ms = time_ms(fn, run_batch, dy, iters=args.iters)
-            outputs[label] = fn(run_batch, dy)
             if label == "torch-native":
                 base_ms = ms
             rel = f"{ms / base_ms:8.2f}x" if base_ms else "        -"
             print(f"{t:>6} {label:>14} {ms:12.3f} {rel:>10}")
-
-        strict_hashes = {
-            label: (tensor_sha256(outputs[label][0]), tensor_sha256(outputs[label][1]))
-            for label in strict
-        }
-        if len(strict_hashes) == 2 and len(set(strict_hashes.values())) != 1:
-            print(f"  !! strict backends diverged at T={t}: {strict_hashes}")
-            return 1
-        if strict_hashes:
-            print(f"  strict backends byte-equal: {len(strict_hashes)}/{len(strict_hashes)}")
     return 0
 
 

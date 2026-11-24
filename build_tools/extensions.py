@@ -242,7 +242,6 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
-            cuda_sources.append("csrc/cuda/mhc/rmsnorm_residual.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
@@ -439,24 +438,6 @@ def get_extensions():
                 extra_compile_args={
                     "cxx": cxx_flags,
                     "nvcc": nvcc_flags,
-                },
-                extra_link_args=extra_link_args,
-            )
-        )
-
-        # P1-2 fp32_gemm_rms: standalone strict-FP32 extension. Never built
-        # with fast-math, and FMA contraction is disabled so every multiply
-        # and add rounds separately (numeric profile oracle-fp32-mhc-v1).
-        mhc_nvcc_flags = [f for f in nvcc_flags if f != "--use_fast_math"]
-        mhc_nvcc_flags.append("-ffp-contract=off" if is_rocm else "-fmad=false")
-        extensions.append(
-            GpuExtension(
-                name="rl_engine._C_mhc",
-                sources=["csrc/cuda/mhc/fp32_gemm_rms.cu"],
-                include_dirs=[],
-                extra_compile_args={
-                    "cxx": cxx_flags,
-                    "nvcc": mhc_nvcc_flags,
                 },
                 extra_link_args=extra_link_args,
             )
