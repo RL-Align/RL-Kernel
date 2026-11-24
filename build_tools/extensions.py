@@ -236,6 +236,7 @@ def get_extensions():
                     "csrc/rocm/logprob/hip_deterministic_logp_kernel.hip",
                     "csrc/rocm/collectives/deterministic_collective.hip",
                     "csrc/rocm/inkling2/visit_cache.hip",
+                    "csrc/rocm/inkling2/router.hip",
                 ]
             )
         else:
@@ -243,6 +244,7 @@ def get_extensions():
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
             cuda_sources.append("csrc/cuda/inkling2/visit_cache.cu")
+            cuda_sources.append("csrc/cuda/inkling2/router.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
