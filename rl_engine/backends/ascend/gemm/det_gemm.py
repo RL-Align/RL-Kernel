@@ -16,6 +16,7 @@ variant for native weights).
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import torch
@@ -86,6 +87,18 @@ class _DetLinearAscendFn(Function):
     @staticmethod
     def forward(ctx, a, weight):
         ctx.save_for_backward(a, weight)
+        if (
+            os.getenv("RLK_A3_FFN_CUBE") == "1"
+            and a.ndim == 2
+            and weight.shape == (12288, 4096)
+            and a.shape[1] == 4096
+            and a.shape[0] > 0
+            and a.device == weight.device
+            and torch.npu.get_device_name(a.device.index) == "Ascend910_9362"
+        ):
+            from .a3_cube_trial import gate_up_linear
+
+            return gate_up_linear(a, weight)
         return _C_npu.det_gemm_ascend_fwd_rhs_transposed(a, weight)
 
     @staticmethod
