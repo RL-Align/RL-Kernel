@@ -14,8 +14,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from PIL import Image
 
+try:  # the keyframe tests need Pillow; the T2VA tests and the no-Pillow check do not
+    from PIL import Image
+except ImportError:
+    Image = None
 from rl_engine.models.minimax_h3 import fl2va
 from rl_engine.models.minimax_h3 import packed_layout as pl
 from rl_engine.models.minimax_h3.trajectory import tensor_digest
@@ -35,9 +38,17 @@ class FakeTokenizer:
         return self.SPECIAL[token]
 
 
+def _pillow():
+    """``PIL.Image``, or skip the calling test (a keyframe test) when Pillow is missing."""
+
+    if Image is None:
+        pytest.skip("keyframe tests need Pillow")
+    return Image
+
+
 def _image(width: int, height: int, seed: int) -> Image.Image:
     rng = np.random.default_rng(seed)
-    return Image.fromarray(rng.integers(0, 256, (height, width, 3), dtype=np.uint8))
+    return _pillow().fromarray(rng.integers(0, 256, (height, width, 3), dtype=np.uint8))
 
 
 def fl2va_preprocess(anchors: tuple[str, ...], *, device: str = "cpu") -> dict:
@@ -129,10 +140,10 @@ def test_keyframes_resolve_canvas_and_resize_like_the_reference():
     first, last = _image(1280, 720, 1), _image(1000, 1000, 2)
     kf = fl2va.prepare_keyframes(first, last)
     assert (kf.height, kf.width, kf.anchors) == (768, 1344, ("first", "last"))
-    stretched = first.resize((1344, 768), Image.Resampling.LANCZOS)
+    stretched = first.resize((1344, 768), _pillow().Resampling.LANCZOS)
     assert np.array_equal(np.array(kf.images[0]), np.array(stretched))
     # follower: cover 1344x1344, crop rows (1344 - 768) // 2 = 288
-    cover = last.resize((1344, 1344), Image.Resampling.LANCZOS).crop((0, 288, 1344, 288 + 768))
+    cover = last.resize((1344, 1344), _pillow().Resampling.LANCZOS).crop((0, 288, 1344, 288 + 768))
     assert np.array_equal(np.array(kf.images[1]), np.array(cover))
     only_last = fl2va.prepare_keyframes(None, last)
     assert (only_last.height, only_last.width, only_last.anchors) == (768, 768, ("last",))
@@ -146,8 +157,8 @@ def test_keyframe_pixels_refuse_images_that_are_not_three_channel():
     # channel axis, an RGBA / LA one has 4 / 2 channels. All are refused, not converted.
     for mode in ("L", "P", "RGBA", "LA"):
         with pytest.raises(ValueError, match="3-channel"):
-            fl2va.keyframe_pixels(Image.new(mode, (8, 4)))
-    pixels = fl2va.keyframe_pixels(Image.new("RGB", (8, 4), (1, 2, 3)))
+            fl2va.keyframe_pixels(_pillow().new(mode, (8, 4)))
+    pixels = fl2va.keyframe_pixels(_pillow().new("RGB", (8, 4), (1, 2, 3)))
     assert pixels.shape == (1, 3, 1, 4, 8) and pixels.dtype == torch.uint8
     assert pixels[0, :, 0, 0, 0].tolist() == [1, 2, 3]
 
@@ -434,6 +445,7 @@ def test_preprocessing_matches_the_tiny_diffusers_pipeline(anchors):
         assert torch.equal(getattr(layout, name), ref[name].cpu()), name
         assert getattr(layout, name).dtype == ref[name].dtype, name
     assert layout.num_condition_video_rows == ref["num_condition_video_rows"]
+    assert layout.num_condition_audio_rows == ref["num_condition_audio_rows"]
 
     plan = captured["MiniMaxH3SetTimestepsStep"]
     ours = pl.row_timestep_plan(
@@ -505,6 +517,7 @@ def test_report_counts_a_dtype_change_as_a_difference(monkeypatch):
     """The evidence tool's SGLang count must see dtypes: a stand-in that returns our own
     layout with int32 indices is equal by value and not bitwise."""
 
+    _pillow()  # the evidence tool draws keyframes with Pillow
     import importlib.util
     import types
 
@@ -546,6 +559,7 @@ def test_report_counts_a_dtype_change_as_a_difference(monkeypatch):
 
 
 def test_report_cases_have_the_canvas_their_name_says():
+    _pillow()  # the evidence tool draws keyframes with Pillow
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(

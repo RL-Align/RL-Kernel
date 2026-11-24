@@ -58,7 +58,12 @@ FP32 cuDNN, though 2-11x slower than Diffusers' default TF32 cuDNN),
 so the convolution algorithm cannot depend on free workspace. Decode keeps deterministic cuDNN
 (the SGLang decode recipe): native convolutions make BigVGAN about 4x slower on B200.
 `execution_scope` applies the flags and restores them; they are process-global, so do not run
-other CUDA work concurrently in the same process while a scope is open.
+other CUDA work concurrently in the same process while a scope is open. It also disables CPU
+and CUDA autocast, so an outer FP16/BF16 autocast region cannot run the FP32 contract in mixed
+precision (the hashes are the same with and without one). On exit, the caller's full FP32
+precision state comes back: the matmul precision string (`"medium"` included), not just
+`allow_tf32`. Each backend is written through the API it was readable with: the legacy flags,
+or per-backend `fp32_precision` if the caller set that one.
 
 Reproducibility is claimed per platform (GPU architecture, cuDNN/cuBLAS build), not across
 architectures. `provenance()` records the contract, both policies, the normalisation-stat

@@ -4,7 +4,7 @@
 
 RFC #420 rows `tp_attention_7168`, `tp_ffn_14336`, `cp_full_attention` (Ulysses and ring),
 `cp_metadata_coshard`, `cp_arbitrary_length`, `distributed_packed_io`, and closeouts
-`ws2_tp2_tp4_tp8`, `ws2_tp4_cp2`, `ws2_tp4_cp2_sp`. Contract `h3-parallel-v1`
+`ws2_tp2_tp4_tp8`, `ws2_tp4_cp2`, `ws2_tp4_cp2_sp`. Contract `h3-parallel-v2`
 (`rl_engine/backends/cuda/model_specific/minimax_h3/parallel.py`); the ring is
 `.../minimax_h3/ring_attention.py` (`h3-ring-cp-v1`); the block that composes them is
 `rl_engine/validation/models/h3_tp.py`, and the full 50-block model on a grid is
@@ -14,7 +14,8 @@ RFC #420 rows `tp_attention_7168`, `tp_ffn_14336`, `cp_full_attention` (Ulysses 
 Result (H100, 2 nodes x 4 GPUs, block 0 of the pinned checkpoint, 264 packed rows): every rank's
 rows of the forward, the input gradient and every weight-gradient shard are **bitwise equal** to the
 single-GPU canonical block for TP2, TP4, TP8 (two nodes), TP4 x CP2 (two nodes) and TP4 x CP2 + SP.
-Evidence: `reports/experiments/h3-ws2-parallel-h100/*.json`.
+Evidence: `reports/experiments/h3-ws2-parallel-h100/*.json`. That evidence is `h3-parallel-v1`,
+before the gate/up, O and down projections moved to their rows' kernel (next section).
 
 ## The canonical reduction
 
@@ -22,16 +23,38 @@ All cross-rank sums are defined on **8 canonical units** (the divisors of 8 are 
 
 | Layer | Sharding | Reduction | Rule |
 | --- | --- | --- | --- |
-| Q/K/V, gate/up forward | output rows (whole heads / halves) | none | the unsharded GEMM's columns (`h3-projection-gemm-v1`) |
+| Q/K/V, gate/up forward | output rows (whole heads / halves) | none | the unsharded GEMM's columns (see the kernels below) |
 | O (7168 -> 5376), down (14336 -> 5376) forward | reduction axis, `8/tp` K-units per rank | K | each K-unit is one fixed-order FP32 GEMM; a rank adds its units as a balanced tree; the collective adds ranks as the same tree; one BF16 rounding |
 | O / down backward (`dX`, `dW`) | - | N / tokens | plain fixed-order GEMM, independent of the shard |
 | Q/K/V, gate/up backward `dX` | output rows | N | unit `j` = block `j` of every fused weight, summed in the order q,k,v (hidden,gate); tree over units; collective; one rounding |
 
-The unit of the O projection is 896 K (14 K-tiles) and of down 1792 (28 K-tiles), so a unit never
+The unit of the O projection is 896 K (28 K-tiles of 32) and of down 1792 (56), so a unit never
 splits a tile. FP32 partials cross ranks (`DeterministicCollective` fixed tree on a node;
 `HierarchicalCollective` across nodes). The row-parallel contract differs from the single-sweep
 K reduction of the unsharded O/down GEMM rows (claimed by another contributor): it is the
 TP-invariant definition, and TP=1 is that definition, not the sweep.
+
+### GEMM kernels (`h3-parallel-v2`)
+
+Each projection runs the kernel of its RFC row:
+
+| Projection | Kernel | Row operator (TP = 1) |
+|---|---|---|
+| Q/K/V | `h3-projection-gemm-v1` (BF16 tensor-core dot, 128x128x64) | `H3QKVGemmCudaOp` (`h3_qkv_gemm`) |
+| gate/up, O, down | `fixed_fp32_gemm`: `_det_gemm_fp32_kernel` with `FixedFP32Backend`'s launch (BF16 dot, FP32 accumulate over ascending 32-wide K blocks, 64x64 tiles, 4 warps, 2 stages, no FP fusion, no split-K) | `H3FFNGateUpGemmOp`, `H3AttentionOGemmOp` (#554), `H3FFNDownGemmOp` (#535) |
+
+The row operators accept the TP = 1 shapes on SM90 only; `fixed_fp32_gemm` is the same launch at any
+shard shape and on any CUDA device. Against those operators on the same rows in the same order:
+
+- bitwise: the gate/up forward (each output element is one program's K loop, independent of the
+  shard), the O / down `dX` (reduction over the unsharded N), and every `dW` (a sweep over the
+  logical rows; under CP the gathered rows are in packed order, which is the order of the rows'
+  logical keys);
+- not bitwise: the O / down forward and the gate/up `dX`, which are the 8-unit tree above instead of
+  the operators' single K sweep.
+
+`v1 -> v2` changed only gate/up, O and down, from `h3-projection-gemm-v1` to this kernel; Q/K/V and
+every collective are unchanged. The LoRA products stay on `h3-projection-gemm-v1` (FP32 operands).
 
 ## Cross-node collective
 
@@ -91,14 +114,109 @@ bit for bit, the video / audio velocity, the three input gradients, every block'
 gradient (`first_drift_*` names the first block, logical row, owning rank and modality) and this
 rank's weight-shard gradients of all 350 sharded projections. `--inject BLOCK:ROW:RANK` perturbs one
 row on one rank: a negative control that has to be reported at that block, row and owner. Every
-rank loads the whole checkpoint and runs the canonical model first, so it is a validation harness,
-not a memory-sharded implementation. Weight-shard gradients are reduced to their digest the moment
+rank loads the whole checkpoint and runs the canonical model first. By default the grid run then
+uses that same model, cutting each projection shard out of the full weight on every call.
+
+With `--sharded` the grid runs on a model that holds only this rank's projection shards:
+`h3_sharded_load.load_sharded_model(transformer_dir, tp, tp_rank, device)` builds the transformer
+with its parameters on `meta`, loads every other parameter in full, and reads each shard of the
+seven sharded projections per block (Q / K / V, the attention output, the hidden and gate halves of
+`ff.net.0.proj`, `ff.net.2`) through a safetensors slice, so the rest of the weight is never read.
+The shards are stored on the block (`SHARDS_ATTR`) with the `(tp, tp_rank)` they were cut for, and
+the block refuses another grid. Called outside `parallel_model_execution`, the projections whose
+weights are on `meta` raise (a forward pre-hook), since `F.linear` would return a `meta` tensor. They are the bytes `parallel.shard_rows` / `shard_cols` cut from the
+full weight, so the run is compared against the same canonical run. Everything else (embedders,
+refiner, norms, `adaln_proj`, boundary projections) is still held in full on every rank.
+`--provider-boundaries` (`parallel_model_execution(..., strict_boundaries=False)`) leaves the
+boundary modules on the provider in both runs, for GPUs the strict boundary rows do not support.
+
+Weight-shard gradients are reduced to their digest the moment
 they are accumulated and freed (`ParallelState.digest_leaf`), so a run holds one block's shard
 gradients at a time: without that, the canonical run's unsharded leaves and gradients need about
 twice the 33B weights on top of the weights themselves, which does not fit a 94 GB H100. The digest
 (`exact_digest`) is two wrap-around int64 checksums of the bytes, accumulated 2^24 words at a time
 so its temporaries stay bounded. It is not a hash, but it always sees a change of one or two 16-bit
 words.
+
+## LoRA on the grid (`h3-parallel-lora-v2`)
+
+`rl_engine/backends/cuda/model_specific/minimax_h3/parallel_lora.py` puts a LoRA,
+`y = round(x W^T + s * (x A^T) B^T)`, on the six targets of the verl-omni H3 recipe (Q, K, V, the
+attention output, `ff.net.0.proj`, `ff.net.2`; r = 64, alpha = 128). The base GEMMs run each
+projection's kernel (above); every LoRA product is `h3-projection-gemm-v1` with FP32 operands. `A` and
+`B` may be stored in BF16 (the recipe's adapters), are read as FP32,
+and their gradients are rounded once to their dtype. Every sum that crosses ranks uses the canonical
+units above, so every layout equals the canonical `Grid(1, 1)` run bit for bit:
+
+| Target | A | B | Sum across ranks |
+|---|---|---|---|
+| Q / K / V, `ff.net.0.proj` (hidden and gate share one `A`) | whole on every TP rank | output rows, like the base | `dz = s * sum_N dy B`: the base `dX` units (output block `j` of every weight the `A` serves), tree, all-reduce |
+| attention output, `ff.net.2` | input columns, like the base | whole on every TP rank | `z = sum_K x A^T`: the base's K-units, tree, all-reduce (also under SP; `z` is `T x r`) |
+
+Under CP, `dA` and `dB` sum over tokens from the rows of every CP rank, gathered exactly (as the base
+`dW`), so every CP rank holds the same gradient. A column-parallel forward is bitwise #574's
+`strict_lora_linear`; where a sum crosses units, the canonical run sums the 8 units and is as close
+to FP64 as `strict_lora_linear` (FP32 adapters: `dA` 3.7e-7 against 9.3e-7 for Q on the released
+block 0). `lora_counted` says which rank counts each LoRA tensor in a gradient norm (TP-replicated
+tensors on TP rank 0, CP rank 0 only), and `to_rollout_layout` gives upstream `map_lora_tensors`'s
+vLLM-Omni names and `fc1` order (`[gate, up]`, `A` shared).
+
+The full-model runner takes `--lora-rank R --lora-alpha A --lora-seed S [--lora-b-zero]`: every
+block gets a seeded LoRA (`h3_lora.make_block_lora`: `A ~ N(0, 1/R)`, `B` random or the recipe's
+zero), cut for each run's grid, and every LoRA shard's gradient is compared too
+(`lora_gradients_bitwise`). With `B = 0` the outputs are the projections without LoRA (values; bytes
+up to the sign of a zero). The two token-refiner blocks are not on the grid and carry no LoRA in the
+runner; on every rank they would run `strict_lora_linear` alike.
+
+## Rollout on the grid (`h3-omni-rollout-v1`)
+
+`rl_engine/integrations/engines/rollout/vllm/h3_omni_model.py` makes a vLLM-Omni rollout run the
+actor's model. vLLM-Omni's `MiniMaxH3DiTModel` runs its own boundary modules around its blocks
+(TP-sharded patch projections and time embedder with an FP32 all-reduce, fused Triton norms and
+RoPE), so binding its blocks or projections alone cannot give the actor's bytes. Instead
+`install_h3_omni_model` replaces the whole DiT call:
+
+- `omni_to_diffusers` turns vLLM-Omni's packed keyword arguments (`x`, `audio_x`,
+  `img_position_ids`, `unique_timesteps` / `inverse_indices`, `token_tags`, the position infos,
+  `cu_seqlens`) into the Diffusers `MiniMaxH3Transformer3DModel` inputs that verl-omni's actor
+  builds for the same request: the padding rows (tag -1) are dropped, the video / audio rows are
+  taken at their positions and `torch.unique` is redone over the real rows' timesteps. This is data
+  movement only;
+- `H3OmniModelBinding` runs the actor's model (`h3_sharded_load.load_sharded_model` for this rank,
+  LoRA from `h3_lora`) in `parallel_model_execution` on `Grid(tp, 1)`, built on vLLM's TP group
+  (`tp_grid_from_group`). Like the actor's TP x CP grid, it equals the canonical `Grid(1, 1)` run;
+- a step-mode batch (`num_requests > 1`) is split into its requests (each one's real rows and its
+  padding document), and each runs alone, so a request's output does not depend on the batch;
+- the call runs under PyTorch's default SDPA backends (`torch_default_sdpa`). Importing vLLM
+  switches cuDNN attention off for the whole process, and without the strict boundaries (Hopper
+  only) the token refiner's attention is SDPA, so the engine would otherwise run another attention
+  kernel than the actor's process: on one B200 the replay of two recorded calls differed by up to
+  0.33 before this, and matched bit for bit after;
+- the return is vLLM-Omni's: video rows times `update_mask`, audio rows times `update_audio_mask`
+  when given.
+
+The engine's blocks are never called, which also bypasses their compiled forwards, the AdaLN cache
+and block hooks. What would change the result is refused before anything changes: the reference-KV
+cache, control hints, PDD steps, FastH3 sparse (VSA) attention, VDN attention, sequence / CFG / pipeline
+parallelism, another TP size, cache backends, quantization, an engine LoRA (`lora_path`),
+full-graph compile without `enforce_eager`, and a DiT whose instance `forward` is already replaced.
+`release_weights=True` moves the engine's own DiT parameters to `meta`.
+
+`h3_omni_worker.H3OmniWorkerExtension` is a vLLM-Omni `worker_extension_cls`; through
+`collective_rpc` it installs the binding on every worker (`rlk_h3_install`), puts a LoRA on it
+(`rlk_h3_attach_seeded_lora`, or `rlk_h3_load_lora` with the actor's shards) and reads back the
+grid and a digest of every DiT output (`rlk_h3_report`). Actor and rollout both run TP4, so
+`h3_lora.install_lora_shards` takes the actor's rank `r` shards on rollout rank `r` without a
+gather and checks every shard's SHA-256 against the sender's.
+
+`tools/validation/models/h3_omni_rollout_report.py` is the G3 check: an `engine` stage (vLLM-Omni
+at TP4 with the bound DiT; requests A and B alone, then together in step mode with
+`max_num_seqs=2`, since vLLM-Omni's step scheduler runs at most `max_num_seqs` requests (default 1)
+in one DiT call; every rank's outputs
+equal, and a request's outputs in a batch equal the same inputs alone), a `canonical` stage (the
+recorded calls replayed on one GPU must give the rollout's bytes) and an `actor` stage (the recorded
+vLLM-Omni kwargs through verl-omni's rollout storage and actor input builder must give the inputs
+the binding passed to the model).
 
 ## Tests and evidence
 
@@ -149,12 +267,13 @@ this is the time of a whole `block_case(..., backward=False)` call, not of the k
   the rows or heads this rank holds and their gradients are not reduced across ranks: under CP, SP
   or (for the QK norms) TP each rank holds a partial gradient. The full-model runner freezes them
   and compares the 350 shard gradients only; training them on a grid needs a reduction that is not
-  part of `h3-parallel-v1`.
+  part of `h3-parallel-v2`.
 - The compute paths (`seq_sharded_linear`, `run_tp_block`, `run_tp_block_rows`, hence the full
   model) need at least one row on every CP rank; the ring and the packed IO themselves accept ranks
   that hold no rows.
-- The full-model runner keeps the whole 33B checkpoint on every rank and runs the canonical model
-  first; it is not run with sharded weight storage.
+- The full-model runner keeps the whole 33B checkpoint on every rank for the canonical run. With
+  `--sharded` the grid run holds only the 350 projection shards of its TP rank; the other block
+  parameters (`adaln_proj.linear` above all, about 0.5 GB per block) stay replicated.
 - `HierarchicalCollective` assumes ranks are packed node-major and node counts of 1/2/4/8.
   With several TP groups (CP > 1) it is given every TP group's ranks (`group_ranks`, as
   `make_grid` does) and every rank creates all their subgroups in one order, as
