@@ -190,12 +190,14 @@ def main() -> int:
                     ys = ep_moe.forward(xs, rs, ids_s)
                 graphs.append(graph)
 
-                def run():
+                def replay():
                     xs.copy_(x[a:b])
                     rs.copy_(res[a:b])
                     ids_s.copy_(ids[a:b])
                     graph.replay()
                     return ys.clone()
+
+                run = replay
 
             for _ in range(2):
                 if args.static:

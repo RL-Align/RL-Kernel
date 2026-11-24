@@ -106,7 +106,7 @@ def main() -> int:
     args = ap.parse_args()
 
     dist.init_process_group("nccl")
-    rank, world = dist.get_rank(), dist.get_world_size()
+    rank = dist.get_rank()
     torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", 0)))
 
     from verl.workers.config.optimizer import FSDPOptimizerConfig

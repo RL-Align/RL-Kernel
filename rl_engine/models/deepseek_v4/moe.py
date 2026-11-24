@@ -204,6 +204,7 @@ def ep_send(t: Tensor, ex: _Exchange, group) -> Tensor:
     if ex.slot is not None:
         total = ex.local_perm.shape[0]
         return _static_all_to_all(t, ex.slot, total, group)[ex.local_perm]
+    assert ex.recv_splits is not None and ex.send_splits is not None
     arrival = _all_to_all(t, sum(ex.recv_splits), ex.recv_splits, ex.send_splits, group)
     return arrival[ex.local_perm]
 
@@ -216,6 +217,7 @@ def ep_return(y_local: Tensor, ex: _Exchange, group) -> Tensor:
         back = torch.empty_like(arrival)
         dist.all_to_all_single(back, arrival, group=group)
         return back[ex.slot]
+    assert ex.recv_splits is not None and ex.send_splits is not None
     return _all_to_all(arrival, sum(ex.send_splits), ex.send_splits, ex.recv_splits, group)
 
 
@@ -356,6 +358,7 @@ class Dsv4MoE:
             return self._expert_backward(rows, dy_rows, hidden)
         if ex.slot is not None:
             raise NotImplementedError("the static EP exchange is forward only")
+        assert ex.recv_splits is not None and ex.send_splits is not None
         arrival = _all_to_all(
             dy_rows, sum(ex.recv_splits), ex.recv_splits, ex.send_splits, self.ep_group
         )

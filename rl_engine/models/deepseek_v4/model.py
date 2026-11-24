@@ -34,6 +34,7 @@ dX, and the LoRA adapters' gradients (``lora.py``; ``attach_lora``). Base weight
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
@@ -42,6 +43,9 @@ from rl_engine.kernels.ops.cuda.mhc import hc_head_cuda, mhc_post_cuda, mhc_pre_
 from rl_engine.models.deepseek_v4.attention import Dsv4Attention, Dsv4Batch, LayerCaches, new_caches
 from rl_engine.models.deepseek_v4.config import Dsv4Config
 from rl_engine.models.deepseek_v4.moe import Dsv4MoE
+
+if TYPE_CHECKING:
+    from rl_engine.models.deepseek_v4.lora import MoeLora
 
 
 @dataclass
@@ -322,7 +326,7 @@ def build_lora_adapters(
     shared_expert: bool = True,
     seed: int = 0,
     zero_b: bool = True,
-) -> list[tuple[dict, object]]:
+) -> list[tuple[dict, MoeLora | None]]:
     """Per layer ``(attention adapters by target, MoeLora or None)``, the adapters
     :func:`attach_lora` creates (same seeds, same order), so another runtime (the vLLM
     rollout) can build identical ones."""

@@ -32,7 +32,6 @@ from rl_engine.integrations.dsv4 import vllm_model  # noqa: E402
 vllm_model.register()
 
 import torch  # noqa: E402
-
 from verl.workers.rollout.vllm_rollout.bucketed_weight_transfer import (  # noqa: E402
     BucketedWeightReceiver,
 )
@@ -81,14 +80,14 @@ class RlkWorker(Worker):
 
 class RlkWorkerExtension(vLLMColocateWorkerExtension):
     def update_weights_from_ipc(
-        self, peft_config: dict = None, base_sync_done=False, use_shm=False
+        self, peft_config: dict | None = None, base_sync_done=False, use_shm=False
     ):
         if not (peft_config and base_sync_done):
             raise NotImplementedError(
                 "DSv4 rollout plugin: the base weights come from the checkpoint; "
                 "only LoRA adapters are synced (rlkernel engine)"
             )
-        if self.device is None:
+        if getattr(self, "device", None) is None:
             self.device = torch.device("cuda", self.local_rank)
         received: dict[str, torch.Tensor] = {}
 

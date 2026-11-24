@@ -42,8 +42,14 @@ def main() -> None:
             f"Problem {random.randint(0, 10**9)}-{i}: compute the sum of the first "
             f"{i + 7} odd numbers and explain each step."
         )
-        body = {"model": args.model, "prompt": prompt, "max_tokens": n, "min_tokens": n,
-                "ignore_eos": True, "temperature": 1.0}
+        body = {
+            "model": args.model,
+            "prompt": prompt,
+            "max_tokens": n,
+            "min_tokens": n,
+            "ignore_eos": True,
+            "temperature": 1.0,
+        }
         return post("/v1/completions", body)["usage"]["completion_tokens"]
 
     def phase(conc, n):
@@ -51,8 +57,14 @@ def main() -> None:
         with cf.ThreadPoolExecutor(conc) as ex:
             toks = sum(ex.map(lambda i: one(i, n), range(conc)))
         wall = time.time() - t
-        row = {"conc": conc, "tokens_each": n, "tokens": toks, "wall_s": round(wall, 2),
-               "ms_per_step": round(wall / n * 1000, 1), "tok_per_s": round(toks / wall)}
+        row = {
+            "conc": conc,
+            "tokens_each": n,
+            "tokens": toks,
+            "wall_s": round(wall, 2),
+            "ms_per_step": round(wall / n * 1000, 1),
+            "tok_per_s": round(toks / wall),
+        }
         print(json.dumps(row), flush=True)
         return row
 

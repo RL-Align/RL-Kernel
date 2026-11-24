@@ -60,7 +60,6 @@ from typing import Any, Callable, Optional
 import torch
 import torch.distributed as dist
 from tensordict import TensorDict
-
 from verl.utils import tensordict_utils as tu
 from verl.workers.config import ActorConfig
 from verl.workers.config.engine import EngineConfig

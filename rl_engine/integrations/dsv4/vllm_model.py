@@ -81,6 +81,7 @@ import re
 import sys
 import types
 from itertools import islice
+from typing import TYPE_CHECKING
 
 import torch
 from torch import nn
@@ -107,7 +108,7 @@ def _use_pinned_flashmla() -> None:
 
     _import_interface()  # loads flash_mla/_flashmla_C.abi3.so
     alias = types.ModuleType("vllm._flashmla_C")
-    alias.rlk_alias = True
+    setattr(alias, "rlk_alias", True)
     sys.modules["vllm._flashmla_C"] = alias
 
 
@@ -116,6 +117,9 @@ _use_pinned_flashmla()
 import vllm.models.deepseek_v4.nvidia.model as vm  # noqa: E402
 from vllm.models.deepseek_v4.quant_config import DeepseekV4FP8Config  # noqa: E402
 from vllm.v1.sample.sampler import Sampler  # noqa: E402
+
+if TYPE_CHECKING:
+    from rl_engine.models.deepseek_v4.lora import MoeLora
 
 ENV_ENABLE = "RL_KERNEL_DSV4_ROLLOUT"
 ENV_DUMP = "RL_KERNEL_DSV4_DUMP"
@@ -192,7 +196,7 @@ def _mark_dummy_runs(cls) -> None:
         finally:
             _IN_DUMMY_RUN[0] = False
 
-    run._rlk_marked = True
+    setattr(run, "_rlk_marked", True)
     cls._dummy_run = run
 
 
@@ -326,7 +330,7 @@ def _keep_nccl_bandwidth() -> None:
             else:
                 del os.environ[k]
 
-    keep_nccl.rlk_wrapped = True
+    setattr(keep_nccl, "rlk_wrapped", True)
     vbi.override_envs_for_invariance = keep_nccl
 
 
@@ -481,7 +485,7 @@ class _PlainRope(nn.Module):
         self.register_buffer("cos_sin_cache", cache, persistent=False)
 
 
-def _lora_list(adapters: list[tuple[dict, object]]) -> list:
+def _lora_list(adapters: list[tuple[dict, MoeLora | None]]) -> list:
     """Every ``LoraAdapter`` of a per-layer adapter list, in a fixed order."""
     out = []
     for attn, moe in adapters:
@@ -490,7 +494,9 @@ def _lora_list(adapters: list[tuple[dict, object]]) -> list:
     return out
 
 
-def _same_lora_layout(a: list[tuple[dict, object]], b: list[tuple[dict, object]]) -> bool:
+def _same_lora_layout(
+    a: list[tuple[dict, MoeLora | None]], b: list[tuple[dict, MoeLora | None]]
+) -> bool:
     """Same layers, targets, shapes and alpha."""
 
     def names(adapters):
@@ -519,7 +525,7 @@ class RlkMoE(nn.Module):
         self.moe = None  # rl_engine.models.deepseek_v4.moe.Dsv4MoE
         self.use_mega_moe = False
         # Largest forward (tokens per data-parallel rank) for the static EP exchange.
-        limit = os.environ.get(ENV_EP_STATIC)
+        limit: str | int | None = os.environ.get(ENV_EP_STATIC)
         if limit is None:
             eager = vllm_config.model_config.enforce_eager
             limit = 0 if eager else vllm_config.compilation_config.max_cudagraph_capture_size
@@ -757,7 +763,7 @@ class RlkDeepseekV4Model(vm.DeepseekV4Model):
             attn = layer.attn
             attn.rlk_o_proj = load_output_projection(src, self.rlk_config, i, dev)
 
-    def rlk_set_lora(self, adapters: list[tuple[dict, object]]) -> None:
+    def rlk_set_lora(self, adapters: list[tuple[dict, MoeLora | None]]) -> None:
         """Install adapters, one ``(attention dict, MoeLora | None)`` per local layer.
 
         Adapters with the installed ones' targets, shapes and alpha are copied into them, so
@@ -862,8 +868,8 @@ class RlkDeepseekV4ForCausalLM(vm.DeepseekV4ForCausalLM):
     def set_moe_parameters(self) -> None:
         c = self.config
         self.num_expert_groups = getattr(c, "n_group", 1)
-        self.moe_layers = []
-        self.moe_mlp_layers = []
+        self.moe_layers: list = []
+        self.moe_mlp_layers: list = []
         self.num_moe_layers = 0
         self.num_logical_experts = self.num_physical_experts = c.n_routed_experts
         self.num_routed_experts = c.n_routed_experts
