@@ -231,7 +231,6 @@ def get_extensions():
             "csrc/cuda/inkling2/expert_mlp.cu",
             "csrc/cuda/inkling2/attention_o_residual.cu",
             "csrc/cuda/inkling2/visit_cache.cu",
-            "csrc/cuda/inkling2/full_attention.cu",
             "csrc/cuda/inkling2/shared_weight_grad.cu",
         ]
         if is_rocm:
@@ -242,6 +241,7 @@ def get_extensions():
                     "csrc/rocm/logprob/hip_deterministic_logp_kernel.hip",
                     "csrc/rocm/collectives/deterministic_collective.hip",
                     "csrc/rocm/inkling2/router.hip",
+                    "csrc/rocm/inkling2/full_attention.hip",
                     "csrc/rocm/inkling2/dynamic_kv_conv.hip",
                     "csrc/rocm/inkling2/short_conv.hip",
                 ]
@@ -251,6 +251,7 @@ def get_extensions():
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
             cuda_sources.append("csrc/cuda/inkling2/router.cu")
+            cuda_sources.append("csrc/cuda/inkling2/full_attention.cu")
             cuda_sources.append("csrc/cuda/inkling2/dynamic_kv_conv.cu")
             cuda_sources.append("csrc/cuda/inkling2/short_conv.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).

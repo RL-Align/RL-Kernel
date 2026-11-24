@@ -9,7 +9,11 @@ from .dynamic_kv_conv import (
     dynamic_kv_conv_cuda,
     dynamic_kv_conv_rocm,
 )
-from .full_attention import full_attention, full_attention_cuda
+from .full_attention import (
+    full_attention,
+    full_attention_cuda,
+    full_attention_rocm,
+)
 from .router import (
     RoutingResult,
     route_topk_sigmoid,
@@ -69,4 +73,5 @@ __all__ = [
     "token_embedding_cuda",
     "softcap",
     "dynamic_kv_conv_rocm",
+    "full_attention_rocm",
 ]

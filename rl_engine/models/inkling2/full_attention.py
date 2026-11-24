@@ -263,3 +263,39 @@ def full_attention_cuda(
         bool(causal),
         attention_scale,
     )
+
+
+def full_attention_rocm(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    *,
+    relative_bias: torch.Tensor | None = None,
+    sink: torch.Tensor | None = None,
+    output_gate: torch.Tensor | None = None,
+    query_documents: torch.Tensor | None = None,
+    key_documents: torch.Tensor | None = None,
+    causal: bool = True,
+    scale: float | None = None,
+) -> torch.Tensor:
+    """Run the native ROCm (wave64, MI300X-tuned) Inkling 2 Mini full-attention kernel.
+
+    Same ``_C`` bindings and autograd function as the CUDA entry point; the
+    ROCm build links ``csrc/rocm/inkling2/full_attention.hip`` for them.
+    """
+    if getattr(torch.version, "hip", None) is None:
+        raise RuntimeError("full_attention_rocm requires a ROCm (HIP) build of PyTorch")
+    if not (query.is_cuda and key.is_cuda and value.is_cuda):
+        raise ValueError("full_attention_rocm requires ROCm device tensors")
+    return full_attention_cuda(
+        query,
+        key,
+        value,
+        relative_bias=relative_bias,
+        sink=sink,
+        output_gate=output_gate,
+        query_documents=query_documents,
+        key_documents=key_documents,
+        causal=causal,
+        scale=scale,
+    )
