@@ -158,7 +158,7 @@ class FullModelTrace:
             bindings={
                 name: (
                     dict(rfc_row=b.rfc_row, status=b.status, backend=b.backend)
-                    if self.candidate
+                    if self.candidate and name not in self.provider_nodes  # ran the provider replay
                     else dict(rfc_row=b.rfc_row, status="reference", backend="provider")
                 )
                 for name, b in h3_block.bindings(self.ops if self.candidate else None).items()
@@ -466,7 +466,7 @@ def full_model_execution(
     if candidate:
         if ops is None:
             try:
-                ops = h3_block.CandidateOps()
+                ops = h3_block.CandidateOps(device=next(model.parameters()).device)
             except torch.cuda.OutOfMemoryError:
                 raise  # the device is out of memory: an error of the run, not a missing kernel
             except RuntimeError as exc:  # e.g. the candidate ops' CUDA kernels are missing

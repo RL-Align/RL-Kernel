@@ -279,7 +279,7 @@ def run_refiner_case(
 ) -> dict[str, Any]:
     """Forward replay of one refiner block: per-node agreement, invariance, accuracy, drift."""
 
-    ops = ops or hb.CandidateOps()
+    ops = ops or hb.CandidateOps(device=hb._weights_device(weights))
     ctx = make_refiner_context(weights, block=block, tokens=tokens, seed=seed, batch=1)
     ctx2 = make_refiner_context(weights, block=block, tokens=tokens, seed=seed, batch=2)
     with torch.no_grad():
