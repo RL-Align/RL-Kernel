@@ -112,3 +112,22 @@ def attention_o_residual_cuda(
     if bias.device != attention.device or bias.dtype != attention.dtype:
         raise ValueError("native O residual tensors must share device and dtype")
     return _NativeAttentionOResidualFunction.apply(attention, residual, weight, bias)
+
+
+def attention_o_residual_rocm(
+    attention: torch.Tensor,
+    residual: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Run the native ROCm (MI300X-tuned) O projection and residual kernel.
+
+    Same contract and autograd function as the CUDA entry point; the ``_C``
+    binding is backed by ``csrc/rocm/inkling2/attention_o_residual.hip`` on ROCm
+    builds.
+    """
+    if torch.version.hip is None:
+        raise RuntimeError("attention_o_residual_rocm requires a ROCm (HIP) PyTorch build")
+    if not attention.is_cuda:
+        raise ValueError("native attention and residual must be matching 2-D ROCm device tensors")
+    return attention_o_residual_cuda(attention, residual, weight, bias)
