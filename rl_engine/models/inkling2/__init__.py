@@ -58,6 +58,7 @@ from .token_embedding import (
     VALID_VOCAB_SIZE,
     token_embedding,
     token_embedding_cuda,
+    token_embedding_rocm,
 )
 
 __all__ = [
@@ -99,4 +100,5 @@ __all__ = [
     "grouped_expert_gemm_rocm",
     "expert_gate_up_rocm",
     "attention_o_residual_rocm",
+    "token_embedding_rocm",
 ]

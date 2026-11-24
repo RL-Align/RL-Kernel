@@ -524,6 +524,15 @@ std::vector<torch::Tensor> inkling2_full_attention_backward(
     torch::Tensor query_documents, torch::Tensor key_documents, bool causal, double scale);
 
 #if defined(KERNEL_ALIGN_WITH_ROCM)
+// INK-06 ROCm padded token embedding (csrc/rocm/inkling2/token_embedding.hip).
+torch::Tensor inkling2_token_embedding_rocm(torch::Tensor token_ids, torch::Tensor weight);
+torch::Tensor inkling2_token_embedding_backward_rocm(
+    torch::Tensor token_ids,
+    torch::Tensor grad_output,
+    int64_t vocab_size);
+#endif
+
+#if defined(KERNEL_ALIGN_WITH_ROCM)
 torch::Tensor deterministic_rope_apply_rocm(
     torch::Tensor x,
     torch::Tensor cos,
@@ -638,6 +647,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Single-card SM90 batch-invariant embedding forward");
     m.def("embedding_sm90_forward_fp32", &embedding_sm90_forward_fp32,
           "Single-card SM90 batch-invariant embedding forward with fp32 output");
+    m.def("embedding_sm90_backward", &embedding_sm90_backward,
+          "Single-card SM90 deterministic embedding backward");
     m.def("lm_head_sm90_forward", &lm_head_sm90_forward,
           "Single-card SM90 batch-invariant LM-head forward");
     m.def("lm_head_sm90_forward_fp32", &lm_head_sm90_forward_fp32,
@@ -885,6 +896,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Inkling 2 Mini native CUDA full attention forward");
     m.def("inkling2_full_attention_backward", &inkling2_full_attention_backward,
           "Inkling 2 Mini native CUDA full attention backward");
+#if defined(KERNEL_ALIGN_WITH_ROCM)
+    m.def(
+        "inkling2_token_embedding_rocm",
+        &inkling2_token_embedding_rocm,
+        "Inkling 2 padded token embedding gather for ROCm (byte-exact rows)");
+    m.def(
+        "inkling2_token_embedding_backward_rocm",
+        &inkling2_token_embedding_backward_rocm,
+        "Inkling 2 deterministic token embedding backward for ROCm");
+#endif
 #if defined(KERNEL_ALIGN_WITH_ROCM)
     m.def(
         "deterministic_rope_apply_rocm",

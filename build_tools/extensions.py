@@ -236,6 +236,7 @@ def get_extensions():
                     "csrc/rocm/logprob/hip_deterministic_logp_kernel.hip",
                     "csrc/rocm/collectives/deterministic_collective.hip",
                     "csrc/rocm/inkling2/router.hip",
+                    "csrc/rocm/inkling2/token_embedding.hip",
                     "csrc/rocm/inkling2/attention_o_residual.hip",
                     "csrc/rocm/inkling2/expert_mlp.hip",
                     "csrc/rocm/inkling2/grouped_gemm.hip",

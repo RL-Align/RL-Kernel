@@ -283,6 +283,10 @@ def deterministic_attention_backward(
     scale: float,
     key_padding_mask: torch.Tensor | None,
 ) -> list[torch.Tensor]: ...
+def inkling2_token_embedding_rocm(token_ids: torch.Tensor, weight: torch.Tensor) -> torch.Tensor: ...
+def inkling2_token_embedding_backward_rocm(
+    token_ids: torch.Tensor, grad_output: torch.Tensor, vocab_size: int
+) -> torch.Tensor: ...
 def deterministic_rope_apply_rocm(
     x: torch.Tensor,
     cos: torch.Tensor,
