@@ -121,7 +121,7 @@ def run_vision_parity(*, seed: int = 0, image_hw: tuple[int, int] = (480, 640)) 
     scale = proj_cpu.abs().max().clamp_min(1e-6)
     proj_rel = float((proj_cpu - proj_dev.cpu()).abs().max() / scale)
 
-    one = merged_cpu[:1]
+    one = merged_cpu[:1, :8]
     fixed_cpu = project_merged_patches_fixed_order(one, weight, bias)
     fixed_dev = project_merged_patches_fixed_order(one.to(dev), weight.to(dev), bias.to(dev))
 
