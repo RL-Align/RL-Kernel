@@ -19,6 +19,7 @@ from rl_engine.distributed.algorithms import canonical_cp
 from rl_engine.integrations.common.linear_logp import LinearLogpWrapper
 from rl_engine.integrations.common.operators import _strict_attention_projection_op
 from rl_engine.integrations.common.state import get_active_integration, set_active_integration
+from rl_engine.integrations.common.training_logp import compute_training_logp
 from rl_engine.integrations.engines.train.megatron.adapter import MegatronIntegration
 from rl_engine.integrations.engines.train.megatron.operators import (
     _MEGATRON_TP_OUTPUT_PROJECTION_COLLECTIVE_ATTR,
@@ -28,7 +29,6 @@ from rl_engine.integrations.engines.train.megatron.operators import (
     MegatronLogpOperator,
     _fused_rms_norm_input,
 )
-from rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider import _provider_impl
 from rl_engine.runtime.plan import Implementation, IntegrationPlan
 
 _PATCH_MARKER = "__rl_kernel_original_forward__"
@@ -1106,7 +1106,7 @@ def install_megatron_integration(
         rl_kernel_operators["ffn"] = MegatronFFNOperator()
     if plan.implementation_for("logp", "training") is Implementation.RL_KERNEL:
         rl_kernel_operators["logp"] = MegatronLogpOperator(
-            _provider_impl,
+            compute_training_logp,
             linear_logp=LinearLogpWrapper(),
         )
     integration = MegatronIntegration(plan, rl_kernel_operators=rl_kernel_operators)
@@ -1148,7 +1148,7 @@ def install_megatron_integration(
     if plan.implementation_for("logp", "training") is Implementation.RL_KERNEL:
         integration.record_installed_hook(
             "logp",
-            "rl_engine.integrations.orchestrators.vime.providers.linear_logp_provider.provider,"
+            "rl_engine.integrations.common.training_logp.compute_training_logp,"
             "megatron.core.transformer.linear_cross_entropy.LinearCrossEntropyModule.forward",
         )
     return integration
