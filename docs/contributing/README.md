@@ -8,6 +8,11 @@ dispatch, distributed execution, and train/rollout integrations.
 This section also contains architecture references, numerical contracts,
 integration guides, validation procedures, and historical design documents.
 
+Every commit in a pull request must carry a `Signed-off-by:` trailer per the
+Developer Certificate of Origin (DCO) — sign your commits with `git commit -s`.
+The [contributing guide](../CONTRIBUTING.md) covers repair workflows,
+email-matching rules, and signing policies.
+
 Before merging a new operator, include:
 
 - The implementation and dispatch registration.
@@ -23,4 +28,5 @@ Useful pages:
 - [Documentation Guide](documentation.md)
 - [Testing](testing.md)
 - [Automated PR Review](ocr-review.md)
+- [Contributing Guide](../CONTRIBUTING.md)
 - [Runtime Dispatch](../architecture/runtime-dispatch.md)
