@@ -21,6 +21,21 @@ def clone_visit_state_cuda(source: torch.Tensor) -> torch.Tensor:
     return _C.inkling2_visit_state_clone(source.contiguous())
 
 
+def clone_visit_state_rocm(source: torch.Tensor) -> torch.Tensor:
+    """Clone a ROCm KV or convolution state through the native HIP byte-copy kernel."""
+    if torch.version.hip is None:
+        raise RuntimeError("clone_visit_state_rocm requires a ROCm build of PyTorch")
+    from rl_engine.backends.extension import _C, _EXT_AVAILABLE
+
+    if not _EXT_AVAILABLE or not hasattr(_C, "inkling2_visit_state_clone"):
+        raise RuntimeError("Inkling 2 visit-state ROCm extension is unavailable")
+    if not source.is_cuda or source.ndim == 0:
+        raise ValueError("visit state must be a non-scalar ROCm tensor")
+    if source.dtype not in (torch.float16, torch.bfloat16, torch.float32):
+        raise TypeError("native visit-state clone supports float16, bfloat16, and float32")
+    return _C.inkling2_visit_state_clone(source.contiguous())
+
+
 @dataclass(frozen=True, order=True)
 class VisitKey:
     physical_layer_id: int
