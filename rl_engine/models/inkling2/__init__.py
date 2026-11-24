@@ -7,7 +7,12 @@ from .router import (
     route_topk_sigmoid_cuda,
     route_topk_sigmoid_rocm,
 )
-from .token_embedding import PADDED_VOCAB_SIZE, VALID_VOCAB_SIZE, token_embedding, token_embedding_cuda
+from .token_embedding import (
+    PADDED_VOCAB_SIZE,
+    VALID_VOCAB_SIZE,
+    token_embedding,
+    token_embedding_cuda,
+)
 
 __all__ = [
     "PADDED_VOCAB_SIZE",
