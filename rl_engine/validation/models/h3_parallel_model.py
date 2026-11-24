@@ -4,7 +4,7 @@
 """The full H3 model under TP / CP / SP (RFC #420 WS2 closeouts ``ws2_tp2_tp4_tp8`` and friends).
 
 ``parallel_model_execution`` binds every transformer block of the real model to the
-``h3-parallel-v1`` block (``h3_tp.run_tp_block_rows``) on top of the full-model harness: the
+``h3-parallel-v2`` block (``h3_tp.run_tp_block_rows``) on top of the full-model harness: the
 boundary rows (audio / text projections, token refiner) keep their strict single-GPU bindings and
 run replicated, each block takes the packed sequence from the previous block, slices the rows its
 rank owns (CP rows, or their TP share with sequence parallelism), runs the parallel block and
@@ -308,7 +308,7 @@ def exact_digest(t: torch.Tensor, *, chunk: int = DIGEST_CHUNK) -> list[int]:
 def shard_of(grad: torch.Tensor, name: str, tp: int, tp_rank: int) -> torch.Tensor:
     """This TP rank's shard of an unsharded weight gradient, by the sharding of ``name``.
 
-    ``lora.<target>.<part>`` follows ``h3-parallel-lora-v1``: the ``A`` of a row-parallel target
+    ``lora.<target>.<part>`` follows ``h3-parallel-lora-v2``: the ``A`` of a row-parallel target
     and the ``B`` of a column-parallel one are cut; the other is held whole.
     """
 

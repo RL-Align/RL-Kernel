@@ -83,6 +83,8 @@ class FullModelTrace:
         self._events = set()
         self.boundary_bindings = {}
         self.ops = None  # the candidate ops: ``validate`` reports the bindings they ran
+        # the packed-sequence rows of the top-level forward (``h3_packed_forward``)
+        self.packed_bindings = {"packed_index_copy": "provider", "packed_index_select": "reference"}
 
     def record_event(self, name):
         if name not in self._events:
@@ -167,6 +169,7 @@ class FullModelTrace:
                 "strict rows + provider" if self.boundary_bindings else "provider/reference"
             ),
             boundary_bindings=self.boundary_bindings,
+            packed_bindings=dict(self.packed_bindings),
             # not empty only for a diagnostic hybrid, whose nodes ran the provider replay: such a
             # trace is localisation evidence, never a candidate result
             diagnostic_provider_nodes=list(self.provider_nodes),
@@ -435,6 +438,51 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
 
 
 @contextmanager
+def _packed_rows(model, trace):
+    """Bind the top-level forward's scatter to ``packed_index_copy`` (``h3_packed_forward``).
+
+    The row is pure data movement, so the forward is bitwise the provider's either way. It is
+    bound when its CUDA operator and a known provider forward are present; otherwise the
+    provider's scatter runs, and ``trace.packed_bindings`` says which one ran (``row`` /
+    ``provider``). It is reported, not required: a strict run without the operator is the same
+    bytes.
+    """
+
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models import h3_packed_forward as hpf
+
+    pack_cls = "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp"
+    # Only a missing operator (the registry's RuntimeError, an ImportError) or a forward that is
+    # not a known provider forward (``UnknownForwardError``) leaves the provider scatter on; an
+    # out-of-memory error, or any other error while binding, is an error of the run and raises.
+    context = None
+    try:
+        op = KernelRegistry().get_op("packed_index_copy", device="cuda")
+    except torch.cuda.OutOfMemoryError:
+        raise
+    except (RuntimeError, ImportError):
+        op = None
+    if op is not None and f"{type(op).__module__}.{type(op).__qualname__}" == pack_cls:
+        context = hpf.bind(model, op)
+        try:
+            context.__enter__()
+        except (hpf.UnknownForwardError, ImportError):
+            context = None
+    if context is None:
+        yield
+        return
+    trace.packed_bindings["packed_index_copy"] = "row"
+    exc_info: tuple = (None, None, None)
+    try:
+        yield
+    except BaseException:
+        exc_info = sys.exc_info()
+        raise
+    finally:
+        context.__exit__(*exc_info)
+
+
+@contextmanager
 def full_model_execution(
     model,
     *,
@@ -482,13 +530,18 @@ def full_model_execution(
         if strict_boundaries
         else None
     )
+    pack_context = _packed_rows(model, trace) if candidate else None
     exc_info: tuple = (None, None, None)
     boundary_entered = False  # exit the boundary context only if its ``__enter__`` returned
     gemm_entered = False
+    pack_entered = False
     try:
         if gemm_context is not None:
             gemm_context.__enter__()
             gemm_entered = True
+        if pack_context is not None:
+            pack_context.__enter__()
+            pack_entered = True
         if boundary_context is not None:
             boundary_context.__enter__()
             boundary_entered = True
@@ -554,14 +607,18 @@ def full_model_execution(
             handle.remove()
         for block, original in originals:
             block.forward = original
-        # nested, so an error raised while the boundary context exits still closes the GEMM
-        # session
+        # nested, so an error raised while one context exits still closes the ones after it
+        # (the pack binding, then the GEMM session)
         try:
             if boundary_context is not None and boundary_entered:
                 boundary_context.__exit__(*exc_info)
         finally:
-            if gemm_context is not None and gemm_entered:
-                gemm_context.__exit__(*exc_info)
+            try:
+                if pack_context is not None and pack_entered:
+                    pack_context.__exit__(*exc_info)
+            finally:
+                if gemm_context is not None and gemm_entered:
+                    gemm_context.__exit__(*exc_info)
 
 
 # --- Numerics shared with the generation runner --------------------------------------------------
