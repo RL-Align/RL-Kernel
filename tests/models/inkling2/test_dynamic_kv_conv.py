@@ -54,6 +54,13 @@ def test_native_cuda_dynamic_kv_conv_matches_reference_and_backward():
     reference, reference_state = dynamic_kv_conv(x, coefficients)
     torch.testing.assert_close(output, reference, atol=0, rtol=0)
     torch.testing.assert_close(state, reference_state, atol=0, rtol=0)
+    ref_x = x.detach().clone().requires_grad_(True)
+    ref_coefficients = coefficients.detach().clone().requires_grad_(True)
+    ref_output, _ = dynamic_kv_conv(ref_x, ref_coefficients)
     output.float().square().mean().backward()
-    assert x.grad is not None and torch.isfinite(x.grad.float()).all()
-    assert coefficients.grad is not None and torch.isfinite(coefficients.grad.float()).all()
+    ref_output.float().square().mean().backward()
+    assert x.grad is not None and coefficients.grad is not None
+    torch.testing.assert_close(x.grad.float(), ref_x.grad.float(), atol=2e-2, rtol=2e-2)
+    torch.testing.assert_close(
+        coefficients.grad.float(), ref_coefficients.grad.float(), atol=2e-2, rtol=2e-2
+    )
