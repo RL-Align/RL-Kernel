@@ -13,10 +13,13 @@ import torch
 from rl_engine.models.minimax_h3 import trajectory as tj
 from tools.validation.models import h3_e2e_diffusers as e2e
 
-scheduling = pytest.importorskip("diffusers.schedulers.scheduling_minimax_h3")
+
+def _scheduling():
+    return pytest.importorskip("diffusers.schedulers.scheduling_minimax_h3")
 
 
 def _sample(capture, *, seed=0, drift_at=None, steps=10):
+    scheduling = _scheduling()
     video, audio = scheduling.MiniMaxH3Scheduler(12.0), scheduling.MiniMaxH3Scheduler(3.0)
     gen = torch.Generator().manual_seed(seed)
     xv, xa = torch.randn(6, 8, generator=gen), torch.randn(5, 4, generator=gen)
@@ -220,3 +223,25 @@ def test_an_existing_run_resumes_only_if_this_invocation_would_produce_it():
             strict_boundaries=False,
             prov={**prov, "source_commit": "def"},
         )
+
+
+def test_the_seal_covers_the_whole_contract():
+    contract = e2e.load_contract(e2e.source_root())
+    assert e2e.contract_sha256(contract) == contract["contract_sha256"]
+    for field, value in (("height", 512), ("num_inference_steps", 20), ("provider_revision", "x")):
+        edited = {**contract, field: value}
+        assert e2e.contract_sha256(edited) != contract["contract_sha256"]
+
+
+def test_a_silent_reference_is_not_a_perfect_match():
+    zero, noise = np.zeros(8, dtype=np.float32), np.ones(8, dtype=np.float32)
+    assert e2e._rel_l2(zero, zero) == 0.0
+    assert e2e._rel_l2(noise, zero) == float("inf")
+    assert e2e._rel_l2(zero, noise) == 1.0
+
+
+def test_only_numbered_run_folders_count(tmp_path):
+    for name in ("r0", "r1", "rtest", "r-notes", "r0-failed-1"):
+        (tmp_path / "case0" / name).mkdir(parents=True)
+        (tmp_path / "case0" / name / "manifest.json").write_text("{}")
+    assert [p.name for p in e2e._runs(tmp_path, 0)] == ["r0", "r1"]

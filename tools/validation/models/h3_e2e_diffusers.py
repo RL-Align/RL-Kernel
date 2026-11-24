@@ -18,7 +18,7 @@ Two arms run the same pinned Diffusers pipeline:
 
 * a sealed trajectory artifact, ``trajectory.json``, with per-step velocity and latent digests
   (``rl_engine.models.minimax_h3.trajectory``), and ``tensors.safetensors``;
-* the decoded media as ``video.npy`` (float16) and ``audio.npy``, with their float32 digests;
+* the decoded media as ``video.npy`` and ``audio.npy`` (float32), with their digests;
 * ``manifest.json``: provenance, the operator trace (R), the scheduler-row counts, peak memory
   and the time split.
 
@@ -47,6 +47,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import time
@@ -73,14 +74,19 @@ def source_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def contract_sha256(contract: dict[str, Any]) -> str:
+    """The seal of a contract: its canonical JSON without the seal itself."""
+
+    sealed = {k: v for k, v in contract.items() if k != "contract_sha256"}
+    return hashlib.sha256(json.dumps(sealed, sort_keys=True).encode()).hexdigest()
+
+
 def load_contract(root: Path) -> dict[str, Any]:
     contract = json.loads((root / CONTRACT).read_text())
+    # the whole workload is sealed, not only the cases: sizes, steps, revisions and the query chunk
+    if contract_sha256(contract) != contract["contract_sha256"]:
+        raise ValueError("the contract changed")
     cases = contract["cases"]
-    if (
-        hashlib.sha256(json.dumps(cases, sort_keys=True).encode()).hexdigest()
-        != contract["cases_sha256"]
-    ):
-        raise ValueError("the contract's cases changed")
     if [c["case"] for c in cases] != list(range(len(cases))):
         raise ValueError("contract cases must be numbered 0..N-1 in order")
     if contract["resolved_num_frames"] != resolved_frames(contract["num_frames"]):
@@ -415,7 +421,7 @@ def run_case(
         keep_tensors=keep_tensors,
         out_dir=out_dir,
     )
-    np.save(out_dir / "video.npy", video.astype(np.float16))
+    np.save(out_dir / "video.npy", video)  # float32: the media metrics are computed from it
     np.save(out_dir / "audio.npy", audio)
     manifest = {
         "label": label,
@@ -556,7 +562,11 @@ def cmd_run(args) -> None:
 def _runs(root: Path, case: int) -> list[Path]:
     base = root / f"case{case}"
     return sorted(
-        (p for p in base.glob("r*") if (p / "manifest.json").exists() and "-failed-" not in p.name),
+        (
+            p
+            for p in base.glob("r*")
+            if re.fullmatch(r"r\d+", p.name) and (p / "manifest.json").exists()
+        ),
         key=lambda p: int(p.name[1:]),
     )
 
@@ -567,8 +577,13 @@ def _psnr(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def _rel_l2(a: np.ndarray, b: np.ndarray) -> float:
+    """Relative L2 of ``a`` against ``b``; infinite when ``b`` is silent and ``a`` is not."""
+
     den = float(np.linalg.norm(b.astype(np.float64)))
-    return float(np.linalg.norm(a.astype(np.float64) - b.astype(np.float64)) / den) if den else 0.0
+    num = float(np.linalg.norm(a.astype(np.float64) - b.astype(np.float64)))
+    if den == 0.0:
+        return 0.0 if num == 0.0 else math.inf
+    return num / den
 
 
 def compare_case(
