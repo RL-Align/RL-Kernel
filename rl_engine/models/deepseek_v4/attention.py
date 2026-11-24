@@ -1,30 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""DSv4 attention layer forward on the batch-invariant SM90 kernel set (T07).
-
-Follows vLLM's ``DeepseekV4Attention`` / ``DeepseekV4FlashMLAAttention``
-(``ISEEKYAN/vllm@1a6542c``) for one layer of compress ratio 1 (sliding window
-only), 4 (C4: compressor + indexer) or 128 (C128: compressor, all entries)::
-
-    qr, kv  = split(fused_wqa_wkv(h))                 FP8 DeepGEMM
-    qr, kv  = rmsnorm(qr), rmsnorm(kv)                rmsnorm_cuda (P1)
-    q       = wq_b(qr)                                FP8 DeepGEMM
-    q       = q-norm + RoPE; kv -> RoPE + fp8_ds_mla sliding-window cache
-    ratio>1 compressor: bf16_gemm(h, wkv_wgate) -> state cache -> fp8_ds_mla KV cache
-    ratio=4 indexer: bf16_gemm(h, weights_proj), wq_b_idx(qr) -> RoPE + FP8,
-            indexer compressor -> FP8 K cache, MQA logits -> stable top-k
-    o       = FlashMLA sparse over [compressed | window] with the sink
-    y       = wo_b(wo_a_grouped(inverse RoPE + FP8(o)))
-
-Every operator is batch-invariant (each was probed or tested on its own).
-A decode step (one token per request) reads the paged indexer cache and builds
-a per-token workspace; other steps pack indexer entries and build per-request
-slabs. Both give the same bytes for the same token, and a decode step reads
-nothing back to the host, so it can be captured in a CUDA graph. Caches are
-paged per request; the caller owns block tables and slot assignment
-(:class:`LayerCaches`) and builds each step's :class:`Dsv4Batch`.
-This module is forward-only (rollout and actor recompute).
-"""
+"""DSv4 attention layer forward on the batch-invariant SM90"""
 
 from __future__ import annotations
 

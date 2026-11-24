@@ -1,12 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""CUDA DSv4 indexer query: RoPE + per-(token, head) FP8 quantization.
-
-Thin wrapper around ``csrc/cuda/indexer/indexer_q_rope_fp8.cu``, byte-equal to
-the golden ``rl_engine.kernels.ops.pytorch.indexer.indexer_q_rope_fp8`` (vLLM's
-CuTe-DSL ``IndexerQFp8Kernel`` numerics). Fails closed when the compiled
-extension lacks the symbol.
-"""
+"""CUDA DSv4 indexer query: ``csrc/cuda/indexer/indexer_q_rope_fp8.cu``"""
 
 from __future__ import annotations
 
@@ -39,7 +33,6 @@ def indexer_q_rope_fp8_cuda(
     softmax_scale: float,
     head_scale: float,
 ) -> tuple[Tensor, Tensor]:
-    """``q`` BF16 ``[T, H, 128]`` -> (FP8 E4M3 ``[T, H, 128]``, FP32 weights ``[T, H]``)."""
     q_fp8, weights_out = _extension().indexer_q_rope_fp8_forward(
         q, positions, cos_sin_cache, weights, float(softmax_scale), float(head_scale)
     )

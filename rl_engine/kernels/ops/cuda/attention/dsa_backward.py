@@ -1,25 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""Backward of the DSv4 sparse attention core (cuDNN-frontend ``dsa_bwd_sm90``).
-
-The forward is FlashMLA's ``flash_mla_sparse_fwd`` (``dsv4_attention.sparse_attention``).
-The pinned FlashMLA has no sparse backward on any arch. This wraps the SM90 CuTe-DSL
-kernel from ``nvidia-cudnn-frontend``, which Megatron-Core and verl run for DSv4 on Hopper.
-Its contract matches ours exactly:
-- head dim 512 with K = V and one KV head (MQA);
-- the sink folded into FlashMLA's KV-only LSE;
-- per-query global index lists with ``-1`` padding and ``topk_length``.
-
-**Not deterministic (temporary, user decision 2026-11-11).**
-- ``dq`` is: each work tile owns one query and writes it once.
-- ``dkv`` is accumulated with FP32 ``atomicAdd`` over every (query, slot) that selected a
-  row, so its bytes vary run to run. ``deterministic=True`` exists only on SM100.
-- Backward determinism is not required (user decision); a fork of ``dsa_bwd_sm90`` with
-  int64 fixed-point dKV accumulation would make it deterministic
-  (``docs/architecture/dsv4-design.md``, open work).
-
-Fails closed unless the pinned ``nvidia-cudnn-frontend`` is installed;
-``RL_KERNEL_CUDNN_DSA_ALLOW_UNPINNED=1`` accepts another version for development.
+"""Backward of the DSv4 sparse attention core.
+Note: Backward determinism is not required for now.
 """
 
 from __future__ import annotations
@@ -79,14 +61,6 @@ def sparse_attention_backward(
     lse: Tensor,
     dout: Tensor,
 ) -> tuple[Tensor, Tensor]:
-    """``(dq BF16 [T, H, 512], dworkspace BF16 [S, 512])`` for ``sparse_attention``.
-
-    Arguments as in the forward: ``q`` BF16 ``[T, H, 512]``, ``workspace`` BF16
-    ``[S, 1, 512]`` or ``[S, 512]``, ``indices`` int32 ``[T, 1, W]`` or ``[T, W]`` (``-1``
-    padding), ``lens`` int32 ``[T]``, ``sink`` FP32 ``[H]``; ``out`` / ``lse`` from the
-    forward (``lse`` FP32 ``[T, H]``, KV-only, natural log); ``dout`` BF16 ``[T, H, 512]``.
-    ``dworkspace`` is not deterministic (see the module docstring).
-    """
     wrapper = require_cudnn_dsa()
     t, h, d = q.shape
     res = wrapper(

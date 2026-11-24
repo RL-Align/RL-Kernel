@@ -1,32 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""DSv4 sparse attention core on FlashMLA (SM90, T05).
-
-What vLLM runs under ``VLLM_BATCH_INVARIANT=1`` with
-``VLLM_DS4_DECODE_KERNEL=sparse`` (``nvidia/flashmla.py``,
-``common/ops/cache_utils.py`` at ``ISEEKYAN/vllm@1a6542c``), for prefill and
-decode alike:
-
-1. Each request ``b`` owns a fixed slab of ``M = N + G`` rows in a BF16 KV
-   workspace: rows ``[0, N)`` hold its dequantized compressed entries (``N`` is
-   fixed from the model config, ``max_model_len // ratio``), rows ``[N, N + G)``
-   the dequantized sliding-window tokens ``gather_start .. seq_len - 1``.
-2. Each query token gets one index list: its compressed ids (C4: the
-   indexer's top-k; C128: every entry so far), **canonicalized** by a
-   descending sort, then its window positions ``pos - swa_len + 1 .. pos``
-   ascending, all offset to its request's slab, ``-1`` padded to a multiple
-   of 128; the valid length is ``topk_len + swa_len`` with
-   ``topk_len = min((pos + 1) // ratio, top_k)`` and
-   ``swa_len = min(pos + 1, window)``.
-3. ``flash_mla_sparse_fwd`` over the workspace with the per-head sink.
-
-The probe (``scripts/probe_dsv4_flashmla_bi.py``) showed the kernel's bytes
-do not depend on other queries, on where a slab sits in the workspace or on
-padding, but do depend on index order; with the canonical order every step is
-row-local, so the output is batch-invariant and decode equals prefill.
-Gather / dequantize and index building are exact integer / power-of-two
-operations done with PyTorch indexing.
-"""
+"""DSv4 sparse attention core on FlashMLA (SM90)."""
 
 from __future__ import annotations
 
@@ -80,8 +54,8 @@ def paged_slots(table: Tensor, req: Tensor, index: Tensor, block: int, valid: Te
 class SlabLayout:
     """Per-request workspace slabs: ``M = N + G`` rows each."""
 
-    compressed_rows: int  # N, fixed from the model config
-    window_rows: int  # G, at least the largest gather length in the batch
+    compressed_rows: int  # N
+    window_rows: int  # G
 
     @property
     def rows(self) -> int:
@@ -100,17 +74,12 @@ def build_workspace(
     compressed_block_size: int = 0,
     ratio: int = 1,
 ) -> Tensor:
-    """BF16 workspace ``[R * M, 1, 512]`` for ``R`` requests (unused rows are zero).
-
-    Shapes come from ``layout`` only, so nothing is read back to the host.
-    """
     requests = seq_lens.shape[0]
     device = seq_lens.device
     n, g_rows = layout.compressed_rows, layout.window_rows
     req = torch.arange(requests, device=device)[:, None]
     ws = torch.empty(requests * layout.rows, HEAD_DIM, dtype=torch.bfloat16, device=device)
 
-    # Sliding-window tokens gather_start .. seq_len - 1 -> rows N + i.
     g = torch.arange(g_rows, device=device)[None]
     gl = gather_lens.long()[:, None]
     pos = seq_lens.long()[:, None] - gl + g
@@ -215,14 +184,7 @@ def build_compact(
     compressed_block_size: int = 0,
     topk_local: Tensor | None = None,
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Per-token workspace (``top_k + window`` rows each) with its index lists.
-
-    Token ``t`` owns rows ``t * K .. t * K + K``: its selected compressed entries
-    in canonical order, then its window positions ascending, so its index list
-    visits the same values in the same order as with :func:`build_workspace`
-    (FlashMLA's bytes depend on neither the rows' place nor unused rows). Best
-    for decode, where a request has one query token.
-    """
+    """Per-token workspace (top_k + window) with its index lists."""
     device = token_pos.device
     pos = token_pos.long()
     req = token_req.long()
@@ -254,11 +216,6 @@ def build_compact(
 def sparse_attention(
     q: Tensor, workspace: Tensor, indices: Tensor, lens: Tensor, sink: Tensor, scale: float
 ) -> tuple[Tensor, Tensor]:
-    """``flash_mla_sparse_fwd``: q BF16 ``[T, H, 512]`` -> (out BF16 ``[T, H, 512]``, lse).
-
-    FlashMLA returns ``(out, max_logits, lse)``; ``lse`` is the log-sum-exp of the scaled
-    scores over the selected KV rows (the sink is not in it), which the backward needs.
-    """
     fm, _ = require_flashmla(q.device)
     out, _, lse = fm.flash_mla_sparse_fwd(q, workspace, indices, scale, HEAD_DIM, sink, lens)
     return out, lse
@@ -312,22 +269,7 @@ def inv_rope_fp8(o: Tensor, positions: Tensor, cos_sin_cache: Tensor, groups: in
 
 
 class OutputProjection:
-    """``wo_b(wo_a_grouped(inv_rope_fp8(o)))`` on DeepGEMM FP8 (forward).
-
-    ``wo_a``: FP8 ``[groups * o_lora_rank, heads_per_group * 512]`` with 128x128
-    block scales (checkpoint layout). ``wo_b`` is an :class:`Fp8Linear`
-    ``[hidden, groups * o_lora_rank]``.
-
-    Below ``EINSUM_MAX_TOKENS`` the grouped ``wo_a`` is one DeepGEMM
-    ``fp8_einsum('bhr,hdr->bhd')`` launch (vLLM's path; SM90 ``sm90_fp8_bmm``), which
-    writes ``z`` in its final ``[T, groups * rank]`` layout. From there up it is one
-    ``fp8_gemm_nt`` per group (the ``wo_a_group`` shape the Phase 1 probe found
-    batch-invariant), which is faster at large T. Both give the same bytes at every T
-    (``scripts/probe_dsv4_wo_a_einsum.py``: T = 1..16384, repeated), so the switch keeps
-    the layer batch-invariant. DeepGEMM's ``m_grouped_fp8_gemm_nt_masked`` is not used:
-    on these operands it intermittently returned wrong values
-    (``scripts/probe_dsv4_wo_a_grouped.py``).
-    """
+    """wo_b(wo_a_grouped(inv_rope_fp8(o))) on DeepGEMM FP8 (forward)."""
 
     EINSUM_MAX_TOKENS = 8192
 
@@ -348,7 +290,6 @@ class OutputProjection:
         self.wo_b = wo_b
 
     def _wo_a(self, a: Tensor, scales: Tensor) -> Tensor:
-        """``a`` FP8 ``[G, T, K]``, ``scales`` ``[G, T, K/128]`` -> ``z`` BF16 ``[T, G * rank]``."""
         tokens = a.shape[1]
         if tokens < self.EINSUM_MAX_TOKENS:
             z = torch.empty(
@@ -368,8 +309,6 @@ class OutputProjection:
     def __call__(
         self, o: Tensor, positions: Tensor, cos_sin_cache: Tensor, lora=None, saved=None
     ) -> Tensor:
-        """``lora``: an optional ``wo_b`` adapter (``rl_engine.models.deepseek_v4.lora``);
-        ``saved``: a dict that receives ``wo_b``'s input ``z`` for the backward."""
         tokens = o.shape[0]
         a, scales = inv_rope_fp8(o, positions, cos_sin_cache, self.groups)
         if tokens:

@@ -1,29 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
-"""DSv4 dense FP8 linear on DeepGEMM (SM90), matching the vLLM rollout.
-
-``y = x @ W.T`` for a weight ``W [N, K]`` stored as FP8 E4M3 with 128x128
-blocks and UE8M0-valued FP32 scales (the DSv4 checkpoint format), as vLLM runs
-the attention projections (``fused_wqa_wkv``, ``wq_b``, ``wo_b``, indexer
-``wq_b``) and the shared expert::
-
-    x (BF16 [M, K]) -> fp8_group_quant (1x128, UE8M0) -> DeepGEMM fp8_gemm_nt -> y (BF16 [M, N])
-
-Backward, on the kernels ``scripts/probe_dsv4_deepgemm_bi.py`` verified (D3):
-
-* :meth:`Fp8Linear.backward_dx` -- ``dX = dY @ W``: the same NT kernel with
-  ``W.T`` precomputed once (block-quantizing ``W.T`` gives the same bytes as
-  transposing the block-quantized ``W``); batch-invariant like the forward.
-* :meth:`Fp8Linear.backward_dw` -- ``dW = dY.T @ X``: the 1D1D wgrad kernel
-  (``recipe=(1, 1, 128)``) on token-direction quantized operands, FP32 output,
-  optionally accumulated into an existing gradient; run-to-run deterministic.
-  Tokens are zero-padded to a multiple of 128 by the quantizer.
-
-Every step is row-local or one of those GEMMs, so forward and dX are
-batch-invariant. Fail-closed (rule 7): construction raises when DeepGEMM is not
-the pinned build on SM90 with a CUDA 12.8+ JIT, or ``rl_engine._C`` lacks the
-quantizer; there is no fallback to another GEMM.
-"""
+"""DSv4 dense FP8 linear on DeepGEMM (SM90)."""
 
 from __future__ import annotations
 
@@ -154,10 +131,7 @@ class Fp8Linear:
         return self._linear(self._check_rows(dy, self.out_features, "dy"), self.weight_t)
 
     def backward_dw(self, dy: Tensor, x: Tensor, out: Tensor | None = None) -> Tensor:
-        """``dW = dy.T @ x`` as FP32 ``[N, K]``; accumulates into ``out`` when given.
-
-        Deterministic run to run, not batch-invariant: it reduces over tokens.
-        """
+        """``dW = dy.T @ x`` as FP32 ``[N, K]``"""
         dy = self._check_rows(dy, self.out_features, "dy")
         x = self._check_rows(x, self.in_features, "x")
         if dy.shape[0] != x.shape[0]:
