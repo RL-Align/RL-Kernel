@@ -28,7 +28,13 @@ from .short_conv import (
     causal_short_conv_rocm,
     causal_short_conv_streams,
 )
-from .visit_cache import VisitKey, VisitState, VisitStateCache, clone_visit_state_cuda
+from .visit_cache import (
+    VisitKey,
+    VisitState,
+    VisitStateCache,
+    clone_visit_state_cuda,
+    clone_visit_state_rocm,
+)
 from .shared_weight_grad import (
     accumulate_shared_weight_gradients,
     accumulate_shared_weight_gradients_cuda,
@@ -74,4 +80,5 @@ __all__ = [
     "softcap",
     "dynamic_kv_conv_rocm",
     "full_attention_rocm",
+    "clone_visit_state_rocm",
 ]
