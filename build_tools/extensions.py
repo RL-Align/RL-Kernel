@@ -227,7 +227,6 @@ def get_extensions():
             "csrc/cuda/norm/rmsnorm.cu",
             "csrc/cuda/activation/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
-            "csrc/cuda/inkling2/short_conv.cu",
         ]
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared
@@ -237,6 +236,7 @@ def get_extensions():
                     "csrc/rocm/logprob/hip_deterministic_logp_kernel.hip",
                     "csrc/rocm/collectives/deterministic_collective.hip",
                     "csrc/rocm/inkling2/router.hip",
+                    "csrc/rocm/inkling2/short_conv.hip",
                 ]
             )
         else:
@@ -244,6 +244,7 @@ def get_extensions():
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
             cuda_sources.append("csrc/cuda/inkling2/router.cu")
+            cuda_sources.append("csrc/cuda/inkling2/short_conv.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")

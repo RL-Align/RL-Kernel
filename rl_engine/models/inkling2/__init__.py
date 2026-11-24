@@ -12,6 +12,7 @@ from .short_conv import (
     STREAMS,
     causal_short_conv,
     causal_short_conv_cuda,
+    causal_short_conv_rocm,
     causal_short_conv_streams,
 )
 
@@ -21,6 +22,7 @@ __all__ = [
     "RoutingResult",
     "causal_short_conv",
     "causal_short_conv_cuda",
+    "causal_short_conv_rocm",
     "causal_short_conv_streams",
     "route_topk_sigmoid",
     "route_topk_sigmoid_cuda",

@@ -129,3 +129,22 @@ def causal_short_conv_cuda(
     if not state.is_cuda:
         raise ValueError("native short-conv state must be a CUDA tensor")
     return _NativeShortConvFunction.apply(x, weight, state)
+
+
+def causal_short_conv_rocm(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    state: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Run the native ROCm INK-10 kernel (csrc/rocm/inkling2/short_conv.hip)."""
+    if torch.version.hip is None:
+        raise RuntimeError("native ROCm short-conv requires a ROCm (HIP) build of PyTorch")
+    if not x.is_cuda or not weight.is_cuda:
+        raise ValueError("native ROCm short-conv requires device tensors")
+    if state is None:
+        state = torch.zeros(
+            (x.shape[0], x.shape[2], KERNEL_SIZE - 1), device=x.device, dtype=x.dtype
+        )
+    if not state.is_cuda:
+        raise ValueError("native ROCm short-conv state must be a device tensor")
+    return _NativeShortConvFunction.apply(x, weight, state)
