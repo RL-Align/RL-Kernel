@@ -80,6 +80,25 @@ def test_rejects_non_bf16_operands():
         fx.gemm(x, x.t())
 
 
+def _fixed_kernel_calls(fn) -> int:
+    """How many calls in ``fn`` pass the keyword ``kernel="fixed"`` (from its syntax tree)."""
+
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    return sum(
+        1
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and any(
+            kw.arg == "kernel" and isinstance(kw.value, ast.Constant) and kw.value.value == "fixed"
+            for kw in node.keywords
+        )
+    )
+
+
 def test_each_tensor_parallel_projection_uses_its_rows_kernel():
     assert par.CONTRACT == "h3-parallel-v2"
     assert par.KERNELS == {"projection": g.gemm, "fixed": fx.gemm}
@@ -87,9 +106,9 @@ def test_each_tensor_parallel_projection_uses_its_rows_kernel():
 
     from rl_engine.validation.models import h3_sglang_rollout, h3_tp
 
-    block = inspect.getsource(h3_tp.run_tp_block_rows)
-    assert block.count('kernel="fixed"') == 1  # gate/up; Q/K/V keep the projection kernel
-    assert 'kernel="fixed"' in inspect.getsource(h3_sglang_rollout._canonical)
+    # the call itself, not its text: a comment or a reformat neither passes nor breaks this
+    assert _fixed_kernel_calls(h3_tp.run_tp_block_rows) == 1  # gate/up; Q/K/V keep projection
+    assert _fixed_kernel_calls(h3_sglang_rollout._canonical) >= 1
     assert inspect.signature(par._units_partial).parameters["kernel"].default is fx.gemm
 
 
@@ -210,3 +229,34 @@ def test_a_tp_size_that_does_not_divide_the_units_is_refused(tp):
         par.check_column_widths([w], tp)
     with pytest.raises(ValueError, match="tp must be one of"):
         par._units_partial(torch.zeros(2, 32), w, tp)
+
+
+def test_crosscheck_bounds_two_summation_orders_and_rejects_a_wrong_result():
+    """Two FP32 orders of one sum are within the bound; a materially wrong reduction is not."""
+
+    from tools.validation.models import h3_gemm_rows_crosscheck as cc
+
+    gen = torch.Generator().manual_seed(5)
+    k, n, rows = 7168, 16, 24
+    x = torch.randn(rows, k, generator=gen)
+    w = torch.randn(n, k, generator=gen) / k**0.5
+    exact = x.double() @ w.t().double()
+    order_a = (x[:, :, None] * w.t()[None]).sum(1).float().bfloat16()
+    perm = torch.randperm(k, generator=gen)
+    order_b = (x[:, perm, None] * w.t()[perm][None]).sum(1).float().bfloat16()
+    for y in (order_a, order_b):
+        bound = cc._error_bound(x, w.t(), k, y, order_a)
+        d = cc._diff(y, order_a, bound)
+        assert d["finite"] and d["within_bound"]
+    bad = (exact * 1.05).float().bfloat16()  # 5% off is far beyond the summation error
+    d = cc._diff(bad, order_a, cc._error_bound(x, w.t(), k, bad, order_a))
+    assert d["within_bound"] is False
+    assert cc._diff(order_a, order_a)["within_bound"] is None  # no bound given
+
+
+def test_crosscheck_max_abs_is_none_on_a_shape_or_dtype_mismatch():
+    from tools.validation.models import h3_gemm_rows_crosscheck as cc
+
+    a = torch.zeros(2, 3, dtype=torch.bfloat16)
+    assert cc._diff(a, torch.zeros(1, 3, dtype=torch.bfloat16))["max_abs"] is None
+    assert cc._diff(a, torch.zeros(2, 3))["max_abs"] is None

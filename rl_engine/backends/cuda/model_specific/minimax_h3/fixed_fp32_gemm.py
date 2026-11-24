@@ -88,7 +88,8 @@ def gemm(
         return torch.zeros((m, n), dtype=out_dtype, device=a.device)
     kernel, triton = _kernel()
     c = torch.empty((m, n), dtype=out_dtype, device=a.device)
-    kernel[(triton.cdiv(m, BLOCK_M), triton.cdiv(n, BLOCK_N))](
-        a, b, c, None, m, n, k, *a.stride(), *b.stride(), *c.stride(), **LAUNCH
-    )
+    with torch.cuda.device(a.device):  # the launch runs on the current device's stream
+        kernel[(triton.cdiv(m, BLOCK_M), triton.cdiv(n, BLOCK_N))](
+            a, b, c, None, m, n, k, *a.stride(), *b.stride(), *c.stride(), **LAUNCH
+        )
     return c
