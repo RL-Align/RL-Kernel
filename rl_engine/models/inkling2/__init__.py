@@ -38,6 +38,7 @@ from .visit_cache import (
 from .shared_weight_grad import (
     accumulate_shared_weight_gradients,
     accumulate_shared_weight_gradients_cuda,
+    accumulate_shared_weight_gradients_rocm,
 )
 from .token_embedding import (
     PADDED_VOCAB_SIZE,
@@ -81,4 +82,5 @@ __all__ = [
     "dynamic_kv_conv_rocm",
     "full_attention_rocm",
     "clone_visit_state_rocm",
+    "accumulate_shared_weight_gradients_rocm",
 ]

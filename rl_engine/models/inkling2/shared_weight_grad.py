@@ -115,3 +115,21 @@ def accumulate_shared_weight_gradients_cuda(
             raise ValueError("reduce-scatter shard must fit the first gradient dimension")
     stacked = torch.stack([gradients[visit] for visit in order], dim=0)
     return _NativeSharedWeightGradFunction.apply(stacked, shard_start, shard_end)
+
+
+def accumulate_shared_weight_gradients_rocm(
+    gradients: Mapping[int, torch.Tensor],
+    *,
+    visit_order: Iterable[int] = (0, 1, 2),
+    shard: tuple[int, int] | None = None,
+) -> torch.Tensor:
+    """Run the native ROCm deterministic shared-weight gradient fold.
+
+    Same contract as the CUDA entry point (FP32 fold in the declared visit order,
+    no atomics) but requires a ROCm build of PyTorch and HIP device tensors.
+    """
+    if torch.version.hip is None:
+        raise RuntimeError(
+            "accumulate_shared_weight_gradients_rocm requires a ROCm build of PyTorch"
+        )
+    return accumulate_shared_weight_gradients_cuda(gradients, visit_order=visit_order, shard=shard)
