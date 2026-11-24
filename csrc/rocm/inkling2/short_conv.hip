@@ -23,6 +23,9 @@
 #include <vector>
 #include <torch/extension.h>
 
+// HIP defaults to -ffp-contract=fast; the tap products must round before the add.
+#pragma clang fp contract(off)
+
 namespace {
 
 constexpr int kKernelSize = 4;

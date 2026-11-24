@@ -155,7 +155,7 @@ def test_backward_matches_reference_autograd(shape, dtype):
         coeff = torch.linspace(-1, 1, o.numel(), device="cuda").reshape(o.shape)
         (o.float() * coeff).sum().backward()
         grads.append((xg.grad, wg.grad, sg.grad))
-    for ref, got in zip(*grads):
+    for ref, got in zip(*grads, strict=True):
         torch.testing.assert_close(got.float(), ref.float(), atol=tol, rtol=tol)
 
 
