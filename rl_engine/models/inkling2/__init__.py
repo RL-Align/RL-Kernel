@@ -1,7 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Inkling 2 Mini model-specific numerical contracts."""
 
-from .grouped_gemm import grouped_expert_gemm, grouped_expert_gemm_cuda
+from .grouped_gemm import (
+    grouped_expert_gemm,
+    grouped_expert_gemm_cuda,
+    grouped_expert_gemm_rocm,
+)
 from .expert_mlp import expert_gate_up, expert_gate_up_cuda, softcap
 from .attention_residual import attention_o_residual, attention_o_residual_cuda
 from .dynamic_kv_conv import (
@@ -83,4 +87,5 @@ __all__ = [
     "full_attention_rocm",
     "clone_visit_state_rocm",
     "accumulate_shared_weight_gradients_rocm",
+    "grouped_expert_gemm_rocm",
 ]

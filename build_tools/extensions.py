@@ -227,7 +227,6 @@ def get_extensions():
             "csrc/cuda/norm/rmsnorm.cu",
             "csrc/cuda/activation/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
-            "csrc/cuda/inkling2/grouped_gemm.cu",
             "csrc/cuda/inkling2/expert_mlp.cu",
             "csrc/cuda/inkling2/attention_o_residual.cu",
         ]
@@ -239,6 +238,7 @@ def get_extensions():
                     "csrc/rocm/logprob/hip_deterministic_logp_kernel.hip",
                     "csrc/rocm/collectives/deterministic_collective.hip",
                     "csrc/rocm/inkling2/router.hip",
+                    "csrc/rocm/inkling2/grouped_gemm.hip",
                     "csrc/rocm/inkling2/shared_weight_grad.hip",
                     "csrc/rocm/inkling2/visit_cache.hip",
                     "csrc/rocm/inkling2/full_attention.hip",
@@ -251,6 +251,7 @@ def get_extensions():
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
             cuda_sources.append("csrc/cuda/inkling2/router.cu")
+            cuda_sources.append("csrc/cuda/inkling2/grouped_gemm.cu")
             cuda_sources.append("csrc/cuda/inkling2/shared_weight_grad.cu")
             cuda_sources.append("csrc/cuda/inkling2/visit_cache.cu")
             cuda_sources.append("csrc/cuda/inkling2/full_attention.cu")
