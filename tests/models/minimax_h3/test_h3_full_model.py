@@ -323,7 +323,7 @@ def test_candidate_ops_that_cannot_be_built_bind_nothing_but_an_out_of_memory_pr
         (torch.cuda.OutOfMemoryError("CUDA out of memory"), torch.cuda.OutOfMemoryError),
     ):
 
-        def build(error=error):
+        def build(error=error, device=None):
             raise error
 
         monkeypatch.setattr(h3_block, "CandidateOps", build)
@@ -788,3 +788,56 @@ def test_an_error_inside_the_strict_context_is_not_replaced_by_the_session_check
             active_session().register("proj_in.weight", torch.zeros(2, 2, dtype=torch.int64))
             active_session().backward_started = True
     assert active_session() is None
+
+
+def test_a_hybrid_replayed_node_reports_the_provider_not_its_row():
+    """A candidate run whose ``provider_nodes`` ran the provider must not claim their rows."""
+
+    from rl_engine.validation.models import h3_block
+
+    class Ops:
+        attention_h3 = object()
+
+        def gemm_op(self, row):
+            return object()
+
+    trace = _complete_trace()
+    trace.candidate = True
+    trace.provider_nodes = ("o_proj",)
+    for i in range(50):
+        for node in h3_block.NODES:
+            trace.candidate_calls[f"block.{i}.{node.name}"] = 1
+    with pytest.raises(ValueError, match="without its ops"):  # nothing says what was bound
+        trace.validate()
+    trace.ops = Ops()
+    report = trace.validate()
+    assert report["bindings"]["o_proj"] == {
+        "rfc_row": "h3_attention_o_gemm",
+        "status": "reference",
+        "backend": "provider",
+    }
+    assert report["bindings"]["ffn_down"]["status"] == "row"  # the rest keep their binding
+    trace.ops = object()  # ops without the GEMM rows: the interim GEMM ran
+    assert trace.validate()["bindings"]["ffn_down"]["status"] == "interim"
+
+
+def test_the_default_ops_probe_the_weights_device(monkeypatch):
+    """The SM90 probe must see the device the weights live on, not the process's current one."""
+
+    from rl_engine.validation.models import h3_block, h3_refiner
+
+    seen = []
+
+    class Recorder:
+        def __init__(self, device=None):
+            seen.append(device)
+            raise RuntimeError("stop here")
+
+    monkeypatch.setattr(h3_block, "CandidateOps", Recorder)
+    with pytest.raises(RuntimeError, match="stop here"):
+        h3_block.run_block_case({"w": torch.zeros(2)}, layout="tiny")
+    with pytest.raises(RuntimeError, match="stop here"):
+        h3_block.run_block_backward({"w": torch.zeros(2)}, layout="tiny")
+    with pytest.raises(RuntimeError, match="stop here"):
+        h3_refiner.run_refiner_case({"w": torch.zeros(2)})
+    assert seen == [torch.device("cpu")] * 3
