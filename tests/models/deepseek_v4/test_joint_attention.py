@@ -241,3 +241,25 @@ def test_source_hash_guard_and_framework_same_boundary(tmp_path):
     source.write_text("raise RuntimeError('must never be executed')")
     with pytest.raises(JointAttentionError, match="hash"):
         load_pinned_kernel(source)
+
+
+@pytest.mark.parametrize("queries", [8193, 16384])
+def test_explicit_long_context_budget_keeps_original_workspace_guard(queries):
+    # The native seven-layer warmup uses 8,193 queries; batched prefill can use
+    # 16,384. Q+O alone exceed the historical 1 GiB budget at 64x512.
+    with pytest.raises(JointAttentionError, match="workspace budget"):
+        JointAttentionContract(64, 512, queries, 32768, 0, 640, graph=False)
+    contract = JointAttentionContract(
+        64, 512, queries, 32768, 0, 640, graph=False, max_workspace_bytes=4 << 30
+    )
+    assert 1 << 30 < contract.workspace_bytes < 4 << 30
+    with pytest.raises(JointAttentionError, match="workspace budget"):
+        replace(contract, max_queries=32768)
+
+
+@pytest.mark.parametrize("budget", [0, -1, True, 1.5, (4 << 30) + 1])
+def test_native_sparse_rejects_unbounded_or_invalid_budget_before_gpu_init(budget):
+    from rl_engine.backends.rocm.attention.native_sparse import NativeSparseAttention
+
+    with pytest.raises(ValueError, match="budget"):
+        NativeSparseAttention(max_workspace_bytes=budget)

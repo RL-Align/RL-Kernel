@@ -24,6 +24,7 @@ class _Sparse(torch.autograd.Function):
             indices.shape[1],
             scale=scale,
             graph=False,
+            max_workspace_bytes=operator.max_workspace_bytes,
         )
         out = torch.empty_like(q)
         lse = torch.empty(q.shape[:2], device=q.device, dtype=torch.float32)
@@ -43,7 +44,7 @@ class _Sparse(torch.autograd.Function):
             d=q.shape[2],
             selected=indices.shape[1],
             n_kv=kv.shape[0],
-            max_bytes=1 << 30,
+            max_bytes=ctx.operator.max_workspace_bytes,
         )
         backend.backward_into(
             q, kv, out, dy.contiguous(), indices, lse, sink, ptr, data, ws, ctx.scale
@@ -54,7 +55,10 @@ class _Sparse(torch.autograd.Function):
 class NativeSparseAttention:
     """One operator profile for actual native/vLLM sparse attention operands."""
 
-    def __init__(self):
+    def __init__(self, *, max_workspace_bytes=1 << 30):
+        if type(max_workspace_bytes) is not int or not 0 < max_workspace_bytes <= 4 << 30:
+            raise ValueError("native sparse workspace budget must be in (0, 4 GiB]")
+        self.max_workspace_bytes = max_workspace_bytes
         import aiter
 
         root = Path(aiter.__file__).parent

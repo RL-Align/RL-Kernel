@@ -9,11 +9,11 @@ import torch.nn.functional as F
 from rl_engine.backends.rocm.attention.native_sparse import NativeSparseAttention
 
 
-def bind_native_sparse(core):
+def bind_native_sparse(core, *, max_workspace_bytes=1 << 30):
     original = core.forward.__func__
     if "unfused_compressed_sparse_attn" not in original.__code__.co_names or core.use_fused_kernels:
         raise ValueError("expected native ordinary unfused CSA sparse boundary")
-    operator = NativeSparseAttention()
+    operator = NativeSparseAttention(max_workspace_bytes=max_workspace_bytes)
 
     def sparse(query, kv_full, sink, indices, scale):
         t, batch, heads, dim = query.shape
