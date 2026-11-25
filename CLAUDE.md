@@ -120,6 +120,23 @@ Design doc 10.1 has the pieces. Things that cost time:
     which the launcher sets): a sync copies into them, a different layout is refused;
   - the layerwise gate on the real checkpoint beyond the first 4 layers.
 
+## DSv4.1 (branch `test-dsv41-cuda`, from 2026-11-25)
+
+DeepSeek-V4.1-Flash on the same kernel set. Design of record: `docs/architecture/dsv41-design.md`
+(delta against the DSv4 doc; its section 12 has the progress table). Code in
+`rl_engine/models/deepseek_v41/` (config on the release `config.json`, loader, attention with
+KV / index sharing, Engram, model) plus the `dsv41_*` kernels (mHC carried pre, compressor
+ratios 1 / 2, Engram gate, q-RoPE without q-norm). Facts that cost time:
+
+- The release's `rms_norm_eps` is **1e-20** (every RMSNorm, the mHC rms, Engram); `hc_eps`
+  stays 1e-6. DSv4 golden constants are 1e-6: DSv4.1 code passes eps explicitly.
+- No learned `hc_head`: the output is `norm(collapse(streams, pre))` with the last FFN's pre.
+- DeepSeek's reference code ships with the release (`inference/`); release metadata, tokenizer
+  and safetensors headers are in `/work/u4478697/dsv4-lora-e2e/models/DeepSeek-V4.1-Flash-meta`
+  on cluster u4478697 (`DSV41_META`).
+- Forward done and checked against the reference (toy checkpoint); training, the vLLM plugin
+  and layer-staged SWA are not started.
+
 ## This cluster (pinghsieh-rsv1)
 
 The design doc's environment section is generic. On this account:
