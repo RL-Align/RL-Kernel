@@ -3,7 +3,8 @@
 //
 // DSv4 attention backward helpers (rl_engine/models/deepseek_v4/attention_backward.py).
 //
-// norm_rope_backward: one warp per row of D (512 or 1024) values, in registers:
+// norm_rope_backward: one warp per row of D (512, 1024 or DSv4.1's q_lora_rank 1280) values,
+// in registers:
 //   d   = dy[src(row)]                                  (optional row gather)
 //   d   = rotate(d, sign * theta(pos(row)))             on the last 64 dims, GPT-J pairs
 //                                                       (sign -1: RoPE transpose,
@@ -441,7 +442,8 @@ void dsv4_norm_rope_backward(torch::Tensor dy, c10::optional<torch::Tensor> src_
                              c10::optional<torch::Tensor> cos_sin, int64_t rope_sign, bool norm,
                              double eps, int64_t rows, torch::Tensor out, int64_t out_heads) {
   const int64_t d = dy.size(-1);
-  TORCH_CHECK(d == 512 || d == 1024, "dsv4_norm_rope_backward: D must be 512 or 1024");
+  TORCH_CHECK(d == 512 || d == 1024 || d == 1280,
+              "dsv4_norm_rope_backward: D must be 512, 1024 or 1280");
   TORCH_CHECK(dy.is_cuda() && dy.dim() == 2 && dy.stride(-1) == 1 && out.is_cuda() &&
                   out.dim() == 2 && out.stride(-1) == 1 && out.size(-1) == d,
               "dsv4_norm_rope_backward: dy / out must be CUDA with contiguous rows of D");
@@ -467,7 +469,10 @@ void dsv4_norm_rope_backward(torch::Tensor dy, c10::optional<torch::Tensor> src_
   if (d == 512)
     launch<16>(dy, src, xt, wt, pos, static_cast<int>(heads), cst, static_cast<int>(rope_sign),
                norm, eps, rows, out, static_cast<int>(out_heads));
-  else
+  else if (d == 1024)
     launch<32>(dy, src, xt, wt, pos, static_cast<int>(heads), cst, static_cast<int>(rope_sign),
+               norm, eps, rows, out, static_cast<int>(out_heads));
+  else
+    launch<40>(dy, src, xt, wt, pos, static_cast<int>(heads), cst, static_cast<int>(rope_sign),
                norm, eps, rows, out, static_cast<int>(out_heads));
 }

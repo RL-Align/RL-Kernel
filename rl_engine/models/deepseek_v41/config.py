@@ -211,6 +211,12 @@ class Dsv41Config:
             engram,
         )
 
+    def attention_config(self, layer: int, max_model_len: int):
+        """The layer's ``Dsv41AttentionConfig`` (also what DSv4's ``attach_lora`` reads)."""
+        from rl_engine.models.deepseek_v41.attention import attention_configs
+
+        return attention_configs(self, max_model_len)[layer]
+
     def roles(self) -> list[LayerRole]:
         return [self.layer_role(i) for i in range(self.num_hidden_layers)]
 

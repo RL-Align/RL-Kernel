@@ -157,3 +157,16 @@ def engram_forward(
     rows = lookup_rows(w, hashes[:, w.hash_index], streams.device)
     kv = w.wkv(rows).float()  # BF16 wkv output, as DeepSeek's Linear
     return engram_gate_cuda(streams, kv, w.q_weight, w.k_weight, mask, eps)[0]
+
+
+def engram_forward_train(
+    w: EngramWeights, streams: Tensor, hashes: Tensor, mask: Tensor | None, eps: float
+) -> Tensor:
+    """:func:`engram_forward` under autograd (same bytes): dX of the streams only (tables,
+    ``wkv``, ``q`` and ``k`` are frozen)."""
+    from rl_engine.kernels.ops.cuda.engram import engram_gate
+
+    with torch.no_grad():
+        rows = lookup_rows(w, hashes[:, w.hash_index], streams.device)
+        kv = w.wkv(rows).float()
+    return engram_gate(streams, kv, w.q_weight, w.k_weight, mask, eps)

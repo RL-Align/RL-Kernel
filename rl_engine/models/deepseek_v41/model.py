@@ -150,3 +150,67 @@ class Dsv41Model:
         assert pre is not None
         out = hc_collapse_cuda(streams, pre, self.norm, self.config.rms_norm_eps)
         return (out, per_layer) if return_streams else out
+
+    def lora_parameters(self) -> list[Tensor]:
+        """Every adapter's ``A`` / ``B``, layer by layer (attention, then MoE)."""
+        params: list[Tensor] = []
+        for layer in self.layers:
+            for ad in layer.attn.w.lora.values():
+                params += [ad.a, ad.b]
+            params += layer.moe.lora_params()
+        return params
+
+    def forward_train(
+        self,
+        input_ids: Tensor,
+        batch: Dsv41Batch,
+        caches: list[LayerCaches],
+        *,
+        engram_windows: Tensor | None = None,
+        engram_mask: Tensor | None = None,
+        return_streams: bool = False,
+    ):
+        """:meth:`forward_batch` under autograd, byte-equal to it (full-prefill batches).
+
+        Gradients reach the LoRA adapters (``deepseek_v4.model.attach_lora`` works on this
+        model); base weights and the embedding are frozen. A KV source's attention returns
+        its group's handle and the other layers of the group take it, so their gradient on
+        the shared compressed KV reaches the source (``attention_backward``).
+        """
+        from rl_engine.kernels.ops.cuda.mhc import mhc_post
+        from rl_engine.kernels.ops.cuda.mhc.dsv41_mhc import hc_collapse, mhc_pre_delayed
+        from rl_engine.models.deepseek_v41.attention_backward import attention_train
+        from rl_engine.models.deepseek_v41.engram import engram_forward_train
+
+        input_ids = input_ids.long()
+        hashes = self.engram_hashes(engram_windows)
+        eps = self.config.rms_norm_eps
+        streams = self.embed_streams(input_ids)
+        pre: Tensor | None = None
+        shared: dict = {}
+        handles: dict = {}
+        per_layer = []
+        for i, (layer, cache) in enumerate(zip(self.layers, caches)):
+            role = self.config.layer_role(i)
+            if layer.engram is not None:
+                assert hashes is not None
+                streams = engram_forward_train(layer.engram, streams, hashes, engram_mask, eps)
+            p = layer.hc_attn
+            x, post, comb, attn_pre = mhc_pre_delayed(
+                streams, p.fn, p.scale, p.base, pre, p.norm, eps
+            )
+            group_in = handles.get(role.kv_source) if role.ratio and role.kv_source != i else None
+            y, handle = attention_train(layer.attn, x, batch, cache, shared, group_in)
+            if layer.attn.c.is_kv_source:
+                handles[i] = handle
+            streams = mhc_post(y, streams, post, comb)
+            p = layer.hc_ffn
+            x, post, comb, pre = mhc_pre_delayed(
+                streams, p.fn, p.scale, p.base, attn_pre, p.norm, eps
+            )
+            streams = mhc_post(layer.moe.forward(x, None, None), streams, post, comb)
+            if return_streams:
+                per_layer.append(streams)
+        assert pre is not None
+        out = hc_collapse(streams, pre, self.norm, eps)
+        return (out, per_layer) if return_streams else out

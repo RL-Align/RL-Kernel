@@ -254,6 +254,7 @@ class Dsv4MoE:
             if self.shared_fp8 is not None or self.shared_fc1 is not None:
                 raise ValueError("give one shared expert: provider, shared_fp8 or shared_fc1/2")
             self._shared = self.shared_provider
+            self._shared_w = self.shared_provider  # exposes fc1 / fc2 for the LoRA path
         elif self.shared_fp8 is not None:
             if self.shared_fc1 is not None:
                 raise ValueError("give shared_fc1 / shared_fc2 or shared_fp8, not both")
@@ -530,8 +531,6 @@ class Dsv4MoE:
         from rl_engine.models.deepseek_v4.lora import lora_apply
 
         lo, w = self.lora, self._shared_w
-        if w is None:
-            raise NotImplementedError("shared-expert LoRA on a shared_provider is not implemented")
         z = w.fc1(x.contiguous())
         if lo.shared_fc1 is not None:
             z = lora_apply(z, x, lo.shared_fc1)
@@ -541,7 +540,10 @@ class Dsv4MoE:
         q, scale, h = swiglu.silu_and_mul_clamp_quant_cuda(
             z, self._shared.swiglu_limit, return_h=True
         )
-        y = w.fc2.forward_quantized((q, scale))
+        if hasattr(w.fc2, "forward_quantized"):  # FP8 fc2: the fused SwiGLU quantized h
+            y = w.fc2.forward_quantized((q, scale))
+        else:  # a BF16 fc2 (DSv4.1) takes h and rounds it itself
+            y = w.fc2(h)
         if lo.shared_fc2 is not None:
             y = lora_apply(y, h, lo.shared_fc2)
         return y, {"z": z, "x": x, "h": h}
@@ -553,8 +555,8 @@ class Dsv4MoE:
         from rl_engine.kernels.ops.cuda.activation import silu_and_mul_clamp as swiglu
         from rl_engine.models.deepseek_v4.lora import lora_backward
 
-        if self._shared.backward != "fp8":
-            raise NotImplementedError("shared-expert LoRA needs the FP8 backward")
+        if self._shared.backward not in ("fp8", "bf16"):
+            raise NotImplementedError("shared-expert LoRA needs the FP8 or BF16 backward")
         lo, w = self.lora, self._shared_w
         dy = dout.to(torch.bfloat16).contiguous()
         if not dy.shape[0]:
