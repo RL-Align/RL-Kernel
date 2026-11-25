@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Original sparse operands with the existing fixed AITER forward and CSR VJP."""
 
+import os
 from pathlib import Path
 
 import torch
@@ -8,6 +9,21 @@ import torch
 from rl_engine.backends.rocm.attention.joint_attention import AiterJointAttentionBackend
 from rl_engine.backends.rocm.attention.joint_backward import AiterJointBackwardBackend
 from rl_engine.contracts.operators.joint_attention import JointAttentionContract
+
+
+def sparse_workspace_budget(value=None):
+    """An explicit resident-workspace limit; the default remains one GiB."""
+    if value is None:
+        raw = os.environ.get("RLK_NATIVE_SPARSE_WORKSPACE_BYTES")
+        try:
+            value = (1 << 30) if raw is None else int(raw)
+        except ValueError as error:
+            raise ValueError(
+                "RLK_NATIVE_SPARSE_WORKSPACE_BYTES must be a positive integer"
+            ) from error
+    if type(value) is not int or value <= 0:
+        raise ValueError("native sparse workspace budget must be a positive integer")
+    return value
 
 
 class _Sparse(torch.autograd.Function):
@@ -24,6 +40,7 @@ class _Sparse(torch.autograd.Function):
             indices.shape[1],
             scale=scale,
             graph=False,
+            max_workspace_bytes=operator.max_workspace_bytes,
         )
         out = torch.empty_like(q)
         lse = torch.empty(q.shape[:2], device=q.device, dtype=torch.float32)
@@ -43,7 +60,7 @@ class _Sparse(torch.autograd.Function):
             d=q.shape[2],
             selected=indices.shape[1],
             n_kv=kv.shape[0],
-            max_bytes=1 << 30,
+            max_bytes=ctx.operator.max_workspace_bytes,
         )
         backend.backward_into(
             q, kv, out, dy.contiguous(), indices, lse, sink, ptr, data, ws, ctx.scale
@@ -54,7 +71,8 @@ class _Sparse(torch.autograd.Function):
 class NativeSparseAttention:
     """One operator profile for actual native/vLLM sparse attention operands."""
 
-    def __init__(self):
+    def __init__(self, *, max_workspace_bytes=None):
+        self.max_workspace_bytes = sparse_workspace_budget(max_workspace_bytes)
         import aiter
 
         root = Path(aiter.__file__).parent
@@ -75,6 +93,7 @@ class NativeSparseAttention:
                 __file__,
                 self.forward_backend.provenance,
                 self.backward_backend.provenance,
+                dict(max_workspace_bytes=self.max_workspace_bytes),
                 flush=True,
             )
             self.executed = True
