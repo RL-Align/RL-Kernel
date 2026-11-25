@@ -83,6 +83,16 @@ def q_norm_rope(
     return out
 
 
+def q_rope(q: Tensor, positions: Tensor, cos_sin_cache: Tensor, padded_heads: int) -> Tensor:
+    """DSv4.1: BF16 ``[T, H, 512]`` -> BF16 ``[T, padded_heads, 512]``, RoPE only."""
+    tokens, heads, _ = q.shape
+    cos, sin = _cos_sin(cos_sin_cache, positions, 1)
+    y = _rope_pairs(q.float(), cos, sin, inverse=False).to(torch.bfloat16)
+    out = torch.zeros(tokens, padded_heads, HEAD_DIM, dtype=torch.bfloat16, device=q.device)
+    out[:, :heads] = y
+    return out
+
+
 def kv_entry(kv: Tensor, positions: Tensor, cos_sin_cache: Tensor):
     """RoPE'd fp8_ds_mla entry of each KV row: (FP8 [T, 448], scale bytes [T, 8], BF16 [T, 64])."""
     x = kv.float()

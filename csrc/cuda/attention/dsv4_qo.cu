@@ -7,7 +7,8 @@
 // dsv4_q_norm_rope_kv_insert: one warp per (token, row), 16 values per lane.
 //   Rows 0 .. padded_heads-1 are query heads (weightless RMSNorm: 16 squares in
 //   order per lane, a 32-lane butterfly, r = 1 / sqrt(v / 512 + eps); RoPE;
-//   BF16; heads >= num_heads written as zeros). Row padded_heads is the KV row:
+//   BF16; heads >= num_heads written as zeros; DSv4.1's dsv41_q_rope_kv_insert skips the
+//   RMSNorm, as its q is normed before wq_b). Row padded_heads is the KV row:
 //   RoPE, then its fp8_ds_mla entry (448 FP8 in UE8M0 blocks of 64 = 4 lanes,
 //   64 BF16 RoPE values) stored at its sliding-window cache slot.
 // dsv4_inv_rope_fp8: one warp per (token, head): inverse RoPE in FP32, then each
@@ -116,7 +117,8 @@ __global__ void __launch_bounds__(kWarpsPerBlock * 32) q_norm_rope_kv_insert_ker
     const __nv_bfloat16* __restrict__ kv, int64_t kv_stride0, const int64_t* __restrict__ positions,
     const float* __restrict__ cos_sin, int64_t cs_stride, __nv_bfloat16* __restrict__ q_out,
     uint8_t* __restrict__ cache, int64_t cache_block_stride, int cache_block_size,
-    const int64_t* __restrict__ slots, int64_t tokens, int num_heads, int padded_heads, float eps) {
+    const int64_t* __restrict__ slots, int64_t tokens, int num_heads, int padded_heads, float eps,
+    bool q_norm) {
   const int64_t row = static_cast<int64_t>(blockIdx.x) * kWarpsPerBlock + threadIdx.x / 32;
   const int rows_per_token = padded_heads + 1;
   if (row >= tokens * rows_per_token) return;  // whole warp exits together
@@ -136,16 +138,18 @@ __global__ void __launch_bounds__(kWarpsPerBlock * 32) q_norm_rope_kv_insert_ker
     }
     float v[kLane];
     load16(q + token * q_stride0 + head * q_stride1 + d0, v);
-    float sq = __fmul_rn(v[0], v[0]);
+    if (q_norm) {  // warp-uniform
+      float sq = __fmul_rn(v[0], v[0]);
 #pragma unroll
-    for (int i = 1; i < kLane; ++i) sq = __fadd_rn(sq, __fmul_rn(v[i], v[i]));
+      for (int i = 1; i < kLane; ++i) sq = __fadd_rn(sq, __fmul_rn(v[i], v[i]));
 #pragma unroll
-    for (int offset = 16; offset > 0; offset >>= 1) {
-      sq = __fadd_rn(sq, __shfl_xor_sync(0xFFFFFFFFU, sq, offset));
+      for (int offset = 16; offset > 0; offset >>= 1) {
+        sq = __fadd_rn(sq, __shfl_xor_sync(0xFFFFFFFFU, sq, offset));
+      }
+      const float r = __fdiv_rn(1.0f, __fsqrt_rn(__fadd_rn(__fdiv_rn(sq, 512.0f), eps)));
+#pragma unroll
+      for (int i = 0; i < kLane; ++i) v[i] = __fmul_rn(v[i], r);
     }
-    const float r = __fdiv_rn(1.0f, __fsqrt_rn(__fadd_rn(__fdiv_rn(sq, 512.0f), eps)));
-#pragma unroll
-    for (int i = 0; i < kLane; ++i) v[i] = __fmul_rn(v[i], r);
     if (d0 >= kNope) rope16(v, cs, lane, false);
     store16_bf16(dst, v);
     return;
@@ -217,10 +221,13 @@ __global__ void __launch_bounds__(kWarpsPerBlock * 32) inv_rope_fp8_kernel(
 
 }  // namespace
 
-torch::Tensor dsv4_q_norm_rope_kv_insert(torch::Tensor q, torch::Tensor kv,
-                                         torch::Tensor positions, torch::Tensor cos_sin_cache,
-                                         torch::Tensor cache, int64_t cache_block_size,
-                                         torch::Tensor slots, int64_t padded_heads, double eps) {
+namespace {
+
+torch::Tensor q_rope_kv_insert_impl(const torch::Tensor& q, const torch::Tensor& kv,
+                                   const torch::Tensor& positions,
+                                   const torch::Tensor& cos_sin_cache, torch::Tensor& cache,
+                                   int64_t cache_block_size, const torch::Tensor& slots,
+                                   int64_t padded_heads, double eps, bool q_norm) {
   TORCH_CHECK(q.is_cuda() && q.scalar_type() == torch::kBFloat16 && q.dim() == 3 &&
                   q.size(2) == kHeadDim && q.stride(2) == 1 && q.stride(1) % 8 == 0 &&
                   q.stride(0) % 8 == 0 && reinterpret_cast<uintptr_t>(q.data_ptr()) % 16 == 0,
@@ -255,9 +262,29 @@ torch::Tensor dsv4_q_norm_rope_kv_insert(torch::Tensor q, torch::Tensor kv,
       positions.data_ptr<int64_t>(), cos_sin_cache.data_ptr<float>(), cos_sin_cache.stride(0),
       reinterpret_cast<__nv_bfloat16*>(q_out.data_ptr()), cache.data_ptr<uint8_t>(),
       cache.stride(0), static_cast<int>(cache_block_size), slots.data_ptr<int64_t>(), tokens,
-      static_cast<int>(q.size(1)), static_cast<int>(padded_heads), static_cast<float>(eps));
+      static_cast<int>(q.size(1)), static_cast<int>(padded_heads), static_cast<float>(eps),
+      q_norm);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return q_out;
+}
+
+}  // namespace
+
+torch::Tensor dsv4_q_norm_rope_kv_insert(torch::Tensor q, torch::Tensor kv,
+                                         torch::Tensor positions, torch::Tensor cos_sin_cache,
+                                         torch::Tensor cache, int64_t cache_block_size,
+                                         torch::Tensor slots, int64_t padded_heads, double eps) {
+  return q_rope_kv_insert_impl(q, kv, positions, cos_sin_cache, cache, cache_block_size, slots,
+                               padded_heads, eps, true);
+}
+
+// DSv4.1: as dsv4_q_norm_rope_kv_insert without the per-head RMSNorm of q.
+torch::Tensor dsv41_q_rope_kv_insert(torch::Tensor q, torch::Tensor kv, torch::Tensor positions,
+                                     torch::Tensor cos_sin_cache, torch::Tensor cache,
+                                     int64_t cache_block_size, torch::Tensor slots,
+                                     int64_t padded_heads) {
+  return q_rope_kv_insert_impl(q, kv, positions, cos_sin_cache, cache, cache_block_size, slots,
+                               padded_heads, 0.0, false);
 }
 
 std::vector<torch::Tensor> dsv4_inv_rope_fp8(torch::Tensor o, torch::Tensor positions,

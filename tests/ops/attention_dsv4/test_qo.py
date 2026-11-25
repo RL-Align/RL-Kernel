@@ -67,6 +67,30 @@ def test_q_norm_rope_kv_insert_matches_golden(scale, heads, padded):
         assert torch.equal(gr, fr[i].view(torch.uint8)), i
 
 
+@pytest.mark.parametrize("scale", [1.0, 1e-3, 300.0])
+def test_dsv41_q_rope_kv_insert_matches_golden(scale):
+    """DSv4.1: no q-norm; the KV entry is DSv4's."""
+    from rl_engine.kernels.ops.cuda.attention.dsv4_attention import q_rope_kv_insert
+    from rl_engine.kernels.ops.pytorch.attention_dsv4 import q_rope
+
+    gen = torch.Generator().manual_seed(int(scale * 10) + 1)
+    t = 200
+    q = (torch.randn(t, 64, D, generator=gen) * scale).to(torch.bfloat16).cuda()
+    kv = (torch.randn(t, D, generator=gen) * scale).to(torch.bfloat16).cuda()
+    pos = torch.randint(0, 1 << 15, (t,), generator=gen).cuda()
+    cs = _cos_sin()
+    cache = torch.zeros(8, BS * ROW, dtype=torch.uint8, device="cuda")
+    slots = torch.randperm(8 * BS, generator=gen)[:t].cuda()
+    q_out = q_rope_kv_insert(q, kv, pos, cs, cache, BS, slots, 64)
+    assert torch.equal(q_out.view(torch.int16), q_rope(q, pos, cs, 64).view(torch.int16))
+    assert torch.equal(q_out[:, :, :448], q[:, :, :448])  # the non-RoPE part passes through
+    fq, fs, fr = kv_entry(kv, pos, cs)
+    for i in range(0, t, 17):
+        gq, gs, gr = _entry(cache, int(slots[i]))
+        assert torch.equal(gq, fq[i].view(torch.uint8)) and torch.equal(gs, fs[i])
+        assert torch.equal(gr, fr[i].view(torch.uint8))
+
+
 @pytest.mark.parametrize("scale", [1.0, 1e-4, 500.0])
 def test_inv_rope_fp8_matches_golden(scale):
     from rl_engine.kernels.ops.cuda.attention import dsv4_attention as core

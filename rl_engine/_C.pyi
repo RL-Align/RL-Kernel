@@ -510,6 +510,16 @@ def dsv41_store_rows(
     ratio: int,
     latent: torch.Tensor | None,
 ) -> None: ...
+def dsv41_q_rope_kv_insert(
+    q: torch.Tensor,
+    kv: torch.Tensor,
+    positions: torch.Tensor,
+    cos_sin_cache: torch.Tensor,
+    cache: torch.Tensor,
+    cache_block_size: int,
+    slots: torch.Tensor,
+    padded_heads: int,
+) -> torch.Tensor: ...
 def dsv4_q_norm_rope_kv_insert(
     q: torch.Tensor,
     kv: torch.Tensor,

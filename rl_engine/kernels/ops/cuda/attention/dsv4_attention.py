@@ -105,12 +105,19 @@ def build_workspace(
 
 
 def canonical_ids(
-    pos: Tensor, ratio: int, top_k: int, topk_local: Tensor | None
+    pos: Tensor,
+    ratio: int,
+    top_k: int,
+    topk_local: Tensor | None,
+    compressed: bool | None = None,
 ) -> tuple[Tensor, Tensor]:
-    """Compressed ids per token in canonical (descending) order, ``-1`` last, and their count."""
+    """Compressed ids per token in canonical (descending) order, ``-1`` last, and their count.
+
+    ``compressed`` defaults to ``ratio > 1`` (DSv4, where 1 means window only); DSv4.1
+    passes it explicitly, as its ratio 1 is a full-length compressed cache."""
     tokens = pos.shape[0]
     device = pos.device
-    if ratio <= 1:
+    if not (ratio > 1 if compressed is None else compressed):
         return torch.empty(tokens, 0, dtype=torch.long, device=device), torch.zeros_like(pos)
     topk_len = torch.clamp((pos + 1) // ratio, max=top_k)
     if topk_local is None:  # C128: every entry so far
@@ -152,6 +159,7 @@ def build_indices(
     ratio: int,
     top_k: int,
     topk_local: Tensor | None = None,
+    compressed: bool | None = None,
 ) -> tuple[Tensor, Tensor]:
     """Canonical index lists ``int32 [T, 1, W]`` into a slab workspace, and valid lengths.
 
@@ -161,7 +169,7 @@ def build_indices(
     """
     pos = token_pos.long()
     slab = token_req.long() * layout.rows
-    ids, topk_len = canonical_ids(pos, ratio, top_k, topk_local)
+    ids, topk_len = canonical_ids(pos, ratio, top_k, topk_local, compressed)
     top_k = ids.shape[1]
     swa_len = torch.clamp(pos + 1, max=window)
     first = (
@@ -183,13 +191,14 @@ def build_compact(
     compressed_block_table: Tensor | None = None,
     compressed_block_size: int = 0,
     topk_local: Tensor | None = None,
+    compressed: bool | None = None,
 ) -> tuple[Tensor, Tensor, Tensor]:
     """Per-token workspace (top_k + window) with its index lists."""
     device = token_pos.device
     pos = token_pos.long()
     req = token_req.long()
     tokens = pos.shape[0]
-    ids, topk_len = canonical_ids(pos, ratio, top_k, topk_local)
+    ids, topk_len = canonical_ids(pos, ratio, top_k, topk_local, compressed)
     top_k = ids.shape[1]
     rows = top_k + window
     swa_len = torch.clamp(pos + 1, max=window)
@@ -259,6 +268,30 @@ def q_norm_rope_kv_insert(
         swa_slots,
         int(padded_heads),
         float(eps),
+    )
+
+
+def q_rope_kv_insert(
+    q: Tensor,
+    kv: Tensor,
+    positions: Tensor,
+    cos_sin_cache: Tensor,
+    swa_cache: Tensor,
+    swa_block_size: int,
+    swa_slots: Tensor,
+    padded_heads: int,
+) -> Tensor:
+    """DSv4.1: :func:`q_norm_rope_kv_insert` without the query heads' RMSNorm (DSv4.1 norms
+    q before ``wq_b``). Byte-equal to ``attention_dsv4.q_rope`` / ``kv_entry``."""
+    return _ext().dsv41_q_rope_kv_insert(
+        q,
+        kv,
+        positions,
+        cos_sin_cache,
+        swa_cache.view(swa_cache.shape[0], -1),
+        int(swa_block_size),
+        swa_slots,
+        int(padded_heads),
     )
 
 
