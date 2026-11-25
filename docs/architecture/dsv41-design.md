@@ -580,6 +580,40 @@ Note for the plugin: vLLM turns its decoder replay off when a LoRA config is set
 runs it only in eager prefill steps. Our plugin hides LoRA from vLLM (base 10.1), so
 that switch would otherwise be on.
 
+### 10.1 Plugin design (2026-11-25)
+
+**Environment (owner, 2026-11-25): vLLM main `3f86db3` built from source** in a new env
+`rlk41` (a clone of `rlk` with torch 2.14, which vLLM main pins; CUDA runtime 13.0, so the
+existing forward-compat driver serves it). RL-Kernel's `_C`, its pinned DeepGEMM
+(`e21c821f`) and FlashMLA (`a8f794d`) are rebuilt there; vLLM builds its own FlashMLA
+(`b18ed744`) and vendored DeepGEMM. Job: `build_rlk41.sbatch` on the cluster.
+
+**Split.** vLLM main has no batch-invariant DSv4.1 path on Hopper (its Hopper kernels are
+TileLang / CuTe DSL / Triton, with aux-stream overlap and batch-shaped planning), so unlike
+the DSv4 plugin, which kept vLLM's attention ops under the fork's BI mode, the DSv4.1
+plugin keeps **only vLLM's scheduler, KV-cache allocation and attention metadata** and runs
+every computation as `Dsv41Model` does:
+
+| vLLM main (Hopper) | Plugin |
+|---|---|
+| `DeepseekV4SWACache` per layer (block size 32, V4 record, 584 B) | our SWA writes and window rows on that tensor and block table (block size from the cache, not 64) |
+| Compressed cache of a KV source (`MLAAttentionSpec`, `tokens_per_state = ratio`), read by the group through the forward context | `LayerCaches.kv` / `kv_table` of the source, aliased by the group (as `new_group_caches`) |
+| `DeepseekV4IndexerCache` (owned by the KV source) | `idx_k` (FP8 entry, `use_fp4_cache=False`, 132 B) |
+| `CompressorStateCache`: a per-request ring of the open ratio-2 group | the state cache of `dsv41_compress_main` with a block table whose every entry is the ring block (row `p % capacity` is what our view computes for block size = capacity) |
+| `fused_save_compress_norm`, `rope_quant_insert`, `indexer_k_norm_rope_store` | `save_states` + `dsv41_compress_main` / `dsv41_store_rows` |
+| q / kv norm, q RoPE, KV insert | `rmsnorm` + `dsv41_q_rope_kv_insert` |
+| `SparseAttnIndexer` / `CandidateIndexer`, short-context shortcut | `Dsv41Attention._index` (one selector) |
+| FlashMLA sparse prefill / decode planning | `build_workspace` / `build_compact` + FlashMLA sparse forward (our pinned build) |
+| `DecoderReplayLayers` | off (`swa_bounded_replay=False`) |
+| mHC (TileLang, overlap, fused all-reduce), Engram Triton gate, MoE, MXFP8 linears, `wo_a` / `wo_b` | `Dsv41DecoderLayer` pieces (`dsv41-mhc-v1`, `dsv41-engram-v1`, `Dsv4MoE` + BF16 shared expert, D12 linears) |
+| BF16 logits, sampler | FP32 head and log-prob (`RlkSampler`, as DSv4) |
+
+Order of work once `rlk41` builds: load vLLM's DSv4.1 model on the toy checkpoint and dump
+the attention metadata per cache prefix (slot mappings, block tables, ring capacity,
+block strides); write the cache adapters; then the model class, registered under
+`DeepseekV41ForCausalLM` by the plugin entry point; then the gate (rollout vs `Dsv41Model`,
+bitwise), as `scripts/check_dsv4_vllm_gate.py` for DSv4.
+
 verl integration (base 10.1) is unchanged in shape. The actor engine additionally needs
 Engram table storage shared across ranks.
 
