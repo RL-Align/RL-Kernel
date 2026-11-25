@@ -21,7 +21,11 @@ def metadata_snapshot(value, depth=0):
         }
     import torch
 
-    if value is None or isinstance(value, (torch.Tensor, str, bool, int, float)):
+    if isinstance(value, torch.Tensor):
+        # vLLM Parameters carry weight_loader callbacks to their owner. A plain
+        # detached tensor retains dtype/stride/storage bytes, not those handles.
+        return value.detach()
+    if value is None or isinstance(value, (str, bool, int, float)):
         return value
     # Methods can receive module/worker handles. Serializing those also walks
     # their local trace hooks and fails on lambdas; they are not tensor state.
