@@ -21,6 +21,7 @@ def _load_extension_config(
     hip: str | None,
     fast_math: bool = False,
     nvcc_env: dict[str, str] | None = None,
+    extension_name: str = "rl_engine._C",
 ) -> dict[str, Any]:
     captured: dict[str, Any] = {}
 
@@ -55,7 +56,7 @@ def _load_extension_config(
         monkeypatch.setenv("PYTORCH_ROCM_ARCH", "gfx942")
 
     runpy.run_path("setup.py", run_name=f"rl_kernel_setup_probe_{hip or 'cuda'}")
-    return captured["ext_modules"][0]
+    return next(ext for ext in captured["ext_modules"] if ext["name"] == extension_name)
 
 
 def test_rocm_build_excludes_cuda_ipc_collective_and_driver(monkeypatch) -> None:
@@ -202,3 +203,11 @@ def test_adaln_build_registers_native_source_only_for_precise_cuda(
     extension = _load_extension_config(monkeypatch, hip=hip, fast_math=fast_math == "1")
     assert ("csrc/cuda/norm/adaln_modulation.cu" in extension["sources"]) is enabled
     assert ("-DRLK_ADALN_CUDA_ENABLED" in extension["extra_compile_args"]["cxx"]) is enabled
+
+
+def test_timestep_cuda_build_preserves_strict_flags(monkeypatch) -> None:
+    extension = _load_extension_config(
+        monkeypatch, hip=None, extension_name="rl_engine._timestep_cuda"
+    )
+    assert extension["sources"] == ["csrc/cuda/embedding/timestep_embed_mlp.cu"]
+    assert extension["extra_compile_args"] == {"cxx": ["-O3"], "nvcc": ["-O3", "--fmad=false"]}
