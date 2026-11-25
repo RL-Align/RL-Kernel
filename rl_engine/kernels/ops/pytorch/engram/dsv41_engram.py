@@ -2,15 +2,16 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """Golden DSv4.1 Engram gate, numeric profile ``dsv41-engram-v1``.
 
-Semantics follow vLLM's ``_fused_engram_post_wkv_kernel``
-(``vllm/models/deepseek_v41/common/engram.py``): for each token and stream ``h`` of the
-four mHC streams, with ``kv = wkv(rows)`` ``[T, 5 H]`` (four keys, then one value)::
+Semantics and operation order follow DeepSeek's reference (``inference/model.py``,
+``Engram.forward``; vLLM's ``_fused_engram_post_wkv_kernel`` is the same math): for each
+token and stream ``h`` of the four mHC streams, with ``kv = wkv(rows)`` ``[T, 5 H]`` (four
+keys, then one value) and ``eps`` the model's ``norm_eps`` (1e-20 in the release)::
 
     key   = kv[:, h H : (h + 1) H]
-    rx    = 1 / sqrt(sum(x_h^2) / H + eps)
-    rk    = 1 / sqrt(sum(key^2) / H + eps)
-    d     = ((sum(((x_h * q_h) * k_h) * key) * rx) * rk) * (1 / sqrt(H))
-    g     = sigmoid(sign(d) * sqrt(max(|d|, clamp)))           0 where the token is masked
+    w     = q_h * k_h                                           exact in FP32 (BF16 inputs)
+    rstd  = (1 / sqrt(sum(x_h^2) / H + eps)) * (1 / sqrt(sum(key^2) / H + eps))
+    d     = (sum((x_h * w) * key) * rstd) * FP32(H ** -0.5)
+    g     = sigmoid(copysign(sqrt(max(|d|, clamp)), d))         0 where the token is masked
     out_h = BF16(x_h + g * value)
 
 Arithmetic (fixed so the CUDA kernel matches byte for byte):
@@ -33,6 +34,7 @@ from torch import Tensor
 from rl_engine.kernels.ops.pytorch.mhc import HC, slice_dot
 
 CLAMP = 1e-6
+NORM_EPS = 1e-20  # DSv4.1's norm_eps
 
 
 def _c(value: float, like: Tensor) -> Tensor:
@@ -49,7 +51,7 @@ def engram_gate(
     q_weight: Tensor,
     k_weight: Tensor,
     mask: Tensor | None = None,
-    eps: float = 1e-6,
+    eps: float = NORM_EPS,
     clamp: float = CLAMP,
 ) -> tuple[Tensor, Tensor]:
     """``x`` BF16 [T, 4, H], ``kv`` FP32 [T, 5 H] -> ``(out BF16 [T, 4, H], gate [T, 4])``."""
@@ -60,14 +62,11 @@ def engram_gate(
     xf = x.float()
     key = kv[:, : HC * h].float().reshape(t, HC, h)
     value = kv[:, HC * h :].float()
-    u = (xf * q_weight.float()[None]) * k_weight.float()[None]
-    rx = _rms(slice_dot(xf, xf), h, eps)
-    rk = _rms(slice_dot(key, key), h, eps)
+    u = xf * (q_weight.float() * k_weight.float())[None]
+    rstd = _rms(slice_dot(xf, xf), h, eps) * _rms(slice_dot(key, key), h, eps)
     dot = slice_dot(u, key)
-    ch = _c(1.0, xf) / torch.sqrt(_c(float(h), xf))
-    d = ((dot * rx) * rk) * ch
-    gi = torch.sqrt(torch.maximum(d.abs(), _c(clamp, d)))
-    gi = torch.where(d < 0, -gi, gi)
+    d = (dot * rstd) * _c(h**-0.5, xf)
+    gi = torch.copysign(torch.sqrt(torch.maximum(d.abs(), _c(clamp, d))), d)
     one = _c(1.0, d)
     g = one / (one + torch.exp(-gi))
     if mask is not None:
@@ -83,7 +82,7 @@ def engram_gate_backward_reference(
     q_weight: Tensor,
     k_weight: Tensor,
     mask: Tensor | None = None,
-    eps: float = 1e-6,
+    eps: float = NORM_EPS,
     clamp: float = CLAMP,
 ) -> Tensor:
     """FP64 autograd dX of the gate's math (the reference the CUDA backward is checked

@@ -63,20 +63,21 @@ CASES = [
 ]
 
 
+@pytest.mark.parametrize("eps", [1e-20, 1e-6])  # DSv4.1's norm_eps, DSv4's
 @pytest.mark.parametrize("carried", [False, True])
 @pytest.mark.parametrize("norm", [False, True])
 @pytest.mark.parametrize("t,h,mag", CASES)
-def test_forward_byte_equal(ops, t, h, mag, norm, carried):
+def test_forward_byte_equal(ops, t, h, mag, norm, carried, eps):
     c41, _ = ops
     res, fn, scale, base, pre_in = _inputs(t, h, seed=t + h, mag=mag)
     p = pre_in if carried else None
     w = _nw(h, norm)
-    got = c41.mhc_pre_delayed_cuda(res, fn, scale, base, p, w)
-    want = g41.mhc_pre_delayed(res, fn, scale, base, p, w)
+    got = c41.mhc_pre_delayed_cuda(res, fn, scale, base, p, w, eps)
+    want = g41.mhc_pre_delayed(res, fn, scale, base, p, w, eps)
     assert len(got) == len(want) == 6
     for a, b in zip(got, want):
         _same(a, b)
-    _same(c41.hc_collapse_cuda(res, pre_in, w), g41.hc_collapse(res, pre_in, w))
+    _same(c41.hc_collapse_cuda(res, pre_in, w, eps), g41.hc_collapse(res, pre_in, w, eps))
 
 
 def test_stream0_is_a_copy(ops):
@@ -88,13 +89,14 @@ def test_stream0_is_a_copy(ops):
 @pytest.mark.parametrize("norm", [False, True])
 @pytest.mark.parametrize("h", [256, 4096])
 def test_own_pre_carried_in_equals_dsv4(ops, h, norm):
-    """Feeding the controller's own pre back as pre_in gives dsv4-mhc-v1's bytes."""
+    """Feeding the controller's own pre back as pre_in gives dsv4-mhc-v1's bytes (at DSv4's
+    eps)."""
     c41, c4 = ops
     res, fn, scale, base, _ = _inputs(11, h, seed=h)
     w = _nw(h, norm)
     y4, post4, comb4, raw4, ss4 = c4.mhc_pre_cuda(res, fn, scale, base, w)
-    pre = g41.mhc_pre_delayed(res, fn, scale, base, None, w)[3]
-    y, post, comb, pre_out, raw, ss = c41.mhc_pre_delayed_cuda(res, fn, scale, base, pre, w)
+    pre = g41.mhc_pre_delayed(res, fn, scale, base, None, w, 1e-6)[3]
+    y, post, comb, pre_out, raw, ss = c41.mhc_pre_delayed_cuda(res, fn, scale, base, pre, w, 1e-6)
     for a, b in ((y, y4), (post, post4), (comb, comb4), (raw, raw4), (ss, ss4), (pre_out, pre)):
         _same(a, b)
 
@@ -203,7 +205,7 @@ def _vllm_reference(residual, fn, scale, base, pre_mix):
     float64, plus the BF16 layer input."""
     hc = 4
     x = residual.flatten(1).double()
-    mixes = (x @ fn.double().t()) * torch.rsqrt(x.square().mean(-1, keepdim=True) + 1e-6)
+    mixes = (x @ fn.double().t()) * torch.rsqrt(x.square().mean(-1, keepdim=True) + 1e-20)
     s, b = scale.double(), base.double()
     pre = torch.sigmoid(mixes[:, :hc] * s[0] + b[:hc]) + 1e-6
     post = torch.sigmoid(mixes[:, hc : 2 * hc] * s[1] + b[hc : 2 * hc]) * 2.0

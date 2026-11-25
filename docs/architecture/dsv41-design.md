@@ -73,8 +73,21 @@ Hopper.
 | mHC streams | 4 | 4 |
 | Extra modules | MTP | Engram (layers 1, 14), DSpark, ViT |
 
-DSv4.1 values are from the paper and from comments in vLLM's source. `o_lora_rank`,
-`o_groups` and `vocab_size` are not stated in either and must come from `config.json`.
+All values match the release `config.json` (`deepseek-ai/DeepSeek-V4.1-Flash` at
+`314113f8`, kept as `rl_engine/models/deepseek_v41/release_config.json`, read by
+`Dsv41Config`): `vocab_size` 129280, `o_lora_rank` 1024, `o_groups` 8,
+`routed_scaling_factor` 1.5, DSv4's YaRN values, no hash layers (vLLM's DSv4.1 MoE passes
+`num_hash_layers=0`). Two values differ from DSv4:
+
+- **`rms_norm_eps` is 1e-20** (DeepSeek's `norm_eps`), used by every RMSNorm, the mHC
+  controller's rms and the Engram gate. `hc_eps` stays 1e-6. The DSv4.1 kernels take eps
+  as a parameter; the golden defaults are 1e-20.
+- `compress_ratios` has 43 entries: the 40 layers and 3 trailing MTP / DSpark zeros.
+
+The release also ships DeepSeek's reference code (`inference/model.py`, `engram.py`,
+`kernel.py`), which confirms vLLM's wiring: the delayed pre (`Block.forward`), the
+identity pre at the entry, the final `hc_pre(h, pre_mix)` then `norm` (no `hc_head`), and
+the Engram gate's operation order, which `dsv41-engram-v1` follows.
 
 ### 2.2 Forward
 
@@ -127,8 +140,8 @@ Zero-indexed layer map, derived from the paper's one-indexed description:
 
 So `kv_source_layer_ids = [2, 8, 14, 20]` and `index_source_layer_ids = [2, 8, 14, 20,
 24, 28, 32, 36]`. Layer 20's compressor reads layer 20's input, which is the output of
-layers 0-19 (the "encoder"); layers 20-39 (the "decoder") all read that one KV. **This
-map is derived, not read from the checkpoint; confirm it against `config.json`.** "Layer
+layers 0-19 (the "encoder"); layers 20-39 (the "decoder") all read that one KV. This
+map matches the release `config.json`. "Layer
 20's input" means its normed attention input, the `x` of that layer's first `mhc_pre`.
 
 Every layer, whatever its mode, still has its own `wq_a` / `wkv` / `wq_b` / `wo_a` /
@@ -230,7 +243,8 @@ Checked against vLLM's reference (`mhc_pre_delayed_torch` in
 
 - `mhc_pre` takes `pre_in` and returns `pre_out`, its controller's pre. The controller
   (GEMM, sigmoid, softmax, Sinkhorn) is DSv4's. The first sublayer's mix is **a copy of
-  stream 0** (`residual[:, 0]`), not a product with `(1, 0, 0, 0)`.
+  stream 0** (`residual[:, 0]`, as vLLM). DeepSeek's reference multiplies by `(1, 0, 0, 0)`
+  and sums, which differs from the copy only in the sign of a zero.
 - **There is no learned `hc_head`** ("v4.1 has no learned hc_head"): the model ends with
   `norm(collapse(streams, pre))`, the last FFN's pre applied as a plain mix.
 - vLLM runs the first layer's controller on the embedding with `fn` summed over the four
@@ -619,8 +633,7 @@ kernel's arithmetic, so a failure there is easy to localize.
 
 ## 13. To confirm
 
-- [ ] `config.json`: the layer map of 2.3, `o_lora_rank`, `o_groups`, `vocab_size`,
-      hash-layer count, every `engram_*` and `candidate_*` value.
+- [x] `config.json`: the release's (2.1); every value of 2.3 and of 4.5 confirmed.
 - [ ] D9 (no DSpark), D10, D11, D12, D13, D14: owner sign-off. D8 and D15 are decided.
 - [x] Which indexer K format vLLM's DSv4.1 Hopper path stores: MXFP4 or per-token FP8
       (`use_fp4_cache`); D15 keeps the FP8 one, which is DSv4's indexer entry.
@@ -631,7 +644,7 @@ kernel's arithmetic, so a failure there is easy to localize.
 - [x] Where `hc_head` sits: DSv4.1 has none; the output is `norm(collapse(streams, pre))`
       with the last FFN's pre (vLLM `nvidia/model.py`, 4.3).
 - [ ] H100 memory budget.
-- [ ] Whether DeepSeek's DSv4.1 inference code is available for the wiring check.
+- [x] DeepSeek's DSv4.1 inference code: in the release repository (`inference/`).
 
 ## 14. References
 
@@ -640,5 +653,7 @@ kernel's arithmetic, so a failure there is easy to localize.
   `common/{engram,rope}.py`, `nvidia/{model,quantization}.py`, `nvidia/ops/candidate_indexer.py`
 - vLLM #62365: DSv4.1 batch invariance (open, GB200 only)
 - DeepSeek-V4.1-Flash technical report, arXiv 2609.19969
+- Release: `huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash` at `314113f8` (`config.json`,
+  `inference/`, `DeepSeek_V41_Tech_Report.pdf`)
 - Miles DeepSeek-V4.1 Flash docs (Engram host tables, bounded replay behaviour)
 - Inferact `zero-mismatch-rl`, DeepSeek-V4.1-Flash case (SM100)

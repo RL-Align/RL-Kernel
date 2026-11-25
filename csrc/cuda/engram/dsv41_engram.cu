@@ -10,7 +10,9 @@
 // [8 i + 1024 j, + 8) of the stream (j = chunk, at most 5 for H <= 5120), as the mHC kernel
 // does; each H-long sum is one fmaf chain per thread in ascending (j, column), then the
 // warp halving tree and (w0 + w1) + (w2 + w3). Every other FP32 step is a separately
-// rounded __f*_rn; sigmoid uses libdevice expf.
+// rounded __f*_rn, in the order of DeepSeek's reference (inference/model.py Engram):
+// w = q k, rstd = rx rk, d = (dot rstd) H^-0.5, copysign(sqrt(max(|d|, clamp)), d);
+// sigmoid uses libdevice expf.
 
 #include <torch/extension.h>
 
@@ -20,6 +22,7 @@
 
 #include <cuda_bf16.h>
 
+#include <cmath>
 #include <cstdint>
 #include <type_traits>
 
@@ -92,16 +95,15 @@ struct Gate {
   float rx, rk, dot, d, g;
 };
 
+// ch = FP32(H^-0.5), computed on the host in double.
 __device__ __forceinline__ Gate gate_of(float ssx, float ssk, float dot, int h, float eps,
-                                        float clamp, bool live) {
+                                        float clamp, float ch, bool live) {
   Gate s;
   s.rx = rms_scale(ssx, h, eps);
   s.rk = rms_scale(ssk, h, eps);
   s.dot = dot;
-  const float ch = __fdiv_rn(1.f, __fsqrt_rn(static_cast<float>(h)));
-  s.d = __fmul_rn(__fmul_rn(__fmul_rn(dot, s.rx), s.rk), ch);
-  float gi = __fsqrt_rn(fmaxf(fabsf(s.d), clamp));
-  if (s.d < 0.f) gi = -gi;
+  s.d = __fmul_rn(__fmul_rn(dot, __fmul_rn(s.rx, s.rk)), ch);
+  const float gi = copysignf(__fsqrt_rn(fmaxf(fabsf(s.d), clamp)), s.d);
   s.g = live ? __fdiv_rn(1.f, __fadd_rn(1.f, expf(-gi))) : 0.f;
   return s;
 }
@@ -111,7 +113,7 @@ __global__ void __launch_bounds__(kThreads)
 engram_gate_kernel(const __nv_bfloat16* __restrict__ x, const float* __restrict__ kv,
                    int64_t kv_ld, const __nv_bfloat16* __restrict__ qw,
                    const __nv_bfloat16* __restrict__ kw, const bool* __restrict__ mask, int h,
-                   float eps, float clamp, __nv_bfloat16* __restrict__ out,
+                   float eps, float clamp, float ch, __nv_bfloat16* __restrict__ out,
                    float* __restrict__ gate_out) {
   __shared__ float sh[3][4];
   const int t = blockIdx.x / kHc, hs = blockIdx.x % kHc, tid = threadIdx.x;
@@ -133,13 +135,13 @@ engram_gate_kernel(const __nv_bfloat16* __restrict__ x, const float* __restrict_
     for (int e = 0; e < kRun; ++e) {
       acc[0] = fmaf(xv[it][e], xv[it][e], acc[0]);
       acc[1] = fmaf(kk[e], kk[e], acc[1]);
-      acc[2] = fmaf(__fmul_rn(__fmul_rn(xv[it][e], qv[e]), kwv[e]), kk[e], acc[2]);
+      acc[2] = fmaf(__fmul_rn(xv[it][e], __fmul_rn(qv[e], kwv[e])), kk[e], acc[2]);
     }
   }
   float tot[3];
   slice_reduce<3>(acc, tot, sh);
   const bool live = mask == nullptr || mask[t];
-  const Gate s = gate_of(tot[0], tot[1], tot[2], h, eps, clamp, live);
+  const Gate s = gate_of(tot[0], tot[1], tot[2], h, eps, clamp, ch, live);
   if (gate_out != nullptr && tid == 0) gate_out[static_cast<int64_t>(t) * kHc + hs] = s.g;
   __nv_bfloat16* os = out + (static_cast<int64_t>(t) * kHc + hs) * h;
 #pragma unroll
@@ -162,7 +164,7 @@ __global__ void __launch_bounds__(kThreads)
 engram_gate_bwd_kernel(const TG* __restrict__ dout, const __nv_bfloat16* __restrict__ x,
                        const float* __restrict__ kv, int64_t kv_ld,
                        const __nv_bfloat16* __restrict__ qw, const __nv_bfloat16* __restrict__ kw,
-                       const bool* __restrict__ mask, int h, float eps, float clamp,
+                       const bool* __restrict__ mask, int h, float eps, float clamp, float ch,
                        TO* __restrict__ dx) {
   __shared__ float sh[4][4];
   const int t = blockIdx.x / kHc, hs = blockIdx.x % kHc, tid = threadIdx.x;
@@ -185,17 +187,16 @@ engram_gate_bwd_kernel(const TG* __restrict__ dout, const __nv_bfloat16* __restr
     for (int e = 0; e < kRun; ++e) {
       acc[0] = fmaf(xv[e], xv[e], acc[0]);
       acc[1] = fmaf(kk[e], kk[e], acc[1]);
-      acc[2] = fmaf(__fmul_rn(__fmul_rn(xv[e], qv[e]), kwv[e]), kk[e], acc[2]);
+      acc[2] = fmaf(__fmul_rn(xv[e], __fmul_rn(qv[e], kwv[e])), kk[e], acc[2]);
       acc[3] = fmaf(gv[e], vv[e], acc[3]);
     }
   }
   float tot[4];
   slice_reduce<4>(acc, tot, sh);
   const bool live = mask == nullptr || mask[t];
-  const Gate s = gate_of(tot[0], tot[1], tot[2], h, eps, clamp, live);
+  const Gate s = gate_of(tot[0], tot[1], tot[2], h, eps, clamp, ch, live);
   const float ad = fabsf(s.d);
   const float dgi = (live && ad > clamp) ? 0.5f / sqrtf(ad) : 0.f;
-  const float ch = 1.f / sqrtf(static_cast<float>(h));
   const float big = tot[3] * (s.g * (1.f - s.g)) * dgi * ch * s.rk;
   const float c2 = s.dot * s.rx * s.rx * s.rx / static_cast<float>(h);
 #pragma unroll
@@ -247,6 +248,9 @@ void check_inputs(const torch::Tensor& x, const torch::Tensor& kv, const torch::
                 "engram: mask must be contiguous bool [T]");
 }
 
+// FP32(H^-0.5) as the reference's `self.dim**-0.5` (a double, rounded when it scales FP32).
+float inv_sqrt(int64_t h) { return static_cast<float>(std::pow(static_cast<double>(h), -0.5)); }
+
 const __nv_bfloat16* bf(const torch::Tensor& x) {
   return reinterpret_cast<const __nv_bfloat16*>(x.data_ptr<at::BFloat16>());
 }
@@ -271,7 +275,7 @@ std::vector<torch::Tensor> dsv41_engram_gate(torch::Tensor x, torch::Tensor kv, 
                              at::cuda::getCurrentCUDAStream()>>>(
         bf(x), kv.data_ptr<float>(), kv.stride(0), bf(qw), bf(kw),
         mask.has_value() ? mask->data_ptr<bool>() : nullptr, static_cast<int>(h),
-        static_cast<float>(eps), static_cast<float>(clamp),
+        static_cast<float>(eps), static_cast<float>(clamp), inv_sqrt(h),
         reinterpret_cast<__nv_bfloat16*>(out.data_ptr<at::BFloat16>()), gate.data_ptr<float>());
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -300,7 +304,7 @@ torch::Tensor dsv41_engram_gate_backward(torch::Tensor dout, torch::Tensor x, to
       engram_gate_bwd_kernel<CH, TG, TO><<<static_cast<unsigned>(t * kHc), kThreads, 0, stream>>>(
           g, bf(x), kv.data_ptr<float>(), kv.stride(0), bf(qw), bf(kw),
           mask.has_value() ? mask->data_ptr<bool>() : nullptr, static_cast<int>(h),
-          static_cast<float>(eps), static_cast<float>(clamp), o);
+          static_cast<float>(eps), static_cast<float>(clamp), inv_sqrt(h), o);
     };
     auto pick_out = [&](auto* g) {
       if (bf16_out)

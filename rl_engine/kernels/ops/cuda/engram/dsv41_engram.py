@@ -15,7 +15,7 @@ import torch
 from torch import Tensor
 from torch.version import hip as torch_hip
 
-from rl_engine.kernels.ops.pytorch.engram import CLAMP
+from rl_engine.kernels.ops.pytorch.engram import CLAMP, NORM_EPS
 
 PROFILE = "dsv41-engram-v1"
 _SYMBOLS = ("dsv41_engram_gate", "dsv41_engram_gate_backward")
@@ -44,7 +44,7 @@ def engram_gate_cuda(
     q_weight: Tensor,
     k_weight: Tensor,
     mask: Tensor | None = None,
-    eps: float = 1e-6,
+    eps: float = NORM_EPS,
     clamp: float = CLAMP,
 ) -> tuple[Tensor, Tensor]:
     """streams BF16 [T, 4, H], kv FP32 [T, 5 H] -> (out BF16 [T, 4, H], gate FP32 [T, 4])."""
@@ -67,7 +67,7 @@ def engram_gate_backward_cuda(
     q_weight: Tensor,
     k_weight: Tensor,
     mask: Tensor | None = None,
-    eps: float = 1e-6,
+    eps: float = NORM_EPS,
     clamp: float = CLAMP,
     out_dtype: torch.dtype = torch.float32,
 ) -> Tensor:
@@ -121,7 +121,7 @@ def engram_gate(
     q_weight: Tensor,
     k_weight: Tensor,
     mask: Tensor | None = None,
-    eps: float = 1e-6,
+    eps: float = NORM_EPS,
 ) -> Tensor:
     """Autograd Engram gate: BF16 [T, 4, H] (dX only)."""
     return EngramGateFunction.apply(x, kv, q_weight, k_weight, mask, eps)
