@@ -21,6 +21,7 @@ import torch
 import torch.nn.functional as F
 from safetensors import safe_open
 
+from rl_engine.backends.cuda.model_specific.minimax_h3 import fixed_fp32_gemm as fx
 from rl_engine.backends.shared.triton.gemm import h3_projection as g
 from rl_engine.integrations.engines.rollout.vllm.h3_omni import install_h3_rollout
 from rl_engine.models.minimax_h3 import checkpoint_mapper as cm
@@ -151,7 +152,7 @@ def layer_rows(index, tokens=(70, 925)):
             flat = x.reshape(-1, hidden)
             sep = torch.cat([g.gemm(flat, w, b_t=True) for w in (q, k, v)], dim=1)
             half = f1.shape[0] // 2
-            sep_fc1 = g.gemm(flat, f1, b_t=True)
+            sep_fc1 = fx.gemm(flat, f1, b_t=True)  # fc1 runs the gate/up row's fixed kernel (v2)
             fc1_native = out["fc1"].reshape(t, -1)
             swapped = torch.cat([sep_fc1[:, half:], sep_fc1[:, :half]], dim=1)
             for n, (xi, m) in ref.items():

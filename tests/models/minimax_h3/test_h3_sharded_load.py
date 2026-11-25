@@ -53,6 +53,9 @@ def test_cut_shard_refuses_what_the_harness_refuses():
         sl.cut_shard(torch.zeros(12, 4), (12, 4), "rows", 2, 0)  # 12 rows are not 8 units
     with pytest.raises(ValueError):
         sl.cut_shard(torch.zeros(4, 96), (4, 96), "cols", 2, 0)  # K unit 12 is not a K tile
+    for how in ("rows_first_half", "rows_second_half"):  # an odd fused weight has no halves
+        with pytest.raises(ValueError, match="no equal halves"):
+            sl.cut_shard(torch.zeros(1025, 96), (1025, 96), how, 1, 0)
     with pytest.raises(ValueError):
         sl.cut_shard(torch.zeros(8, 8), (8, 8), "sideways", 1, 0)
 

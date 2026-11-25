@@ -9,6 +9,7 @@ are replayed from disk and verified (see ``h3_generation_resume``), never recomp
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import functools
 import json
@@ -211,30 +212,68 @@ def main():
                     return _plain(*a, **kw)
 
             pipe.transformer.forward = variant_forward
-        uninstall = run.install(pipe.transformer, make_output)
+        noise_calls = {"row": 0, "provider": 0}
+        noise_context = contextlib.nullcontext(noise_calls)
+        # recorded in the manifest: a candidate run without the row says so, rather than
+        # reporting {"row": 0, "provider": 0} as if the mix had been bound
+        noise_binding = {"bound": False, "reason": "provider run"}
+        if args.candidate:
+            # the anchors' noise mix on its row (bitwise the provider's; a mixed-dtype call stays
+            # on the provider, see h3_conditioning_noise)
+            from rl_engine.runtime.registry import KernelRegistry
+            from rl_engine.validation.models import h3_conditioning_noise
+
+            try:
+                from rl_engine.backends.cuda.conditioning.conditioning_noise_mix import (
+                    ConditioningNoiseMixCudaOp,
+                )
+
+                mix = KernelRegistry().get_op("conditioning_noise_mix", device="cuda")
+            except torch.cuda.OutOfMemoryError:
+                raise
+            except (RuntimeError, ImportError) as exc:
+                mix, reason = None, f"conditioning_noise_mix unavailable: {exc}"
+            else:
+                reason = f"conditioning_noise_mix resolved to {type(mix).__qualname__}"
+            if mix is not None and isinstance(mix, ConditioningNoiseMixCudaOp):
+                noise_context = h3_conditioning_noise.bind(pipe.scheduler, mix)
+                noise_binding = {"bound": True, "reason": ""}
+            else:
+                noise_binding = {"bound": False, "reason": reason}
+                print(
+                    f"warning: candidate noise mix not bound ({reason}); provider noise runs",
+                    flush=True,
+                )
         handle = pipe.transformer.register_forward_hook(capture, with_kwargs=True)
         started = time.perf_counter()
         try:
             with (
                 torch.inference_mode(),
+                noise_context as noise_calls,
                 full_model_execution(
                     pipe.transformer, candidate=args.candidate, trace=trace, ops=ops
                 ),
             ):
-                result = pipe(
-                    prompt=prompt.read_text(),
-                    image=Image.open(args.reference_image).convert("RGB"),
-                    num_frames=settings["num_frames"],
-                    height=settings["height"],
-                    width=settings["width"],
-                    num_inference_steps=settings["num_inference_steps"],
-                    generator=torch.Generator().manual_seed(seed),
-                    output_type="np",
-                    output=["videos", "audio", "sampling_rate"],
-                )
+                # The replay wrapper goes on top of what full_model_execution bound on the
+                # instance (the packed forward of a candidate run, which refuses to bind beneath
+                # an instance forward), and comes off before that binding does.
+                uninstall = run.install(pipe.transformer, make_output)
+                try:
+                    result = pipe(
+                        prompt=prompt.read_text(),
+                        image=Image.open(args.reference_image).convert("RGB"),
+                        num_frames=settings["num_frames"],
+                        height=settings["height"],
+                        width=settings["width"],
+                        num_inference_steps=settings["num_inference_steps"],
+                        generator=torch.Generator().manual_seed(seed),
+                        output_type="np",
+                        output=["videos", "audio", "sampling_rate"],
+                    )
+                finally:
+                    uninstall()
         finally:
             handle.remove()
-            uninstall()
             if args.provider_variant != "default":
                 pipe.transformer.forward = plain_forward
         video = np.asarray(result["videos"][0])
@@ -283,6 +322,7 @@ def main():
             seed=seed,
             preflight=args.preflight,
             trace=final_trace,
+            conditioning_noise_mix=dict(noise_calls, **noise_binding),
             steps=run.recorded,
             resume=run.summary(),
             seconds=time.perf_counter() - started,

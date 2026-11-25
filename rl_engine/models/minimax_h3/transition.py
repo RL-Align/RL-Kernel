@@ -20,9 +20,9 @@ The contract makes every number a function of the *sample*, never of how samples
   per-sample generator, not one stream consumed in batch order (the strict runtime draws it so);
   :func:`h3_sample_previous_step`, the drop-in for verl-omni's ``sample_h3_transition``, takes
   ``noise=`` for such draws and otherwise draws from the caller's ``generator`` in batch order,
-  as the scheduler does, so a stock rollout keeps its own noise; the drawn ``x_prev`` then
-  depends on the batch position (as in the scheduler), while its log-prob, and the score of any
-  stored ``x_prev``, depend only on the sample;
+  as the scheduler does, so a stock rollout keeps its own noise; the drawn ``x_prev`` and its
+  log-prob then depend on the batch position (as in the scheduler: the log-prob is a function of
+  the drawn noise), while the score of a given stored ``x_prev`` depends only on that sample;
 * the log-prob mean uses a fixed-order FP32 row reduction (``h3-row-mean-v1``: fixed-size chunks,
   then their sums), each sample's row independent of the batch;
 * ``noise_level == 0`` (a non-selected step) gives ``std == 0``, ``x_prev == mean`` and

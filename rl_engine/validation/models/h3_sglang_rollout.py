@@ -11,7 +11,7 @@ and each parameter's TP ``weight_loader``), and evaluates every bound operator t
 * ``native``: SGLang's own forward;
 * ``bound``: SGLang's modules after ``install_h3_sglang_rollout``;
 * ``canonical``: the training arithmetic on the Diffusers tensors. For the projections that is
-  ``h3-parallel-v1`` on the same rank's shards (``par.column_parallel_linear`` /
+  ``h3-parallel-v2`` on the same rank's shards (``par.column_parallel_linear`` /
   ``par.row_parallel_linear``, as in ``h3_tp.run_tp_block_rows``); for the AdaLN path and the norms
   it is the WS1 operators (``adaln_projection_3mod``, ``h3_rmsnorm``, ``adaln_gate_residual``,
   ``final_adaln_out``), whose TP layouts give the WS1 bytes on every rank.
@@ -109,6 +109,7 @@ def _canonical(weights, x, a, h, collective, tp, rank):
         [par.shard_rows(fused[:FFN], tp, rank), par.shard_rows(fused[FFN:], tp, rank)],
         collective,
         tp,
+        kernel="fixed",
     )
     a_local = par.shard_cols(a, tp, rank).contiguous()
     h_local = par.shard_cols(h, tp, rank).contiguous()

@@ -64,3 +64,4 @@ Every operator page should include:
 - [MiniMax-H3 Trajectory Artifact](h3-trajectory-artifact.md)
 - [MiniMax-H3 Tensor/Sequence/Context Parallel Rows](h3-parallel.md)
 - [MiniMax-H3 FL2VA and Ref2VA Pipeline Contracts](h3-pipeline-contracts.md)
+- [MiniMax-H3 Phase B Full Chain](h3-phase-b-full-chain.md)

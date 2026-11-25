@@ -103,13 +103,15 @@ def _head_norm_node(name: str, source: str, weight: str) -> Node:
 
 
 def _linear_node(name: str, source: str, weight: str, row: str) -> Node:
+    """A GEMM row node, as in the block (``hb.bindings(ops, NODES)`` reports what ran)."""
+
     return Node(
         name=name,
         inputs=(source,),
-        binding=Binding(
-            row, "interim", "triton _det_gemm_fp32_kernel (FP32 K loop, one BF16 rounding)"
+        binding=Binding(row, "row", hb.GEMM_ROW_OPS[row]),
+        candidate=lambda ops, ctx, x: hb.cand_gemm(
+            ops, row, x, _w(ctx, weight), f"{ctx['prefix']}.{weight}"
         ),
-        candidate=lambda ops, ctx, x: hb._cand_linear(ops, x, _w(ctx, weight)),
         provider=lambda ctx, x: prov.provider_linear(x, _w(ctx, weight)),
         golden=lambda ctx, x: gold.golden_linear(x, _w(ctx, weight)),
         provider_bitwise_isolated=False,
@@ -140,7 +142,11 @@ NODES: list[Node] = [
     Node(
         name="attention",
         inputs=("q_norm", "k_norm", "v_proj"),
-        binding=Binding("h3_full_attention", "interim", "DeterministicAttentionOp(causal=False)"),
+        binding=Binding(
+            "h3_full_attention",
+            "row",
+            "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp",
+        ),
         candidate=lambda ops, ctx, q, k, v: hb._cand_attention(ops, q, k, v),
         provider=lambda ctx, q, k, v: prov.provider_attention(q, k, hb._heads(v)),
         golden=lambda ctx, q, k, v: gold.golden_attention(q, k, hb._heads(v)),
@@ -223,13 +229,20 @@ def run_graph(mode: str, ctx: dict[str, Any], ops: hb.CandidateOps | None = None
 def run_isolated(
     ctx: dict[str, Any], ops: hb.CandidateOps, provider: dict[str, Any]
 ) -> dict[str, Any]:
-    """Each candidate node fed the provider's inputs to that node."""
+    """Each candidate node fed the provider's inputs to that node (forward only).
+
+    The nodes are evaluated one by one on the provider's values, so there is no graph to run a
+    backward through. Without ``no_grad`` a weight that requires grad would make the GEMM rows ask
+    for a canonical backward session.
+    """
 
     ctx = hb.evaluation_ctx(ctx)
-    return {
-        node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
-        for node in NODES
-    }
+    # as in ``run_graph``: the GEMM rows refuse TF32, which a caller may have enabled
+    with torch.no_grad(), hb.strict_fp32_matmul():
+        return {
+            node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
+            for node in NODES
+        }
 
 
 def run_refiner(
@@ -271,7 +284,7 @@ def run_refiner_case(
 ) -> dict[str, Any]:
     """Forward replay of one refiner block: per-node agreement, invariance, accuracy, drift."""
 
-    ops = ops or hb.CandidateOps()
+    ops = ops or hb.CandidateOps(device=hb._weights_device(weights))
     ctx = make_refiner_context(weights, block=block, tokens=tokens, seed=seed, batch=1)
     ctx2 = make_refiner_context(weights, block=block, tokens=tokens, seed=seed, batch=2)
     with torch.no_grad():
@@ -288,6 +301,7 @@ def run_refiner_case(
         "backends": ops.backends(),
         "nodes": [],
     }
+    bound = hb.bindings(ops, NODES)
     firsts: dict[str, str | None] = dict.fromkeys(
         ("first_drift", "first_isolated_drift", "first_repeat_drift", "first_batch_drift")
     )
@@ -296,9 +310,9 @@ def run_refiner_case(
         row0 = hb._batch_row(batched[name], 0, 2)
         entry: dict[str, Any] = {
             "node": name,
-            "rfc_row": node.binding.rfc_row,
-            "status": node.binding.status,
-            "backend": node.binding.backend,
+            "rfc_row": bound[name].rfc_row,
+            "status": bound[name].status,
+            "backend": bound[name].backend,
             "provider_bitwise_isolated_promised": node.provider_bitwise_isolated,
             "repeat_bitwise_equal": hb.bitwise(repeat[name], chained[name]),
             "batch_row_bitwise_equal": hb.bitwise(row0, chained[name]),

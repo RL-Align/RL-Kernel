@@ -44,8 +44,10 @@ those two modules to `video_input_projection_fp32` / `video_output_projection_fp
 
 - No FP32 full-model golden (132 GB of weights); agreement is against the provider and its
   kernel-choice spread. Per-block FP32 golden evidence is in the one-block and refiner rows.
-- Attention, O/gate_up/down GEMMs, SwiGLU and QK norm are still `interim` bindings (see the
-  operator trace); `time_proj` uses the provider in this harness.
+- SwiGLU and QK norm are still `interim` bindings, and RoPE is `reference` (see the operator
+  trace). The O/gate_up/down GEMM rows (#535, #554) are bound on SM90 only and are `interim`
+  elsewhere; attention is `H3FullAttentionOp` (#553) when its extension is present. Each trace
+  reports the binding that ran. `time_proj` uses the provider in this harness.
 - Parameter-gradient fingerprints are GPU-side position-weighted checksums, not SHA-256.
 - Sampler is the deterministic Euler ODE; the stochastic `cps` transition is a separate row.
 
@@ -60,3 +62,30 @@ Three seeds of the single-vs-batched Euler control (`reports/experiments/h3-full
 * RL-Kernel strict: the first difference is 4.3e-6 to 4.8e-6 and comes from the video `proj_in`/`proj_out`, which were provider arithmetic in that run; the difference then grows through the sampler on some seeds.
 * strict with the video projections on the `h3_projection` GEMM (the removed `--diag-video-projections` diagnostic): bitwise equal at every step on all three seeds.
 * the wall-time panel includes warm-up; steady-state step times are a follow-up.
+
+## Packed-sequence and conditioning rows
+
+- **`packed_index_copy` (#545).** Diffusers' top-level forward scatters the text, video and audio
+  rows into the packed sequence inline, so no submodule binding can reach it.
+  - `h3_packed_forward.bind` runs that forward with the scatter on `PackedIndexCopyCudaOp`, and
+    every other line in the provider's order.
+  - It accepts only the known provider forwards, matched by the sha256 of their source:
+    `diffusers@f53d552` and diffusers 0.43.0 (the verl-omni run environment). These two differ
+    only in how they read a module's dtype.
+  - It refuses an unknown forward, or one already wrapped on the instance, and leaves it unchanged.
+  - The row is data movement only, so the forward and every gradient are bitwise the provider's.
+    `full_model_execution` binds it in candidate runs whenever the CUDA operator is present.
+    `FullModelTrace.validate()["packed_bindings"]` reports `row` or `provider`.
+- **`packed_index_select`.** The output selection stays the provider's `index_select` and is reported
+  as `reference`; the row has no operator yet.
+- **`conditioning_noise_mix` (#476).** The FL2VA / Ref2VA anchors are noised once by
+  `scheduler.scale_noise`. `h3_conditioning_noise.bind` routes that call to
+  `ConditioningNoiseMixCudaOp`, which is bitwise the eager expression.
+  - A call whose condition and noise differ in dtype stays on the provider, because the provider's
+    expression rounds in two dtypes.
+  - The provider's rounding of a Python-float `t` depends on its version (`KNOWN_SCALE_NOISE`).
+    The pinned provider casts `t` to the sample's dtype, as the row does. Diffusers 0.43.0 keeps
+    it in double precision for `1 - t`, so there only a tensor `t` runs on the row; the pipeline's
+    `0.999` stays on the provider. An unknown `scale_noise` runs every call on the provider.
+  - `h3_full_generation.py --candidate` reports the calls as
+    `{"row": n, "provider": m, "scale_noise": variant}`.

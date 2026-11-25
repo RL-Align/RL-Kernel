@@ -228,3 +228,29 @@ def test_checkpoint_qkv_layout_is_what_the_vllm_omni_loader_reorders():
         ckpt, num_query_groups=heads, heads_per_group=1, head_dim=cm.HEAD_DIM
     )
     assert torch.equal(loaded, module)
+
+
+def test_every_column_projection_names_its_kernel(monkeypatch):
+    """fc1 on the gate/up row's fixed kernel, qkv_proj on the projection kernel, no default."""
+
+    from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
+    from rl_engine.integrations.engines.rollout.vllm import h3_omni
+
+    columns = {leaf for leaf, kind in h3_omni.LINEAR_NAMES.items() if kind == "column"}
+    assert set(h3_omni.COLUMN_KERNELS) == columns
+    assert h3_omni.COLUMN_KERNELS == {"qkv_proj": "projection", "fc1": "fixed"}
+    seen = []
+
+    def kernel_of(name):
+        def gemm(a, b, b_t=False):
+            seen.append(name)
+            return torch.zeros(a.shape[0], b.shape[0])
+
+        return gemm
+
+    monkeypatch.setattr(par, "kernel_of", kernel_of)
+    module = torch.nn.Linear(4, 6, bias=False)
+    for leaf, want in (("fc1", "fixed"), ("qkv_proj", "projection")):
+        seen.clear()
+        h3_omni._wrap(module, leaf, None, 1)(torch.zeros(2, 3, 4))
+        assert seen == [want], leaf

@@ -23,8 +23,9 @@ the AdaLN path and the norms:
 
 | SGLang module | Bound to |
 | --- | --- |
-| `attn.qkv_proj` (`[Q; K; V]`), `mlp.fc1` (`[gate; up]`) | `h3-projection-gemm-v1` |
-| `attn.out_proj`, `mlp.fc2` (row parallel) | canonical 8-unit reduction of [`h3-parallel-v1`](h3-parallel.md) |
+| `attn.qkv_proj` (`[Q; K; V]`) | `h3-projection-gemm-v1` |
+| `mlp.fc1` (`[gate; up]`) | the gate/up row's fixed FP32-tile GEMM (`fixed_fp32_gemm`, [`h3-parallel-v2`](h3-parallel.md)) |
+| `attn.out_proj`, `mlp.fc2` (row parallel) | canonical 8-unit reduction of [`h3-parallel-v2`](h3-parallel.md) |
 | `blocks.N.adaln_proj.linear` | the deterministic GEMV of `adaln_projection_3mod`, on its TP column shard |
 | `blocks.N` norm1 / norm2 with their modulation | `h3_rmsnorm` (`forward_modulated`) |
 | `blocks.N` both gated residuals | `adaln_gate_residual` |
@@ -125,6 +126,10 @@ gets:
 The handle is `model.rl_kernel_h3_handle`.
 
 ## Evidence
+
+These measurements were taken under `h3-parallel-v1`, before the gate/up row's fixed FP32-tile
+GEMM (`fc1`) and the O / down rows' kernel (`out_proj`, `fc2`) of `h3-parallel-v2`. They show the
+bound forwards equal to the training graph of that contract; they have not been rerun under v2.
 
 NVIDIA B200 (one GPU per TP rank), torch 2.13.0+cu130, SGLang 0.5.21 (`sglang-kernel` 0.4.7),
 pinned `MiniMax-H3@42ed227` block 0, final layer and refiner final norm loaded through SGLang's

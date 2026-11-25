@@ -8,9 +8,11 @@ vLLM-Omni's ``MiniMaxH3Attention`` / MLP keep fused linears: ``attn.qkv_proj`` (
 returns ``(output, bias)``. ``install_h3_rollout(model)`` replaces those four forwards with the
 fixed-order kernels so rollout reads the same bits as the strict training graph:
 
-* ``qkv_proj`` / ``fc1``: ``h3-projection-gemm-v1`` over the fused rows (a column of a fused
-  projection equals the same column computed alone, so fused == separate bitwise);
-* ``out_proj`` / ``fc2``: the canonical 8-unit row-parallel reduction of ``h3-parallel-v1``
+* ``qkv_proj``: ``h3-projection-gemm-v1`` over the fused rows, and ``fc1``: the gate/up row's
+  fixed FP32-tile GEMM (``fixed_fp32_gemm``, ``h3-parallel-v2``) over the fused rows (in both, a
+  column of a fused projection equals the same column computed alone, so fused == separate
+  bitwise);
+* ``out_proj`` / ``fc2``: the canonical 8-unit row-parallel reduction of ``h3-parallel-v2``
   (``tp`` ranks with a deterministic collective, ``tp=1`` alone), one BF16 rounding.
 
 H3's four projections have no bias, and the patched forward computes ``x @ W.T`` and returns
@@ -30,9 +32,12 @@ from dataclasses import dataclass, field
 import torch
 
 from rl_engine.backends.cuda.model_specific.minimax_h3 import parallel as par
-from rl_engine.backends.shared.triton.gemm import h3_projection as g
 
 LINEAR_NAMES = {"qkv_proj": "column", "fc1": "column", "out_proj": "row", "fc2": "row"}
+# The kernel of each column projection (h3-parallel-v2): Q/K/V on h3_qkv_gemm's projection kernel,
+# fc1 (gate/up) on its row's fixed FP32-tile GEMM. One table, so no column leaf falls back to a
+# default kernel.
+COLUMN_KERNELS = {"qkv_proj": "projection", "fc1": "fixed"}
 # The four projections of a transformer block or a token-refiner block, by module path (an outer
 # wrapper prefix is allowed). A module elsewhere that happens to share a leaf name is not touched.
 _PROJECTION_PATH = re.compile(
@@ -73,12 +78,15 @@ class H3RolloutHandle:
         }
 
 
-def _wrap(module, kind, collective, tp):
+def _wrap(module, leaf, collective, tp):
+    kind = LINEAR_NAMES[leaf]
+    kernel = par.kernel_of(COLUMN_KERNELS[leaf]) if kind == "column" else None
+
     def forward(x):
         shape = x.shape
         flat = x.reshape(-1, shape[-1]).contiguous()
-        if kind == "column":
-            out = g.gemm(flat, module.weight, b_t=True)
+        if kind == "column":  # qkv_proj on h3_qkv_gemm's kernel, fc1 (gate/up) on its row's
+            out = kernel(flat, module.weight, b_t=True)
         else:
             out = par.row_parallel_linear(flat, module.weight, collective, tp)
         return out.view(*shape[:-1], out.shape[-1]), None
@@ -138,6 +146,6 @@ def install_h3_rollout(
     handle = H3RolloutHandle(skipped=skipped)
     for name, module, kind in selected:
         handle._restore.append((module, module.__dict__.get("forward", _ABSENT)))
-        module.forward = _wrap(module, kind, collective, tp)
+        module.forward = _wrap(module, name.rsplit(".", 1)[-1], collective, tp)
         handle.patched.append(name)
     return handle

@@ -4,7 +4,7 @@
 """The full H3 model under TP / CP / SP (RFC #420 WS2 closeouts ``ws2_tp2_tp4_tp8`` and friends).
 
 ``parallel_model_execution`` binds every transformer block of the real model to the
-``h3-parallel-v1`` block (``h3_tp.run_tp_block_rows``) on top of the full-model harness: the
+``h3-parallel-v2`` block (``h3_tp.run_tp_block_rows``) on top of the full-model harness: the
 boundary rows (audio / text projections, token refiner) keep their strict single-GPU bindings and
 run replicated, each block takes the packed sequence from the previous block, slices the rows its
 rank owns (CP rows, or their TP share with sequence parallelism), runs the parallel block and
@@ -159,6 +159,10 @@ class ParallelState:
         # block's shard gradients at a time instead of a full copy of the model's.
         self.digest_leaf: Callable[[str, torch.Tensor], list[int]] | None = None
         self.digests: dict[str, list[int]] = {}
+        # With ``grad_sink`` set (training), each shard gradient is handed to
+        # ``grad_sink(block, name, grad)`` once it is accumulated and then freed; it takes
+        # precedence over ``digest_leaf``. The sink owns ``grad`` (it may keep it).
+        self.grad_sink: Callable[[int, str, torch.Tensor], None] | None = None
 
 
 def _digest_on_grad(state: ParallelState, key: str, name: str, leaf: torch.Tensor) -> None:
@@ -173,6 +177,22 @@ def _digest_on_grad(state: ParallelState, key: str, name: str, leaf: torch.Tenso
         assert grad is not None
         state.digests[key] = digest_leaf(name, grad)
         param.grad = None
+
+    leaf.register_post_accumulate_grad_hook(hook)
+
+
+def _sink_on_grad(state: ParallelState, index: int, name: str, leaf: torch.Tensor) -> None:
+    """Hand ``leaf``'s gradient to ``state.grad_sink`` once it is accumulated, then free it."""
+
+    sink = state.grad_sink
+    assert sink is not None
+
+    def hook(param: torch.Tensor) -> None:
+        """Give block ``index``'s gradient of shard ``name`` to the sink."""
+        grad = param.grad
+        assert grad is not None
+        param.grad = None
+        sink(index, name, grad)
 
     leaf.register_post_accumulate_grad_hook(hook)
 
@@ -230,7 +250,10 @@ def _block_forward(index: int, grid: h3_tp.Grid, sp: bool, ops, state: ParallelS
             scale = torch.ones_like(out)
             scale[:, row - lo] = 1.0078125  # one bf16 step on that row
             out = out * scale
-        if leaves is not None and state.digest_leaf is not None:
+        if leaves is not None and state.grad_sink is not None:
+            for name, leaf in leaves.items():  # a recomputation registers the live ones
+                _sink_on_grad(state, index, name, leaf)
+        elif leaves is not None and state.digest_leaf is not None:
             for name, leaf in leaves.items():  # a recomputation registers the live ones
                 _digest_on_grad(state, f"{index}.{name}", name, leaf)
         elif leaves is not None:
@@ -308,7 +331,7 @@ def exact_digest(t: torch.Tensor, *, chunk: int = DIGEST_CHUNK) -> list[int]:
 def shard_of(grad: torch.Tensor, name: str, tp: int, tp_rank: int) -> torch.Tensor:
     """This TP rank's shard of an unsharded weight gradient, by the sharding of ``name``.
 
-    ``lora.<target>.<part>`` follows ``h3-parallel-lora-v1``: the ``A`` of a row-parallel target
+    ``lora.<target>.<part>`` follows ``h3-parallel-lora-v2``: the ``A`` of a row-parallel target
     and the ``B`` of a column-parallel one are cut; the other is held whole.
     """
 

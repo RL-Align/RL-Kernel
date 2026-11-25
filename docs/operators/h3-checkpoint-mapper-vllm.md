@@ -21,9 +21,10 @@ unmapped names and incomplete q/k/v sets fail closed. A test compares the tables
 ## vLLM-Omni adapter
 
 `install_h3_rollout(model, collective=None, tp=1)` replaces the four fused linears' forwards
-(returning vLLM's `(output, None)`): `qkv_proj` / `fc1` use `h3-projection-gemm-v1` (a fused column
-equals the same column alone, so fused == separate bitwise, tested); `out_proj` / `fc2` use the
-canonical row-parallel reduction of [`h3-parallel-v1`](h3-parallel.md). Wrong dtype, non-CUDA
+(returning vLLM's `(output, None)`): `qkv_proj` uses `h3-projection-gemm-v1` and `fc1` the gate/up
+row's fixed FP32-tile GEMM (`fixed_fp32_gemm`); in both a fused column equals the same column alone,
+so fused == separate bitwise (tested). `out_proj` / `fc2` use the canonical row-parallel reduction of
+[`h3-parallel-v2`](h3-parallel.md). Wrong dtype, non-CUDA
 weights or a model without those modules raise in strict mode, one error naming every refused
 module; without `strict`, refused modules keep their forward and are listed in `handle.skipped`.
 An engine adds its own per-module test with `check` (the [SGLang adapter](h3-sglang-rollout.md)

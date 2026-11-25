@@ -4,7 +4,7 @@
 """One H3 block under tensor / sequence / context parallelism (RFC #420 WS2 closeouts).
 
 ``run_tp_block`` is the block graph with the attention and FFN projections replaced by the
-``h3-parallel-v1`` operators: column-parallel Q/K/V and gate/up, per-head norm, rotary and
+``h3-parallel-v2`` operators: column-parallel Q/K/V and gate/up, per-head norm, rotary and
 attention on the rank's heads, Ulysses head<->sequence all-to-all across the CP group,
 row-parallel O and down with the deterministic collective, optional sequence parallelism
 (rows of the residual stream sharded across the TP group). With ``tp=cp=1`` it is the
@@ -235,7 +235,7 @@ def run_tp_block_rows(
     each shard is cut from the full weight in ``weights``. The two give the same bytes.
 
     ``lora`` holds this rank's LoRA shards of the six targets (``h3_lora.shard_block_lora``);
-    the projections then run ``h3-parallel-lora-v1`` with ``lora_scale``, and the shards are
+    the projections then run ``h3-parallel-lora-v2`` with ``lora_scale``, and the shards are
     gradient leaves ``lora.<target>.<part>`` next to the weight shards.
     """
 
@@ -262,14 +262,24 @@ def run_tp_block_rows(
         assert lora is not None
         return leaf(f"lora.{target}.{part}", lora[target][part])
 
-    def proj_in(x, name_weights, gather, groups=None):
+    def proj_in(x, name_weights, gather, groups=None, kernel="projection"):
+        """Q/K/V on ``h3-projection-gemm-v1``; gate/up on its row's kernel (``fixed_fp32_gemm``)."""
         flat = x.reshape(-1, HIDDEN)
         if groups is None:
             return par.column_parallel_linear(
-                flat, name_weights, coll, tp, gather=gather, **cp_args
+                flat, name_weights, coll, tp, gather=gather, kernel=kernel, **cp_args
             )
         return pl.column_parallel_lora_linear(
-            flat, name_weights, groups, lora_scale, coll, tp, grid.tp_rank, gather, **cp_args
+            flat,
+            name_weights,
+            groups,
+            lora_scale,
+            coll,
+            tp,
+            grid.tp_rank,
+            gather,
+            kernel=kernel,
+            **cp_args,
         )
 
     def proj_out(x, w_shard, target):
@@ -353,6 +363,7 @@ def run_tp_block_rows(
                 )
             ]
         ),
+        kernel="fixed",
     )
     act = ops.swiglu(gate.contiguous(), hid.contiguous())
     down = proj_out(
