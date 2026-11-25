@@ -616,6 +616,26 @@ torch::Tensor dsv4_mhc_head_backward(torch::Tensor dy, torch::Tensor res, torch:
                                      torch::Tensor ss, double rms_eps, double eps,
                                      std::optional<torch::Tensor> norm_weight, double norm_eps,
                                      bool bf16_out);
+// DSv4.1 mHC (dsv41-mhc-v1, same file)
+std::vector<torch::Tensor> dsv41_mhc_pre(torch::Tensor res, torch::Tensor pmix,
+                                         torch::Tensor pss, torch::Tensor scale,
+                                         torch::Tensor base, double rms_eps, double eps,
+                                         int64_t iters, double post_mult,
+                                         std::optional<torch::Tensor> pre_in,
+                                         std::optional<torch::Tensor> norm_weight,
+                                         double norm_eps);
+torch::Tensor dsv41_mhc_collapse(torch::Tensor res, torch::Tensor pre,
+                                 std::optional<torch::Tensor> norm_weight, double norm_eps);
+std::vector<torch::Tensor> dsv41_mhc_pre_backward(
+    torch::Tensor dy, torch::Tensor dpost, torch::Tensor dcomb, torch::Tensor dpre_out,
+    torch::Tensor res, torch::Tensor fn, torch::Tensor scale, torch::Tensor base,
+    torch::Tensor raw, torch::Tensor ss, std::optional<torch::Tensor> pre_in, double rms_eps,
+    double eps, int64_t iters, double post_mult, std::optional<torch::Tensor> norm_weight,
+    double norm_eps, bool bf16_out);
+std::vector<torch::Tensor> dsv41_mhc_collapse_backward(torch::Tensor dy, torch::Tensor res,
+                                                       torch::Tensor pre,
+                                                       std::optional<torch::Tensor> norm_weight,
+                                                       double norm_eps, bool bf16_out);
 // DSv4 MoE router (csrc/cuda/router/dsv4_router.cu)
 void dsv4_router_topk(torch::Tensor logits, std::optional<torch::Tensor> bias,
                       std::optional<torch::Tensor> input_ids, std::optional<torch::Tensor> tid2eid,
@@ -700,6 +720,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "DSv4 mHC pre backward (frozen params) -> d_residual");
     m.def("dsv4_mhc_head_backward", &dsv4_mhc_head_backward,
           "DSv4 mHC head backward (frozen params) -> d_residual");
+    m.def("dsv41_mhc_pre", &dsv41_mhc_pre,
+          "DSv4.1 mHC delayed pre (dsv41-mhc-v1): mix with pre_in (stream 0 if absent) -> "
+          "(y, post, comb, pre_out, raw, ss)");
+    m.def("dsv41_mhc_collapse", &dsv41_mhc_collapse,
+          "DSv4.1 mHC final collapse: (residual, pre) -> y (normed if a weight is given)");
+    m.def("dsv41_mhc_pre_backward", &dsv41_mhc_pre_backward,
+          "DSv4.1 mHC delayed pre backward (frozen params) -> (d_residual, d_pre_in)");
+    m.def("dsv41_mhc_collapse_backward", &dsv41_mhc_collapse_backward,
+          "DSv4.1 mHC collapse backward -> (d_residual, d_pre)");
     m.def("dsv4_router_topk", &dsv4_router_topk,
           "DSv4 router: sqrt-softplus, top-6 (or hash) routing and scaled weights",
           py::arg("logits"), py::arg("bias"), py::arg("input_ids"), py::arg("tid2eid"),

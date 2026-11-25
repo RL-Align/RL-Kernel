@@ -590,6 +590,51 @@ def dsv4_mhc_head_backward(
     norm_eps: float,
     bf16_out: bool,
 ) -> torch.Tensor: ...
+def dsv41_mhc_pre(
+    res: torch.Tensor,
+    pmix: torch.Tensor,
+    pss: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    rms_eps: float,
+    eps: float,
+    iters: int,
+    post_mult: float,
+    pre_in: torch.Tensor | None,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+) -> list[torch.Tensor]: ...
+def dsv41_mhc_collapse(
+    res: torch.Tensor, pre: torch.Tensor, norm_weight: torch.Tensor | None, norm_eps: float
+) -> torch.Tensor: ...
+def dsv41_mhc_pre_backward(
+    dy: torch.Tensor,
+    dpost: torch.Tensor,
+    dcomb: torch.Tensor,
+    dpre_out: torch.Tensor,
+    res: torch.Tensor,
+    fn: torch.Tensor,
+    scale: torch.Tensor,
+    base: torch.Tensor,
+    raw: torch.Tensor,
+    ss: torch.Tensor,
+    pre_in: torch.Tensor | None,
+    rms_eps: float,
+    eps: float,
+    iters: int,
+    post_mult: float,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+    bf16_out: bool,
+) -> list[torch.Tensor]: ...
+def dsv41_mhc_collapse_backward(
+    dy: torch.Tensor,
+    res: torch.Tensor,
+    pre: torch.Tensor,
+    norm_weight: torch.Tensor | None,
+    norm_eps: float,
+    bf16_out: bool,
+) -> list[torch.Tensor]: ...
 def dsv4_router_topk(
     logits: torch.Tensor,
     bias: torch.Tensor | None,

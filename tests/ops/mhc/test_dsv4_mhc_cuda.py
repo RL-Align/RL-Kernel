@@ -175,8 +175,8 @@ def test_rejects_bad_shapes(ops):
     call(2, 256, torch.ones(256, device="cuda", dtype=torch.bfloat16))
     with pytest.raises(RuntimeError, match="norm_weight"):
         call(2, 256, torch.ones(256, device="cuda"))
-    with pytest.raises(RuntimeError, match="at most 4096"):
-        call(1, 4224, None)
+    with pytest.raises(RuntimeError, match="at most 5120"):
+        call(1, 5248, None)
 
 
 def test_empty(ops):

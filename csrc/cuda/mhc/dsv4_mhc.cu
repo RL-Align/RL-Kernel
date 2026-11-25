@@ -5,6 +5,13 @@
 // golden rl_engine.kernels.ops.pytorch.mhc (its docstring is the arithmetic
 // contract). Forward: mhc_pre, mhc_post, hc_head. Backward: dX only (frozen parameters).
 //
+// DSv4.1 (profile dsv41-mhc-v1, golden rl_engine.kernels.ops.pytorch.mhc.dsv41_mhc) reuses
+// the same kernels with H up to 5120 (five chunks of 1024 columns) and a "delayed" pre: the
+// stream mix uses the pre carried in from the previous sublayer (or stream 0 at the model
+// entry) and the controller's own pre is returned for the next one. The final collapse
+// (no learned hc_head in DSv4.1) is the mix alone. H <= 4096 never enters the fifth chunk,
+// so dsv4-mhc-v1 keeps its bytes.
+//
 // Every FP32 step outside the long reductions is spelled __f*_rn, so nothing is contracted
 // into an FMA; the backward's long reductions use fmaf on purpose (the golden emulates it).
 // expf is libdevice, like PyTorch's CUDA exp.
@@ -209,9 +216,17 @@ __device__ float controller_bwd_warp(const LaneCtl& c, float g, const float* sca
 }
 
 // Runs of 8: thread i of a 128-thread block owns columns [8 i + 1024 j, + 8) (j = chunk).
+// The per-token kernels are instantiated for CH = 4 (H <= 4096, DSv4) and CH = 5 (H <= 5120,
+// DSv4.1) chunks; a thread whose chunk starts at or past H skips it, so both give the same
+// bytes wherever both apply.
 constexpr int kRun = 8;
 constexpr int kSpan = 128 * kRun;
-constexpr int kMaxChunks = 4;  // H <= 4096
+constexpr int kMaxChunks = 5;  // H <= 5120
+
+// How the stream mix y of a pre kernel is formed (block-uniform).
+constexpr int kMixOwn = 0;      // y = sum_i pre_i x_i with this controller's pre (DSv4)
+constexpr int kMixIn = 1;       // y = sum_i pre_in_i x_i, the pre carried in (DSv4.1)
+constexpr int kMixStream0 = 2;  // y = x_0 exactly (DSv4.1, the first sublayer)
 
 __device__ __forceinline__ void load8(const __nv_bfloat16* p, float (&v)[kRun]) {
   const uint4 q = *reinterpret_cast<const uint4*>(p);
@@ -303,12 +318,12 @@ __device__ __forceinline__ void grid_dep_wait() {
 }
 
 // RMSNorm scale of the BF16 row held in yv: 1 / sqrt(sum(y^2) / h + eps), threads 0-127.
-template <int BAR>
-__device__ __forceinline__ float norm_scale(const float (&yv)[kMaxChunks][kRun], int h, float eps,
+template <int CH, int BAR>
+__device__ __forceinline__ float norm_scale(const float (&yv)[CH][kRun], int h, float eps,
                                             float (*sh)[4]) {
   float acc[1] = {0.f};
 #pragma unroll
-  for (int it = 0; it < kMaxChunks; ++it) {
+  for (int it = 0; it < CH; ++it) {
     if ((it * 128 + static_cast<int>(threadIdx.x)) * kRun >= h) continue;
 #pragma unroll
     for (int e = 0; e < kRun; ++e) acc[0] = fmaf(yv[it][e], yv[it][e], acc[0]);
@@ -318,10 +333,49 @@ __device__ __forceinline__ float norm_scale(const float (&yv)[kMaxChunks][kRun],
   return __fdiv_rn(1.f, __fsqrt_rn(__fadd_rn(__fdiv_rn(ss[0], static_cast<float>(h)), eps)));
 }
 
-// One block per token (kCtlThreads). Warp 4: GEMM split sums and the controller; it hands pre
-// to warps 0-3 before the Sinkhorn iterations, so the four-stream mix and the fused RMSNorm
-// (with a norm weight) run alongside them. HEAD: N = 4, no post / comb.
-template <int N>
+// The stream mix of one chunk: y = (p0 x0 + p1 x1) + (p2 x2 + p3 x3) rounded to BF16, or
+// x0 itself (exact) when stream0.
+__device__ __forceinline__ void mix_chunk(const __nv_bfloat16* r, int h, int c, const float* p,
+                                          bool stream0, float (&y)[kRun]) {
+  if (stream0) load8(r + c, y);
+  else mix8(r, h, c, p, y);
+}
+
+// Threads 0-127 of a per-token block: the stream mix of one token's residual r, then the
+// fused RMSNorm when norm_w is given; writes BF16 [H] to ot.
+template <int CH, int BAR>
+__device__ __forceinline__ void mix_rows(const __nv_bfloat16* r, int h, const float* p,
+                                         bool stream0, const __nv_bfloat16* norm_w, float norm_eps,
+                                         __nv_bfloat16* ot, float (*sh)[4]) {
+  const int tid = threadIdx.x;
+  float yv[CH][kRun];
+#pragma unroll
+  for (int it = 0; it < CH; ++it) {
+    const int c = (it * 128 + tid) * kRun;
+    if (c >= h) continue;
+    mix_chunk(r, h, c, p, stream0, yv[it]);
+    if (norm_w == nullptr) store8(ot + c, yv[it]);
+  }
+  if (norm_w == nullptr) return;
+  const float rn = norm_scale<CH, BAR>(yv, h, norm_eps, sh);
+#pragma unroll
+  for (int it = 0; it < CH; ++it) {
+    const int c = (it * 128 + tid) * kRun;
+    if (c >= h) continue;
+    float w[kRun], o[kRun];
+    load8(norm_w + c, w);
+#pragma unroll
+    for (int e = 0; e < kRun; ++e) o[e] = __fmul_rn(__fmul_rn(yv[it][e], rn), w[e]);
+    store8(ot + c, o);
+  }
+}
+
+// One block per token (kCtlThreads). Warp 4: GEMM split sums and the controller. With
+// kMixOwn it hands pre to warps 0-3 before the Sinkhorn iterations, so the four-stream mix
+// and the fused RMSNorm (with a norm weight) run alongside them; with kMixIn / kMixStream0
+// warps 0-3 do not wait for it and warp 4 writes its pre to pre_out instead. HEAD: N = 4,
+// no post / comb.
+template <int N, int CH>
 __global__ void __launch_bounds__(kCtlThreads)
 pre_epilogue_kernel(const float* __restrict__ pmix, const float* __restrict__ pss, int t_total,
                     int np, const __nv_bfloat16* __restrict__ res,
@@ -330,7 +384,8 @@ pre_epilogue_kernel(const float* __restrict__ pmix, const float* __restrict__ ps
                     const __nv_bfloat16* __restrict__ norm_w, float norm_eps,
                     __nv_bfloat16* __restrict__ out, float* __restrict__ raw_out,
                     float* __restrict__ ss_out, float* __restrict__ post_out,
-                    float* __restrict__ comb_out) {
+                    float* __restrict__ comb_out, const float* __restrict__ pre_in,
+                    int mix_mode, float* __restrict__ pre_out) {
   __shared__ float s_pre[kHc];
   __shared__ float sh[1][4];
   const int t = blockIdx.x, tid = threadIdx.x;
@@ -344,8 +399,12 @@ pre_epilogue_kernel(const float* __restrict__ pmix, const float* __restrict__ ps
     float pre, post;
     const float logit = controller_head<N>(v, scale, base, kHc * h, rms_eps, eps, post_mult, lane,
                                            pre, post, nullptr);
-    if (lane < kHc) s_pre[lane] = pre;
-    bar_arrive(kBarPre, kCtlThreads);
+    if (mix_mode == kMixOwn) {
+      if (lane < kHc) s_pre[lane] = pre;
+      bar_arrive(kBarPre, kCtlThreads);
+    } else if (lane < kHc) {
+      pre_out[static_cast<int64_t>(t) * kHc + lane] = pre;
+    }
     if (lane < N) raw_out[static_cast<int64_t>(t) * N + lane] = v;
     if (lane == N) ss_out[t] = v;
     if constexpr (N != kHc) {
@@ -355,30 +414,33 @@ pre_epilogue_kernel(const float* __restrict__ pmix, const float* __restrict__ ps
     }
     return;
   }
-  bar_sync(kBarPre, kCtlThreads);
-  const float p[kHc] = {s_pre[0], s_pre[1], s_pre[2], s_pre[3]};
-  const __nv_bfloat16* r = res + static_cast<int64_t>(t) * kHc * h;
-  __nv_bfloat16* ot = out + static_cast<int64_t>(t) * h;
-  float yv[kMaxChunks][kRun];
+  float p[kHc] = {0.f, 0.f, 0.f, 0.f};
+  if (mix_mode == kMixOwn) {
+    bar_sync(kBarPre, kCtlThreads);
 #pragma unroll
-  for (int it = 0; it < kMaxChunks; ++it) {
-    const int c = (it * 128 + tid) * kRun;
-    if (c >= h) continue;
-    mix8(r, h, c, p, yv[it]);
-    if (norm_w == nullptr) store8(ot + c, yv[it]);
+    for (int i = 0; i < kHc; ++i) p[i] = s_pre[i];
+  } else if (mix_mode == kMixIn) {
+#pragma unroll
+    for (int i = 0; i < kHc; ++i) p[i] = __ldg(pre_in + static_cast<int64_t>(t) * kHc + i);
   }
-  if (norm_w == nullptr) return;
-  const float rn = norm_scale<kBarMix>(yv, h, norm_eps, sh);
+  mix_rows<CH, kBarMix>(res + static_cast<int64_t>(t) * kHc * h, h, p, mix_mode == kMixStream0,
+                        norm_w, norm_eps, out + static_cast<int64_t>(t) * h, sh);
+}
+
+// DSv4.1's final collapse: one block (128 threads) per token, y = sum_i pre_i x_i with the
+// given pre [T, 4], then the fused RMSNorm when norm_w is given.
+template <int CH>
+__global__ void __launch_bounds__(kMixThreads)
+collapse_kernel(const __nv_bfloat16* __restrict__ res, const float* __restrict__ pre, int h,
+                const __nv_bfloat16* __restrict__ norm_w, float norm_eps,
+                __nv_bfloat16* __restrict__ out) {
+  __shared__ float sh[1][4];
+  const int t = blockIdx.x;
+  float p[kHc];
 #pragma unroll
-  for (int it = 0; it < kMaxChunks; ++it) {
-    const int c = (it * 128 + tid) * kRun;
-    if (c >= h) continue;
-    float w[kRun], o[kRun];
-    load8(norm_w + c, w);
-#pragma unroll
-    for (int e = 0; e < kRun; ++e) o[e] = __fmul_rn(__fmul_rn(yv[it][e], rn), w[e]);
-    store8(ot + c, o);
-  }
+  for (int i = 0; i < kHc; ++i) p[i] = __ldg(pre + static_cast<int64_t>(t) * kHc + i);
+  mix_rows<CH, 0>(res + static_cast<int64_t>(t) * kHc * h, h, p, false, norm_w, norm_eps,
+                  out + static_cast<int64_t>(t) * h, sh);
 }
 
 // Block (128 threads) covers 1024 columns of one token, 8 per thread.
@@ -420,7 +482,7 @@ post_kernel(const __nv_bfloat16* __restrict__ x, const __nv_bfloat16* __restrict
 // ------------------------------------------------------------------ backward kernels
 // One block (128 threads) per token; columns in runs of 8. TG: gradient type (BF16 / FP32),
 // TO: dx / d_residual type (BF16 = the FP32 result rounded once).
-template <typename TG, typename TO>
+template <typename TG, typename TO, int CH>
 __global__ void __launch_bounds__(kSlices)
 post_bwd_kernel(const TG* __restrict__ dnew, const __nv_bfloat16* __restrict__ x,
                 const __nv_bfloat16* __restrict__ res, const float* __restrict__ post,
@@ -440,7 +502,7 @@ post_bwd_kernel(const TG* __restrict__ dnew, const __nv_bfloat16* __restrict__ x
 #pragma unroll
   for (int q = 0; q < kHc + kHc * kHc; ++q) acc[q] = 0.f;
 #pragma unroll
-  for (int it = 0; it < kMaxChunks; ++it) {
+  for (int it = 0; it < CH; ++it) {
     const int c = (it * 128 + s) * kRun;
     if (c >= h) continue;
     float dv[kHc][kRun], rv[kHc][kRun], xv[kRun], o[kRun];
@@ -483,81 +545,35 @@ post_bwd_kernel(const TG* __restrict__ dnew, const __nv_bfloat16* __restrict__ x
   }
 }
 
-// One block per token (kCtlThreads). dz is the gradient of the op's output (of the normed
-// output when norm_w is given). Warp 4 recomputes the controller (pre first, then the
-// Sinkhorn steps, saved) while warps 0-3 form the gradient of the stream mix y (through the
-// fused RMSNorm) and d_pre; warp 4 then runs the controller backward. Writes pre, d_raw,
-// d_ss and, with a norm, dy_out (FP32); gemm_bwd_kernel then forms d_residual.
-template <int N, typename TG>
-__global__ void __launch_bounds__(kCtlThreads)
-pre_bwd_kernel(const TG* __restrict__ dz, const float* __restrict__ dpost,
-               const float* __restrict__ dcomb, const __nv_bfloat16* __restrict__ res,
-               const float* __restrict__ scale, const float* __restrict__ base,
-               const float* __restrict__ raw, const float* __restrict__ ss, int h, float rms_eps,
-               float eps, int iters, float post_mult, const __nv_bfloat16* __restrict__ norm_w,
-               float norm_eps, float* __restrict__ dy_out, float* __restrict__ pre_out,
-               float* __restrict__ draw_out, float* __restrict__ dss_out) {
-  __shared__ float sh[kHc][4];
-  __shared__ float s_pre[kHc];
-  __shared__ float s_dpre[kHc];
-  __shared__ float steps_m[kMaxSteps * 16];
-  __shared__ float steps_d[kMaxSteps * 16];
-  const int t = blockIdx.x, s = threadIdx.x;
-  const int k = kHc * h;
-  if (s >= kMixThreads) {
-    const int lane = s - kMixThreads;
-    float v = 0.f;
-    if (lane < N) v = raw[static_cast<int64_t>(t) * N + lane];
-    else if (lane == N) v = ss[t];
-    LaneCtl lc;
-    float pre, post;
-    const float logit = controller_head<N>(v, scale, base, k, rms_eps, eps, post_mult, lane, pre,
-                                           post, &lc);
-    if (lane < kHc) {
-      s_pre[lane] = pre;
-      pre_out[static_cast<int64_t>(t) * kHc + lane] = pre;
-    }
-    bar_arrive(kBarPre, kCtlThreads);
-    float gin = 0.f;
-    if constexpr (N != kHc) {
-      controller_sinkhorn(logit, eps, iters, lane, &lc, steps_m, steps_d);
-      __syncwarp();
-      if (lane >= kHc && lane < 2 * kHc) gin = dpost[static_cast<int64_t>(t) * kHc + lane - kHc];
-      else if (lane >= 16) gin = dcomb[static_cast<int64_t>(t) * kHc * kHc + lane - 16];
-    }
-    bar_sync(kBarDpre, kCtlThreads);
-    if (lane < kHc) gin = s_dpre[lane];
-    float dss;
-    const float dr = controller_bwd_warp<N>(lc, gin, scale, k, iters, post_mult, lane, steps_m,
-                                            steps_d, &dss);
-    const bool live = (N == kHc) ? lane < kHc : (lane < 2 * kHc || lane >= 16);
-    if (live) draw_out[static_cast<int64_t>(t) * N + lane_n<N>(lane)] = dr;
-    if (lane == 0) dss_out[t] = dss;
-    return;
-  }
-  bar_sync(kBarPre, kCtlThreads);
-  const float p[kHc] = {s_pre[0], s_pre[1], s_pre[2], s_pre[3]};
-  const __nv_bfloat16* r = res + static_cast<int64_t>(t) * kHc * h;
-  const TG* dzt = dz + static_cast<int64_t>(t) * h;
-  float dy[kMaxChunks][kRun];
+// Threads 0-127 of a per-token block: the gradient of the stream mix y of one token from dzt,
+// the gradient of the op's output (through the fused RMSNorm when norm_w is given, which
+// recomputes y; then written to dy_row as FP32 when dy_row is given), and with want_dpre the
+// d_pre dot products sum_c x_i[c] dy[c] on every thread.
+template <int CH, int BAR, typename TG>
+__device__ __forceinline__ void mix_grad(const TG* dzt, const __nv_bfloat16* r, int h,
+                                         const float* p, bool stream0,
+                                         const __nv_bfloat16* norm_w, float norm_eps,
+                                         float (*sh)[4], float (&dy)[CH][kRun], float* dy_row,
+                                         bool want_dpre, float (&dpre)[kHc]) {
+  const int s = threadIdx.x;
 #pragma unroll
-  for (int it = 0; it < kMaxChunks; ++it) {
+  for (int it = 0; it < CH; ++it) {
     const int c = (it * 128 + s) * kRun;
     if (c >= h) continue;
     load8(dzt + c, dy[it]);
   }
   if (norm_w != nullptr) {  // through the fused RMSNorm: dy = u r - (sum(u y) r^3 / H) y
-    float yv[kMaxChunks][kRun];
+    float yv[CH][kRun];
 #pragma unroll
-    for (int it = 0; it < kMaxChunks; ++it) {
+    for (int it = 0; it < CH; ++it) {
       const int c = (it * 128 + s) * kRun;
       if (c >= h) continue;
-      mix8(r, h, c, p, yv[it]);
+      mix_chunk(r, h, c, p, stream0, yv[it]);
     }
-    const float rn = norm_scale<kBarMix>(yv, h, norm_eps, sh);
+    const float rn = norm_scale<CH, BAR>(yv, h, norm_eps, sh);
     float dot[1] = {0.f};
 #pragma unroll
-    for (int it = 0; it < kMaxChunks; ++it) {
+    for (int it = 0; it < CH; ++it) {
       const int c = (it * 128 + s) * kRun;
       if (c >= h) continue;
       float w[kRun];
@@ -569,20 +585,21 @@ pre_bwd_kernel(const TG* __restrict__ dz, const float* __restrict__ dpost,
       }
     }
     float tot[1];
-    slice_reduce<1, kBarMix>(dot, tot, sh);
+    slice_reduce<1, BAR>(dot, tot, sh);
     const float cc = __fdiv_rn(__fmul_rn(__fmul_rn(tot[0], rn), __fmul_rn(rn, rn)), static_cast<float>(h));
 #pragma unroll
-    for (int it = 0; it < kMaxChunks; ++it) {
+    for (int it = 0; it < CH; ++it) {
       if ((it * 128 + s) * kRun >= h) continue;
 #pragma unroll
       for (int e = 0; e < kRun; ++e)
         dy[it][e] = __fsub_rn(__fmul_rn(dy[it][e], rn), __fmul_rn(cc, yv[it][e]));
-      store8(dy_out + static_cast<int64_t>(t) * h + (it * 128 + s) * kRun, dy[it]);
+      if (dy_row != nullptr) store8(dy_row + (it * 128 + s) * kRun, dy[it]);
     }
   }
+  if (!want_dpre) return;
   float acc[kHc] = {0.f, 0.f, 0.f, 0.f};
 #pragma unroll
-  for (int it = 0; it < kMaxChunks; ++it) {
+  for (int it = 0; it < CH; ++it) {
     const int c = (it * 128 + s) * kRun;
     if (c >= h) continue;
     float rv[kHc][kRun];
@@ -593,13 +610,133 @@ pre_bwd_kernel(const TG* __restrict__ dz, const float* __restrict__ dpost,
 #pragma unroll
       for (int i = 0; i < kHc; ++i) acc[i] = fmaf(rv[i][e], dy[it][e], acc[i]);
   }
-  float dpre[kHc];
-  slice_reduce<kHc, kBarMix>(acc, dpre, sh);
+  slice_reduce<kHc, BAR>(acc, dpre, sh);
+}
+
+// One block per token (kCtlThreads). dz is the gradient of the op's output (of the normed
+// output when norm_w is given). Warp 4 recomputes the controller (pre first, then the
+// Sinkhorn steps, saved) while warps 0-3 form the gradient of the stream mix y (through the
+// fused RMSNorm) and d_pre; warp 4 then runs the controller backward. Writes d_raw, d_ss
+// and, with a norm, dy_out (FP32); gemm_bwd_kernel then forms d_residual.
+//   kMixOwn:     the mix used this controller's pre. Warps 0-3 hand d_pre to warp 4, and
+//                warp 4 writes pre to pre_out for gemm_bwd_kernel.
+//   kMixIn:      the mix used pre_in. Warp 4's incoming pre gradient is dpre_next (the
+//                gradient of the pre this op returned); warps 0-3 write d_pre_in.
+//   kMixStream0: y = x_0. As kMixIn without d_pre_in.
+template <int N, typename TG, int CH>
+__global__ void __launch_bounds__(kCtlThreads)
+pre_bwd_kernel(const TG* __restrict__ dz, const float* __restrict__ dpost,
+               const float* __restrict__ dcomb, const __nv_bfloat16* __restrict__ res,
+               const float* __restrict__ scale, const float* __restrict__ base,
+               const float* __restrict__ raw, const float* __restrict__ ss, int h, float rms_eps,
+               float eps, int iters, float post_mult, const __nv_bfloat16* __restrict__ norm_w,
+               float norm_eps, float* __restrict__ dy_out, float* __restrict__ pre_out,
+               float* __restrict__ draw_out, float* __restrict__ dss_out,
+               const float* __restrict__ pre_in, int mix_mode,
+               const float* __restrict__ dpre_next, float* __restrict__ dpre_in_out) {
+  __shared__ float sh[kHc][4];
+  __shared__ float s_pre[kHc];
+  __shared__ float s_dpre[kHc];
+  __shared__ float steps_m[kMaxSteps * 16];
+  __shared__ float steps_d[kMaxSteps * 16];
+  const int t = blockIdx.x, s = threadIdx.x;
+  const int k = kHc * h;
+  const bool own = mix_mode == kMixOwn;
+  if (s >= kMixThreads) {
+    const int lane = s - kMixThreads;
+    float v = 0.f;
+    if (lane < N) v = raw[static_cast<int64_t>(t) * N + lane];
+    else if (lane == N) v = ss[t];
+    LaneCtl lc;
+    float pre, post;
+    const float logit = controller_head<N>(v, scale, base, k, rms_eps, eps, post_mult, lane, pre,
+                                           post, &lc);
+    if (own) {
+      if (lane < kHc) {
+        s_pre[lane] = pre;
+        pre_out[static_cast<int64_t>(t) * kHc + lane] = pre;
+      }
+      bar_arrive(kBarPre, kCtlThreads);
+    }
+    float gin = 0.f;
+    if constexpr (N != kHc) {
+      controller_sinkhorn(logit, eps, iters, lane, &lc, steps_m, steps_d);
+      __syncwarp();
+      if (lane >= kHc && lane < 2 * kHc) gin = dpost[static_cast<int64_t>(t) * kHc + lane - kHc];
+      else if (lane >= 16) gin = dcomb[static_cast<int64_t>(t) * kHc * kHc + lane - 16];
+    }
+    if (own) {
+      bar_sync(kBarDpre, kCtlThreads);
+      if (lane < kHc) gin = s_dpre[lane];
+    } else if (lane < kHc) {
+      gin = dpre_next[static_cast<int64_t>(t) * kHc + lane];
+    }
+    float dss;
+    const float dr = controller_bwd_warp<N>(lc, gin, scale, k, iters, post_mult, lane, steps_m,
+                                            steps_d, &dss);
+    const bool live = (N == kHc) ? lane < kHc : (lane < 2 * kHc || lane >= 16);
+    if (live) draw_out[static_cast<int64_t>(t) * N + lane_n<N>(lane)] = dr;
+    if (lane == 0) dss_out[t] = dss;
+    return;
+  }
+  float p[kHc] = {0.f, 0.f, 0.f, 0.f};
+  if (own) {
+    bar_sync(kBarPre, kCtlThreads);
+#pragma unroll
+    for (int i = 0; i < kHc; ++i) p[i] = s_pre[i];
+  } else if (mix_mode == kMixIn) {
+#pragma unroll
+    for (int i = 0; i < kHc; ++i) p[i] = __ldg(pre_in + static_cast<int64_t>(t) * kHc + i);
+  }
+  float dy[CH][kRun], dpre[kHc];
+  mix_grad<CH, kBarMix, TG>(dz + static_cast<int64_t>(t) * h, res + static_cast<int64_t>(t) * kHc * h,
+                            h, p, mix_mode == kMixStream0, norm_w, norm_eps, sh, dy,
+                            norm_w != nullptr ? dy_out + static_cast<int64_t>(t) * h : nullptr,
+                            mix_mode != kMixStream0, dpre);
+  if (own) {
+    if (s == 0) {
+#pragma unroll
+      for (int i = 0; i < kHc; ++i) s_dpre[i] = dpre[i];
+    }
+    bar_arrive(kBarDpre, kCtlThreads);
+  } else if (mix_mode == kMixIn && s == 0) {
+#pragma unroll
+    for (int i = 0; i < kHc; ++i) dpre_in_out[static_cast<int64_t>(t) * kHc + i] = dpre[i];
+  }
+}
+
+// Backward of collapse_kernel: one block (128 threads) per token. d_residual_i = pre_i dy
+// (dy the gradient of the mix, through the fused RMSNorm when norm_w is given) and
+// d_pre_i = sum_c x_i[c] dy[c].
+template <int CH, typename TG, typename TO>
+__global__ void __launch_bounds__(kMixThreads)
+collapse_bwd_kernel(const TG* __restrict__ dz, const __nv_bfloat16* __restrict__ res,
+                    const float* __restrict__ pre, int h, const __nv_bfloat16* __restrict__ norm_w,
+                    float norm_eps, TO* __restrict__ dres, float* __restrict__ dpre_out) {
+  __shared__ float sh[kHc][4];
+  const int t = blockIdx.x, s = threadIdx.x;
+  float p[kHc];
+#pragma unroll
+  for (int i = 0; i < kHc; ++i) p[i] = __ldg(pre + static_cast<int64_t>(t) * kHc + i);
+  float dy[CH][kRun], dpre[kHc];
+  mix_grad<CH, 0, TG>(dz + static_cast<int64_t>(t) * h, res + static_cast<int64_t>(t) * kHc * h, h,
+                      p, false, norm_w, norm_eps, sh, dy, nullptr, true, dpre);
+#pragma unroll
+  for (int it = 0; it < CH; ++it) {
+    const int c = (it * 128 + s) * kRun;
+    if (c >= h) continue;
+#pragma unroll
+    for (int i = 0; i < kHc; ++i) {
+      float o[kRun];
+#pragma unroll
+      for (int e = 0; e < kRun; ++e) o[e] = __fmul_rn(p[i], dy[it][e]);
+      store8(dres + (static_cast<int64_t>(t) * kHc + i) * h + c, o);
+    }
+  }
   if (s == 0) {
 #pragma unroll
-    for (int i = 0; i < kHc; ++i) s_dpre[i] = dpre[i];
+    for (int i = 0; i < kHc; ++i) dpre_out[static_cast<int64_t>(t) * kHc + i] = dpre[i];
   }
-  bar_arrive(kBarDpre, kCtlThreads);
 }
 
 // dres[t][i][c] = pre_i dy[t][c] + ((fma chain over n of draw[t][n] fn[n][k]) + (2 x) dss),
@@ -737,7 +874,16 @@ void check_res(const torch::Tensor& res, int64_t& t, int64_t& h) {
   t = res.size(0);
   h = res.size(2);
   TORCH_CHECK(h % kSlices == 0 && h <= kMaxChunks * kSpan,
-              "H must be a multiple of 128 and at most 4096, got ", h);
+              "H must be a multiple of 128 and at most 5120, got ", h);
+}
+
+// The per-token kernels' chunk count: 4 up to H = 4096 (the DSv4 instantiation), else 5.
+template <typename F>
+void with_chunks(int64_t h, F&& f) {
+  if (h <= 4 * kSpan)
+    f(std::integral_constant<int, 4>{});
+  else
+    f(std::integral_constant<int, 5>{});
 }
 
 void check_f32(const torch::Tensor& x, std::initializer_list<int64_t> shape, const char* name) {
@@ -799,6 +945,51 @@ const __nv_bfloat16* norm_ptr(const std::optional<torch::Tensor>& w, int64_t h) 
   return reinterpret_cast<const __nv_bfloat16*>(w->data_ptr<at::BFloat16>());
 }
 
+const __nv_bfloat16* bf16_ptr(const torch::Tensor& x) {
+  return reinterpret_cast<const __nv_bfloat16*>(x.data_ptr<at::BFloat16>());
+}
+
+// The 24-mix pre epilogue for any mix mode -> (y, post, comb, raw, ss); pre_out is written
+// for kMixIn / kMixStream0.
+std::vector<torch::Tensor> pre_forward_impl(const torch::Tensor& res, const torch::Tensor& pmix,
+                                            const torch::Tensor& pss, const torch::Tensor& scale,
+                                            const torch::Tensor& base, double rms_eps, double eps,
+                                            int64_t iters, double post_mult,
+                                            const std::optional<torch::Tensor>& norm_weight,
+                                            double norm_eps, const float* pre_in, int mix_mode,
+                                            float* pre_out) {
+  int64_t t, h;
+  check_res(res, t, h);
+  check_f32(pmix, {kSplits, t, 24}, "pmix");
+  check_f32(pss, {kSplits, t}, "pss");
+  check_f32(scale, {3}, "scale");
+  check_f32(base, {24}, "base");
+  TORCH_CHECK(iters >= 1 && 1 + 2 * (iters - 1) <= kMaxSteps, "sinkhorn iters out of range");
+  const __nv_bfloat16* nw = norm_ptr(norm_weight, h);
+  auto f32 = res.options().dtype(torch::kFloat32);
+  auto y = torch::empty({t, h}, res.options());
+  auto post = torch::empty({t, kHc}, f32);
+  auto comb = torch::empty({t, kHc, kHc}, f32);
+  auto raw = torch::empty({t, 24}, f32);
+  auto ss = torch::empty({t}, f32);
+  if (t == 0) return {y, post, comb, raw, ss};
+  const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  with_chunks(h, [&](auto ch) {
+    constexpr int CH = decltype(ch)::value;
+    launch_pdl(pre_epilogue_kernel<24, CH>, static_cast<unsigned>(t), kCtlThreads, stream,
+               pmix.data_ptr<float>(), pss.data_ptr<float>(), static_cast<int>(t), 24,
+               bf16_ptr(res), scale.data_ptr<float>(), base.data_ptr<float>(),
+               static_cast<int>(h), static_cast<float>(rms_eps), static_cast<float>(eps),
+               static_cast<int>(iters), static_cast<float>(post_mult), nw,
+               static_cast<float>(norm_eps),
+               reinterpret_cast<__nv_bfloat16*>(y.data_ptr<at::BFloat16>()), raw.data_ptr<float>(),
+               ss.data_ptr<float>(), post.data_ptr<float>(), comb.data_ptr<float>(), pre_in,
+               mix_mode, pre_out);
+  });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return {y, post, comb, raw, ss};
+}
+
 }  // namespace
 
 // residual BF16 [T, 4, H] and the DeepGEMM tf32_hc_prenorm_gemm partials pmix [16, T, 24],
@@ -809,31 +1000,9 @@ std::vector<torch::Tensor> dsv4_mhc_pre(torch::Tensor res, torch::Tensor pmix, t
                                         double eps, int64_t iters, double post_mult,
                                         std::optional<torch::Tensor> norm_weight,
                                         double norm_eps) {
-  int64_t t, h;
-  check_res(res, t, h);
-  check_f32(pmix, {kSplits, t, 24}, "pmix");
-  check_f32(pss, {kSplits, t}, "pss");
-  check_f32(scale, {3}, "scale");
-  check_f32(base, {24}, "base");
-  TORCH_CHECK(iters >= 1 && 1 + 2 * (iters - 1) <= kMaxSteps, "sinkhorn iters out of range");
-  const __nv_bfloat16* nw = norm_ptr(norm_weight, h);
   const c10::cuda::OptionalCUDAGuard guard(device_of(res));
-  auto f32 = res.options().dtype(torch::kFloat32);
-  auto y = torch::empty({t, h}, res.options());
-  auto post = torch::empty({t, kHc}, f32);
-  auto comb = torch::empty({t, kHc, kHc}, f32);
-  auto raw = torch::empty({t, 24}, f32);
-  auto ss = torch::empty({t}, f32);
-  if (t == 0) return {y, post, comb, raw, ss};
-  const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-  launch_pdl(pre_epilogue_kernel<24>, static_cast<unsigned>(t), kCtlThreads, stream,
-      pmix.data_ptr<float>(), pss.data_ptr<float>(), static_cast<int>(t), 24, reinterpret_cast<const __nv_bfloat16*>(res.data_ptr<at::BFloat16>()),
-      scale.data_ptr<float>(), base.data_ptr<float>(), static_cast<int>(h),
-      static_cast<float>(rms_eps), static_cast<float>(eps), static_cast<int>(iters),
-      static_cast<float>(post_mult), nw, static_cast<float>(norm_eps),
-      reinterpret_cast<__nv_bfloat16*>(y.data_ptr<at::BFloat16>()), raw.data_ptr<float>(), ss.data_ptr<float>(), post.data_ptr<float>(), comb.data_ptr<float>());
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
-  return {y, post, comb, raw, ss};
+  return pre_forward_impl(res, pmix, pss, scale, base, rms_eps, eps, iters, post_mult,
+                          norm_weight, norm_eps, nullptr, kMixOwn, nullptr);
 }
 
 // residual BF16 [T, 4, H], partials of the 8-row padded head fn pmix [16, T, 8], pss [16, T],
@@ -856,12 +1025,16 @@ std::vector<torch::Tensor> dsv4_mhc_head(torch::Tensor res, torch::Tensor pmix, 
   auto ss = torch::empty({t}, f32);
   if (t == 0) return {y, raw, ss};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-  launch_pdl(pre_epilogue_kernel<kHc>, static_cast<unsigned>(t), kCtlThreads, stream,
-      pmix.data_ptr<float>(), pss.data_ptr<float>(), static_cast<int>(t), 8, reinterpret_cast<const __nv_bfloat16*>(res.data_ptr<at::BFloat16>()),
-      scale.data_ptr<float>(), base.data_ptr<float>(), static_cast<int>(h),
-      static_cast<float>(rms_eps), static_cast<float>(eps), 1, 1.f, nw,
-      static_cast<float>(norm_eps), reinterpret_cast<__nv_bfloat16*>(y.data_ptr<at::BFloat16>()), raw.data_ptr<float>(),
-      ss.data_ptr<float>(), nullptr, nullptr);
+  with_chunks(h, [&](auto ch) {
+    constexpr int CH = decltype(ch)::value;
+    launch_pdl(pre_epilogue_kernel<kHc, CH>, static_cast<unsigned>(t), kCtlThreads, stream,
+               pmix.data_ptr<float>(), pss.data_ptr<float>(), static_cast<int>(t), 8,
+               bf16_ptr(res), scale.data_ptr<float>(), base.data_ptr<float>(),
+               static_cast<int>(h), static_cast<float>(rms_eps), static_cast<float>(eps), 1, 1.f,
+               nw, static_cast<float>(norm_eps),
+               reinterpret_cast<__nv_bfloat16*>(y.data_ptr<at::BFloat16>()), raw.data_ptr<float>(),
+               ss.data_ptr<float>(), nullptr, nullptr, nullptr, kMixOwn, nullptr);
+  });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {y, raw, ss};
 }
@@ -881,10 +1054,8 @@ torch::Tensor dsv4_mhc_post(torch::Tensor x, torch::Tensor res, torch::Tensor po
   if (t == 0) return out;
   dim3 grid(static_cast<unsigned>(t), static_cast<unsigned>((h + 1023) / 1024));
   post_kernel<<<grid, 128, 0, at::cuda::getCurrentCUDAStream()>>>(
-      reinterpret_cast<const __nv_bfloat16*>(x.data_ptr<at::BFloat16>()),
-      reinterpret_cast<const __nv_bfloat16*>(res.data_ptr<at::BFloat16>()), post.data_ptr<float>(),
-      comb.data_ptr<float>(), static_cast<int>(h),
-      reinterpret_cast<__nv_bfloat16*>(out.data_ptr<at::BFloat16>()));
+      bf16_ptr(x), bf16_ptr(res), post.data_ptr<float>(), comb.data_ptr<float>(),
+      static_cast<int>(h), reinterpret_cast<__nv_bfloat16*>(out.data_ptr<at::BFloat16>()));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return out;
 }
@@ -911,16 +1082,17 @@ std::vector<torch::Tensor> dsv4_mhc_post_backward(torch::Tensor dnew, torch::Ten
   auto dcomb = torch::empty({t, kHc, kHc}, f32);
   if (t == 0) return {dx, dres, dpost, dcomb};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-  dispatch_grad(dnew, [&](auto* g) {
-    using TG = std::remove_const_t<std::remove_pointer_t<decltype(g)>>;
-    dispatch_out(bf16_out, dx, [&](auto* o) {
-      using TO = std::remove_pointer_t<decltype(o)>;
-      post_bwd_kernel<TG, TO><<<static_cast<unsigned>(t), kSlices, 0, stream>>>(
-          g, reinterpret_cast<const __nv_bfloat16*>(x.data_ptr<at::BFloat16>()),
-          reinterpret_cast<const __nv_bfloat16*>(res.data_ptr<at::BFloat16>()),
-          post.data_ptr<float>(), comb.data_ptr<float>(), static_cast<int>(h), o,
-          reinterpret_cast<TO*>(dres.data_ptr()), dpost.data_ptr<float>(),
-          dcomb.data_ptr<float>());
+  with_chunks(h, [&](auto ch) {
+    constexpr int CH = decltype(ch)::value;
+    dispatch_grad(dnew, [&](auto* g) {
+      using TG = std::remove_const_t<std::remove_pointer_t<decltype(g)>>;
+      dispatch_out(bf16_out, dx, [&](auto* o) {
+        using TO = std::remove_pointer_t<decltype(o)>;
+        post_bwd_kernel<TG, TO, CH><<<static_cast<unsigned>(t), kSlices, 0, stream>>>(
+            g, bf16_ptr(x), bf16_ptr(res), post.data_ptr<float>(), comb.data_ptr<float>(),
+            static_cast<int>(h), o, reinterpret_cast<TO*>(dres.data_ptr()),
+            dpost.data_ptr<float>(), dcomb.data_ptr<float>());
+      });
     });
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -929,6 +1101,7 @@ std::vector<torch::Tensor> dsv4_mhc_post_backward(torch::Tensor dnew, torch::Ten
 
 namespace {
 
+// d_residual of a pre op. mix_mode / pre_in / dpre_next / dpre_in as pre_bwd_kernel.
 template <int N>
 torch::Tensor pre_backward_impl(const torch::Tensor& dy, const float* dpost, const float* dcomb,
                                 const torch::Tensor& res, const torch::Tensor& fn,
@@ -936,26 +1109,43 @@ torch::Tensor pre_backward_impl(const torch::Tensor& dy, const float* dpost, con
                                 const torch::Tensor& raw, const torch::Tensor& ss, double rms_eps,
                                 double eps, int64_t iters, double post_mult,
                                 const __nv_bfloat16* nw, double norm_eps, bool bf16_out,
-                                int64_t t, int64_t h) {
+                                int64_t t, int64_t h, const float* pre_in = nullptr,
+                                int mix_mode = kMixOwn, const float* dpre_next = nullptr,
+                                float* dpre_in = nullptr) {
   const int64_t k = kHc * h;
   auto f32 = res.options().dtype(torch::kFloat32);
   auto dres = torch::empty({t, kHc, h}, res.options().dtype(bf16_out ? torch::kBFloat16 : torch::kFloat32));
   if (t == 0) return dres;
   auto draw = torch::empty({t, N}, f32);
   auto dss = torch::empty({t}, f32);
-  auto pre = torch::empty({t, kHc}, f32);
+  // The pre of the aggregate leg in gemm_bwd_kernel: this controller's (written by
+  // pre_bwd_kernel), pre_in, or e_0 for the stream-0 mix.
+  torch::Tensor pre_own;
+  const float* pre_leg = pre_in;
+  if (mix_mode == kMixOwn) {
+    pre_own = torch::empty({t, kHc}, f32);
+    pre_leg = pre_own.data_ptr<float>();
+  } else if (mix_mode == kMixStream0) {
+    pre_own = torch::zeros({t, kHc}, f32);
+    pre_own.select(1, 0).fill_(1.0);
+    pre_leg = pre_own.data_ptr<float>();
+  }
   torch::Tensor dmix;  // gradient of the stream mix y when it differs from dy (fused norm)
   if (nw != nullptr) dmix = torch::empty({t, h}, f32);
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-  dispatch_grad(dy, [&](auto* g) {
-    using TG = std::remove_const_t<std::remove_pointer_t<decltype(g)>>;
-    pre_bwd_kernel<N, TG><<<static_cast<unsigned>(t), kCtlThreads, 0, stream>>>(
-        g, dpost, dcomb, reinterpret_cast<const __nv_bfloat16*>(res.data_ptr<at::BFloat16>()),
-        scale.data_ptr<float>(), base.data_ptr<float>(), raw.data_ptr<float>(),
-        ss.data_ptr<float>(), static_cast<int>(h), static_cast<float>(rms_eps),
-        static_cast<float>(eps), static_cast<int>(iters), static_cast<float>(post_mult), nw,
-        static_cast<float>(norm_eps), nw != nullptr ? dmix.data_ptr<float>() : nullptr,
-        pre.data_ptr<float>(), draw.data_ptr<float>(), dss.data_ptr<float>());
+  with_chunks(h, [&](auto ch) {
+    constexpr int CH = decltype(ch)::value;
+    dispatch_grad(dy, [&](auto* g) {
+      using TG = std::remove_const_t<std::remove_pointer_t<decltype(g)>>;
+      pre_bwd_kernel<N, TG, CH><<<static_cast<unsigned>(t), kCtlThreads, 0, stream>>>(
+          g, dpost, dcomb, bf16_ptr(res), scale.data_ptr<float>(), base.data_ptr<float>(),
+          raw.data_ptr<float>(), ss.data_ptr<float>(), static_cast<int>(h),
+          static_cast<float>(rms_eps), static_cast<float>(eps), static_cast<int>(iters),
+          static_cast<float>(post_mult), nw, static_cast<float>(norm_eps),
+          nw != nullptr ? dmix.data_ptr<float>() : nullptr,
+          mix_mode == kMixOwn ? pre_own.data_ptr<float>() : nullptr, draw.data_ptr<float>(),
+          dss.data_ptr<float>(), pre_in, mix_mode, dpre_next, dpre_in);
+    });
   });
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   const torch::Tensor& dsrc = nw != nullptr ? dmix : dy;
@@ -968,8 +1158,7 @@ torch::Tensor pre_backward_impl(const torch::Tensor& dy, const float* dpost, con
       dispatch_out(bf16_out, dres, [&](auto* o) {
         using TO = std::remove_pointer_t<decltype(o)>;
         gemm_bwd_kernel<N, TOK, TD, TO><<<grid, 256, 0, stream>>>(
-            reinterpret_cast<const __nv_bfloat16*>(res.data_ptr<at::BFloat16>()),
-            fn.data_ptr<float>(), d, pre.data_ptr<float>(), draw.data_ptr<float>(),
+            bf16_ptr(res), fn.data_ptr<float>(), d, pre_leg, draw.data_ptr<float>(),
             dss.data_ptr<float>(), static_cast<int>(t), static_cast<int>(h), o);
       });
     });
@@ -1028,4 +1217,121 @@ torch::Tensor dsv4_mhc_head_backward(torch::Tensor dy, torch::Tensor res, torch:
   const c10::cuda::OptionalCUDAGuard guard(device_of(res));
   return pre_backward_impl<kHc>(dy, nullptr, nullptr, res, fn, scale, base, raw, ss, rms_eps, eps,
                                 1, 1.0, nw, norm_eps, bf16_out, t, h);
+}
+
+// ------------------------------------------------------------------ DSv4.1 (dsv41-mhc-v1)
+
+namespace {
+// Optional FP32 [T, 4] pre -> device pointer or nullptr.
+const float* pre_ptr(const std::optional<torch::Tensor>& p, int64_t t, const char* name) {
+  if (!p.has_value()) return nullptr;
+  check_f32(*p, {t, kHc}, name);
+  return p->data_ptr<float>();
+}
+}  // namespace
+
+// The delayed mhc_pre: the mix uses pre_in FP32 [T, 4] (stream 0 exactly when absent) and
+// the controller's pre is returned -> (out BF16 [T, H], post [T, 4], comb [T, 4, 4],
+// pre_out [T, 4], raw [T, 24], ss [T]).
+std::vector<torch::Tensor> dsv41_mhc_pre(torch::Tensor res, torch::Tensor pmix,
+                                         torch::Tensor pss, torch::Tensor scale,
+                                         torch::Tensor base, double rms_eps, double eps,
+                                         int64_t iters, double post_mult,
+                                         std::optional<torch::Tensor> pre_in,
+                                         std::optional<torch::Tensor> norm_weight,
+                                         double norm_eps) {
+  const c10::cuda::OptionalCUDAGuard guard(device_of(res));
+  const float* pin = pre_ptr(pre_in, res.size(0), "pre_in");
+  auto pre_out = torch::empty({res.size(0), kHc}, res.options().dtype(torch::kFloat32));
+  auto outs = pre_forward_impl(res, pmix, pss, scale, base, rms_eps, eps, iters, post_mult,
+                               norm_weight, norm_eps, pin, pin != nullptr ? kMixIn : kMixStream0,
+                               pre_out.data_ptr<float>());
+  return {outs[0], outs[1], outs[2], pre_out, outs[3], outs[4]};
+}
+
+// DSv4.1's final collapse: residual BF16 [T, 4, H], pre FP32 [T, 4] -> BF16 [T, H], the mix
+// sum_i pre_i x_i, or RMSNorm of it times norm_weight when a weight is given.
+torch::Tensor dsv41_mhc_collapse(torch::Tensor res, torch::Tensor pre,
+                                 std::optional<torch::Tensor> norm_weight, double norm_eps) {
+  int64_t t, h;
+  check_res(res, t, h);
+  check_f32(pre, {t, kHc}, "pre");
+  const __nv_bfloat16* nw = norm_ptr(norm_weight, h);
+  const c10::cuda::OptionalCUDAGuard guard(device_of(res));
+  auto y = torch::empty({t, h}, res.options());
+  if (t == 0) return y;
+  with_chunks(h, [&](auto ch) {
+    constexpr int CH = decltype(ch)::value;
+    collapse_kernel<CH><<<static_cast<unsigned>(t), kMixThreads, 0,
+                          at::cuda::getCurrentCUDAStream()>>>(
+        bf16_ptr(res), pre.data_ptr<float>(), static_cast<int>(h), nw,
+        static_cast<float>(norm_eps), reinterpret_cast<__nv_bfloat16*>(y.data_ptr<at::BFloat16>()));
+  });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return y;
+}
+
+// Backward of dsv41_mhc_pre: dy BF16 / FP32 [T, H] (of the normed output when norm_weight is
+// given), d_post, d_comb and d_pre_out FP32 (the gradients of the returned post / comb /
+// pre) -> (d_residual [T, 4, H], d_pre_in [T, 4] FP32, empty [0, 4] without pre_in).
+std::vector<torch::Tensor> dsv41_mhc_pre_backward(
+    torch::Tensor dy, torch::Tensor dpost, torch::Tensor dcomb, torch::Tensor dpre_out,
+    torch::Tensor res, torch::Tensor fn, torch::Tensor scale, torch::Tensor base,
+    torch::Tensor raw, torch::Tensor ss, std::optional<torch::Tensor> pre_in, double rms_eps,
+    double eps, int64_t iters, double post_mult, std::optional<torch::Tensor> norm_weight,
+    double norm_eps, bool bf16_out) {
+  int64_t t, h;
+  check_res(res, t, h);
+  check_grad(dy, {t, h}, "dy");
+  check_f32(dpost, {t, kHc}, "d_post");
+  check_f32(dcomb, {t, kHc, kHc}, "d_comb");
+  check_f32(dpre_out, {t, kHc}, "d_pre_out");
+  check_f32(fn, {24, kHc * h}, "fn");
+  check_f32(scale, {3}, "scale");
+  check_f32(base, {24}, "base");
+  check_f32(raw, {t, 24}, "raw");
+  check_f32(ss, {t}, "ss");
+  TORCH_CHECK(iters >= 1 && 1 + 2 * (iters - 1) <= kMaxSteps, "sinkhorn iters out of range");
+  const __nv_bfloat16* nw = norm_ptr(norm_weight, h);
+  const float* pin = pre_ptr(pre_in, t, "pre_in");
+  const c10::cuda::OptionalCUDAGuard guard(device_of(res));
+  auto dpre_in = torch::empty({pin != nullptr ? t : 0, kHc}, res.options().dtype(torch::kFloat32));
+  auto dres = pre_backward_impl<24>(
+      dy, dpost.data_ptr<float>(), dcomb.data_ptr<float>(), res, fn, scale, base, raw, ss,
+      rms_eps, eps, iters, post_mult, nw, norm_eps, bf16_out, t, h, pin,
+      pin != nullptr ? kMixIn : kMixStream0, dpre_out.data_ptr<float>(),
+      pin != nullptr ? dpre_in.data_ptr<float>() : nullptr);
+  return {dres, dpre_in};
+}
+
+// Backward of dsv41_mhc_collapse: dy BF16 / FP32 [T, H] -> (d_residual [T, 4, H] in BF16
+// when bf16_out else FP32, d_pre [T, 4] FP32).
+std::vector<torch::Tensor> dsv41_mhc_collapse_backward(torch::Tensor dy, torch::Tensor res,
+                                                       torch::Tensor pre,
+                                                       std::optional<torch::Tensor> norm_weight,
+                                                       double norm_eps, bool bf16_out) {
+  int64_t t, h;
+  check_res(res, t, h);
+  check_grad(dy, {t, h}, "dy");
+  check_f32(pre, {t, kHc}, "pre");
+  const __nv_bfloat16* nw = norm_ptr(norm_weight, h);
+  const c10::cuda::OptionalCUDAGuard guard(device_of(res));
+  auto dres = torch::empty({t, kHc, h}, res.options().dtype(bf16_out ? torch::kBFloat16 : torch::kFloat32));
+  auto dpre = torch::empty({t, kHc}, res.options().dtype(torch::kFloat32));
+  if (t == 0) return {dres, dpre};
+  const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  with_chunks(h, [&](auto ch) {
+    constexpr int CH = decltype(ch)::value;
+    dispatch_grad(dy, [&](auto* g) {
+      using TG = std::remove_const_t<std::remove_pointer_t<decltype(g)>>;
+      dispatch_out(bf16_out, dres, [&](auto* o) {
+        using TO = std::remove_pointer_t<decltype(o)>;
+        collapse_bwd_kernel<CH, TG, TO><<<static_cast<unsigned>(t), kMixThreads, 0, stream>>>(
+            g, bf16_ptr(res), pre.data_ptr<float>(), static_cast<int>(h), nw,
+            static_cast<float>(norm_eps), o, dpre.data_ptr<float>());
+      });
+    });
+  });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return {dres, dpre};
 }
