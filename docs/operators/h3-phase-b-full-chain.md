@@ -33,7 +33,7 @@ with no components and a `skipped` reason, so every artifact has the same twelve
 
 ## Artifact
 
-`run_chain(request, components, label=...)` returns a `ChainRun` whose `artifact` holds:
+`run_chain(request, components, label=..., text_source=...)` returns a `ChainRun` whose `artifact` holds:
 
 - one record per stage: the sha256 (dtype, shape, raw bytes) of each tensor the stage hands
   on, as `[name, digest]` pairs in production order, plus the stage's runtime provenance
@@ -74,14 +74,17 @@ are of the same request. It then reports:
     `(t, h, w)` rotary position; latent frame and patch, or stereo channel and latent index.
 - `gate`: `hard_gate` passes only when every stage up to `unpack` is byte-equal, with the
   transformer probe excluded (it localizes; it is not latent data).
-  `transformer_intermediates_equal` reports the probe separately. `decoded_media_equal` and
-  the PSNR / SNR between decodes are secondary: they never turn a latent failure into a pass,
-  nor a latent pass into a failure (RFC #420 Phase B exit criterion).
+  `transformer_intermediates_equal` reports the probe separately (`null` when a run recorded
+  none). `decoded_media_equal` and the PSNR / SNR between decodes are secondary: they never
+  turn a latent failure into a pass, nor a latent pass into a failure (RFC #420 Phase B exit
+  criterion). An undefined PSNR / SNR (identical media, a silent reference) is `null`, with the
+  reason in `<name>_note`.
 
 `DriftInjection(stage, component=..., row=...)` or
 `DriftInjection("denoise", step=..., module=..., row=...)` moves one value by one ULP (or one
 count for integer pixels). The tests use it to prove that every stage, module and row is
-localized.
+localized. A run whose injection matched nothing is refused (`InjectionNotRun`), not sealed. Row
+evidence is given only for retained tensors whose digests are the recorded ones.
 
 ## Interfaces
 
@@ -145,8 +148,13 @@ PYTHONPATH=.:<diffusers-f53d552>/src python tools/validation/models/h3_full_chai
 # one sealed run (provider arithmetic, first 4 released blocks; drop --layers for all 50)
 PYTHONPATH=.:<diffusers-f53d552>/src python tools/validation/models/h3_full_chain.py run \
     --workflow fl2va --transformer-dir <ckpt>/transformer --vae-dir <ckpt>/vae \
-    --audio-vae-dir <ckpt>/FL2VA/audio_vae --text fl2va-text.safetensors --layers 4 \
-    --label A --out fl2va-A.json --report fl2va-A-report.json
+    --audio-vae-dir <ckpt>/FL2VA/audio_vae --text-source pinned --text fl2va-text.safetensors \
+    --layers 4 --label A --out fl2va-A.json --report fl2va-A-report.json
+# the same run again, in a fresh process: only the label and the output files change
+PYTHONPATH=.:<diffusers-f53d552>/src python tools/validation/models/h3_full_chain.py run \
+    --workflow fl2va --transformer-dir <ckpt>/transformer --vae-dir <ckpt>/vae \
+    --audio-vae-dir <ckpt>/FL2VA/audio_vae --text-source pinned --text fl2va-text.safetensors \
+    --layers 4 --label B --out fl2va-B.json --report fl2va-B-report.json
 python tools/validation/models/h3_full_chain.py compare fl2va-A.json fl2va-B.json --report cmp.json
 python tools/validation/models/h3_full_chain.py toy --report toy.json   # CPU injection matrix
 ```

@@ -47,7 +47,9 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import itertools
 import json
+import math
 import platform
 import sys
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -312,20 +314,21 @@ class PinnedTextFeatures:
         self.expected_sha256 = expected_sha256
 
     def encode(self, request: TextRequest) -> TextConditions:
-        from safetensors import safe_open
+        from safetensors.torch import load
 
-        file_sha256 = _file_sha256(self.path)
+        data = self.path.read_bytes()  # one snapshot: hashed and loaded
+        file_sha256 = hashlib.sha256(data).hexdigest()
         if self.expected_sha256 is not None and file_sha256 != self.expected_sha256:
             raise PinnedFeaturesMismatch(
                 f"pinned features sha256 {file_sha256} != expected {self.expected_sha256}"
             )
-        with safe_open(str(self.path), framework="pt") as handle:
-            raw = (handle.metadata() or {}).get(_PINNED_METADATA_KEY)
-            if raw is None:
-                raise PinnedFeaturesMismatch("file has no pinned text-feature metadata")
-            meta = json.loads(raw)
-            embeds = handle.get_tensor("prompt_embeds")
-            tags = handle.get_tensor("text_token_tags")
+        tensors = load(data)  # also checks the header
+        header = json.loads(data[8 : 8 + int.from_bytes(data[:8], "little")])
+        raw = (header.get("__metadata__") or {}).get(_PINNED_METADATA_KEY)
+        if raw is None:
+            raise PinnedFeaturesMismatch("file has no pinned text-feature metadata")
+        meta = json.loads(raw)
+        embeds, tags = tensors["prompt_embeds"], tensors["text_token_tags"]
         if meta["conditioner_input_sha256"] != request.input_sha256:
             raise PinnedFeaturesMismatch(
                 "pinned features were computed for another prompt or other media "
@@ -894,6 +897,10 @@ def _component_digest(value: Any) -> str:
     return _sha(value)
 
 
+class InjectionNotRun(ValueError):
+    """A requested drift injection matched nothing: a run sealed with it would prove nothing."""
+
+
 class ChainRecorder:
     """Stage records in :data:`STAGES` order, hash-chained; optional CPU tensor copies."""
 
@@ -1298,24 +1305,46 @@ def _unpack_audio(rows: torch.Tensor, num_latents: int) -> torch.Tensor:
     return rows.permute(0, 2, 1).contiguous()
 
 
+def _audio_rows(latents: torch.Tensor) -> torch.Tensor:
+    """``(2, C, T)`` -> channel-major rows ``(2 * T, C)``: the inverse of :func:`_unpack_audio`."""
+
+    return latents.permute(0, 2, 1).reshape(-1, latents.shape[1]).contiguous()
+
+
+def finite(value: Any) -> Any:
+    """``value`` with every non-finite float as ``None``: strict JSON has no NaN or Infinity."""
+
+    if isinstance(value, Mapping):
+        return {k: finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [finite(v) for v in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
 def video_metrics(video: torch.Tensor) -> dict[str, Any]:
     v = video.double()
-    return {
-        "shape": list(video.shape),
-        "mean_rgb": v.mean(dim=(0, 2, 3, 4)).tolist(),
-        "std": float(v.std()),
-        "min": float(v.min()),
-        "max": float(v.max()),
-    }
+    return finite(
+        {
+            "shape": list(video.shape),
+            "mean_rgb": v.mean(dim=(0, 2, 3, 4)).tolist(),
+            "std": float(v.std()),
+            "min": float(v.min()),
+            "max": float(v.max()),
+        }
+    )
 
 
 def audio_metrics(audio: torch.Tensor) -> dict[str, Any]:
     a = audio.double()
-    return {
-        "shape": list(audio.shape),
-        "rms_lr": a.pow(2).mean(dim=-1).sqrt().tolist(),
-        "peak": float(a.abs().max()),
-    }
+    return finite(
+        {
+            "shape": list(audio.shape),
+            "rms_lr": a.pow(2).mean(dim=-1).sqrt().tolist(),
+            "peak": float(a.abs().max()),
+        }
+    )
 
 
 def run_chain(
@@ -1451,6 +1480,7 @@ def run_chain(
     probe_obj = TransformerProbe(denoiser.model, capture=capture, inject=inject) if probe else None
     probe_scope = probe_obj.attached() if probe_obj is not None else contextlib.nullcontext()
     video, audio = video_rows.clone(), audio_rows.clone()
+    velocity_injected = False
     with torch.no_grad(), denoiser.session(), probe_scope:
         for i in range(schedule.steps):
             if probe_obj is not None:
@@ -1464,7 +1494,8 @@ def run_chain(
                 timestep_indices=indices,
                 layout_inputs=structural,
             )
-            v_vel, a_vel = _inject_velocity(inject, i, v_vel, a_vel)
+            v_vel, a_vel, hit = _inject_velocity(inject, i, v_vel, a_vel)
+            velocity_injected = velocity_injected or hit
             video[nv:] = euler_step(
                 v_vel[0, nv:].float(), v_times[i], video[nv:], *v_sigmas[i : i + 2]
             )
@@ -1522,13 +1553,17 @@ def run_chain(
     else:
         rec.record("video_decode", [], _skip("decode disabled or no visual VAE"))
     if decode and components.audio_vae is not None:
-        target_rows = audio[na:].detach().float().cpu()
+        target_rows = _audio_rows(audio_latents).float()  # what ``unpack`` recorded
         dec = components.audio_vae.decode_rows(target_rows, geometry["num_audio_latents"])
         decoded_audio = rec.apply("audio_decode", "waveform", dec.waveform, 0)
         rec.record("audio_decode", [("waveform", decoded_audio)], components.audio_vae.provenance())
         secondary["audio"] = audio_metrics(decoded_audio)
     else:
         rec.record("audio_decode", [], _skip("decode disabled or no audio VAE"))
+
+    probe_injected = probe_obj is not None and probe_obj.injected
+    if inject is not None and not (rec.injected or probe_injected or velocity_injected):
+        raise InjectionNotRun(f"the injection matched nothing in this run: {inject.to_dict()}")
 
     artifact: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -1562,14 +1597,16 @@ def run_chain(
 
 def _inject_velocity(
     inject: DriftInjection | None, step: int, video: torch.Tensor, audio: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, bool]:
+    """The two velocities, and whether the injection perturbed one of them."""
+
     if inject is None or inject.stage != "denoise" or inject.step != step:
-        return video, audio
+        return video, audio, False
     if inject.component == "velocity.video":
-        return bump_one_ulp(video, inject.row, 1), audio
+        return bump_one_ulp(video, inject.row, 1), audio, True
     if inject.component == "velocity.audio":
-        return video, bump_one_ulp(audio, inject.row, 1)
-    return video, audio
+        return video, bump_one_ulp(audio, inject.row, 1), True
+    return video, audio, False
 
 
 # --- validation ---------------------------------------------------------------------------
@@ -1612,6 +1649,9 @@ def verify(artifact: Mapping[str, Any], *, check_fingerprint: bool = True) -> No
         if record["chain_sha256"] != _sha({"previous": previous, "stage": inner}):
             raise ValueError(f"{record['stage']}: hash chain broken")
         previous = record["chain_sha256"]
+        names = [name for name, _ in record["components"]]
+        if len(set(names)) != len(names):  # the recorder refuses them too
+            raise ValueError(f"{record['stage']}: duplicate component names")
     tj.verify(artifact["trajectory"], check_fingerprint=check_fingerprint)
     pl.verify_artifact(artifact["layout"])
     components = {s["stage"]: dict(s["components"]) for s in stages}
@@ -1630,7 +1670,7 @@ def verify(artifact: Mapping[str, Any], *, check_fingerprint: bool = True) -> No
 
 def dumps(artifact: Mapping[str, Any]) -> str:
     verify(artifact)
-    return json.dumps(artifact, indent=1, sort_keys=True) + "\n"
+    return json.dumps(artifact, indent=1, sort_keys=True, allow_nan=False) + "\n"
 
 
 def loads(text: str, *, check_fingerprint: bool = True) -> dict[str, Any]:
@@ -1747,15 +1787,41 @@ _COMPONENT_ROWS = {
 }
 
 
+def _recorded_digest(artifact: Mapping[str, Any], key: str) -> str | None:
+    """The digest ``artifact`` records for the retained tensor ``key``, if it records one."""
+
+    head, _, rest = key.partition("/")
+    if head == "probe":
+        step, _, name = rest.partition("/")
+        probe = artifact.get("transformer_probe")
+        steps = probe["steps"] if probe is not None else []
+        return dict(steps[int(step)]).get(name) if int(step) < len(steps) else None
+    if head == "trajectory":
+        step, kind, modality = rest.split(".")
+        records = artifact["trajectory"]["step_records"]
+        if int(step) >= len(records):
+            return None
+        return records[int(step)][f"{kind}_sha256"].get(modality)
+    for record in artifact["stages"]:
+        if record["stage"] == head:
+            return dict(record["components"]).get(rest)
+    return None
+
+
 def _locate(
     key: str,
     space_dim: tuple[str, int] | None,
     tensors: tuple[Mapping[str, torch.Tensor] | None, Mapping[str, torch.Tensor] | None],
-    layout: Mapping[str, Any],
+    artifacts: tuple[Mapping[str, Any], Mapping[str, Any]],
 ) -> dict[str, Any]:
     lhs, rhs = tensors
     if lhs is None or rhs is None or key not in lhs or key not in rhs:
         return {}
+    for side, kept, artifact in zip(("lhs", "rhs"), tensors, artifacts, strict=True):
+        # a sidecar of another run would locate rows this pair of artifacts did not record
+        if tensor_digest(kept[key]) != _recorded_digest(artifact, key):  # type: ignore[index]
+            return {"row_evidence": f"unavailable: the {side} tensor is not the recorded one"}
+    layout = artifacts[0]["layout"]
     space, dim = space_dim if space_dim is not None else ("flat", 0)
     found = _first_row_difference(lhs[key], rhs[key], dim)
     if "first_row" in found and space != "flat" and "layout/token_tags" in lhs:
@@ -1814,7 +1880,7 @@ def compare(
             else:
                 key = f"{a['stage']}/{differing[0]}"
                 space = _COMPONENT_ROWS.get((a["stage"], differing[0]))
-                first.update(_locate(key, space, (ta, tb), lhs["layout"]))
+                first.update(_locate(key, space, (ta, tb), (lhs, rhs)))
     by_stage = {s["stage"]: s["equal"] for s in stages}
     # The gate is the latent data; transformer intermediates are localization evidence.
     gated = {
@@ -1840,8 +1906,13 @@ def compare(
         "gate": {
             "hard_gate": "pass" if hard else "fail",
             "latent_trajectory_equal": not gated["denoise"] and not gated["unpack"],
-            "transformer_intermediates_equal": "transformer_probe"
-            not in dict((s["stage"], s) for s in stages)["denoise"]["differing_components"],
+            # None: not compared, at least one run recorded no probe
+            "transformer_intermediates_equal": (
+                "transformer_probe"
+                not in dict((s["stage"], s) for s in stages)["denoise"]["differing_components"]
+                if _probes_recorded(lhs, rhs)
+                else None
+            ),
             "decoded_media_equal": decoded,
             "rule": "latent trajectory equality is the gate; decoded media are secondary",
         },
@@ -1894,26 +1965,45 @@ def gate(lhs: Mapping[str, Any], rhs: Mapping[str, Any]) -> dict[str, Any]:
     return {**report["gate"], "first_drift": report["first_drift"]}
 
 
+def _probes_recorded(lhs: Mapping[str, Any], rhs: Mapping[str, Any]) -> bool:
+    """Whether both runs recorded the transformer probe (``probe=False`` records none)."""
+
+    return lhs.get("transformer_probe") is not None and rhs.get("transformer_probe") is not None
+
+
 def _probe_drift(
     lhs: Mapping[str, Any],
     rhs: Mapping[str, Any],
     ta: Mapping[str, torch.Tensor] | None,
     tb: Mapping[str, torch.Tensor] | None,
 ) -> dict[str, Any] | None:
-    """First (step, module) whose output differs, in execution order, with its first row."""
+    """First (step, module) whose output differs, in execution order, with its first row.
 
-    pa, pb = lhs.get("transformer_probe"), rhs.get("transformer_probe")
-    if pa is None or pb is None:
+    A call or a step that only one run made differs too. ``None`` means equal only when both
+    runs recorded the probe (:func:`_probes_recorded`).
+    """
+
+    if not _probes_recorded(lhs, rhs):
         return None
-    for step, (sa, sb) in enumerate(zip(pa["steps"], pb["steps"], strict=False)):
-        for index, (ea, eb) in enumerate(zip(sa, sb, strict=False)):
+    pa, pb = lhs["transformer_probe"], rhs["transformer_probe"]
+    for step, (sa, sb) in enumerate(itertools.zip_longest(pa["steps"], pb["steps"])):
+        if sa is None or sb is None:
+            return {"step": step, "module": None, "note": "only one run recorded this step"}
+        for index, (ea, eb) in enumerate(itertools.zip_longest(sa, sb)):
             if ea == eb:
                 continue
+            if ea is None or eb is None:
+                return {
+                    "step": step,
+                    "module": (ea or eb)[0],
+                    "execution_index": index,
+                    "note": f"only the {'lhs' if eb is None else 'rhs'} run made this call",
+                }
             if ea[0] != eb[0]:
                 return {"step": step, "module": f"{ea[0]} | {eb[0]}", "execution_index": index}
             found: dict[str, Any] = {"step": step, "module": ea[0], "execution_index": index}
             found.update(
-                _locate(f"probe/{step}/{ea[0]}", module_row_space(ea[0]), (ta, tb), lhs["layout"])
+                _locate(f"probe/{step}/{ea[0]}", module_row_space(ea[0]), (ta, tb), (lhs, rhs))
             )
             return found
     return None
@@ -1940,7 +2030,7 @@ def _denoise_drift(
         traj: dict[str, Any] = dict(drift)
         space = (drift["modality"], 0)  # velocities are recorded as v[0]: rows on dim 0
         key = f"trajectory/{tj.tensor_key(drift['step'], drift['kind'], drift['modality'])}"
-        traj.update(_locate(key, space, (ta, tb), lhs["layout"]))
+        traj.update(_locate(key, space, (ta, tb), (lhs, rhs)))
         if drift["kind"] == "latent":
             traj["note"] = "velocities equal, latents differ: scheduler arithmetic"
         out["trajectory"] = traj
@@ -1957,13 +2047,18 @@ def _denoise_drift(
             )
     elif drift is not None:
         out["step"] = drift["step"]
-        if drift["kind"] == "velocity":
+        if not _probes_recorded(lhs, rhs):
+            out["transformer"] = {
+                "module": None,
+                "note": "not compared: at least one run recorded no transformer probe",
+            }
+        elif drift["kind"] == "velocity":
             out["transformer"] = {
                 "module": None,
                 "note": "every probed module output is equal at this step: the drift is after "
                 "the heads (row selection) or outside the probed modules",
             }
-    if drift is not None:
+    if drift is not None and drift["step"] == out["step"]:  # else only under ``trajectory``
         out["kind"], out["modality"] = drift["kind"], drift["modality"]
     return out
 
@@ -1977,9 +2072,14 @@ def _media_closeness(ta: Mapping[str, torch.Tensor], tb: Mapping[str, torch.Tens
         if key in ta and key in tb and ta[key].shape == tb[key].shape:
             a, b = ta[key].double(), tb[key].double()
             mse = float((a - b).pow(2).mean())
-            if name == "video_psnr_db":
-                out[name] = float("inf") if mse == 0 else float(10 * np.log10(1.0 / mse))
+            signal = 1.0 if name == "video_psnr_db" else float(a.pow(2).mean())
+            # an undefined value is null with the reason beside it: strict JSON has no Infinity
+            if mse == 0:
+                out[name], out[f"{name}_note"] = None, "identical"
+            elif not (math.isfinite(mse) and math.isfinite(signal)):
+                out[name], out[f"{name}_note"] = None, "non-finite samples"
+            elif signal == 0:
+                out[name], out[f"{name}_note"] = None, "silent reference"
             else:
-                power = float(a.pow(2).mean())
-                out[name] = float("inf") if mse == 0 else float(10 * np.log10(power / mse))
+                out[name] = float(10 * np.log10(signal / mse))
     return out

@@ -723,6 +723,8 @@ def plot(args: argparse.Namespace) -> dict[str, Any]:
         for j, (kind, modality) in enumerate(traj):
             differs = ra[f"{kind}_sha256"][modality] != rb[f"{kind}_sha256"][modality]
             x = len(modules) + gap + j
+            if differs and first is None:  # only the trajectory differs at this step
+                first = (x, y, f"{kind} {modality}", step)
             ax.add_patch(
                 Rectangle((x + 0.06, y + 0.08), 0.88, 0.84, color=DIFFERS if differs else EQUAL)
             )
@@ -845,8 +847,17 @@ def _case_id(artifact: Mapping[str, Any]) -> str:
     return "?"
 
 
-def _row_text(row: Mapping[str, Any] | None) -> str:
+def _row_text(row: Mapping[str, Any] | None, found: Mapping[str, Any] | None = None) -> str:
+    """The packed identity of ``row``; without one, what is known about the location."""
+
     if not row:
+        found = found or {}
+        if "row_evidence" in found:
+            return f"n/a ({found['row_evidence']})"
+        if "first_row" in found:
+            return f"row {found['first_row']} (no packed identity)"
+        if "first_index" in found:
+            return f"index {found['first_index']} (no packed rows)"
         return "n/a (no tensors kept)"
     role = row.get("role", "")
     if row.get("modality") == "video" and role == "target":
@@ -873,6 +884,30 @@ def _fmt(value: Any, digits: int = 3) -> str:
     return str(value)
 
 
+def _trajectory_text(report: Mapping[str, Any]) -> str:
+    """The trajectory's own first drift: nested under a ``denoise`` first drift (with rows when
+    tensors are kept), else from the report's independent trajectory comparison."""
+
+    fd = report["first_drift"]
+    if fd["stage"] == "denoise" and "trajectory" in fd:
+        traj = fd["trajectory"]
+        if traj is None:
+            return "none (velocities and latents equal)"
+        return (
+            f"{traj['kind']} {traj['modality']}, step {traj['step']}, "
+            f"{_fmt(traj.get('differing_rows'))} rows, max |Δ| {_fmt(traj.get('max_abs_diff'))}"
+        )
+    whole = report.get("trajectory") or {}
+    if "comparable" in whole and not whole["comparable"]:
+        return f"not comparable: {whole['reason']}"
+    if whole.get("bitwise_equal"):
+        return "none (velocities and latents equal)"
+    drift = whole.get("first_drift")
+    if drift is None:
+        return "n/a"
+    return f"{drift['kind']} {drift['modality']}, step {drift['step']}"
+
+
 def _first_drift_table(report: Mapping[str, Any]) -> dict[str, Any]:
     fd = report["first_drift"]
     headers = [
@@ -886,14 +921,8 @@ def _first_drift_table(report: Mapping[str, Any]) -> dict[str, Any]:
     ]
     if fd is None:
         return {"headers": headers, "rows": [["none"] + ["n/a"] * 6]}
-    found = fd.get("transformer") or {}
-    traj = fd.get("trajectory") or {}
-    traj_text = (
-        f"{traj['kind']} {traj['modality']}, step {traj['step']}, "
-        f"{_fmt(traj.get('differing_rows'))} rows, max |Δ| {_fmt(traj.get('max_abs_diff'))}"
-        if traj
-        else "none (velocities and latents equal)"
-    )
+    # inside ``denoise`` the location is the module's, elsewhere the stage component's
+    found = (fd.get("transformer") or {}) if fd["stage"] == "denoise" else fd
     row = found.get("row") or {}
     return {
         "headers": headers,
@@ -903,9 +932,9 @@ def _first_drift_table(report: Mapping[str, Any]) -> dict[str, Any]:
                 _fmt(fd.get("step")),
                 found.get("module") or "n/a",
                 _fmt(row.get("packed_row", found.get("first_row"))),
-                _row_text(row),
+                _row_text(row, found),
                 _fmt(found.get("max_abs_diff")),
-                traj_text,
+                _trajectory_text(report),
             ]
         ],
     }
@@ -1032,11 +1061,12 @@ def plot_text(args: argparse.Namespace) -> dict[str, Any]:
             if check["bitwise_equal"]:
                 vals = {"relative_l2": 0.0, "text": 0.0, "vision": 0.0}
             else:
-                a = analysis[wf]
+                # ``--analysis`` is the per-token analysis of the CUDA runs only
+                a = analysis[wf] if dev == "cuda" else {}
                 vals = {
                     "relative_l2": check["relative_l2"],
-                    "text": a["per_token_relative_l2_text"],
-                    "vision": a["per_token_relative_l2_vision"],
+                    "text": a.get("per_token_relative_l2_text"),
+                    "vision": a.get("per_token_relative_l2_vision"),
                 }
             values[wf, dev] = vals
             rows.append(
@@ -1058,7 +1088,9 @@ def plot_text(args: argparse.Namespace) -> dict[str, Any]:
             for d, dev in enumerate(("cuda", "cpu")):
                 y = m * 3 + d
                 v = values[wf, dev][key]
-                if v == 0.0:
+                if v is None:
+                    ax.text(floor * 1.4, y, "n/a", va="center", fontsize=8, color=INK2)
+                elif v == 0.0:
                     ax.plot([floor], [y], marker="o", ms=6, color=SERIES[1])
                     ax.text(floor * 1.4, y, "= 0, bitwise", va="center", fontsize=8, color=INK)
                 else:
@@ -1486,7 +1518,8 @@ def main() -> None:
         "text-check": text_check,
     }[args.command]
     report = handler(args)
-    Path(args.report).write_text(json.dumps(report, indent=1, sort_keys=True, default=str) + "\n")
+    text = json.dumps(fc.finite(report), indent=1, sort_keys=True, default=str, allow_nan=False)
+    Path(args.report).write_text(text + "\n")
     print(json.dumps({k: report[k] for k in report if k in ("kind", "summary", "first_drift")}))
 
 

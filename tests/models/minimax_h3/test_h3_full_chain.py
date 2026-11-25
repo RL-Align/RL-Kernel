@@ -105,7 +105,9 @@ def test_repeat_run_is_bitwise_equal_at_every_stage(workflow: str) -> None:
     assert report["gate"]["hard_gate"] == "pass"
     assert report["gate"]["decoded_media_equal"] == {"video_decode": True, "audio_decode": True}
     assert report["trajectory"]["bitwise_equal"]
-    assert report["secondary_metrics"]["video_psnr_db"] == float("inf")
+    secondary = report["secondary_metrics"]  # undefined: null with the reason, not Infinity
+    assert secondary["video_psnr_db"] is None and secondary["video_psnr_db_note"] == "identical"
+    json.dumps(report, allow_nan=False)
 
 
 @pytest.mark.parametrize("workflow", ["fl2va", "ref2va"])
@@ -418,6 +420,266 @@ def test_injection_arguments_are_checked() -> None:
         fc.DriftInjection("initial_rows")
     with pytest.raises(ValueError):
         fc.DriftInjection("nope", component="x")
+
+
+# --- negative controls that would prove nothing, and reports that would mislead --------------
+
+
+@pytest.mark.parametrize(
+    "inject,kwargs",
+    [
+        (dict(stage="denoise", step=500, component="velocity.video"), {}),
+        (dict(stage="denoise", step=0, component="velocity.nothing"), {}),
+        (dict(stage="denoise", step=0, module="transformer_blocks.99"), {}),
+        (dict(stage="denoise", step=0, module="transformer_blocks.0"), {"probe": False}),
+        (dict(stage="initial_rows", component="nothing"), {}),
+        (dict(stage="audio_decode", component="waveform"), {}),  # decode is off
+    ],
+)
+def test_an_injection_that_did_not_run_is_refused(inject, kwargs) -> None:
+    with pytest.raises(fc.InjectionNotRun, match="matched nothing"):
+        fc.run_chain(
+            toy.fl2va_request(),
+            toy.components("FL2VA"),
+            label="x",
+            text_source=toy.TEXT_SOURCE,
+            inject=fc.DriftInjection(**inject),
+            decode=False,
+            **kwargs,
+        )
+
+
+def _resealed(artifact: dict) -> dict:
+    previous = fc.GENESIS
+    for record in artifact["stages"]:
+        inner = {k: v for k, v in record.items() if k != "chain_sha256"}
+        record["chain_sha256"] = fc._sha({"previous": previous, "stage": inner})
+        previous = record["chain_sha256"]
+    body = {k: v for k, v in artifact.items() if k != "artifact_sha256"}
+    return {**body, "artifact_sha256": fc._sha(body)}
+
+
+def test_duplicate_component_names_are_refused_when_verifying() -> None:
+    artifact = copy.deepcopy(clean_run("fl2va").artifact)
+    fc.verify(_resealed(artifact))  # the helper reseals correctly
+    stage = next(s for s in artifact["stages"] if s["stage"] == "unpack")
+    stage["components"].insert(0, ["video_latents", "0" * 64])
+    with pytest.raises(ValueError, match="duplicate component names"):
+        fc.verify(_resealed(artifact))
+
+
+def test_the_audio_decoder_reads_the_recorded_latents(monkeypatch) -> None:
+    rows = torch.randn(2 * 5, 7)
+    assert torch.equal(fc._audio_rows(fc._unpack_audio(rows, 5)), rows)
+    comps = toy.components("FL2VA")
+    seen = []
+    decode = comps.audio_vae.decode_rows
+
+    def recorded(target_rows, num_latents):
+        seen.append(target_rows.clone())
+        return decode(target_rows, num_latents)
+
+    monkeypatch.setattr(comps.audio_vae, "decode_rows", recorded)
+    run = fc.run_chain(
+        toy.fl2va_request(),
+        comps,
+        label="x",
+        text_source=toy.TEXT_SOURCE,
+        inject=fc.DriftInjection("unpack", component="audio_latents", row=2),
+    )
+    assert torch.equal(seen[0], fc._audio_rows(run.audio_latents).float())
+    clean = clean_run("fl2va").audio_latents
+    assert int((clean != run.audio_latents).sum()) == 1
+
+
+def test_a_sidecar_that_is_not_the_recorded_run_gives_no_row_evidence() -> None:
+    clean = clean_run("fl2va")
+    for inject, where in (
+        (fc.DriftInjection("initial_rows", component="video_rows", row=13), None),
+        (fc.DriftInjection("denoise", step=1, module="transformer_blocks.1", row=3), "transformer"),
+        (fc.DriftInjection("denoise", step=1, component="velocity.video", row=3), "trajectory"),
+    ):
+        run = injected("fl2va", inject)
+        drift = fc.first_drift(
+            clean.artifact, run.artifact, tensors_lhs=clean.tensors, tensors_rhs=clean.tensors
+        )
+        found = drift if where is None else drift[where]
+        assert found["row_evidence"] == "unavailable: the rhs tensor is not the recorded one"
+        assert "first_row" not in found and "row" not in found
+
+
+def test_runs_without_a_probe_are_not_called_equal() -> None:
+    def run(inject=None):
+        return fc.run_chain(
+            toy.fl2va_request(),
+            toy.components("FL2VA"),
+            label="x",
+            text_source=toy.TEXT_SOURCE,
+            probe=False,
+            inject=inject,
+            decode=False,
+        ).artifact
+
+    report = fc.compare(
+        run(), run(fc.DriftInjection("denoise", step=1, component="velocity.video", row=3))
+    )
+    assert report["gate"]["hard_gate"] == "fail"
+    assert report["gate"]["transformer_intermediates_equal"] is None
+    assert "not compared" in report["first_drift"]["transformer"]["note"]
+
+
+def test_a_probe_call_only_one_run_made_is_a_drift() -> None:
+    def artifact(*calls, steps=1):
+        step = [[name, "0" * 64] for name in calls]
+        return {"transformer_probe": {"steps": [step] * steps}, "layout": {}}
+
+    short, long = artifact("proj_in", "proj_out"), artifact("proj_in", "proj_out", "proj_out#1")
+    drift = fc._probe_drift(short, long, None, None)
+    assert (drift["step"], drift["module"], drift["execution_index"]) == (0, "proj_out#1", 2)
+    assert drift["note"] == "only the rhs run made this call"
+    assert fc._probe_drift(long, short, None, None)["note"] == "only the lhs run made this call"
+    drift = fc._probe_drift(short, artifact("proj_in", "proj_out", steps=2), None, None)
+    assert drift["step"] == 1 and "only one run recorded" in drift["note"]
+    assert fc._probe_drift(short, short, None, None) is None
+
+
+def test_the_trajectory_fields_belong_to_the_reported_step(monkeypatch) -> None:
+    later = {"step": 2, "kind": "velocity", "modality": "video"}
+    monkeypatch.setattr(fc.tj, "first_drift", lambda *a, **kw: dict(later))
+    probe = {"step": 1, "module": "transformer_blocks.0", "execution_index": 0}
+    monkeypatch.setattr(fc, "_probe_drift", lambda *a: dict(probe))
+    artifact = {"transformer_probe": {"steps": []}, "trajectory": {}, "layout": {}}
+    out = fc._denoise_drift(artifact, artifact, None, None)
+    assert out["step"] == 1 and "kind" not in out and "modality" not in out
+    assert out["trajectory"]["step"] == 2
+    monkeypatch.setattr(fc, "_probe_drift", lambda *a: {**probe, "step": 2})
+    out = fc._denoise_drift(artifact, artifact, None, None)
+    assert (out["step"], out["kind"], out["modality"]) == (2, "velocity", "video")
+
+
+def test_undefined_media_metrics_are_null_with_a_reason() -> None:
+    wave = torch.randn(2, 64, generator=torch.Generator().manual_seed(0))
+    key, name = "audio_decode/waveform", "audio_snr_db"
+
+    def closeness(a, b):
+        return fc._media_closeness({key: a}, {key: b})
+
+    assert closeness(wave, wave) == {name: None, f"{name}_note": "identical"}
+    assert closeness(torch.zeros(2, 64), wave)[f"{name}_note"] == "silent reference"
+    bad = wave.clone()
+    bad[0, 0] = float("nan")
+    assert closeness(wave, bad) == {name: None, f"{name}_note": "non-finite samples"}
+    assert closeness(wave, wave + 1)[name] < 10
+    metrics = fc.audio_metrics(bad)
+    assert metrics["peak"] is None and metrics["rms_lr"][0] is None
+    json.dumps([metrics, fc.finite({"a": [float("inf"), (1.0, float("nan"))]})], allow_nan=False)
+
+
+def test_pinned_features_hash_and_load_one_snapshot(tmp_path: Path, monkeypatch) -> None:
+    clean = clean_run("fl2va")
+    text = {s["stage"]: s for s in clean.artifact["stages"]}["text_conditions"]
+    path = tmp_path / "text.safetensors"
+    embeds = clean.tensors["text_conditions/prompt_embeds"]
+    tags = clean.tensors["text_conditions/text_token_tags"]
+    meta = dict(
+        input_sha256=text["provenance"]["conditioner_input_sha256"], producer={"name": "tests"}
+    )
+    sha = fc.save_pinned_text_features(path, embeds, tags, **meta)
+    read = Path.read_bytes
+
+    def read_then_replace(self):
+        data = read(self)
+        if self == path:
+            monkeypatch.setattr(Path, "read_bytes", read)
+            fc.save_pinned_text_features(path, embeds + 1, tags, **meta)
+        return data
+
+    monkeypatch.setattr(Path, "read_bytes", read_then_replace)
+    request = fc.TextRequest("fl2va", "p", (), (), meta["input_sha256"])
+    got = fc.PinnedTextFeatures(path, expected_sha256=sha).encode(request)
+    assert torch.equal(got.prompt_embeds, embeds)
+    with pytest.raises(fc.PinnedFeaturesMismatch, match="expected"):  # now the replaced file
+        fc.PinnedTextFeatures(path, expected_sha256=sha).encode(request)
+
+
+def test_the_first_drift_table_outside_denoise() -> None:
+    from tools.validation.models import h3_full_chain as tool
+
+    clean = clean_run("fl2va")
+    ncv = clean.artifact["layout"]["num_condition_video_rows"]
+    run = injected("fl2va", fc.DriftInjection("initial_rows", component="video_rows", row=ncv + 5))
+    report = fc.compare(
+        clean.artifact, run.artifact, tensors_lhs=clean.tensors, tensors_rhs=run.tensors
+    )
+    (cells,) = tool._first_drift_table(report)["rows"]
+    assert cells[0] == "initial_rows" and cells[2] == "n/a"
+    assert cells[3] == str(report["first_drift"]["row"]["packed_row"])
+    assert cells[4].startswith("target video, latent frame 1")
+    assert "equal" not in cells[6]  # the trajectories do differ, or are not comparable
+    report = fc.compare(clean.artifact, run.artifact)  # no tensors kept
+    (cells,) = tool._first_drift_table(report)["rows"]
+    assert cells[3] == "n/a" and cells[4] == "n/a (no tensors kept)"
+    same = {"stage": "media_preprocess", "component": "x"}
+    for whole, text in (
+        ({"bitwise_equal": True}, "none (velocities and latents equal)"),
+        ({"comparable": False, "reason": "seed differs"}, "not comparable: seed differs"),
+        ({}, "n/a"),
+    ):
+        table = tool._first_drift_table({"first_drift": same, "trajectory": whole})
+        assert table["rows"][0][6] == text
+
+
+def _plot_args(tmp_path: Path, lhs: dict, rhs: dict):
+    import argparse
+
+    for name, artifact in (("a", lhs), ("b", rhs)):
+        (tmp_path / f"{name}.json").write_text(fc.dumps(artifact))
+    return argparse.Namespace(
+        lhs=str(tmp_path / "a.json"),
+        rhs=str(tmp_path / "b.json"),
+        png=str(tmp_path / "p.png"),
+        compare=None,
+        title="t",
+        pair_label="A vs B",
+    )
+
+
+def test_the_drift_chart_counts_a_trajectory_only_difference(tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
+    from tools.validation.models import h3_full_chain as tool
+
+    clean = clean_run("fl2va")
+    run = injected("fl2va", fc.DriftInjection("denoise", step=0, component="velocity.video"))
+    out = tool.plot(_plot_args(tmp_path, clean.artifact, run.artifact))
+    assert out["first_drift_cell"] == {"step": 0, "module": "velocity video"}
+    out = tool.plot(_plot_args(tmp_path, clean.artifact, clean.artifact))
+    assert out["first_drift_cell"] is None
+
+
+def test_cuda_analysis_is_not_labelled_cpu(tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
+    import argparse
+
+    from tools.validation.models import h3_full_chain as tool
+
+    check = dict(bitwise_equal=False, relative_l2=0.02, shape=[1, 4, 8])
+    for wf in ("fl2va", "ref2va"):
+        for dev in ("cpu", "cuda"):
+            (tmp_path / f"{wf}-{dev}.json").write_text(json.dumps(check))
+    per_token = dict(per_token_relative_l2_text=0.25, per_token_relative_l2_vision=0.5)
+    (tmp_path / "analysis.json").write_text(json.dumps({"fl2va": per_token, "ref2va": per_token}))
+    out = tool.plot_text(
+        argparse.Namespace(
+            dir=str(tmp_path),
+            analysis=str(tmp_path / "analysis.json"),
+            png=str(tmp_path / "p.png"),
+            title="t",
+        )
+    )
+    rows = out["markdown"].splitlines()
+    assert all("0.25" in r and "0.5" in r for r in rows if "| CUDA |" in r)
+    assert all("0.25" not in r and "n/a | n/a" in r for r in rows if "| CPU |" in r)
+    assert sum("| CPU |" in r for r in rows) == 2
 
 
 # --- Diffusers-backed ---------------------------------------------------------------------
