@@ -145,11 +145,24 @@ def norm_rope(
     cos_sin_cache: Tensor,
 ) -> Tensor:
     """RMSNorm then GPT-J RoPE at the compressed position; returns BF16 ``[N, D]``."""
+    return norm_rope_latent(x, positions, ratio, rms_weight, eps, cos_sin_cache)[0]
+
+
+def norm_rope_latent(
+    x: Tensor,
+    positions: Tensor,
+    ratio: int,
+    rms_weight: Tensor,
+    eps: float,
+    cos_sin_cache: Tensor,
+) -> tuple[Tensor, Tensor]:
+    """``norm_rope`` and the BF16 normed rows before RoPE (DSv4.1's latent)."""
     d = x.shape[-1]
     var = _butterfly_sum(x * x) / torch.tensor(float(d), device=x.device)
     eps_t = torch.tensor(eps, dtype=torch.float32, device=x.device)
     r = torch.ones_like(var) / torch.sqrt(var + eps_t)
     n = (x * r[:, None]) * rms_weight.float()[None]
+    latent = n.to(torch.bfloat16)
     rope = cos_sin_cache.shape[1]
     half = rope // 2
     cp = (positions.long() // ratio) * ratio
@@ -159,7 +172,7 @@ def norm_rope(
     out = n.clone()
     out[:, d - rope :: 2] = even * cos - odd * sin
     out[:, d - rope + 1 :: 2] = odd * cos + even * sin
-    return out.to(torch.bfloat16)
+    return out.to(torch.bfloat16), latent
 
 
 def quant_fp8_entry(values: Tensor) -> tuple[Tensor, Tensor]:
@@ -255,3 +268,52 @@ def compress_indexer(
     values = norm_rope(x, positions[tokens], ratio, rms_weight, eps, cos_sin_cache)
     q, scale = quant_fp8_entry(values)
     return q, scale, tokens
+
+
+# --------------------------------------------------------------------------- DSv4.1
+# Ratio 2: the window-2 path without overlap; DSv4.1 has no APE, so its states are saved
+# with ``ape = 0``. Ratio 1 and the indexer K (``k = k_norm(wk(latent))``) have no pooling:
+# ``x`` is the FP32 row itself (the softmax of one entry is exactly 1). Both can return the
+# BF16 normed rows before RoPE, the latent the indexer K is projected from.
+
+
+def dsv41_compress_main(
+    state_cache: Tensor,
+    block_table: Tensor,
+    token_to_req: Tensor,
+    positions: Tensor,
+    rms_weight: Tensor,
+    eps: float,
+    cos_sin_cache: Tensor,
+    head_dim: int = 512,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    """Ratio-2 main-KV entries: ``(fp8 [N, 448], scale bytes [N, 8], rope bf16 [N, 64],
+    token_index [N], latent bf16 [N, 512])``."""
+    if not state_cache.is_cuda:
+        raise RuntimeError("the compressor golden is defined on CUDA (libdevice expf)")
+    x, tokens = compress_window(
+        state_cache, block_table, token_to_req, positions, 2, False, head_dim
+    )
+    values, latent = norm_rope_latent(x, positions[tokens], 2, rms_weight, eps, cos_sin_cache)
+    q, scales, rope = quant_ds_mla(values, nope=head_dim - cos_sin_cache.shape[1])
+    return q, scales, rope, tokens, latent
+
+
+def dsv41_store_rows(
+    rows: Tensor,
+    positions: Tensor,
+    ratio: int,
+    rms_weight: Tensor,
+    eps: float,
+    cos_sin_cache: Tensor,
+) -> tuple[tuple[Tensor, ...], Tensor, Tensor]:
+    """Unpooled entries of the boundary tokens of FP32 ``rows`` [T, D]:
+    ``(entry, token_index [N], latent bf16 [N, D])`` with ``entry`` the fp8_ds_mla
+    ``(fp8, scale bytes, rope)`` for D = 512 or the indexer ``(fp8, scale fp32)`` for
+    D = 128."""
+    tokens = ((positions + 1) % ratio == 0).nonzero().flatten()
+    x = rows[tokens].float()
+    values, latent = norm_rope_latent(x, positions[tokens], ratio, rms_weight, eps, cos_sin_cache)
+    if rows.shape[1] == 512:
+        return quant_ds_mla(values, nope=512 - cos_sin_cache.shape[1]), tokens, latent
+    return quant_fp8_entry(values), tokens, latent

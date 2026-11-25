@@ -572,6 +572,15 @@ void compress_main_ds_mla_cuda(torch::Tensor state_cache, torch::Tensor block_ta
                                torch::Tensor rms_weight, double eps,
                                torch::Tensor cos_sin_cache, torch::Tensor k_cache,
                                int64_t k_block_size, torch::Tensor k_slots, int64_t ratio);
+void dsv41_compress_main(torch::Tensor state_cache, torch::Tensor block_table,
+                         torch::Tensor token_to_req, torch::Tensor positions,
+                         torch::Tensor rms_weight, double eps, torch::Tensor cos_sin_cache,
+                         torch::Tensor k_cache, int64_t k_block_size, torch::Tensor k_slots,
+                         int64_t ratio, std::optional<torch::Tensor> latent);
+void dsv41_store_rows(torch::Tensor rows, torch::Tensor positions, torch::Tensor rms_weight,
+                      double eps, torch::Tensor cos_sin_cache, torch::Tensor k_cache,
+                      int64_t k_block_size, torch::Tensor k_slots, int64_t ratio,
+                      std::optional<torch::Tensor> latent);
 // DSv4 attention query / output side (csrc/cuda/attention/dsv4_qo.cu)
 torch::Tensor dsv4_q_norm_rope_kv_insert(torch::Tensor q, torch::Tensor kv,
                                          torch::Tensor positions, torch::Tensor cos_sin_cache,
@@ -696,6 +705,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "DSv4 indexer compressor: window softmax, RMSNorm, RoPE, FP8 entry into the K cache");
     m.def("compress_main_ds_mla", &compress_main_ds_mla_cuda,
           "DSv4 main-KV compressor (C4/C128): fp8_ds_mla entries into the paged KV cache");
+    m.def("dsv41_compress_main", &dsv41_compress_main,
+          "DSv4.1 main-KV compressor at ratio 2 into fp8_ds_mla (+ optional pre-RoPE latent)");
+    m.def("dsv41_store_rows", &dsv41_store_rows,
+          "DSv4.1 unpooled entries (ratio-1 main KV or indexer K): row -> RMSNorm -> RoPE -> FP8");
     m.def("dsv4_q_norm_rope_kv_insert", &dsv4_q_norm_rope_kv_insert,
           "DSv4 q-norm + RoPE (padded heads) and KV RoPE + fp8_ds_mla insert");
     m.def("dsv4_inv_rope_fp8", &dsv4_inv_rope_fp8,

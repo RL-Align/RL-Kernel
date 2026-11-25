@@ -26,6 +26,9 @@
 // the slot's token row (each (token, half) belongs to one entry; uncovered rows stay as
 // the caller left them). Slots are split over G thread groups (online softmax, merged in
 // shared memory); each group's 128 threads own 4 columns each. FP32 math, deterministic.
+// DSv4.1 adds ratio 2 (coff 1, span 2; its states carry a zero APE) and ratio 1 without a
+// gate: score is then the kv rows alone ([T, 512]), every softmax weight is 1, and only
+// d kv is written.
 
 #include <torch/extension.h>
 
@@ -202,7 +205,7 @@ __global__ void __launch_bounds__(G * kCTPG)
                           int64_t d_ld, const int64_t* __restrict__ meta,
                           const float* __restrict__ norm_w, const float* __restrict__ cos_sin,
                           int64_t cs_ld, int ratio, int coff, float eps,
-                          __nv_bfloat16* __restrict__ d_score, int64_t o_ld) {
+                          __nv_bfloat16* __restrict__ d_score, int64_t o_ld, bool gate) {
   extern __shared__ float smem[];  // [3][G][512] partial (max, sum, acc), then [2][G][4]
   float* sm_m = smem;
   float* sm_l = smem + G * kCD;
@@ -227,10 +230,13 @@ __global__ void __launch_bounds__(G * kCTPG)
     const int col = ((coff == 2 && s >= ratio) ? kCD : 0) + c0;
     const float* row = score + (start + q) * s_ld + col;
     const float4 kv = *reinterpret_cast<const float4*>(row);
-    const float4 gt = *reinterpret_cast<const float4*>(row + width);
-    const float4 ap = *reinterpret_cast<const float4*>(ape + (s % ratio) * width + col);
     const float kvv[4] = {kv.x, kv.y, kv.z, kv.w};
-    const float sc[4] = {gt.x + ap.x, gt.y + ap.y, gt.z + ap.z, gt.w + ap.w};
+    float sc[4] = {0.f, 0.f, 0.f, 0.f};
+    if (gate) {
+      const float4 gt = *reinterpret_cast<const float4*>(row + width);
+      const float4 ap = *reinterpret_cast<const float4*>(ape + (s % ratio) * width + col);
+      sc[0] = gt.x + ap.x, sc[1] = gt.y + ap.y, sc[2] = gt.z + ap.z, sc[3] = gt.w + ap.w;
+    }
 #pragma unroll
     for (int j = 0; j < 4; ++j) {
       const float mn = fmaxf(m[j], sc[j]);
@@ -313,10 +319,13 @@ __global__ void __launch_bounds__(G * kCTPG)
     const int col = ((coff == 2 && s >= ratio) ? kCD : 0) + c0;
     const float* row = score + (start + q) * s_ld + col;
     const float4 kv = *reinterpret_cast<const float4*>(row);
-    const float4 gt = *reinterpret_cast<const float4*>(row + width);
-    const float4 ap = *reinterpret_cast<const float4*>(ape + (s % ratio) * width + col);
     const float kvv[4] = {kv.x, kv.y, kv.z, kv.w};
-    const float sc[4] = {gt.x + ap.x, gt.y + ap.y, gt.z + ap.z, gt.w + ap.w};
+    float sc[4] = {0.f, 0.f, 0.f, 0.f};
+    if (gate) {
+      const float4 gt = *reinterpret_cast<const float4*>(row + width);
+      const float4 ap = *reinterpret_cast<const float4*>(ape + (s % ratio) * width + col);
+      sc[0] = gt.x + ap.x, sc[1] = gt.y + ap.y, sc[2] = gt.z + ap.z, sc[3] = gt.w + ap.w;
+    }
     float dk[4], ds[4];
 #pragma unroll
     for (int j = 0; j < 4; ++j) {
@@ -335,7 +344,7 @@ __global__ void __launch_bounds__(G * kCTPG)
     sw.x = *reinterpret_cast<const uint32_t*>(&s0);
     sw.y = *reinterpret_cast<const uint32_t*>(&s1);
     *reinterpret_cast<uint2*>(out) = kw;
-    *reinterpret_cast<uint2*>(out + width) = sw;
+    if (gate) *reinterpret_cast<uint2*>(out + width) = sw;
   }
 }
 
@@ -343,7 +352,7 @@ template <int G>
 void launch_compressor(const torch::Tensor& score, const torch::Tensor& ape,
                        const torch::Tensor& d_src, const torch::Tensor& meta,
                        const torch::Tensor& norm_w, const torch::Tensor& cos_sin, int ratio,
-                       int coff, double eps, torch::Tensor& d_score) {
+                       int coff, double eps, torch::Tensor& d_score, bool gate = true) {
   const auto stream = at::cuda::getCurrentCUDAStream();
   const size_t smem = (3 * G * kCD + 8 * G) * sizeof(float);
   auto go = [&](auto* dp) {
@@ -356,7 +365,7 @@ void launch_compressor(const torch::Tensor& score, const torch::Tensor& ape,
         score.data_ptr<float>(), score.stride(0), ape.data_ptr<float>(), dp, d_src.stride(0),
         meta.data_ptr<int64_t>(), norm_w.data_ptr<float>(), cos_sin.data_ptr<float>(),
         cos_sin.stride(0), ratio, coff, static_cast<float>(eps),
-        reinterpret_cast<__nv_bfloat16*>(d_score.data_ptr()), d_score.stride(0));
+        reinterpret_cast<__nv_bfloat16*>(d_score.data_ptr()), d_score.stride(0), gate);
   };
   if (d_src.scalar_type() == torch::kBFloat16)
     go(reinterpret_cast<const __nv_bfloat16*>(d_src.data_ptr()));
@@ -375,19 +384,21 @@ void launch_compressor(const torch::Tensor& score, const torch::Tensor& ape,
 void dsv4_compressor_backward(torch::Tensor score, torch::Tensor ape, torch::Tensor d_src,
                               torch::Tensor meta, torch::Tensor norm_w, torch::Tensor cos_sin,
                               int64_t ratio, double eps, torch::Tensor d_score) {
-  TORCH_CHECK(ratio == 4 || ratio == 128, "dsv4_compressor_backward: ratio must be 4 or 128");
+  TORCH_CHECK(ratio == 1 || ratio == 2 || ratio == 4 || ratio == 128,
+              "dsv4_compressor_backward: ratio must be 1, 2 (DSv4.1), 4 or 128");
   const int coff = ratio == 4 ? 2 : 1;
-  const int64_t width = coff * kCD;
+  const bool gate = ratio != 1;
+  const int64_t width = coff * kCD, cols = (gate ? 2 : 1) * width;
   TORCH_CHECK(score.is_cuda() && score.scalar_type() == torch::kFloat32 && score.dim() == 2 &&
-                  score.size(1) == 2 * width && score.stride(1) == 1 &&
-                  score.stride(0) % 4 == 0,
-              "dsv4_compressor_backward: score must be FP32 [T, 2 * width], rows of 16 bytes");
+                  score.size(1) == cols && score.stride(1) == 1 && score.stride(0) % 4 == 0,
+              "dsv4_compressor_backward: score must be FP32 [T, 2 * width] ([T, 512] at "
+              "ratio 1), rows of 16 bytes");
   TORCH_CHECK(d_score.scalar_type() == torch::kBFloat16 && d_score.dim() == 2 &&
-                  d_score.size(0) == score.size(0) && d_score.size(1) == 2 * width &&
+                  d_score.size(0) == score.size(0) && d_score.size(1) == cols &&
                   d_score.stride(1) == 1 && d_score.stride(0) % 4 == 0,
               "dsv4_compressor_backward: d_score must be BF16 like score");
   TORCH_CHECK(ape.scalar_type() == torch::kFloat32 && ape.is_contiguous() &&
-                  ape.size(0) == ratio && ape.size(1) == width,
+                  (!gate || (ape.size(0) == ratio && ape.size(1) == width)),
               "dsv4_compressor_backward: ape must be FP32 [ratio, width]");
   TORCH_CHECK((d_src.scalar_type() == torch::kBFloat16 || d_src.scalar_type() == torch::kFloat32) &&
                   d_src.dim() == 2 && d_src.size(1) == kCD && d_src.stride(1) == 1 &&
@@ -411,8 +422,12 @@ void dsv4_compressor_backward(torch::Tensor score, torch::Tensor ape, torch::Ten
   if (meta.size(0) == 0) return;
   if (ratio == 4)
     launch_compressor<4>(score, ape, d_src, meta, norm_w, cos_sin, 4, 2, eps, d_score);
-  else
+  else if (ratio == 128)
     launch_compressor<8>(score, ape, d_src, meta, norm_w, cos_sin, 128, 1, eps, d_score);
+  else if (ratio == 2)
+    launch_compressor<2>(score, ape, d_src, meta, norm_w, cos_sin, 2, 1, eps, d_score);
+  else
+    launch_compressor<1>(score, ape, d_src, meta, norm_w, cos_sin, 1, 1, eps, d_score, false);
 }
 
 // out[(row / heads) * out_heads + row % heads] = norm_backward(rope_transpose(dy[src(row)]))

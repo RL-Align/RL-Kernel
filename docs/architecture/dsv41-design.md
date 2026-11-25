@@ -88,7 +88,7 @@ per layer i:
     streams            = mhc_post(attention_i(x), streams, post, comb)
     x, post, comb, pre = mhc_pre(streams, pre, hc_ffn_*, ffn_norm)
     streams            = mhc_post(moe_i(x), streams, post, comb)
-hidden = hc_head(streams, hc_head_*, norm)                              BF16 [T, H]
+hidden = norm(collapse(streams, pre))       no learned hc_head            BF16 [T, H]
 logp   = selected_logprob(hidden, head, targets)                        FP32 [T]
 ```
 
@@ -225,14 +225,30 @@ from the previous block. vLLM applies it per sublayer: attention collapses with 
 pre-mix carried in from the previous layer's FFN, the FFN collapses with this layer's
 attention pre-mix, and the first attention uses the identity (stream 0).
 
-- `mhc_pre` gains an input `pre_in` and an output `pre_out`. The controller GEMM and
-  the Sinkhorn loop are unchanged. The first layer's `x` is the normed embedding itself.
-- `dsv4_mhc.cu` has `kMaxChunks = 4` (H <= 4096, 1024 channels per chunk). H = 5120 is
-  five chunks. The slice partition and "sum of four" need a five-chunk definition;
-  proposed `((c0 + c1) + (c2 + c3)) + c4`.
+Checked against vLLM's reference (`mhc_pre_delayed_torch` in
+`vllm/model_executor/kernels/mhc/torch.py` and `nvidia/model.py` at `3f86db3`):
+
+- `mhc_pre` takes `pre_in` and returns `pre_out`, its controller's pre. The controller
+  (GEMM, sigmoid, softmax, Sinkhorn) is DSv4's. The first sublayer's mix is **a copy of
+  stream 0** (`residual[:, 0]`), not a product with `(1, 0, 0, 0)`.
+- **There is no learned `hc_head`** ("v4.1 has no learned hc_head"): the model ends with
+  `norm(collapse(streams, pre))`, the last FFN's pre applied as a plain mix.
+- vLLM runs the first layer's controller on the embedding with `fn` summed over the four
+  streams (all four streams are equal there). Same value, different rounding; we run the
+  controller on the expanded residual, so one GEMM path serves every layer.
+- Five chunks need no new reduction rule. The kernel does not add per-chunk partials:
+  each of the 128 slices runs one `fmaf` chain over its runs in ascending chunk order,
+  then the fixed slice tree. H = 5120 extends the chain; H <= 4096 never enters the
+  fifth chunk, so `dsv4-mhc-v1` keeps its bytes. (An earlier draft proposed
+  `((c0 + c1) + (c2 + c3)) + c4`; that is not how the kernel reduces.)
 - `tf32_hc_prenorm_gemm` runs at K = 4H = 20480; re-probe the 16-split result.
 - `POST_MULT` stays 2.0 (vLLM's `hc_post_alpha`).
-- Both changes go into a new profile. `dsv4-mhc-v1` stays byte-stable for DSv4.
+- Implementation (`dsv41-mhc-v1`): the same `dsv4_mhc.cu` kernels, instantiated for 4 and
+  5 chunks, with a block-uniform mix mode (own pre, carried pre, stream 0), plus a
+  collapse kernel and its backward. Entry points `dsv41_mhc_pre`, `dsv41_mhc_collapse` and
+  their backwards; golden `rl_engine/kernels/ops/pytorch/mhc/dsv41_mhc.py`. In the
+  backward the controller's pre gradient is `d_pre_out` (from the next sublayer), and the
+  op returns `d_pre_in`.
 
 ### 4.4 Attention
 
@@ -250,21 +266,32 @@ so the "YaRN on window-only layers" row of base 10 does not apply to DSv4.1.
 | 1 | `wkv` -> RMSNorm -> RoPE -> insert. No gate, no pooling, no state cache | The tail of `compress_main`, window 1 |
 | 2 | Softmax gate over 2 consecutive tokens, no overlap, then the same tail | `compress_fp8.cu` instantiated at window 2, `coff = 1` (the C128 no-overlap path) |
 
-No APE term in either. `compress_main`'s `ratio == 4 || ratio == 128` check widens to
-include 1 and 2; the C4 and C128 instantiations stay for DSv4. The compressor backward
-(`dsv4_compressor_backward` in `dsv4_attn_bwd.cu`) has the same 4-or-128 check and
-widens with it, for the ratio-2 pooling backward of section 8.
+No APE term in either (vLLM's `fused_save_compress_norm`: `pooled = sum(kv *
+softmax(score))` over the pair at ratio 2, the raw row at ratio 1, then RMSNorm; RoPE at
+`(pos // ratio) * ratio`). Implemented (`compress_fp8.cu`, golden `compressor.py`):
+
+- `dsv41_compress_main`: ratio 2 through the existing window code at W = 2, `coff = 1`,
+  from the paged FP32 state saved with a zero APE. The C4 / C128 paths are untouched.
+- `dsv41_store_rows`: W = 1 reads one FP32 row per token instead of the state cache
+  (`x` = the row exactly, which is also what a one-entry softmax gives), so ratio 1
+  needs no state cache. D = 512 writes the fp8_ds_mla entry, D = 128 the FP8 indexer
+  entry.
+- Both can write the BF16 normed row before RoPE (`latent`), the indexer K's input.
+- `dsv4_compressor_backward` takes ratio 2 (window 2, gated) and ratio 1 (no gate: the
+  softmax weight is 1 and only d kv is written).
 
 **Indexer K.** DSv4 pools hidden states with an indexer-local compressor
 (`compress_indexer_cuda`, head 128, C4 with overlap). DSv4.1 derives the key from the
-main compressor's pre-RoPE latent: `k = k_norm(wk(latent))` at group-boundary tokens,
-then RoPE at the group position and a store. The release stores FP4; on SM90 the store
-stays DSv4's FP8 (D15), so the MQA logits kernel is unchanged. `wk` is a 512 -> 128
-BF16 linear without scales, present only on KV-source layers.
+main compressor's pre-RoPE latent: `k = k_norm(wk(latent))` at group-boundary tokens
+(`k_norm` an RMSNorm over 128), then RoPE at the group position and a store. The release
+stores FP4; on SM90 the store stays DSv4's FP8 (D15), so the MQA logits kernel is
+unchanged. vLLM has the same FP8 option (`indexer_k_norm_rope_store(use_fp4_cache=False)`:
+per-token FP8 with one FP32 scale). `wk` is a 512 -> 128 BF16 linear without scales,
+present only on KV-source layers.
 
-- `wk` on DeepGEMM `bf16_gemm_nt`.
-- Norm, RoPE, FP8 quant and store: the tail of `compress_indexer_cuda` without the
-  pooling.
+- `wk` on DeepGEMM `bf16_gemm_nt` (FP32 out) over the latent rows.
+- Norm, RoPE, FP8 quant and store: `dsv41_store_rows` at D = 128 on the `wk` output, at
+  the layer's ratio (1 or 2).
 - `compress_indexer_cuda` itself is not on the DSv4.1 path.
 
 **KV and index sharing.** New in `Dsv4Layer`'s attention:
@@ -439,7 +466,7 @@ Reduction order for the new and changed modules:
 | Module | Kernel | Reduction order |
 |---|---|---|
 | Dense linear (D12) | DeepGEMM `bf16_gemm_nt`, FP32 out | No split-K; weights exact BF16 from MXFP8 |
-| mHC per-token math | `dsv4_mhc.cu`, five chunks | As base 5.2, with the five-chunk sum of 4.3 |
+| mHC per-token math | `dsv4_mhc.cu`, five chunks | As base 5.2; each slice's FMA chain runs over five chunks (4.3) |
 | Compressor r2 | `compress_fp8.cu`, window 2 | Per channel: max, `expf`, ascending sum, `kv * e` sum without FMA |
 | Compressor r1 | same tail | Row-local |
 | Indexer K | `bf16_gemm_nt` + norm / RoPE / FP8 store (D15) | Row-local |
@@ -583,13 +610,14 @@ kernel's arithmetic, so a failure there is easy to localize.
 - [ ] `config.json`: the layer map of 2.3, `o_lora_rank`, `o_groups`, `vocab_size`,
       hash-layer count, every `engram_*` and `candidate_*` value.
 - [ ] D9 (no DSpark), D10, D11, D12, D13, D14: owner sign-off. D8 and D15 are decided.
-- [ ] Which indexer K format vLLM's DSv4.1 Hopper path stores. D15 keeps FP8 either way.
+- [x] Which indexer K format vLLM's DSv4.1 Hopper path stores: MXFP4 or per-token FP8
+      (`use_fp4_cache`); D15 keeps the FP8 one, which is DSv4's indexer entry.
 - [ ] Whether the pinned DeepGEMM (`e21c821f`) is batch-invariant at the DSv4.1 shapes,
       or needs a new pin.
 - [ ] Gathered-candidate logits equal dense logits bytewise (4.4).
 - [ ] The staging rule of 5.2, by the gate in section 9.
-- [ ] Where `hc_head` sits relative to the last `mhc_post` in DSv4.1 (vLLM's `_collapse`
-      ends with a plain `mhc_post`; the head was not read).
+- [x] Where `hc_head` sits: DSv4.1 has none; the output is `norm(collapse(streams, pre))`
+      with the last FFN's pre (vLLM `nvidia/model.py`, 4.3).
 - [ ] H100 memory budget.
 - [ ] Whether DeepSeek's DSv4.1 inference code is available for the wiring check.
 
