@@ -230,12 +230,12 @@ def _attention(src, c: Dsv41Config, i: int, max_model_len: int, device, rope_cac
         return mxfp8_dequant(t(name + ".weight"), t(name + ".scale"))
 
     w = Dsv41AttentionWeights(
-        fused_wqa_wkv=Bf16Linear(torch.cat([dq("wq_a"), dq("wkv")]).contiguous()),
+        fused_wqa_wkv=Bf16Linear(torch.cat([dq("wq_a"), dq("wkv")]).contiguous(), True),
         q_norm=t("q_norm.weight").contiguous(),
         kv_norm=t("kv_norm.weight").contiguous(),
-        wq_b=Bf16Linear(dq("wq_b")),
+        wq_b=Bf16Linear(dq("wq_b"), True),
         attn_sink=t("attn_sink").float().contiguous(),
-        o_proj=Bf16OutputProjection(dq("wo_a"), Bf16Linear(dq("wo_b")), c.o_groups),
+        o_proj=Bf16OutputProjection(dq("wo_a"), Bf16Linear(dq("wo_b"), True), c.o_groups),
     )
     if ac.is_kv_source:
         comp = [t("compressor.wkv.weight")]
@@ -246,7 +246,7 @@ def _attention(src, c: Dsv41Config, i: int, max_model_len: int, device, rope_cac
         w.idx_wk = Bf16Linear(t("indexer.wk.weight").to(torch.bfloat16).contiguous())
         w.idx_k_norm = t("indexer.k_norm.weight").contiguous()
     if ac.is_index_source:
-        w.idx_wq_b = Bf16Linear(dq("indexer.wq_b"))
+        w.idx_wq_b = Bf16Linear(dq("indexer.wq_b"), True)
         w.idx_weights_proj = t("indexer.weights_proj.weight").to(torch.bfloat16).contiguous()
     kind = 2 if ac.ratio else 1  # rope_cos_sin: 1 = plain (window only), > 1 = YaRN
     if kind not in rope_cache:
@@ -321,7 +321,7 @@ def _moe(src, c: Dsv41Config, i: int, device, ep_group, experts_limit: int | Non
         return mxfp8_dequant(t(s + name + ".weight"), t(s + name + ".scale"))
 
     shared = Bf16SharedExpert(
-        Bf16Linear(torch.cat([dq("w1"), dq("w3")]).contiguous()), Bf16Linear(dq("w2"))
+        Bf16Linear(torch.cat([dq("w1"), dq("w3")]).contiguous(), True), Bf16Linear(dq("w2"), True)
     )
     return Dsv4MoE(router=router, w1=w1, w2=w2, shared_provider=shared, ep_group=ep_group)
 
@@ -384,7 +384,7 @@ def load_model(
             engram = EngramWeights(
                 table=src[e + "embed.weight"].to(table_device),
                 table_scale=src[e + "embed.scale"].to(table_device),
-                wkv=Bf16Linear(mxfp8_dequant(t(e + "wkv.weight"), t(e + "wkv.scale"))),
+                wkv=Bf16Linear(mxfp8_dequant(t(e + "wkv.weight"), t(e + "wkv.scale")), True),
                 q_weight=t(e + "q_weight").to(torch.bfloat16).contiguous(),
                 k_weight=t(e + "k_weight").to(torch.bfloat16).contiguous(),
                 hash_index=role.engram,

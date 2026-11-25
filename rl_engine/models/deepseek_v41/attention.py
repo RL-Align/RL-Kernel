@@ -37,7 +37,7 @@ from rl_engine.kernels.ops.cuda.compressor import (
 )
 from rl_engine.kernels.ops.cuda.indexer import indexer_q_rope_fp8_cuda
 from rl_engine.kernels.ops.cuda.indexer.select import indexer_logits_decode, indexer_logits_prefill
-from rl_engine.kernels.ops.cuda.matmul.bf16_linear import Bf16Linear
+from rl_engine.kernels.ops.cuda.matmul.bf16_linear import Bf16Linear, mxfp8_fake_quant
 from rl_engine.kernels.ops.cuda.topk import stable_topk_per_row_cuda
 from rl_engine.kernels.ops.cuda.topk.candidates import mask_to_candidates, select_candidate_blocks
 from rl_engine.models.deepseek_v4.attention import KV_BLOCK, STATE_BLOCK, LayerCaches, _bf16_gemm
@@ -103,13 +103,15 @@ class Dsv41AttentionWeights:
 
 
 class Bf16OutputProjection:
-    """``wo_b(wo_a_grouped(inverse_rope(o)))`` in BF16 (D12): the output's RoPE dims are
-    rotated back in FP32 and rounded once, each group's heads go through its ``wo_a`` slice
-    (DeepSeek's einsum ``bsgd,grd->bsgr``), then ``wo_b``."""
+    """``wo_b(wo_a_grouped(inverse_rope(o)))`` (D12): the output's RoPE dims are rotated back
+    in FP32 and rounded once, rounded to MXFP8 per 32 values (DeepSeek's in-place
+    ``act_quant`` before its einsum; off with ``act_quant=False``), each group's heads go
+    through its BF16 ``wo_a`` slice (einsum ``bsgd,grd->bsgr``), then ``wo_b``."""
 
-    def __init__(self, wo_a: Tensor, wo_b: Bf16Linear, groups: int) -> None:
+    def __init__(self, wo_a: Tensor, wo_b: Bf16Linear, groups: int, act_quant: bool = True):
         rank = wo_a.shape[0] // groups
         self.groups, self.o_lora_rank = groups, rank
+        self.act_quant = act_quant
         self.wo_a = [
             Bf16Linear(wo_a[g * rank : (g + 1) * rank].contiguous()) for g in range(groups)
         ]
@@ -132,6 +134,8 @@ class Bf16OutputProjection:
     ) -> Tensor:
         tokens, heads, _ = o.shape
         x = self.inverse_rope(o, positions, cos_sin).view(tokens, self.groups, -1)
+        if self.act_quant:
+            x = mxfp8_fake_quant(x)
         z = torch.cat([w(x[:, g].contiguous()) for g, w in enumerate(self.wo_a)], dim=1)
         y = self.wo_b(z)
         if lora is not None:
@@ -487,8 +491,8 @@ def random_layer(c: Dsv41AttentionConfig, seed: int = 0, device="cuda") -> Dsv41
     def bf16(*shape, scale=1.0):
         return (torch.randn(*shape, generator=gen) * scale).to(torch.bfloat16).to(device)
 
-    def lin(n, k):
-        return Bf16Linear(bf16(n, k, scale=k**-0.5))
+    def lin(n, k, act_quant=True):
+        return Bf16Linear(bf16(n, k, scale=k**-0.5), act_quant)
 
     def norm(n):
         return (1 + 0.1 * torch.randn(n, generator=gen)).to(torch.bfloat16).to(device)
@@ -507,9 +511,9 @@ def random_layer(c: Dsv41AttentionConfig, seed: int = 0, device="cuda") -> Dsv41
         ),
     )
     if c.is_kv_source:
-        w.comp_wkv = lin((2 if c.ratio == 2 else 1) * c.head_dim, c.hidden)
+        w.comp_wkv = lin((2 if c.ratio == 2 else 1) * c.head_dim, c.hidden, False)
         w.comp_norm = norm(c.head_dim)
-        w.idx_wk = lin(c.index_head_dim, c.head_dim)
+        w.idx_wk = lin(c.index_head_dim, c.head_dim, False)
         w.idx_k_norm = norm(c.index_head_dim)
     if c.is_index_source:
         w.idx_wq_b = lin(c.index_heads * c.index_head_dim, c.q_lora_rank)

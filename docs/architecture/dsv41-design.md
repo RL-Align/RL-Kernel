@@ -157,7 +157,7 @@ Base D1-D7 and the product decisions in base 4.2 stand. Additions:
 | D9 | **No DSpark.** The loader drops the drafter tensors | owner leans no; confirm | It changes rollout speed only; the log-prob comes from the main model's pass. Supporting it means a second small model (three blocks with their own MoE, a Markov head, a confidence head) plus verification scheduling under BI |
 | D10 | **Text only.** The loader drops the ViT; the router uses the text bias | proposed | RL targets are text; the image-token bias path has no user |
 | D11 | **Keep the V4 `fp8_ds_mla` KV record** on SM90 | proposed | It is what vLLM's Hopper path does, and it keeps FlashMLA, the insert kernel and the backward unchanged. In vLLM the paper's FP4 main KV exists only in the SM100 kernels |
-| D12 | **Dense MXFP8 weights run as exact BF16** on DeepGEMM `bf16_gemm_nt` | proposed; section 4.2 lists the alternatives | No new GEMM kernel, a kernel already probed, and BF16 gradients instead of FP8 ones |
+| D12 | **Dense MXFP8 weights run as exact BF16** on DeepGEMM `bf16_gemm_nt`, **with every input rounded to MXFP8** (`mxfp8_fake_quant`, per 32 values, UE8M0; byte-equal to DeepSeek's `act_quant`), so the GEMM computes the release's MXFP8 x MXFP8 product up to accumulation order | owner, 2026-11-25 (activation rounding) | No new GEMM kernel; the release's training arithmetic. dX is a BF16 dgrad with the rounding passed straight through |
 | D13 | **Topology comes from the config** (`kv_source_layer_ids`, `index_source_layer_ids`, `candidate_*`), with vLLM's field names | proposed | One loader for the checkpoint and for toy checkpoints of any shape |
 | D14 | **Engram tables are frozen, live in host memory, and are not synced** | proposed | They are 196B parameters; rollout and actor read the release rows |
 | D15 | **The indexer K cache stays FP8 on SM90** (DSv4's format, `compress_indexer_fp8`), not the release's FP4 | owner, 2026-11-25 | Same reasoning as D11: the K store tail and the FP8 MQA logits kernel stay unchanged, and nothing on Hopper needs FP4 |
@@ -226,6 +226,16 @@ By default vLLM itself runs these layers as BF16 GEMMs on weights dequantized at
 H100 when TP > 1, so option A is not exotic. With A, `fp8_group_quant` drops out of the
 DSv4.1 forward entirely, and base 7.2's "FP8 gradients carry 3.8% operand rounding"
 caveat no longer applies to the dense layers.
+
+Activation rounding (owner, 2026-11-25): every input of an MXFP8 weight is rounded to
+MXFP8 before the BF16 GEMM, as DeepSeek's `linear` does: `wq_a` / `wkv`, `wq_b`, `wo_b`,
+the indexer's `wq_b`, the shared expert's `w1` / `w3` / `w2`, Engram's `wkv`, and the
+attention output before `wo_a` (the reference's in-place `act_quant`). The compressor,
+`wk`, `weights_proj` and the router stay unrounded BF16 / FP32, as in the reference.
+Rounding is exact arithmetic, so it is batch-invariant; it is byte-equal to the
+reference kernel (`tests/models/deepseek_v41/test_dsv41_act_quant.py`), and on equal
+MXFP8 operands our GEMM and the reference's `fp8_gemm` are equally far (BF16 rounding)
+from FP64.
 
 `wo_a` needs a decision inside A: the grouped einsum is `fp8_einsum` today. In BF16 it
 becomes `o_groups` calls of `bf16_gemm_nt` (or DeepGEMM's grouped BF16 GEMM, which base

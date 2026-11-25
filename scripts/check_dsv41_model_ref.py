@@ -10,11 +10,11 @@ quantized too, FP4 compressed KV and indexer, design doc D11 / D12), so the per-
 errors should be small and should not jump; a wrong weight, fusion, RoPE or wiring shows
 up as an O(1) error where it enters.
 
-``--bf16-reference`` makes the reference run D12's arithmetic: BF16 dense weights (plain
-``F.linear``) and no in-place quantization of the sliding-window KV, the attention output,
-the compressed latent and the indexer q / k (``act_quant`` / ``fp4_act_quant`` with
-``inplace=True`` become no-ops; the routed experts keep their MXFP8 activations, as ours).
-What remains is our FP8 KV / indexer storage and rounding, so the check is sharper.
+Both sides round every dense layer's input to MXFP8 (D12 with activation rounding), so the
+dense arithmetic agrees up to accumulation order. ``--match-storage`` turns off the
+reference's simulation of the storage formats we do not follow (D11 / D15): the FP8
+rounding of the sliding-window KV (RoPE dims included) and the FP4 rounding of the
+compressed latent and the indexer q / k. What remains is our FP8 KV and indexer storage.
 
 Keep ``--tokens`` <= index_topk (512): every compressed position is then selected on both
 sides, so the indexers' precision cannot change the result.
@@ -51,20 +51,21 @@ class _Tok:
         return self._n
 
 
-def _reference(ref_dir: pathlib.Path, cfg, ckpt: dict, tokenizer, tokens: int, bf16: bool = False):
+def _reference(
+    ref_dir: pathlib.Path, cfg, ckpt: dict, tokenizer, tokens: int, match_storage: bool = False
+):
     sys.path.insert(0, str(ref_dir))
     import model as ref  # DeepSeek's inference/model.py
 
-    if bf16:
-        aq, fq = ref.act_quant, ref.fp4_act_quant
+    if match_storage:
+        aq = ref.act_quant
 
-        def act_quant(x, *a, **k):
+        def act_quant(x, *a, **k):  # the window KV is [b, s, d]; the output o is 4-D
             inplace = k.get("inplace", a[3] if len(a) > 3 else False)
-            return x if inplace else aq(x, *a, **k)
+            return x if inplace and x.dim() == 3 else aq(x, *a, **k)
 
         def fp4_act_quant(x, *a, **k):
-            inplace = k.get("inplace", a[1] if len(a) > 1 else False)
-            return x if inplace else fq(x, *a, **k)
+            return x
 
         ref.act_quant, ref.fp4_act_quant = act_quant, fp4_act_quant
 
@@ -73,7 +74,7 @@ def _reference(ref_dir: pathlib.Path, cfg, ckpt: dict, tokenizer, tokens: int, b
     args = ref.ModelArgs(
         max_batch_size=1,
         max_seq_len=max(tokens, 256),
-        dtype="bf16" if bf16 else "fp8",
+        dtype="fp8",
         expert_dtype="fp4",
         vocab_size=cfg.vocab_size,
         dim=cfg.hidden_size,
@@ -172,7 +173,7 @@ def main() -> int:
     p.add_argument("--tokens", type=int, default=500)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--moe-intermediate", type=int, default=256)
-    p.add_argument("--bf16-reference", action="store_true")
+    p.add_argument("--match-storage", action="store_true")
     args = p.parse_args()
 
     from rl_engine.models.deepseek_v41 import Dsv41Config, toy_config
@@ -198,7 +199,7 @@ def main() -> int:
     torch.cuda.empty_cache()
 
     tok = _Tok(args.meta / "tokenizer.json")
-    ref, m = _reference(args.meta / "inference", cfg, ckpt, tok, args.tokens, args.bf16_reference)
+    ref, m = _reference(args.meta / "inference", cfg, ckpt, tok, args.tokens, args.match_storage)
     r_out, r_streams = _reference_streams(ref, m, ids)
     print(f"tokens {args.tokens}, compressed vocabulary {size}")
     for i, (a, b) in enumerate(zip(streams, r_streams)):
