@@ -74,8 +74,8 @@ are of the same request. It then reports:
     `(t, h, w)` rotary position; latent frame and patch, or stereo channel and latent index.
 - `gate`: `hard_gate` passes only when every stage up to `unpack` is byte-equal, with the
   transformer probe excluded (it localizes; it is not latent data).
-  `transformer_intermediates_equal` reports the probe separately (`null` when a run recorded
-  none). `decoded_media_equal` and the PSNR / SNR between decodes are secondary: they never
+  `transformer_intermediates_equal` reports the probe separately (`null` when it was
+  not compared: a run observed no module output at some step). `decoded_media_equal` and the PSNR / SNR between decodes are secondary: they never
   turn a latent failure into a pass, nor a latent pass into a failure (RFC #420 Phase B exit
   criterion). An undefined PSNR / SNR (identical media, a silent reference) is `null`, with the
   reason in `<name>_note`.

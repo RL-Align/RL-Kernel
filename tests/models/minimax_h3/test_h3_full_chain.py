@@ -549,6 +549,32 @@ def test_runs_without_a_probe_are_not_called_equal() -> None:
     assert "not compared" in report["first_drift"]["transformer"]["note"]
 
 
+def test_probes_that_observed_nothing_are_not_called_equal(monkeypatch) -> None:
+    def run(inject=None):
+        return fc.run_chain(
+            toy.fl2va_request(),
+            toy.components("FL2VA"),
+            label="x",
+            text_source=toy.TEXT_SOURCE,
+            inject=inject,
+            decode=False,
+        ).artifact
+
+    monkeypatch.setattr(fc.TransformerProbe, "modules", lambda self: [])  # hooks on nothing
+    clean = run()
+    assert clean["transformer_probe"] == {
+        "steps": [[] for _ in range(clean["trajectory"]["steps"])]
+    }
+    report = fc.compare(clean, run())
+    assert report["gate"]["hard_gate"] == "pass"
+    assert report["gate"]["transformer_intermediates_equal"] is None
+    drifted = run(fc.DriftInjection("denoise", step=1, component="velocity.video", row=3))
+    report = fc.compare(clean, drifted)
+    assert report["gate"]["hard_gate"] == "fail"
+    assert report["gate"]["transformer_intermediates_equal"] is None
+    assert "not compared" in report["first_drift"]["transformer"]["note"]
+
+
 def test_a_probe_call_only_one_run_made_is_a_drift() -> None:
     def artifact(*calls, steps=1):
         step = [[name, "0" * 64] for name in calls]
@@ -562,6 +588,12 @@ def test_a_probe_call_only_one_run_made_is_a_drift() -> None:
     drift = fc._probe_drift(short, artifact("proj_in", "proj_out", steps=2), None, None)
     assert drift["step"] == 1 and "only one run recorded" in drift["note"]
     assert fc._probe_drift(short, short, None, None) is None
+    assert fc._intermediates_equal(short, short) is True
+    assert fc._intermediates_equal(short, long) is False
+    empty = {"transformer_probe": {"steps": [[]]}, "layout": {}}
+    assert fc._intermediates_equal(empty, empty) is None  # nothing was compared
+    assert fc._intermediates_equal(empty, short) is False  # a call only one run made
+    assert fc._intermediates_equal({"transformer_probe": None}, short) is None
 
 
 def test_the_trajectory_fields_belong_to_the_reported_step(monkeypatch) -> None:

@@ -1917,13 +1917,7 @@ def compare(
         "gate": {
             "hard_gate": "pass" if hard else "fail",
             "latent_trajectory_equal": not gated["denoise"] and not gated["unpack"],
-            # None: not compared, at least one run recorded no probe
-            "transformer_intermediates_equal": (
-                "transformer_probe"
-                not in dict((s["stage"], s) for s in stages)["denoise"]["differing_components"]
-                if _probes_recorded(lhs, rhs)
-                else None
-            ),
+            "transformer_intermediates_equal": _intermediates_equal(lhs, rhs),
             "decoded_media_equal": decoded,
             "rule": "latent trajectory equality is the gate; decoded media are secondary",
         },
@@ -1982,6 +1976,15 @@ def _probes_recorded(lhs: Mapping[str, Any], rhs: Mapping[str, Any]) -> bool:
     return lhs.get("transformer_probe") is not None and rhs.get("transformer_probe") is not None
 
 
+def _probes_observed(lhs: Mapping[str, Any], rhs: Mapping[str, Any]) -> bool:
+    """Whether both probes hold an output for every step: only then can "equal" be claimed."""
+
+    if not _probes_recorded(lhs, rhs):
+        return False
+    steps = [artifact["transformer_probe"]["steps"] for artifact in (lhs, rhs)]
+    return all(bool(s) and all(s) for s in steps)
+
+
 def _probe_drift(
     lhs: Mapping[str, Any],
     rhs: Mapping[str, Any],
@@ -1991,7 +1994,7 @@ def _probe_drift(
     """First (step, module) whose output differs, in execution order, with its first row.
 
     A call or a step that only one run made differs too. ``None`` means equal only when both
-    runs recorded the probe (:func:`_probes_recorded`).
+    runs observed every step (:func:`_probes_observed`).
     """
 
     if not _probes_recorded(lhs, rhs):
@@ -2018,6 +2021,16 @@ def _probe_drift(
             )
             return found
     return None
+
+
+def _intermediates_equal(lhs: Mapping[str, Any], rhs: Mapping[str, Any]) -> bool | None:
+    """Whether every probed output is equal; ``None`` when that was not compared."""
+
+    if not _probes_recorded(lhs, rhs):
+        return None
+    if lhs["transformer_probe"] != rhs["transformer_probe"]:
+        return False
+    return True if _probes_observed(lhs, rhs) else None
 
 
 def _denoise_drift(
@@ -2058,10 +2071,10 @@ def _denoise_drift(
             )
     elif drift is not None:
         out["step"] = drift["step"]
-        if not _probes_recorded(lhs, rhs):
+        if not _probes_observed(lhs, rhs):
             out["transformer"] = {
                 "module": None,
-                "note": "not compared: at least one run recorded no transformer probe",
+                "note": "not compared: at least one run observed no module output at a step",
             }
         elif drift["kind"] == "velocity":
             out["transformer"] = {
