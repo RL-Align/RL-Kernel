@@ -19,6 +19,7 @@ from rl_engine.contracts.operators.attention import (
     AttentionMode,
     AttentionRole,
 )
+from rl_engine.contracts.operators.cfg_combine_renorm import cfg_platform
 from rl_engine.contracts.operators.logprob import (
     IMPLEMENTATION_KINDS,
     DeterminismScope,
@@ -180,6 +181,8 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     TRITON_FINAL_LOGIT_SOFTCAP = (
         "rl_engine.kernels.ops.triton.activation.final_logit_softcap.TritonFinalLogitSoftcapOp"
     )
+    TRITON_CFG_COMBINE_RENORM = "rl_engine.backends.shared.triton.guidance.TritonCfgCombineRenormOp"
+    PYTORCH_CFG_COMBINE_RENORM = "rl_engine.reference.guidance.NativeCfgCombineRenormOp"
     PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP = (
         "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap.NativeFinalLogitSoftcapOp"
     )
@@ -802,6 +805,8 @@ class KernelRegistry:
         self._priority_map["npu"]["det_gemm"] = [
             OpBackend.ASCEND_DET_GEMM,
         ]
+        self._priority_map["cpu"]["cfg_combine_renorm"] = [OpBackend.PYTORCH_CFG_COMBINE_RENORM]
+        self._priority_map["cuda"]["cfg_combine_renorm"] = [OpBackend.TRITON_CFG_COMBINE_RENORM]
         logger.info(f"KernelRegistry initialized for {device_ctx.device_type}")
         self._adjust_priority_for_hardware()
         self._adjust_priority_from_env()
@@ -1054,7 +1059,11 @@ class KernelRegistry:
     def get_op(self, op_type: str, device: torch.device | str | None = None) -> Any:
         """Select the best legacy operator for the requested device."""
 
-        platform = self._platform_for_device(device)
+        if op_type == "cfg_combine_renorm":
+            device_type = device_ctx.device_type if device is None else torch.device(device).type
+            platform = cfg_platform(device_type)
+        else:
+            platform = self._platform_for_device(device)
         candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
 
         for backend in candidates:

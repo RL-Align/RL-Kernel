@@ -33,6 +33,7 @@ nav:
       - operators/det-gemm.md
       - operators/embedding.md
       - operators/final-logit-softcap.md
+      - operators/cfg-combine-renorm.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md

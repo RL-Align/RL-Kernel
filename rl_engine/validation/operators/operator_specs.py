@@ -32,6 +32,17 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "cfg_combine_renorm": OperatorSpec(
+        name="cfg_combine_renorm",
+        op_class="reduction",
+        gold_path="rl_engine.reference.guidance.NativeCfgCombineRenormOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.guidance.NativeCfgCombineRenormOp",
+            "triton": "rl_engine.backends.shared.triton.guidance.TritonCfgCombineRenormOp",
+        },
+        grad_input_names=("v_main", "v_text", "v_img"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
