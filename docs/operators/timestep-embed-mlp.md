@@ -144,7 +144,7 @@ CUDA devices. Legacy Python modules remain aliases of these canonical modules,
 sharing class identities and the CUDA extension cache. Recorded operator identities
 remain stable across the move. New code and reproduction commands use canonical paths.
 
-These are **historical executions**, not new tests of the directory migration:
+These executions predate the directory migration and the rebase:
 
 | Check | A100 / sm80, 2026-10-02 | H100 / sm90, 2026-10-07 |
 | --- | --- | --- |
@@ -161,8 +161,8 @@ The H100 acceptance source is `ea55fa686706892ce94ebe7020829c19c108496c`;
 source manifests, dependencies, commands, seeds, thresholds, raw measurements,
 traces and failed attempts remain preserved outside the current tree. The directory migration preserved backend arithmetic and launch settings. Later
 native host-side index guards preserve the same device computation for these
-historical shapes. A100/H100 acceptance has not been rerun; local checks do not
-establish a fresh execution on those architectures.
+historical shapes. The rebase validation below covers H100. A100 acceptance
+remains historical.
 
 The independent audit compares all six tensors against FP64 trig/MLP/autograd
 at the specified **FP32 phase boundary**. It passed all eight H3072 cases.
@@ -175,13 +175,33 @@ reference, 0.642 for the current reference, and 80.892 for the all-FP64 diagnost
 Historical H100 CUDA forward+backward timing ratios were approximately 1.51–1.85x
 using 20 CUDA-event samples and medians. That older baseline rebuilt and transferred
 its frequency table inside every timed call while the candidate cached it; these
-setup-inclusive ratios are not evidence of a fair steady-state speedup. The corrected
-method has not been benchmarked on A100/H100. B16 forward and most Triton cases
-were slower even with the older method. No full-model speedup or
+setup-inclusive ratios used unequal setup costs. B16 forward and most Triton cases
+were slower under the older method. No full-model speedup or
 Hopper-specific WGMMA/TMA optimization is claimed. Full-model training,
 multi-GPU execution and full-repository native builds remain unverified.
 The target branch's GitHub workflows did not execute these GPU acceptance runs.
 An older local double-free remains undiagnosed; the isolated H100 suites passed.
+
+## H100 rebase validation
+
+The 2026-11-25 run tested the clean revision
+`b0359cb245cd5adef3856f88ce23eb9a10bd9f9d` on one NVIDIA H100 SXM 80 GB (SM90).
+It used driver 595.112.07, CUDA toolkit 12.8.93, PyTorch 2.8.0+cu128,
+Triton 3.4.0 and Python 3.12.3 on Ubuntu 24.04.
+
+`ci/scripts/run_timestep_sm90.sh` reported 75 passing tests, four passing
+gradient CLI combinations and 24 passing production cases. Separate commands
+reported 33 passing boundary and reference tests, eight passing long-reduction
+cases and eight passing cases in the independent FP32-phase audit. The FP32 and
+BF16 cases cover both GPU backends, forward output, five gradients and batch
+invariance. Four profiler traces captured the requested native CUDA and
+Triton kernels without fallback. The timestep native extension was compiled
+with JIT. The full core extension was unavailable.
+
+With the prepared batched PyTorch baseline and 20 warmed CUDA-event samples per
+case, CUDA forward plus backward ran 1.12–1.96× as fast as the baseline at
+seed 386. CUDA forward at batch 16 and every sampled Triton timing were slower.
+SM100 was outside this run's scope.
 
 ## Historical evidence downloads
 
