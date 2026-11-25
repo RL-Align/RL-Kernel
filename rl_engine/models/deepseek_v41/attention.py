@@ -317,7 +317,9 @@ class Dsv41Attention:
         if c.ratio == 2:
             score = w.comp_wkv(hidden, torch.float32)  # [T, 2 * head_dim]: kv | gate
             if self._zero_ape is None:
-                self._zero_ape = torch.zeros(2, c.head_dim, device=hidden.device)
+                self._zero_ape = torch.zeros(
+                    2, c.head_dim, dtype=torch.float32, device=hidden.device
+                )
             save_states_cuda(
                 score[:, : c.head_dim],
                 score[:, c.head_dim :],
@@ -371,7 +373,9 @@ class Dsv41Attention:
             )
         else:
             offsets, entry_req, _, width = batch.entries[ratio]
-            local = torch.full((tokens, max(width, 1)), -float("inf"), device=hidden.device)
+            local = torch.full(
+                (tokens, max(width, 1)), -float("inf"), dtype=torch.float32, device=hidden.device
+            )
             if entry_req.shape[0]:
                 k, k_scale = _gather_indexer_k(caches, batch, ratio)
                 ks = offsets[req].contiguous()

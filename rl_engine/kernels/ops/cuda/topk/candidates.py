@@ -36,7 +36,9 @@ def candidate_block_scores(
     nblocks = (width + block_size - 1) // block_size
     cols = torch.arange(nblocks * block_size, device=logits.device)
     ends = row_ends.to(device=logits.device, dtype=torch.long)
-    vals = torch.full((rows, nblocks * block_size), -float("inf"), device=logits.device)
+    vals = torch.full(
+        (rows, nblocks * block_size), -float("inf"), dtype=torch.float32, device=logits.device
+    )
     vals[:, :width] = logits.float()
     vals = torch.where(cols[None] < ends[:, None], vals, torch.full_like(vals, -float("inf")))
     scores = vals.view(rows, nblocks, block_size).amax(-1)  # NaN propagates
