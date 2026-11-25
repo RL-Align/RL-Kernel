@@ -25,6 +25,7 @@ def make_operator_inputs(
     device: torch.device,
 ) -> dict[str, Any]:
     builders = {
+        "cfg_combine_renorm": _make_cfg_inputs,
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
@@ -54,6 +55,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
+        "cfg_combine_renorm": f"{batch}x{seq}x64",
         "rms_norm": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
@@ -79,6 +81,24 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         return names[op_name]
     except KeyError as exc:
         raise ValueError(f"unsupported operator shape: {op_name}") from exc
+
+
+def _make_cfg_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    shape = (*_batch_seq(args), 64)
+    return {
+        "v_main": _floating_tensor(shape, args, dtype, device, offset=0),
+        "v_text": _floating_tensor(shape, args, dtype, device, offset=1),
+        "v_img": _floating_tensor(shape, args, dtype, device, offset=2),
+        "cfg_text_scale": 4.0,
+        "cfg_img_scale": 1.5,
+        "timestep": 0.7,
+        "cfg_interval": (0.4, 1.0),
+        "renorm_type": "global",
+        "cfg_renorm_min": 0.0,
+        "eps": 1e-8,
+    }
 
 
 def _make_rms_norm_inputs(

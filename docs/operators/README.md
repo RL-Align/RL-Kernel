@@ -33,4 +33,5 @@ Every operator page should include:
 - [Sampling](sampling.md)
 - [Token Embedding](embedding.md)
 - [Final Logit Softcap](final-logit-softcap.md)
+- [BAGEL CFG combine and renormalization](cfg-combine-renorm.md)
 - [Operator Doc Template](../contributing/operator-doc-template.md)

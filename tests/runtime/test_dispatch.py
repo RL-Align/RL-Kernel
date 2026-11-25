@@ -201,10 +201,9 @@ def test_npu_registry_preserves_per_operator_cpu_fallbacks(monkeypatch):
 
     registry.get_op("rms_norm")
 
-    # Ascend adds a deterministic GEMM beyond the shared CPU operator set.
-    assert registry._priority_map["npu"].keys() == registry._priority_map["cpu"].keys() | {
-        "det_gemm"
-    }
+    # CFG 仅注册到 CPU 和 NVIDIA CUDA。Ascend 额外注册确定性 GEMM。
+    cpu_fallback_ops = registry._priority_map["cpu"].keys() - {"cfg_combine_renorm"}
+    assert registry._priority_map["npu"].keys() == cpu_fallback_ops | {"det_gemm"}
     assert registry._priority_map["npu"]["det_gemm"] == [OpBackend.ASCEND_DET_GEMM]
     assert loaded[0] == OpBackend.ASCEND_RMS_NORM
     assert registry._priority_map["npu"]["batch_invariant_logp"] == [
