@@ -380,10 +380,12 @@ class H3OmniModelBinding:
             raise ValueError("the rollout runs the actor's attention: Grid(attention='h3_full')")
 
     def forward(self, *, pdd_step: Any = None, **kwargs: Any) -> tuple[torch.Tensor, torch.Tensor]:
+        from rl_engine.validation.models import h3_lora
         from rl_engine.validation.models import h3_parallel_model as pm
         from rl_engine.validation.models.h3_full_model import FullModelTrace
 
         check_call(kwargs, pdd_step)
+        h3_lora.require_refiner_lora_supported(self.model, strict_boundaries=self.strict_boundaries)
         requests = split_requests(kwargs)
         videos, audios = [], []
         with (

@@ -337,6 +337,20 @@ def test_block_observer_requires_the_runs_bindings() -> None:
         ot.block_observer(ot.OperatorTrace(), block_index=0)
 
 
+@pytest.mark.parametrize("stage", ["transformer_blocks", "token_refiner"])
+def test_block_observer_refuses_a_partial_map_before_the_forward(stage) -> None:
+    nodes = fp.REFINER_NODES if stage == "token_refiner" else fp.BLOCK_NODES
+    names = [name for name, _ in nodes]
+    full = {name: object() for name in names}
+    ot.block_observer(ot.OperatorTrace(), bindings=full, stage=stage)  # every node: accepted
+    with pytest.raises(ValueError, match=rf"{stage} nodes \['{names[3]}'\]"):
+        ot.block_observer(
+            ot.OperatorTrace(),
+            bindings={k: v for k, v in full.items() if k != names[3]},
+            stage=stage,
+        )
+
+
 def test_block_replay_trace_matches_h3_block_bindings(h3_block_weights_cuda) -> None:
     torch = pytest.importorskip("torch")
     from rl_engine.validation.models import h3_block
