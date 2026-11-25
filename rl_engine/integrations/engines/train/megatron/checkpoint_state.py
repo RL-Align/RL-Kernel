@@ -21,3 +21,27 @@ def checkpoint_export_value(model, tensor):
         return value
 
     return current_buffer
+
+
+def copy_original_tensor(destination, source, name):
+    """Load original state without silently narrowing frozen routing metadata.
+
+    Preserve the destination object registered by the framework. Native hash
+    kernels accept I64 or form an explicitly derived I32 ABI view themselves.
+    """
+    if destination.shape != source.shape:
+        raise ValueError(f"shape mismatch: {name}: {source.shape} -> {destination.shape}")
+    with torch.no_grad():
+        if destination.dtype != source.dtype:
+            if not (
+                name.endswith(".ffn.gate.tid2eid")
+                and source.dtype == torch.int64
+                and destination.dtype == torch.int32
+                and not destination.requires_grad
+            ):
+                raise TypeError(
+                    f"original dtype mismatch: {name}: {source.dtype} -> {destination.dtype}"
+                )
+            destination.data = source.detach().clone()
+        else:
+            destination.copy_(source)

@@ -17,7 +17,10 @@ from rl_engine.backends.rocm.moe.packed_mx import RocmPackedMXBackend
 from rl_engine.backends.rocm.moe.route_weight_grad import RocmRouteWeightGradient
 from rl_engine.backends.rocm.norm.qnorm_fp8 import FusedQNorm
 from rl_engine.contracts.operators.expert_training import ExpertTrainingConfig, PackedExpertWeight
-from rl_engine.integrations.engines.train.megatron.checkpoint_state import checkpoint_export_value
+from rl_engine.integrations.engines.train.megatron.checkpoint_state import (
+    checkpoint_export_value,
+    copy_original_tensor,
+)
 from rl_engine.integrations.engines.train.megatron.native_group_projection import (
     bind_grouped_projection,
 )
@@ -98,7 +101,9 @@ def load_native_checkpoint(model, directory):
         hf_config = AutoConfig.from_pretrained(directory)
     files = list(Path(directory).glob("*.safetensors"))
     if len(files) != 1:
-        raise ValueError("initial packed importer requires a single four-layer safetensors file")
+        raise ValueError(
+            "initial packed importer requires a single original-layer safetensors file"
+        )
     source = safe_open(str(files[0]), framework="pt")
     keys = set(source.keys())
     stage, expected_keys = local_checkpoint_keys(model, keys)
@@ -131,8 +136,7 @@ def load_native_checkpoint(model, directory):
             raise TypeError(f"quantized source requires a packed adapter: {key}")
         if tuple(dest.shape) != tuple(value.shape):
             raise ValueError(f"shape mismatch: {key}: {value.shape} -> {dest.shape}")
-        with torch.no_grad():
-            dest.copy_(value)
+        copy_original_tensor(dest, value, key)
         export.append((key, checkpoint_export_value(model, dest)))
         if isinstance(dest, torch.nn.Parameter):
             model._rlk_checkpoint_export_parameters[key] = (dest,)
