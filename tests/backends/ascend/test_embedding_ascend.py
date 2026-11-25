@@ -20,7 +20,7 @@ dtype -- there is no reduction tolerance to calibrate.
 import pytest
 import torch
 
-from rl_engine.backends.cuda.embedding.embedding import _deterministic_embedding_grad_weight
+from rl_engine.ops.autograd.embedding import _deterministic_embedding_grad_weight
 from rl_engine.reference.embedding.embedding import NativeEmbeddingOp
 
 _VOCAB = 128

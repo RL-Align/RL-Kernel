@@ -214,7 +214,7 @@ class CPEmbedding(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dy):
-        from rl_engine.backends.cuda.embedding.embedding import _deterministic_embedding_grad_weight
+        from rl_engine.ops.autograd.embedding import _deterministic_embedding_grad_weight
 
         (ids,) = ctx.saved_tensors
         ids, dy = ctx.layout.gather_many(ids.reshape(-1, 1), dy.reshape(-1, dy.size(-1)))

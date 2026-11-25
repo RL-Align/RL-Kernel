@@ -8,6 +8,9 @@ from typing import Any
 import torch
 
 from rl_engine.ops.autograd.backward_runtime import record_backward
+from rl_engine.ops.autograd.embedding import (
+    _deterministic_embedding_grad_weight as _shared_grad_weight,
+)
 from rl_engine.utils.logger import logger
 
 _C_npu: Any = None
@@ -28,16 +31,11 @@ def _deterministic_embedding_grad_weight(
     weight_shape: tuple[int, ...],
     weight_dtype: torch.dtype,
 ) -> torch.Tensor:
-    # Bitwise-identical backward by construction: the SM90 CUDA op's backward
-    # is itself pure PyTorch (sorted-segment dweight), so the Ascend op reuses
-    # the exact same function. Every op in it (mask, stable argsort,
-    # unique_consecutive, fixed-order accumulation) is deterministic on NPU,
-    # hence grad_weight matches the CUDA op bit for bit on identical inputs.
-    from rl_engine.backends.cuda.embedding.embedding import (
-        _deterministic_embedding_grad_weight as _cuda_grad_weight,
-    )
-
-    return _cuda_grad_weight(
+    # Bitwise-identical backward by construction: the shared deterministic
+    # sorted-segment dweight formula in ops/autograd is pure PyTorch. Every op
+    # in it (mask, stable argsort, unique_consecutive, fixed-order accumulation)
+    # is deterministic on NPU, matching the CUDA op bit for bit on identical inputs.
+    return _shared_grad_weight(
         ids,
         grad_rows,
         weight_shape=weight_shape,
