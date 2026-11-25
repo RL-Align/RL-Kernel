@@ -358,7 +358,7 @@ def install_lora_shards(
         for index, parts_by_target in enumerate(refiner):
             _check_refiner_parts(index, parts_by_target)
         refiner_ranks = {p["A"].shape[0] for by_target in refiner for p in by_target.values()}
-        if refiner_ranks != ranks:
+        if refiner and refiner_ranks != ranks:  # [] fits a model without refiner blocks
             raise ValueError(
                 f"refiner LoRA ranks {sorted(refiner_ranks)} != the blocks' rank {sorted(ranks)}"
             )

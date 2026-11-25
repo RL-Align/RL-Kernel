@@ -7,6 +7,8 @@ The bitwise training step against the single-GPU run is G5 (``h3_grid_train_step
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 import torch
 from torch import nn
@@ -280,6 +282,51 @@ class TestRefinerLoRA:
         h3_lora.install_lora_shards(model, shards, 4, 1, scale=2.0, device="cpu")
         assert not h3_lora.has_refiner_lora(model)  # nothing sent, nothing kept
 
+    @pytest.mark.parametrize("had_refiner", [True, False])
+    @pytest.mark.parametrize("other_rank_fails", [False, True])
+    def test_a_refused_worker_sync_puts_the_refiner_back(
+        self, tmp_path, monkeypatch, had_refiner, other_rank_fails
+    ):
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_worker as wk
+
+        sender = _actor(_model(seed=5))
+        sent = torch.load(sender.export(str(tmp_path))["path"], weights_only=True)
+        model = _model(refiner=had_refiner)
+        before = h3_lora.lora_digests(model)
+        assert h3_lora.has_refiner_lora(model) is had_refiner and before != sent["digests"]
+        ext = wk.H3OmniWorkerExtension()
+        ext._rlk_h3 = SimpleNamespace(
+            binding=SimpleNamespace(
+                model=model, grid=SimpleNamespace(tp=4, tp_rank=1), strict_boundaries=False
+            )
+        )
+
+        def gather(mine):  # this rank installed the whole LoRA; another rank may refuse
+            assert mine["ok"], mine
+            assert h3_lora.lora_digests(model) == sent["digests"]
+            return [mine["result"]] * 4, ({2: "x"} if other_rank_fails else {})
+
+        monkeypatch.setattr(wk, "_gather", gather)
+        source = str(tmp_path / "cp0" / "rank{rank}.pt")
+        if other_rank_fails:
+            with pytest.raises(RuntimeError, match="no rank changed"):
+                ext.rlk_h3_load_lora(source, scale=sent["scale"])
+            assert h3_lora.lora_digests(model) == before
+            assert h3_lora.has_refiner_lora(model) is had_refiner
+        else:
+            ext.rlk_h3_load_lora(source, scale=sent["scale"])
+            assert h3_lora.lora_digests(model) == sent["digests"]
+
+    def test_an_empty_refiner_list_fits_a_model_without_refiner_blocks(self):
+        model = _Model(refiner=0)
+        shards = [
+            h3_lora.shard_block_lora(h3_lora.make_block_lora(i, rank=R), 4, 1) for i in range(2)
+        ]
+        h3_lora.install_lora_shards(model, shards, 4, 1, scale=2.0, device="cpu", refiner=[])
+        assert not h3_lora.has_refiner_lora(model)
+        with pytest.raises(ValueError, match="0 refiner LoRAs for 2 refiner blocks"):
+            h3_lora.install_lora_shards(_Model(), shards, 4, 1, scale=2.0, device="cpu", refiner=[])
+
     def test_refuses_a_partial_or_mis_shaped_refiner_lora(self):
         model = _Model()
         good = [h3_lora.make_refiner_lora(i, rank=R) for i in range(2)]
@@ -456,6 +503,26 @@ class TestRefinerBroadcast:
         with pytest.raises(RuntimeError, match=r"refiner LoRA tensors \[0\] have a gradient"):
             actor.finish_grads()
         assert calls == []
+
+
+def test_every_forward_hooks_its_own_leaf():
+    """A recomputed forward cuts new leaves from the same weight, so no leaf has two sink hooks."""
+
+    weight, got = nn.Parameter(torch.randn(4, 4)), []
+
+    def forward():  # what ``_block_forward`` does with one shard
+        leaves = {}
+        leaf = h3_tp.shard_leaf("w", weight, leaves)
+        assert leaves["w"] is leaf and leaf is not weight
+        pm._sink_on_grad(SimpleNamespace(grad_sink=lambda *a: got.append(a)), 3, "w", leaf)
+        return leaf
+
+    first, again = forward(), forward()
+    assert first is not again and first.data_ptr() == again.data_ptr()
+    (first.sum() + 2 * again.sum()).backward()
+    assert len(got) == 2 and all((i, n) == (3, "w") for i, n, _ in got)
+    assert sorted(float(g[0, 0]) for _, _, g in got) == [1.0, 2.0]
+    assert first.grad is None and again.grad is None
 
 
 def test_a_shard_that_sinks_twice_counts_once():
