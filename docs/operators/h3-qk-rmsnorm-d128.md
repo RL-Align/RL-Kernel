@@ -59,44 +59,50 @@ computation in FP64. Latency is the median of forward and of forward + backward 
 idle GPU of a shared node. Batch invariance is bitwise and covers three checks: rows computed alone
 against full batches, the full batch against sub-batches that cover every row, and a batch-size sweep.
 
-| Implementation | Batch-invariant | S = 257: fwd err / dx err / dw err / fwd+bwd | S = 925 | S = 4097 |
+| Implementation | Batch-invariant | S = 257: fwd err / dx err / dw err / fwd + bwd | S = 925 | S = 4097 |
 |---|---|---|---|---|
-| diffusers `nn.RMSNorm(128)` (`F.rms_norm`) | yes | 2.5e-3 / 2.1e-3 / 1.7e-3 / 572 µs | 2.5e-3 / 2.1e-3 / 2.7e-3 / 522 µs | 2.2e-3 / 1.9e-3 / 4.2e-3 / 705 µs |
-| rl-kernel generic `RMSNormCudaOp` (the Qwen QK norm) | yes | 2.5e-3 / 2.1e-3 / 1.7e-3 / 3338 µs | 2.5e-3 / 2.1e-3 / 2.7e-3 / 10962 µs | 2.2e-3 / 1.9e-3 / 2.4e-3 / 98421 µs |
-| rl-kernel generic `RMSNormTritonOp` | yes | 2.5e-3 / 2.1e-3 / 1.7e-3 / 3380 µs | 2.5e-3 / 2.1e-3 / 2.7e-3 / 10977 µs | 2.2e-3 / 1.9e-3 / 2.4e-3 / 98898 µs |
-| TE 2.20.2 `RMSNorm` | yes | 2.5e-3 / 2.1e-3 / n/a / 812 µs | 2.5e-3 / 2.1e-3 / n/a / 824 µs | 2.2e-3 / 1.9e-3 / n/a / 798 µs |
-| Liger 0.8.4 `RMSNorm` | **no** | 5.2e-3 / 2.1e-3 / 3.1e-3 / 853 µs | 5.1e-3 / 2.1e-3 / 3.2e-3 / 881 µs | 5.0e-3 / 1.9e-3 / 2.7e-3 / 881 µs |
-| rl-kernel `H3QKRMSNormCudaOp` (this row) | yes | 2.5e-3 / 2.1e-3 / 1.7e-3 / 633 µs | 2.5e-3 / 2.1e-3 / 2.7e-3 / 645 µs | 2.2e-3 / 1.9e-3 / 2.4e-3 / 704 µs |
+| diffusers nn.RMSNorm(128) (F.rms_norm) | yes | 2.5e-3 / 2.1e-3 / 1.7e-3 / 525 µs | 2.5e-3 / 2.1e-3 / 2.7e-3 / 516 µs | 2.2e-3 / 1.9e-3 / 4.2e-3 / 706 µs |
+| rl-kernel generic RMSNormCudaOp (the Qwen QK-norm operator) | yes | 2.5e-3 / 2.1e-3 / 1.7e-3 / 3345 µs | 2.5e-3 / 2.1e-3 / 2.7e-3 / 10964 µs | 2.2e-3 / 1.9e-3 / 2.4e-3 / 98229 µs |
+| rl-kernel generic RMSNormTritonOp | yes | 2.5e-3 / 2.1e-3 / 1.7e-3 / 3370 µs | 2.5e-3 / 2.1e-3 / 2.7e-3 / 10973 µs | 2.2e-3 / 1.9e-3 / 2.4e-3 / 98733 µs |
+| TE 2.20.2 RMSNorm | yes | 2.5e-3 / 2.1e-3 / n/a / 830 µs | 2.5e-3 / 2.1e-3 / n/a / 808 µs | 2.2e-3 / 1.9e-3 / n/a / 820 µs |
+| Liger 0.8.4 RMSNorm | **no** | 5.2e-3 / 2.1e-3 / 3.0e-3 / 846 µs | 5.1e-3 / 2.1e-3 / 3.2e-3 / 863 µs | 5.0e-3 / 1.9e-3 / 2.7e-3 / 850 µs |
+| SGLang 0.5.21 fused_inplace_qknorm (q + k, forward only) | yes | 2.5e-3 / n/a / n/a / 27 µs (fwd) | 2.5e-3 / n/a / n/a / 37 µs (fwd) | 2.2e-3 / n/a / n/a / 113 µs (fwd) |
+| rl-kernel H3QKRMSNormCudaOp | yes | 2.5e-3 / 2.1e-3 / 1.7e-3 / 661 µs | 2.5e-3 / 2.1e-3 / 2.7e-3 / 467 µs | 2.2e-3 / 1.9e-3 / 2.4e-3 / 705 µs |
 
-The prior-art runner compares no weight gradient for TE, so its `dw` entries are not available.
+TE's `dw` is not compared, and SGLang's kernel has no backward; `(fwd)` marks a forward-only time.
 
 **The provider's own `F.rms_norm` passes the batch-invariance checks.** Its forward bytes are this
-row's. This row does not replace it for batch invariance or for forward accuracy. It reuses the merged
-`h3_rmsnorm` kernel, so no native code is added, and the difference is in the backward:
+row's, and so are SGLang's fused kernel's. This row does not replace them for batch invariance or
+for forward accuracy. It reuses the merged `h3_rmsnorm` kernel, so no native code is added, and the
+difference is in the backward:
 
 - `dweight` is about 1.8 times more accurate at 4097 rows (2.4e-3 against 4.2e-3); the two are equal
   at 257 and 925 rows.
 - `dx` is the same to the printed precision.
 
-Speed against the provider is a tie at 4097 rows (704 µs against 705 µs) and slower at 257 and 925
-(633 against 572 µs, 645 against 522 µs). The generic RMSNorm operators of this repository take 5 to
-140 times longer for forward + backward.
+**Speed.** Forward + backward against the provider is a tie at 4097 rows (705 against 706 µs) and
+slower at 257 (661 against 525). At 925 it depends on the run (467 against 516 here, 645 against 522
+in an earlier run of the same kernel at `7510cf18`): the medians move by tens of percent between
+runs at that size, so no difference is claimed. The generic RMSNorm operators of this repository take
+5 to 140 times longer for forward + backward. SGLang's fused forward (q and k together, copies
+included) takes 113 µs at 4097 rows against 170 µs for one forward of this row; it has no backward.
 
 ### Direct bitwise comparison
 
 Equal errors do not show equal bits, so every candidate is compared byte for byte with the provider
 and with this kernel, on identical inputs (`tools/validation/models/h3_bitwise_reuse.py`). Differing
-elements against diffusers:
+elements against diffusers at S = 1 / 257 / 925 / 4097:
 
-| Candidate | output at S = 257 / 925 / 4097 | `dx` at S = 257 / 925 / 4097 | `dw` (128 entries) at S = 257 / 925 / 4097 |
+| Candidate | output | `dx` | `dw` (128 entries) |
 |---|---|---|---|
-| this row | 0 / 0 / 0 | 27 / 122 / 560 | 0 / 0 / 56 |
-| generic CUDA | 2 / 21 / 76 | 46 / 154 / 638 | 0 / 0 / 57 |
-| generic Triton | 3 / 18 / 75 | 34 / 135 / 601 | 0 / 0 / 57 |
-| TE 2.20.2 | 2 / 16 / 63 | 30 / 121 / 493 | n/a |
-| Liger 0.8.4 | 482170 / 1736089 / 7691553 | 36 / 142 / 616 | 73 / 58 / 75 |
+| rl-kernel generic RMSNormCudaOp (the Qwen QK-norm operator) | 0 / 2 / 21 / 76 | 0 / 46 / 154 / 638 | 0 / 0 / 0 / 57 |
+| rl-kernel generic RMSNormTritonOp | 0 / 3 / 18 / 75 | 0 / 34 / 135 / 601 | 0 / 0 / 0 / 57 |
+| TE 2.20.2 RMSNorm | 0 / 2 / 16 / 63 | 0 / 30 / 121 / 493 | n/a |
+| Liger 0.8.4 RMSNorm | 1911 / 482170 / 1736089 / 7691553 | 0 / 36 / 142 / 616 | 69 / 73 / 58 / 75 |
+| SGLang 0.5.21 fused_inplace_qknorm (q + k, forward only) | 0 / 0 / 0 / 0 | n/a | n/a |
+| rl-kernel H3QKRMSNormCudaOp | 0 / 0 / 0 / 0 | 0 / 27 / 122 / 560 | 0 / 0 / 0 / 56 |
 
-The tensors have 1842176, 6630400 and 29367296 elements at the three sizes. This row's forward is
+The output has 7168, 1842176, 6630400 and 29367296 elements at the four sizes. This row's forward is
 bitwise the provider's at every size measured (1, 257, 925 and 4097). Its gradients are bitwise the
 provider's at S = 1 (7168 elements) only.
 
