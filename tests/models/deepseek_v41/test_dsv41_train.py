@@ -142,3 +142,39 @@ def test_forward_train_bytes_and_lora_gradients(model):
         assert p.grad is not None, name
         assert torch.isfinite(p.grad.float()).all(), name
         assert float(p.grad.float().abs().max()) > 0, name
+
+
+def test_activation_recompute_same_bytes_same_gradients_less_memory(model):
+    from rl_engine.models.deepseek_v4.model import attach_lora
+    from rl_engine.models.deepseek_v41.attention import Dsv41Batch
+    from rl_engine.models.deepseek_v41.engram import ngram_windows
+
+    attach_lora(model, rank=16, alpha=32, zero_b=False, seed=9)
+    params = model.lora_parameters()
+    ids = torch.randint(0, 1024, (T,), generator=torch.Generator().manual_seed(6)).cuda()
+    pos = torch.arange(T, device="cuda")
+    windows = ngram_windows([ids], [pos], model.config.engram_max_ngram_size)
+    batch = Dsv41Batch.from_lens([T], [T], 128)
+    r = torch.randn(T, 5120, generator=torch.Generator(device="cuda").manual_seed(7), device="cuda")
+
+    def run(recompute):
+        for p in params:
+            p.grad = None
+        caches = model.new_caches(1, seed=3)
+        torch.cuda.synchronize()
+        before = torch.cuda.memory_allocated()
+        out = model.forward_train(ids, batch, caches, engram_windows=windows, recompute=recompute)
+        torch.cuda.synchronize()
+        held = torch.cuda.memory_allocated() - before
+        (out.float() * r).sum().backward()
+        return out.detach(), [p.grad.float().clone() for p in params], held
+
+    out_a, grads_a, held_a = run(False)
+    out_b, grads_b, held_b = run(True)
+    assert torch.equal(out_a.view(torch.int16), out_b.view(torch.int16))
+    for i, (a, b) in enumerate(zip(grads_a, grads_b)):
+        cos = float(torch.nn.functional.cosine_similarity(a.flatten(), b.flatten(), dim=0))
+        rel = float((a - b).norm() / a.norm().clamp_min(1e-30))
+        assert cos > 0.999 and rel < 5e-2, (i, cos, rel)
+    print(f"held activations: {held_a / 2**20:.1f} MiB without, {held_b / 2**20:.1f} MiB with")
+    assert held_b < 0.5 * held_a, (held_a, held_b)

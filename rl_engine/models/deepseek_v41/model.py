@@ -81,6 +81,47 @@ class Dsv41DecoderLayer:
         y = self.moe.forward(x, None, None)
         return mhc_post_cuda(y, streams, post, comb), ffn_pre
 
+    def forward_train(
+        self,
+        streams: Tensor,
+        pre: Tensor | None,
+        batch: Dsv41Batch,
+        caches: LayerCaches,
+        shared: dict,
+        hashes: Tensor | None = None,
+        engram_mask: Tensor | None = None,
+        group_in: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """:meth:`forward_batch` under autograd (same bytes): ``(streams, pre, handle)``;
+        ``handle`` is the KV group's (a KV source) or an empty tensor, ``group_in`` the
+        source's handle for the other layers of its group."""
+        from rl_engine.kernels.ops.cuda.mhc import mhc_post
+        from rl_engine.kernels.ops.cuda.mhc.dsv41_mhc import mhc_pre_delayed
+        from rl_engine.models.deepseek_v41.attention_backward import attention_train
+        from rl_engine.models.deepseek_v41.engram import engram_forward_train
+
+        if self.engram is not None:
+            assert hashes is not None
+            streams = engram_forward_train(self.engram, streams, hashes, engram_mask, self.eps)
+        p = self.hc_attn
+        x, post, comb, attn_pre = mhc_pre_delayed(
+            streams, p.fn, p.scale, p.base, pre, p.norm, self.eps
+        )
+        y, handle = attention_train(self.attn, x, batch, caches, shared, group_in)
+        streams = mhc_post(y, streams, post, comb)
+        p = self.hc_ffn
+        x, post, comb, ffn_pre = mhc_pre_delayed(
+            streams, p.fn, p.scale, p.base, attn_pre, p.norm, self.eps
+        )
+        return mhc_post(self.moe.forward(x, None, None), streams, post, comb), ffn_pre, handle
+
+    def lora_parameters(self) -> list[Tensor]:
+        """This layer's adapter tensors (``A`` and ``B``), attention first, then MoE."""
+        params = []
+        for ad in self.attn.w.lora.values():
+            params += [ad.a, ad.b]
+        return params + self.moe.lora_params()
+
 
 @dataclass
 class Dsv41Model:
@@ -169,6 +210,7 @@ class Dsv41Model:
         engram_windows: Tensor | None = None,
         engram_mask: Tensor | None = None,
         return_streams: bool = False,
+        recompute: bool = False,
     ):
         """:meth:`forward_batch` under autograd, byte-equal to it (full-prefill batches).
 
@@ -176,15 +218,15 @@ class Dsv41Model:
         model); base weights and the embedding are frozen. A KV source's attention returns
         its group's handle and the other layers of the group take it, so their gradient on
         the shared compressed KV reaches the source (``attention_backward``).
+
+        ``recompute``: activation recompute per layer (:class:`_RecomputedLayer`): autograd
+        keeps each layer's input streams and carried pre and reruns the layer in the
+        backward. Same forward bytes, same gradients (up to the attention backward's atomics).
         """
-        from rl_engine.kernels.ops.cuda.mhc import mhc_post
-        from rl_engine.kernels.ops.cuda.mhc.dsv41_mhc import hc_collapse, mhc_pre_delayed
-        from rl_engine.models.deepseek_v41.attention_backward import attention_train
-        from rl_engine.models.deepseek_v41.engram import engram_forward_train
+        from rl_engine.kernels.ops.cuda.mhc.dsv41_mhc import hc_collapse
 
         input_ids = input_ids.long()
         hashes = self.engram_hashes(engram_windows)
-        eps = self.config.rms_norm_eps
         streams = self.embed_streams(input_ids)
         pre: Tensor | None = None
         shared: dict = {}
@@ -192,25 +234,77 @@ class Dsv41Model:
         per_layer = []
         for i, (layer, cache) in enumerate(zip(self.layers, caches)):
             role = self.config.layer_role(i)
-            if layer.engram is not None:
-                assert hashes is not None
-                streams = engram_forward_train(layer.engram, streams, hashes, engram_mask, eps)
-            p = layer.hc_attn
-            x, post, comb, attn_pre = mhc_pre_delayed(
-                streams, p.fn, p.scale, p.base, pre, p.norm, eps
-            )
             group_in = handles.get(role.kv_source) if role.ratio and role.kv_source != i else None
-            y, handle = attention_train(layer.attn, x, batch, cache, shared, group_in)
+            args = (batch, cache, shared, hashes, engram_mask)
+            if recompute:
+                streams, pre, handle = _RecomputedLayer.apply(
+                    streams, pre, group_in, layer, *args, *layer.lora_parameters()
+                )
+            else:
+                streams, pre, handle = layer.forward_train(streams, pre, *args, group_in)
             if layer.attn.c.is_kv_source:
                 handles[i] = handle
-            streams = mhc_post(y, streams, post, comb)
-            p = layer.hc_ffn
-            x, post, comb, pre = mhc_pre_delayed(
-                streams, p.fn, p.scale, p.base, attn_pre, p.norm, eps
-            )
-            streams = mhc_post(layer.moe.forward(x, None, None), streams, post, comb)
             if return_streams:
                 per_layer.append(streams)
         assert pre is not None
-        out = hc_collapse(streams, pre, self.norm, eps)
+        out = hc_collapse(streams, pre, self.norm, self.config.rms_norm_eps)
         return (out, per_layer) if return_streams else out
+
+
+class _RecomputedLayer(torch.autograd.Function):
+    """One decoder layer with activation recompute (DSv4's ``_RecomputedLayer`` with the
+    carried pre and the KV group handle).
+
+    The forward runs :meth:`Dsv41DecoderLayer.forward_batch` without autograd and keeps the
+    layer's input streams and carried pre; a KV source also returns its group handle. The
+    backward reruns :meth:`Dsv41DecoderLayer.forward_train` on them and backpropagates the
+    gradients of all three outputs, the handle's being the group's summed compressed-entry
+    gradient from the later layers. A layer of a group gets its source's handle as input and
+    returns its gradient. The rerun reads what the first forward left: the group's caches
+    and ``shared`` (top-k ids, candidates), which a rerun rewrites with the same bytes.
+    """
+
+    @staticmethod
+    def forward(ctx, streams, pre, group_in, layer, batch, caches, shared, hashes, mask, *lora):
+        ctx.layer, ctx.args = layer, (batch, caches, shared, hashes, mask)
+        ctx.has_pre, ctx.has_group = pre is not None, group_in is not None
+        ctx.save_for_backward(streams, pre, group_in)
+        out, new_pre = layer.forward_batch(streams, pre, batch, caches, shared, hashes, mask)
+        c = layer.attn.c
+        if c.is_kv_source:
+            width = max(batch.entries[c.ratio][3], 1)
+            handle = torch.zeros(
+                batch.seq_lens.shape[0], width, c.head_dim, dtype=torch.float32, device=out.device
+            )
+        else:
+            handle = torch.empty(0, device=out.device)
+            ctx.mark_non_differentiable(handle)
+        return out, new_pre, handle
+
+    @staticmethod
+    def backward(ctx, d_streams, d_pre, d_handle):
+        streams, pre, group_in = ctx.saved_tensors
+        layer = ctx.layer
+        x = streams.detach().requires_grad_(ctx.needs_input_grad[0])
+        p = pre.detach().requires_grad_(ctx.needs_input_grad[1]) if ctx.has_pre else None
+        g = group_in.detach().requires_grad_(True) if ctx.has_group else None
+        params = layer.lora_parameters()
+        wanted = [q for q, need in zip(params, ctx.needs_input_grad[9:]) if need]
+        inputs = [t for t in (x, p, g) if t is not None and t.requires_grad] + wanted
+        with torch.enable_grad():
+            out, new_pre, handle = layer.forward_train(x, p, *ctx.args, g)
+        outs, grads_out = [out, new_pre], [d_streams, d_pre]
+        if layer.attn.c.is_kv_source:
+            outs.append(handle)
+            grads_out.append(d_handle)
+        pairs = [(o, d) for o, d in zip(outs, grads_out) if d is not None]
+        grads = torch.autograd.grad(
+            [o for o, _ in pairs], inputs, [d for _, d in pairs], allow_unused=True
+        )
+        ctx.layer = ctx.args = None
+        it = iter(grads)
+        dx = next(it) if x.requires_grad else None
+        dp = next(it) if p is not None and p.requires_grad else None
+        dg = next(it) if g is not None else None
+        dparams = [next(it) if need else None for need in ctx.needs_input_grad[9:]]
+        return (dx, dp, dg, None, None, None, None, None, None, *dparams)
