@@ -243,7 +243,8 @@ def attach_lora(
 ) -> int:
     """Put this TP rank's shards of a seeded LoRA on every transformer block of ``model``
     (replacing any), for ``h3_parallel_model.parallel_model_execution``; with ``refiner`` also a
-    whole one on each token-refiner block. Returns the bytes held."""
+    whole one on each token-refiner block, without it any refiner LoRA is removed. Returns the
+    bytes held."""
 
     from rl_engine.validation.models import h3_parallel_model as pm
 
@@ -266,6 +267,8 @@ def attach_lora(
         held += attach_refiner_lora(
             model, rank=rank, alpha=alpha, seed=seed, b_zero=b_zero, device=device
         )
+    else:  # as ``install_lora_shards``: the model holds exactly what was asked for
+        _set_refiner(model, None, alpha / rank, device)
     return held
 
 

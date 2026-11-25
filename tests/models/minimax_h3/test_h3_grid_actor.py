@@ -317,6 +317,16 @@ class TestRefinerLoRA:
             ext.rlk_h3_load_lora(source, scale=sent["scale"])
             assert h3_lora.lora_digests(model) == sent["digests"]
 
+    def test_attaching_without_the_refiner_removes_an_earlier_refiner_lora(self):
+        model, kw = _Model(), dict(rank=R, alpha=2.0 * R, device="cpu")
+        h3_lora.attach_lora(model, 4, 1, seed=1, refiner=True, **kw)
+        assert sum(k.startswith("refiner.") for k in h3_lora.lora_digests(model)) == 24
+        h3_lora.attach_lora(model, 4, 1, seed=2, **kw)
+        fresh = _Model()
+        h3_lora.attach_lora(fresh, 4, 1, seed=2, **kw)
+        assert not h3_lora.has_refiner_lora(model)
+        assert h3_lora.lora_digests(model) == h3_lora.lora_digests(fresh)
+
     def test_an_empty_refiner_list_fits_a_model_without_refiner_blocks(self):
         model = _Model(refiner=0)
         shards = [
