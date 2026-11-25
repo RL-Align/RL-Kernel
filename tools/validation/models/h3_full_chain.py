@@ -855,7 +855,8 @@ def _row_text(row: Mapping[str, Any] | None, found: Mapping[str, Any] | None = N
         if "row_evidence" in found:
             return f"n/a ({found['row_evidence']})"
         if "first_row" in found:
-            return f"row {found['first_row']} (no packed identity)"
+            why = found.get("row_identity", "no packed identity")
+            return f"row {found['first_row']} of the tensor ({why})"
         if "first_index" in found:
             return f"index {found['first_index']} (no packed rows)"
         return "n/a (no tensors kept)"
@@ -931,7 +932,11 @@ def _first_drift_table(report: Mapping[str, Any]) -> dict[str, Any]:
                 fd["stage"],
                 _fmt(fd.get("step")),
                 found.get("module") or "n/a",
-                _fmt(row.get("packed_row", found.get("first_row"))),
+                _fmt(
+                    row.get(
+                        "packed_row", None if "row_identity" in found else found.get("first_row")
+                    )
+                ),
                 _row_text(row, found),
                 _fmt(found.get("max_abs_diff")),
                 _trajectory_text(report),

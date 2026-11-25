@@ -508,6 +508,27 @@ def test_a_sidecar_that_is_not_the_recorded_run_gives_no_row_evidence() -> None:
         assert "first_row" not in found and "row" not in found
 
 
+@pytest.mark.parametrize("name", ["position_ids", "token_tags", "video_indices"])
+def test_foreign_layout_tensors_give_no_packed_identity(name) -> None:
+    from tools.validation.models import h3_full_chain as tool
+
+    clean = clean_run("fl2va")
+    run = injected("fl2va", fc.DriftInjection("initial_rows", component="video_rows", row=13))
+    sides = dict(tensors_lhs=clean.tensors, tensors_rhs=run.tensors)
+    assert "row" in fc.first_drift(clean.artifact, run.artifact, **sides)
+    foreign = {**clean.tensors, f"layout/{name}": clean.tensors[f"layout/{name}"] + 1}
+    missing = {k: v for k, v in clean.tensors.items() if k != f"layout/{name}"}
+    for kept in (foreign, missing):
+        if "layout/token_tags" not in kept:
+            continue  # no layout kept at all: no identity is attempted
+        report = fc.compare(clean.artifact, run.artifact, **{**sides, "tensors_lhs": kept})
+        drift = report["first_drift"]
+        assert drift["first_row"] == 13 and drift["differing_rows"] == 1  # still verified
+        assert "row" not in drift and name in drift["row_identity"]
+        (cells,) = tool._first_drift_table(report)["rows"]
+        assert cells[3] == "n/a" and cells[4].startswith("row 13 of the tensor (unavailable")
+
+
 def test_runs_without_a_probe_are_not_called_equal() -> None:
     def run(inject=None):
         return fc.run_chain(

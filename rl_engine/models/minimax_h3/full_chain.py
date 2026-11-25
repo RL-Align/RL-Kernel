@@ -1825,7 +1825,18 @@ def _locate(
     space, dim = space_dim if space_dim is not None else ("flat", 0)
     found = _first_row_difference(lhs[key], rhs[key], dim)
     if "first_row" in found and space != "flat" and "layout/token_tags" in lhs:
-        found["row"] = row_identity(lhs, layout, space, found["first_row"])
+        # the identity is read from the sidecar's layout tensors: they must be the recorded ones
+        foreign = [
+            name
+            for name, digest in layout["layout_component_sha256"].items()
+            if f"layout/{name}" not in lhs or tensor_digest(lhs[f"layout/{name}"]) != digest
+        ]
+        if foreign:
+            found["row_identity"] = (
+                f"unavailable: layout tensors {foreign} are not the recorded ones"
+            )
+        else:
+            found["row"] = row_identity(lhs, layout, space, found["first_row"])
     return found
 
 
