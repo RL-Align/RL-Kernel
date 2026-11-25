@@ -661,6 +661,26 @@ def dsv41_mhc_collapse_backward(
     norm_eps: float,
     bf16_out: bool,
 ) -> list[torch.Tensor]: ...
+def dsv41_engram_gate(
+    x: torch.Tensor,
+    kv: torch.Tensor,
+    qw: torch.Tensor,
+    kw: torch.Tensor,
+    mask: torch.Tensor | None,
+    eps: float,
+    clamp: float,
+) -> list[torch.Tensor]: ...
+def dsv41_engram_gate_backward(
+    dout: torch.Tensor,
+    x: torch.Tensor,
+    kv: torch.Tensor,
+    qw: torch.Tensor,
+    kw: torch.Tensor,
+    mask: torch.Tensor | None,
+    eps: float,
+    clamp: float,
+    bf16_out: bool,
+) -> torch.Tensor: ...
 def dsv4_router_topk(
     logits: torch.Tensor,
     bias: torch.Tensor | None,

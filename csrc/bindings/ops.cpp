@@ -645,6 +645,14 @@ std::vector<torch::Tensor> dsv41_mhc_collapse_backward(torch::Tensor dy, torch::
                                                        torch::Tensor pre,
                                                        std::optional<torch::Tensor> norm_weight,
                                                        double norm_eps, bool bf16_out);
+// DSv4.1 Engram gate (csrc/cuda/engram/dsv41_engram.cu)
+std::vector<torch::Tensor> dsv41_engram_gate(torch::Tensor x, torch::Tensor kv, torch::Tensor qw,
+                                             torch::Tensor kw, std::optional<torch::Tensor> mask,
+                                             double eps, double clamp);
+torch::Tensor dsv41_engram_gate_backward(torch::Tensor dout, torch::Tensor x, torch::Tensor kv,
+                                         torch::Tensor qw, torch::Tensor kw,
+                                         std::optional<torch::Tensor> mask, double eps,
+                                         double clamp, bool bf16_out);
 // DSv4 MoE router (csrc/cuda/router/dsv4_router.cu)
 void dsv4_router_topk(torch::Tensor logits, std::optional<torch::Tensor> bias,
                       std::optional<torch::Tensor> input_ids, std::optional<torch::Tensor> tid2eid,
@@ -742,6 +750,10 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "DSv4.1 mHC delayed pre backward (frozen params) -> (d_residual, d_pre_in)");
     m.def("dsv41_mhc_collapse_backward", &dsv41_mhc_collapse_backward,
           "DSv4.1 mHC collapse backward -> (d_residual, d_pre)");
+    m.def("dsv41_engram_gate", &dsv41_engram_gate,
+          "DSv4.1 Engram gate (dsv41-engram-v1): streams + wkv rows -> (out, gate)");
+    m.def("dsv41_engram_gate_backward", &dsv41_engram_gate_backward,
+          "DSv4.1 Engram gate backward (frozen tables / wkv / q / k) -> dX");
     m.def("dsv4_router_topk", &dsv4_router_topk,
           "DSv4 router: sqrt-softplus, top-6 (or hash) routing and scaled weights",
           py::arg("logits"), py::arg("bias"), py::arg("input_ids"), py::arg("tid2eid"),

@@ -261,6 +261,8 @@ def get_extensions():
             cuda_sources.append("csrc/cuda/attention/dsv4_attn_bwd.cu")
             # DSv4 manifold hyper-connections (dsv4-mhc-v1).
             cuda_sources.append("csrc/cuda/mhc/dsv4_mhc.cu")
+            # DSv4.1 Engram gate (dsv41-engram-v1).
+            cuda_sources.append("csrc/cuda/engram/dsv41_engram.cu")
             # DSv4 selected-token log-probability (dsv4-logprob-v1).
             cuda_sources.append("csrc/cuda/logprob/dsv4_logprob.cu")
             # DSv4 MoE router (top-6 / hash routing and its dX backward).
