@@ -473,6 +473,58 @@ class TestLoRASync:
         assert "scale" in errors[0]
         assert not h3_lora.lora_digests(model)
 
+    @pytest.mark.parametrize("strict", [True, False])
+    def test_a_refiner_lora_is_refused_on_a_strict_binding_before_the_install(
+        self, monkeypatch, tmp_path, strict
+    ):
+        from types import SimpleNamespace
+
+        from rl_engine.integrations.engines.rollout.vllm import h3_omni_worker as wk
+        from rl_engine.validation.models import h3_lora
+
+        model = self._Model(2)
+        model.w = torch.nn.Parameter(torch.zeros(1))
+        payload = {"shards": [], "digests": {"x": "0"}, "scale": 2.0, "refiner": [{}, {}]}
+        torch.save(payload, tmp_path / "rank1.pt")
+        ext = wk.H3OmniWorkerExtension()
+        ext._rlk_h3 = SimpleNamespace(
+            binding=SimpleNamespace(
+                model=model,
+                grid=SimpleNamespace(tp=4, tp_rank=1),
+                strict_boundaries=strict,
+            )
+        )
+        errors, installs = [], []
+
+        def gather(mine):  # this rank only
+            if not mine["ok"]:
+                errors.append(mine["error"])
+            return [None, mine.get("result"), None, None], ({} if mine["ok"] else {1: "x"})
+
+        monkeypatch.setattr(wk, "_gather", gather)
+        monkeypatch.setattr(
+            h3_lora,
+            "install_lora_shards",
+            lambda *a, **kw: installs.append(("install", kw["refiner"])),
+        )
+        monkeypatch.setattr(
+            h3_lora, "attach_lora", lambda *a, **kw: installs.append(("attach", kw["refiner"]))
+        )
+        monkeypatch.setattr(h3_lora, "lora_digests", lambda m: {})
+        source = str(tmp_path / "rank{rank}.pt")
+        if strict:
+            with pytest.raises(RuntimeError, match="no rank changed"):
+                ext.rlk_h3_load_lora(source, scale=2.0)
+            with pytest.raises(RuntimeError, match="rlk_h3_attach_seeded_lora failed"):
+                ext.rlk_h3_attach_seeded_lora(refiner=True)
+            assert installs == []
+            assert len(errors) == 2 and all("strict refiner row" in e for e in errors)
+        else:
+            ext.rlk_h3_load_lora(source, scale=2.0)
+            ext.rlk_h3_attach_seeded_lora(refiner=True)
+            assert installs == [("install", [{}, {}]), ("attach", True)]
+            assert errors == []
+
     def test_shards_without_a_are_refused_as_value_errors(self):
         from rl_engine.validation.models import h3_lora
 
