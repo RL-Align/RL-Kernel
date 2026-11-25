@@ -602,6 +602,18 @@ Ordered so each step has a passing gate before the next starts.
 | 9 | Layer-staged SWA (section 5, v2) with its gate and negative control | M |
 | 10 | Prefix-cache staged replay (5.5, v2) | M |
 
+Progress (2026-11-25, 1 x H100, `tests/ops/{mhc,compressor,engram,topk}`):
+
+| Item | State |
+|---|---|
+| 0 | Branch and this page |
+| 1 (probes) | DeepGEMM `bf16_gemm_nt` batch-invariant at every DSv4.1 dense shape (`scripts/probe_dsv41_deepgemm_bf16_bi.py`); MQA logits at 32 heads, prefill and paged (`PROBE_INDEXER_HEADS=32 scripts/probe_dsv4_indexer_logits_bi.py`); `tf32_hc_prenorm_gemm` at K = 20480 through the mHC batch-invariance test. Reports in `docs/validation/dsv41-*` |
+| 3 | mHC kernels done: carried pre, five chunks, final collapse, dX backward (`dsv41-mhc-v1`); DSv4 bytes and speed unchanged |
+| 4 (kernels) | Compressor ratio 2 / ratio 1, indexer K entry, the pre-RoPE latent, backward at both ratios |
+| 5 (kernels) | Candidate block scores, selection and mask (exact, on `stable_topk`) |
+| 6 (kernel) | Engram gate forward and dX backward (`dsv41-engram-v1`); hash and tables wait for the config |
+| Not started | 1 (config, loader, toy checkpoint), 2 (D12 dequant at load), the q-norm flag, model wiring (5, 7) and everything after |
+
 Step 9 comes after a green gate on purpose: it changes which rows are computed and no
 kernel's arithmetic, so a failure there is easy to localize.
 
@@ -612,8 +624,8 @@ kernel's arithmetic, so a failure there is easy to localize.
 - [ ] D9 (no DSpark), D10, D11, D12, D13, D14: owner sign-off. D8 and D15 are decided.
 - [x] Which indexer K format vLLM's DSv4.1 Hopper path stores: MXFP4 or per-token FP8
       (`use_fp4_cache`); D15 keeps the FP8 one, which is DSv4's indexer entry.
-- [ ] Whether the pinned DeepGEMM (`e21c821f`) is batch-invariant at the DSv4.1 shapes,
-      or needs a new pin.
+- [x] Whether the pinned DeepGEMM is batch-invariant at the DSv4.1 shapes: yes for the BF16
+      GEMM and the MQA logits (2026-11-25, 12 progress table).
 - [ ] Gathered-candidate logits equal dense logits bytewise (4.4).
 - [ ] The staging rule of 5.2, by the gate in section 9.
 - [x] Where `hc_head` sits: DSv4.1 has none; the output is `norm(collapse(streams, pre))`

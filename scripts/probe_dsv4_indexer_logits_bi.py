@@ -36,11 +36,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 import torch
 
-HEADS, DIM = 64, 128
+# DSv4: 64 indexer heads; DSv4.1: PROBE_INDEXER_HEADS=32.
+HEADS, DIM = int(os.environ.get("PROBE_INDEXER_HEADS", "64")), 128
 BLOCK_KV = 64  # SM90 paged block size
 SEEDS = (0, 1, 2)
 SEQ_KV = 6000  # compressed KV entries of the probed request (C4 of a 24K context)
