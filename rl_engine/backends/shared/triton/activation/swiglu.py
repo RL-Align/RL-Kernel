@@ -8,22 +8,103 @@ dtype on store — the same dual-path contract as the PyTorch references:
   silu(x)      = x * sigmoid(x)
   swiglu(g, u) = silu(g) * u
 
+All launches disable implicit FMA so the multiply and add in the SiLU
+derivative round separately in FP32 on every backend.
+FP16 and BF16 outputs and gradients keep the FP32 product's sign when they round to zero.
 Element-wise and row-independent, so Axis-A batch invariance holds bitwise.
 """
 
 from __future__ import annotations
+
+from typing import overload
 
 import torch
 import triton
 import triton.language as tl
 from torch import Tensor
 
+from rl_engine.contracts.operators.activation import SwiGLUPackedOrder
+
+_SUPPORTED_DEVICES = ("cuda", "hip", "xpu", "musa")
 _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
+_USE_HIP_FP16_CAST = tl.constexpr(torch.version.hip is not None)
 
 
 def _validate_dtype(x: Tensor, name: str) -> None:
+    """Reject unsupported tensor dtypes, naming the offending operand in the error."""
     if x.dtype not in _SUPPORTED_DTYPES:
-        raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {x.dtype}.")
+        raise TypeError(f"{name} must have dtype in {_SUPPORTED_DTYPES}, got {x.dtype}.")
+
+
+def _validate_swiglu_separate_inputs(gate: Tensor, up: Tensor) -> None:
+    """Validate two operands with matching shape, dtype and supported GPU device."""
+    if gate.device.type not in _SUPPORTED_DEVICES or up.device.type not in _SUPPORTED_DEVICES:
+        raise RuntimeError(
+            f"TritonSwiGLUOp requires GPU tensors, got gate='{gate.device}', up='{up.device}'."
+        )
+    if gate.device != up.device:
+        raise RuntimeError(
+            f"gate and up must be on the same GPU device, got '{gate.device}' and '{up.device}'."
+        )
+    if gate.shape != up.shape:
+        raise ValueError(
+            f"gate and up must share shape, got tuple(gate.shape)="
+            f"{tuple(gate.shape)} vs tuple(up.shape)={tuple(up.shape)}"
+        )
+    _validate_dtype(gate, "gate")
+    _validate_dtype(up, "up")
+    if gate.dtype != up.dtype:
+        raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
+
+
+def _validate_swiglu_packed_input(packed_input: Tensor) -> None:
+    """Validate a packed tensor's shape, dtype and supported GPU device.
+
+    The last dimension must be positive and even; leading dimensions may be
+    empty. The dtype and GPU device must be supported by the packed kernels.
+    """
+    if packed_input.ndim == 0:
+        raise ValueError("packed input must have at least one dimension")
+    packed_width = packed_input.shape[-1]
+    if packed_width == 0 or packed_width % 2:
+        raise ValueError(
+            f"packed input must have a positive, even last dimension, got {packed_width}"
+        )
+    _validate_dtype(packed_input, "packed input")
+    if packed_input.device.type not in _SUPPORTED_DEVICES:
+        raise RuntimeError(
+            f"packed input must use a device in {_SUPPORTED_DEVICES}, got {packed_input.device}"
+        )
+
+
+@triton.jit
+def _cast_preserving_zero_sign(value, dtype: tl.constexpr):
+    """Cast an FP32 result to its output dtype, preserving the sign when it rounds to zero."""
+    if dtype == tl.float16 and _USE_HIP_FP16_CAST:
+        # LLVM can merge scalar fmul + fptrunc into v_fma_mixlo_f16 even
+        # with enable_fp_fusion=False. An explicit conversion consumes the
+        # rounded FP32 product, matching vector layouts without a workspace.
+        bits = tl.inline_asm_elementwise(
+            "v_cvt_f16_f32 $0, $1;",
+            constraints="=v,v",
+            args=[value],
+            dtype=tl.uint32,
+            is_pure=True,
+            pack=1,
+        )
+        return bits.to(tl.uint16).to(dtype, bitcast=True)
+    rounded = value.to(dtype)
+    if dtype == tl.float16 or dtype == tl.bfloat16:
+        # Both 16-bit formats use bit 15 for the sign. Check the remaining bits
+        # after rounding so this also covers nonzero FP32 products that underflow.
+        rounded_bits = rounded.to(tl.uint16, bitcast=True)
+        is_zero = (rounded_bits & 0x7FFF) == 0
+        # A fused multiply and conversion can lose the sign of zero. Copy the
+        # original product's sign from bit 31 to bit 15 of the stored zero.
+        fp32_bits = value.to(tl.uint32, bitcast=True)
+        signed_zero = ((fp32_bits >> 16) & 0x8000).to(tl.uint16)
+        return tl.where(is_zero, signed_zero, rounded_bits).to(dtype, bitcast=True)
+    return rounded
 
 
 # Every kernel widens pid to int64 before scaling by BLOCK: in int32 the flat
@@ -36,7 +117,7 @@ def _silu_fwd_kernel(x_ptr, y_ptr, n_elements, BLOCK: tl.constexpr):
     x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     s = tl.div_rn(1.0, 1.0 + tl.exp(-x))
     y = x * s
-    tl.store(y_ptr + offs, y.to(y_ptr.dtype.element_ty), mask=mask)
+    tl.store(y_ptr + offs, _cast_preserving_zero_sign(y, y_ptr.dtype.element_ty), mask=mask)
 
 
 @triton.jit
@@ -49,7 +130,7 @@ def _silu_bwd_kernel(dy_ptr, x_ptr, dx_ptr, n_elements, BLOCK: tl.constexpr):
     s = tl.div_rn(1.0, 1.0 + tl.exp(-x))
     # silu'(x) = s * (1 + x * (1 - s))
     dx = dy * s * (1.0 + x * (1.0 - s))
-    tl.store(dx_ptr + offs, dx.to(dx_ptr.dtype.element_ty), mask=mask)
+    tl.store(dx_ptr + offs, _cast_preserving_zero_sign(dx, dx_ptr.dtype.element_ty), mask=mask)
 
 
 @triton.jit
@@ -61,7 +142,7 @@ def _swiglu_fwd_kernel(gate_ptr, up_ptr, y_ptr, n_elements, BLOCK: tl.constexpr)
     u = tl.load(up_ptr + offs, mask=mask, other=0.0).to(tl.float32)
     s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
     y = (g * s) * u
-    tl.store(y_ptr + offs, y.to(y_ptr.dtype.element_ty), mask=mask)
+    tl.store(y_ptr + offs, _cast_preserving_zero_sign(y, y_ptr.dtype.element_ty), mask=mask)
 
 
 @triton.jit
@@ -75,7 +156,9 @@ def _swiglu_bwd_kernel(dy_ptr, gate_ptr, silu_grad_ptr, d_up_ptr, n_elements, BL
     silu_g = g * s
     d_up = dy * silu_g
     silu_grad = s * (1.0 + g * (1.0 - s))
-    tl.store(d_up_ptr + offs, d_up.to(d_up_ptr.dtype.element_ty), mask=mask)
+    tl.store(
+        d_up_ptr + offs, _cast_preserving_zero_sign(d_up, d_up_ptr.dtype.element_ty), mask=mask
+    )
     tl.store(silu_grad_ptr + offs, silu_grad, mask=mask)
 
 
@@ -93,24 +176,108 @@ def _swiglu_dgate_kernel(
     # latter as FP32 prevents LLVM from reassociating the expression across
     # the function boundary and changing a BF16 tie at rare elements.
     d_gate = (dy * u) * silu_grad
-    tl.store(d_gate_ptr + offs, d_gate.to(d_gate_ptr.dtype.element_ty), mask=mask)
+    tl.store(
+        d_gate_ptr + offs,
+        _cast_preserving_zero_sign(d_gate, d_gate_ptr.dtype.element_ty),
+        mask=mask,
+    )
+
+
+@triton.jit
+def _swiglu_packed_fwd_kernel(
+    packed_input_ptr, y_ptr, WIDTH: tl.constexpr, GATE_FIRST: tl.constexpr, BLOCK: tl.constexpr
+):
+    """Read both halves without copying the noncontiguous chunk views."""
+    row = tl.program_id(0).to(tl.int64)
+    cols = tl.program_id(1).to(tl.int64) * BLOCK + tl.arange(0, BLOCK)
+    mask = cols < WIDTH
+    offsets = row * WIDTH + cols
+    packed_offsets = row * (2 * WIDTH) + cols
+    gate_offsets = packed_offsets + (0 if GATE_FIRST else WIDTH)
+    up_offsets = packed_offsets + (WIDTH if GATE_FIRST else 0)
+    g = tl.load(packed_input_ptr + gate_offsets, mask, other=0).to(tl.float32)
+    u = tl.load(packed_input_ptr + up_offsets, mask, other=0).to(tl.float32)
+    s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
+    y = (g * s) * u
+    tl.store(y_ptr + offsets, _cast_preserving_zero_sign(y, y_ptr.dtype.element_ty), mask)
+
+
+@triton.jit
+def _swiglu_packed_bwd_up_kernel(
+    dy_ptr,
+    packed_input_ptr,
+    silu_grad_ptr,
+    dx_ptr,
+    WIDTH: tl.constexpr,
+    GATE_FIRST: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
+    """Write the up gradient directly into the packed output and save FP32 SiLU'."""
+    row = tl.program_id(0).to(tl.int64)
+    cols = tl.program_id(1).to(tl.int64) * BLOCK + tl.arange(0, BLOCK)
+    mask = cols < WIDTH
+    offsets = row * WIDTH + cols
+    packed_offsets = row * (2 * WIDTH) + cols
+    gate_offsets = packed_offsets + (0 if GATE_FIRST else WIDTH)
+    up_offsets = packed_offsets + (WIDTH if GATE_FIRST else 0)
+    dy = tl.load(dy_ptr + offsets, mask, other=0).to(tl.float32)
+    g = tl.load(packed_input_ptr + gate_offsets, mask, other=0).to(tl.float32)
+    s = tl.div_rn(1.0, 1.0 + tl.exp(-g))
+    silu_g = g * s
+    d_up = dy * silu_g
+    silu_grad = s * (1.0 + g * (1.0 - s))
+    tl.store(dx_ptr + up_offsets, _cast_preserving_zero_sign(d_up, dx_ptr.dtype.element_ty), mask)
+    tl.store(silu_grad_ptr + offsets, silu_grad, mask)
+
+
+@triton.jit
+def _swiglu_packed_bwd_gate_kernel(
+    dy_ptr,
+    packed_input_ptr,
+    silu_grad_ptr,
+    dx_ptr,
+    WIDTH: tl.constexpr,
+    GATE_FIRST: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
+    """Finish the gate gradient while preserving the shared SwiGLU rounding order."""
+    row = tl.program_id(0).to(tl.int64)
+    cols = tl.program_id(1).to(tl.int64) * BLOCK + tl.arange(0, BLOCK)
+    mask = cols < WIDTH
+    offsets = row * WIDTH + cols
+    packed_offsets = row * (2 * WIDTH) + cols
+    gate_offsets = packed_offsets + (0 if GATE_FIRST else WIDTH)
+    up_offsets = packed_offsets + (WIDTH if GATE_FIRST else 0)
+    dy = tl.load(dy_ptr + offsets, mask, other=0).to(tl.float32)
+    u = tl.load(packed_input_ptr + up_offsets, mask, other=0).to(tl.float32)
+    silu_grad = tl.load(silu_grad_ptr + offsets, mask, other=0)
+    # Keep the same FP32 workspace boundary as the shared SwiGLU. Fusing the
+    # stages could let the compiler reassociate this expression at BF16 ties.
+    d_gate = (dy * u) * silu_grad
+    tl.store(
+        dx_ptr + gate_offsets, _cast_preserving_zero_sign(d_gate, dx_ptr.dtype.element_ty), mask
+    )
 
 
 _BLOCK = 1024
 
 
 def _launch_silu_fwd(x: Tensor) -> Tensor:
+    """Launch on the input device's current stream and restore the caller's device."""
     x_c = x.contiguous()
     y = torch.empty_like(x_c)
     n = x_c.numel()
     if n == 0:
         return y
     grid = (triton.cdiv(n, _BLOCK),)
-    _silu_fwd_kernel[grid](x_c, y, n, BLOCK=_BLOCK)
+    device_module = torch.get_device_module(x_c.device)
+    with device_module.device(x_c.device):
+        _silu_fwd_kernel[grid](x_c, y, n, BLOCK=_BLOCK, enable_fp_fusion=False)
     return y
 
 
 def _launch_silu_bwd(dy: Tensor, x: Tensor) -> Tensor:
+    """Launch on the saved input's device, including direct calls outside autograd."""
     dy_c = dy.contiguous()
     x_c = x.contiguous()
     dx = torch.empty_like(x_c)
@@ -118,11 +285,18 @@ def _launch_silu_bwd(dy: Tensor, x: Tensor) -> Tensor:
     if n == 0:
         return dx
     grid = (triton.cdiv(n, _BLOCK),)
-    _silu_bwd_kernel[grid](dy_c, x_c, dx, n, BLOCK=_BLOCK)
+    device_module = torch.get_device_module(x_c.device)
+    with device_module.device(x_c.device):
+        _silu_bwd_kernel[grid](dy_c, x_c, dx, n, BLOCK=_BLOCK, enable_fp_fusion=False)
     return dx
 
 
 def _launch_swiglu_fwd(gate: Tensor, up: Tensor) -> Tensor:
+    """Materialize separate inputs and launch on their device, restoring the caller.
+
+    The output retains the gate's shape and dtype. Empty inputs return the
+    allocated empty output without launching a kernel.
+    """
     gate_c = gate.contiguous()
     up_c = up.contiguous()
     y = torch.empty_like(gate_c)
@@ -134,11 +308,17 @@ def _launch_swiglu_fwd(gate: Tensor, up: Tensor) -> Tensor:
     # backend's guard (torch.cuda also covers ROCm) and restore the caller on exit.
     device_module = torch.get_device_module(gate_c.device)
     with device_module.device(gate_c.device):
-        _swiglu_fwd_kernel[grid](gate_c, up_c, y, n, BLOCK=_BLOCK)
+        _swiglu_fwd_kernel[grid](gate_c, up_c, y, n, BLOCK=_BLOCK, enable_fp_fusion=False)
     return y
 
 
 def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Tensor]:
+    """Return gate/up gradients using two stages on the input device's current stream.
+
+    The first stage writes the up gradient and an FP32 SiLU derivative; the
+    second consumes that derivative for the gate gradient. Each output uses
+    its input's dtype, and empty inputs require no kernel launch.
+    """
     dy_c = dy.contiguous()
     gate_c = gate.contiguous()
     up_c = up.contiguous()
@@ -160,6 +340,7 @@ def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Te
             d_up,
             n,
             BLOCK=_BLOCK,
+            enable_fp_fusion=False,
         )
         _swiglu_dgate_kernel[grid](
             dy_c,
@@ -168,8 +349,74 @@ def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Te
             d_gate,
             n,
             BLOCK=_BLOCK,
+            enable_fp_fusion=False,
         )
     return d_gate, d_up
+
+
+def _launch_swiglu_packed_fwd(
+    packed_input: Tensor, output_dtype: torch.dtype, packed_order: SwiGLUPackedOrder
+) -> Tensor:
+    """Launch one program per row/tile, storing only the final output cast.
+
+    Flatten leading dimensions into rows. Rows use grid axis 0 so large batches
+    do not encounter CUDA's smaller grid-axis-1 limit.
+    """
+    width = packed_input.shape[-1] // 2
+    y = torch.empty(
+        (*packed_input.shape[:-1], width), device=packed_input.device, dtype=output_dtype
+    )
+    if y.numel() == 0:
+        return y
+    n_rows = y.numel() // width
+    device_module = torch.get_device_module(packed_input.device)
+    with device_module.device(packed_input.device):
+        _swiglu_packed_fwd_kernel[(n_rows, triton.cdiv(width, _BLOCK))](
+            packed_input,
+            y,
+            WIDTH=width,
+            GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
+            BLOCK=_BLOCK,
+            enable_fp_fusion=False,
+        )
+    return y
+
+
+def _launch_swiglu_packed_bwd(
+    grad_y: Tensor, packed_input: Tensor, packed_order: SwiGLUPackedOrder
+) -> Tensor:
+    """Write one packed gradient; both stages share the input device's current stream."""
+    grad_packed_input = torch.empty_like(packed_input)
+    if grad_y.numel() == 0:
+        return grad_packed_input
+    grad_y_c = grad_y.contiguous()
+    silu_grad = torch.empty_like(grad_y_c, dtype=torch.float32)
+    width = packed_input.shape[-1] // 2
+    n_rows = grad_y_c.numel() // width
+    grid = (n_rows, triton.cdiv(width, _BLOCK))
+    device_module = torch.get_device_module(packed_input.device)
+    with device_module.device(packed_input.device):
+        _swiglu_packed_bwd_up_kernel[grid](
+            grad_y_c,
+            packed_input,
+            silu_grad,
+            grad_packed_input,
+            WIDTH=width,
+            GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
+            BLOCK=_BLOCK,
+            enable_fp_fusion=False,
+        )
+        _swiglu_packed_bwd_gate_kernel[grid](
+            grad_y_c,
+            packed_input,
+            silu_grad,
+            grad_packed_input,
+            WIDTH=width,
+            GATE_FIRST=packed_order is SwiGLUPackedOrder.GATE_UP,
+            BLOCK=_BLOCK,
+            enable_fp_fusion=False,
+        )
+    return grad_packed_input
 
 
 class _SiLUTritonFunction(torch.autograd.Function):
@@ -211,6 +458,27 @@ class _SwiGLUTritonFunction(torch.autograd.Function):
         return d_gate, d_up
 
 
+class _PackedSwiGLUTritonFunction(torch.autograd.Function):
+    """Save the packed projection, avoiding independent gate/up copies."""
+
+    @staticmethod
+    def forward(
+        ctx, packed_input: Tensor, output_dtype: torch.dtype, packed_order: SwiGLUPackedOrder
+    ) -> Tensor:
+        """Save one contiguous projection and its enum order for the matching backward."""
+        packed_input_c = packed_input.contiguous()
+        y = _launch_swiglu_packed_fwd(packed_input_c, output_dtype, packed_order)
+        ctx.save_for_backward(packed_input_c)
+        ctx.packed_order = packed_order
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_y: Tensor):
+        """Return one packed gradient; output dtype and channel order have no gradients."""
+        (packed_input,) = ctx.saved_tensors
+        return _launch_swiglu_packed_bwd(grad_y, packed_input, ctx.packed_order), None, None
+
+
 class TritonSiLUOp:
     """Triton SiLU: ``out = x * sigmoid(x)``, math in fp32."""
 
@@ -233,61 +501,118 @@ class TritonSiLUOp:
 
 
 class TritonSwiGLUOp:
-    """Triton SwiGLU: ``out = silu(gate) * up``, math in fp32."""
+    """FP32-math SwiGLU for separate operands or one packed projection.
+
+    Call ``op(gate=gate, up=up)`` for two separate tensors. For one tensor,
+    call ``op(packed_input=packed_input, packed_order=SwiGLUPackedOrder.GATE_UP)`` or use
+    ``UP_GATE``. The last dimension contains two equal halves; the output is
+    half as wide. No broadcasting is performed.
+
+    Both call forms require named arguments. Positional tensor arguments and
+    mixtures of ``packed_input`` with ``gate`` or ``up`` are rejected.
+
+    A contiguous packed input is read directly, without gate/up copies.
+    Strided packed inputs are made contiguous once. Backward writes both
+    gradient halves into one tensor, preserving the FP32 SiLU-derivative
+    workspace and expression order of the separate-input implementation.
+
+    The overloads describe the two accepted input forms for IDEs and type
+    checkers. Each method has one runtime implementation below them.
+    Packed callers must pass a ``SwiGLUPackedOrder`` member; string parsing
+    belongs to the calling configuration or CLI layer.
+    """
 
     op_class = "elementwise"
 
-    def __call__(self, gate: Tensor, up: Tensor) -> Tensor:
-        return self.forward(gate, up)
+    @overload
+    def __call__(self, *, gate: Tensor, up: Tensor) -> Tensor: ...
 
-    def forward(self, gate: Tensor, up: Tensor) -> Tensor:
-        if gate.device.type not in ("cuda", "hip", "xpu", "musa") or up.device.type not in (
-            "cuda",
-            "hip",
-            "xpu",
-            "musa",
-        ):
-            raise RuntimeError(
-                f"TritonSwiGLUOp requires GPU tensors, got gate='{gate.device}', up='{up.device}'."
-            )
-        if gate.device != up.device:
-            raise RuntimeError(
-                f"gate and up must be on the same GPU device, got "
-                f"'{gate.device}' and '{up.device}'."
-            )
-        if gate.shape != up.shape:
-            raise ValueError(
-                f"gate and up must share shape, got tuple(gate.shape)="
-                f"{tuple(gate.shape)} vs tuple(up.shape)={tuple(up.shape)}"
-            )
-        _validate_dtype(gate, "gate")
-        _validate_dtype(up, "up")
-        if gate.dtype != up.dtype:
-            raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
+    @overload
+    def __call__(self, *, packed_input: Tensor, packed_order: SwiGLUPackedOrder) -> Tensor: ...
+
+    def __call__(self, **kwargs) -> Tensor:
+        """Forward either call form to ``forward``, including its input validation."""
+        return self.forward(**kwargs)
+
+    @overload
+    def forward(self, *, gate: Tensor, up: Tensor) -> Tensor: ...
+
+    @overload
+    def forward(self, *, packed_input: Tensor, packed_order: SwiGLUPackedOrder) -> Tensor: ...
+
+    def forward(
+        self,
+        *,
+        gate: Tensor | None = None,
+        up: Tensor | None = None,
+        packed_input: Tensor | None = None,
+        packed_order: SwiGLUPackedOrder | None = None,
+    ) -> Tensor:
+        """Compute in FP32, then cast the output to the input dtype.
+
+        Accept named ``gate`` and ``up``, or named ``packed_input`` and ``packed_order``.
+        Requiring keywords prevents a positional swap of the separate operands.
+        """
+        return self._swiglu(
+            gate=gate,
+            up=up,
+            packed_input=packed_input,
+            packed_order=packed_order,
+            fp32_output=False,
+        )
+
+    @overload
+    def forward_fp32(self, *, gate: Tensor, up: Tensor) -> Tensor: ...
+
+    @overload
+    def forward_fp32(self, *, packed_input: Tensor, packed_order: SwiGLUPackedOrder) -> Tensor: ...
+
+    def forward_fp32(
+        self,
+        *,
+        gate: Tensor | None = None,
+        up: Tensor | None = None,
+        packed_input: Tensor | None = None,
+        packed_order: SwiGLUPackedOrder | None = None,
+    ) -> Tensor:
+        """Return FP32 output; input gradients retain the original input dtype.
+
+        The packed path widens values in the kernel, avoiding FP32 copies of
+        both halves. The separate-input path retains its existing behavior.
+        """
+        return self._swiglu(
+            gate=gate, up=up, packed_input=packed_input, packed_order=packed_order, fp32_output=True
+        )
+
+    @staticmethod
+    def _swiglu(
+        *,
+        gate: Tensor | None,
+        up: Tensor | None,
+        packed_input: Tensor | None,
+        packed_order: SwiGLUPackedOrder | None,
+        fp32_output: bool,
+    ) -> Tensor:
+        """Validate one named input form and dispatch its existing autograd implementation."""
+        if packed_input is not None:
+            if gate is not None or up is not None:
+                raise TypeError("packed_input cannot be combined with gate or up")
+            if packed_order is None:
+                raise ValueError("packed_order is required with packed_input")
+            if not isinstance(packed_order, SwiGLUPackedOrder):
+                raise TypeError(
+                    f"packed_order must be a {SwiGLUPackedOrder.__name__} member, "
+                    f"got {packed_order!r}"
+                )
+            _validate_swiglu_packed_input(packed_input)
+            output_dtype = torch.float32 if fp32_output else packed_input.dtype
+            return _PackedSwiGLUTritonFunction.apply(packed_input, output_dtype, packed_order)
+
+        if gate is None or up is None:
+            raise TypeError("provide both gate and up, or packed_input with packed_order")
+        if packed_order is not None:
+            raise ValueError("packed_order is only valid with packed_input")
+        _validate_swiglu_separate_inputs(gate, up)
+        if fp32_output:
+            return _SwiGLUTritonFunction.apply(gate.float(), up.float())
         return _SwiGLUTritonFunction.apply(gate, up)
-
-    def forward_fp32(self, gate: Tensor, up: Tensor) -> Tensor:
-        if gate.device.type not in ("cuda", "hip", "xpu", "musa") or up.device.type not in (
-            "cuda",
-            "hip",
-            "xpu",
-            "musa",
-        ):
-            raise RuntimeError(
-                f"TritonSwiGLUOp requires GPU tensors, got gate='{gate.device}', up='{up.device}'."
-            )
-        if gate.device != up.device:
-            raise RuntimeError(
-                f"gate and up must be on the same GPU device, got "
-                f"'{gate.device}' and '{up.device}'."
-            )
-        if gate.shape != up.shape:
-            raise ValueError(
-                f"gate and up must share shape, got tuple(gate.shape)="
-                f"{tuple(gate.shape)} vs tuple(up.shape)={tuple(up.shape)}"
-            )
-        _validate_dtype(gate, "gate")
-        _validate_dtype(up, "up")
-        if gate.dtype != up.dtype:
-            raise TypeError(f"gate and up must share dtype, got {gate.dtype} and {up.dtype}.")
-        return _SwiGLUTritonFunction.apply(gate.float(), up.float())
