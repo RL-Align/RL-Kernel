@@ -4,6 +4,20 @@
 #include <torch/extension.h>
 #include <cuda_bf16.h>
 
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+std::vector<torch::Tensor> qknorm_scaled_rope_forward_cuda(
+    torch::Tensor q, torch::Tensor k,
+    c10::optional<torch::Tensor> positions,
+    c10::optional<torch::Tensor> cosine,
+    c10::optional<torch::Tensor> sine, bool local);
+std::vector<torch::Tensor> qknorm_scaled_rope_backward_cuda(
+    torch::Tensor q, torch::Tensor k, torch::Tensor gq, torch::Tensor gk,
+    torch::Tensor rq, torch::Tensor rk,
+    c10::optional<torch::Tensor> positions,
+    c10::optional<torch::Tensor> cosine,
+    c10::optional<torch::Tensor> sine, bool local);
+#endif
+
 // Fused LogP Declarations
 torch::Tensor fused_logp_forward(torch::Tensor logits, torch::Tensor token_ids);
 #if !defined(USE_ROCM) && !defined(KERNEL_ALIGN_WITH_ROCM)
@@ -502,6 +516,12 @@ at::Tensor prefix_shared_attention(
 
 // PyBind11 Module Registration
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+#if defined(KERNEL_ALIGN_WITH_CUDA)
+    m.def("qknorm_scaled_rope_forward", &qknorm_scaled_rope_forward_cuda,
+          "Muse Glimmer F2 fixed-tree BF16 forward (no autograd)");
+    m.def("qknorm_scaled_rope_backward", &qknorm_scaled_rope_backward_cuda,
+          "Muse Glimmer F2 fixed-tree BF16 first-order backward");
+#endif
     m.doc() = "RL-Kernel High-Performance Operator Extension Library";
 
     m.def("fused_logp", &fused_logp_forward, "Fused logp forward fallback");
