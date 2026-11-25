@@ -11,12 +11,17 @@ state and the selected-token log-probs are byte-identical.
     PYTHONPATH=. python scripts/check_dsv41_layerwise_gate.py --out report.json
     # the first N layers of the release (Engram tables stay in host memory)
     PYTHONPATH=. python scripts/check_dsv41_layerwise_gate.py --ckpt DIR --layers 4
+    # more layers: routed experts over N GPUs (every rank runs the same gate; EP is bitwise
+    # to EP 1), Engram tables mapped from the shards
+    PYTHONPATH=. torchrun --nproc-per-node 4 scripts/check_dsv41_layerwise_gate.py \
+        --ckpt DIR --layers 22 --engram-tables mmap
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import time
 
@@ -44,6 +49,15 @@ def main() -> int:
     from rl_engine.models.deepseek_v41.layerwise_gate import layerwise_gate
     from rl_engine.models.deepseek_v41.loader import load_model, random_checkpoint
 
+    ep_group, rank = None, 0
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1:
+        import torch.distributed as dist
+
+        rank = int(os.environ["LOCAL_RANK"])
+        torch.cuda.set_device(rank)
+        dist.init_process_group("nccl", device_id=torch.device("cuda", rank))
+        ep_group = dist.group.WORLD
+
     t0 = time.time()
     if args.ckpt:
         cfg = Dsv41Config.from_pretrained(args.ckpt)
@@ -61,8 +75,12 @@ def main() -> int:
         num_layers=args.layers,
         token_map=token_map,
         engram_table_device=tables,
+        ep_group=ep_group,
     )
+    if rank:
+        globals()["print"] = lambda *a, **k: None
     print(f"loaded {len(model.layers)} layers in {time.time() - t0:.0f} s", flush=True)
+    torch.manual_seed(args.seed)  # the same adapters on every rank
     if args.lora_rank:
         attach_lora(model, rank=args.lora_rank, alpha=2.0 * args.lora_rank, zero_b=False)
 
@@ -84,6 +102,7 @@ def main() -> int:
         "generate": generate,
         "budget": args.budget,
         "lora_rank": args.lora_rank,
+        "ep": 1 if ep_group is None else torch.distributed.get_world_size(),
         "device": torch.cuda.get_device_name(),
     }
     for name in ("actor", "train"):
@@ -98,7 +117,7 @@ def main() -> int:
             )
         print(f"  final hidden same: {r['hidden_same']}  logprob same: {r['logp_same']}")
     print("GATE", "PASS" if report["passed"] else "FAIL", f"({report['tokens']} tokens)")
-    if args.out:
+    if args.out and rank == 0:
         with open(args.out, "w") as f:
             json.dump(report, f, indent=2)
     return 0 if report["passed"] else 1

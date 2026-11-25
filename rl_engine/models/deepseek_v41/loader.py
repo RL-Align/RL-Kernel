@@ -10,7 +10,8 @@ Formats, as stored in the release (safetensors headers at ``314113f8``):
   design decision D12 they are dequantized once to BF16 (:func:`mxfp8_dequant`, exact).
 - Routed experts: MXFP4 as in DSv4, ``<name>.weight`` int8 ``[N, K/2]`` + E8M0 ``[N, K/32]``.
 - Engram tables: ``engram.embed.weight`` E4M3 ``[rows, 256]`` + E8M0 ``[rows, 8]`` (MXFP8
-  rows, one scale per 32 values); ``engram.q_weight`` / ``k_weight`` BF16 ``[4, H]``.
+  rows, one scale per 32 values; ``engram_table_device="mmap"`` maps them from the shards);
+  ``engram.q_weight`` / ``k_weight`` BF16 ``[4, H]``.
 - Compressor ``wkv`` / ``wgate``, indexer ``wk`` / ``weights_proj``, router gate, norms,
   ``embed`` / ``head``: BF16. ``attn_sink``, the router bias and the mHC parameters: FP32.
 
@@ -23,6 +24,7 @@ have neither. Not loaded (D9, D10): ``mtp.*`` (DSpark), ``vision.*``, ``aligner.
 
 from __future__ import annotations
 
+import json
 import re
 
 import torch
@@ -326,6 +328,31 @@ def _moe(src, c: Dsv41Config, i: int, device, ep_group, experts_limit: int | Non
     return Dsv4MoE(router=router, w1=w1, w2=w2, shared_provider=shared, ep_group=ep_group)
 
 
+_ST_DTYPES = {
+    "F8_E4M3": torch.float8_e4m3fn,
+    "F8_E8M0": torch.float8_e8m0fnu,
+    "BF16": torch.bfloat16,
+    "F32": torch.float32,
+}
+
+
+def _mmap_tensor(src, name: str) -> Tensor:
+    """``name`` as a zero-copy, copy-on-write map of its safetensors shard: the pages are the
+    file's (shared by every process that maps it) and only the rows a lookup touches are
+    read. For the Engram tables (94 GiB each in the release)."""
+    import struct
+
+    import numpy as np
+
+    path = str(src.path / src._where[name])
+    with open(path, "rb") as f:
+        (n,) = struct.unpack("<Q", f.read(8))
+        meta = json.loads(f.read(n))[name]
+    begin, end = meta["data_offsets"]
+    raw = np.memmap(path, dtype=np.uint8, mode="c", offset=8 + n + begin, shape=(end - begin,))
+    return torch.from_numpy(raw).view(_ST_DTYPES[meta["dtype"]]).view(meta["shape"])
+
+
 def load_model(
     src,
     config: Dsv41Config | None = None,
@@ -343,7 +370,8 @@ def load_model(
 
     Engram: ``token_map`` (``engram.build_compressed_token_map``) enables the hasher; the
     tables stay on ``engram_table_device`` (default: the model's device; pass ``"cpu"`` for
-    the release's 196B-value tables)."""
+    the release's 196B-value tables, or ``"mmap"`` to map them from the shards, shared by
+    every process)."""
     from collections.abc import Mapping
 
     from rl_engine.kernels.ops.cuda.matmul.bf16_linear import Bf16Linear
@@ -360,7 +388,17 @@ def load_model(
         raise ValueError("config is required when src is a mapping")
     config.check_supported()
     device = torch.device(device)
-    table_device = device if engram_table_device is None else torch.device(engram_table_device)
+    mmap_tables = engram_table_device == "mmap"
+    if mmap_tables and not isinstance(src, SafetensorsDir):
+        raise ValueError('engram_table_device="mmap" needs a checkpoint directory')
+    table_device = (
+        device
+        if engram_table_device is None or mmap_tables
+        else torch.device(engram_table_device)
+    )
+
+    def table(name):
+        return _mmap_tensor(src, name) if mmap_tables else src[name].to(table_device)
     n = config.num_hidden_layers if num_layers is None else num_layers
 
     def t(name):
@@ -382,8 +420,8 @@ def load_model(
         if role.engram is not None:
             e = f"layers.{i}.engram."
             engram = EngramWeights(
-                table=src[e + "embed.weight"].to(table_device),
-                table_scale=src[e + "embed.scale"].to(table_device),
+                table=table(e + "embed.weight"),
+                table_scale=table(e + "embed.scale"),
                 wkv=Bf16Linear(mxfp8_dequant(t(e + "wkv.weight"), t(e + "wkv.scale")), True),
                 q_weight=t(e + "q_weight").to(torch.bfloat16).contiguous(),
                 k_weight=t(e + "k_weight").to(torch.bfloat16).contiguous(),
