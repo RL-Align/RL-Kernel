@@ -27,6 +27,7 @@ from rl_engine.contracts.operators.activation import SwiGLUPackedOrder
 
 _SUPPORTED_DEVICES = ("cuda", "hip", "xpu", "musa")
 _SUPPORTED_DTYPES = (torch.float16, torch.bfloat16, torch.float32)
+_USE_HIP_FP16_CAST = tl.constexpr(torch.version.hip is not None)
 
 
 def _validate_dtype(x: Tensor, name: str) -> None:
@@ -79,6 +80,19 @@ def _validate_swiglu_packed_input(packed_input: Tensor) -> None:
 @triton.jit
 def _cast_preserving_zero_sign(value, dtype: tl.constexpr):
     """Cast an FP32 result to its output dtype, preserving the sign when it rounds to zero."""
+    if dtype == tl.float16 and _USE_HIP_FP16_CAST:
+        # LLVM can merge scalar fmul + fptrunc into v_fma_mixlo_f16 even
+        # with enable_fp_fusion=False. An explicit conversion consumes the
+        # rounded FP32 product, matching vector layouts without a workspace.
+        bits = tl.inline_asm_elementwise(
+            "v_cvt_f16_f32 $0, $1;",
+            constraints="=v,v",
+            args=[value],
+            dtype=tl.uint32,
+            is_pure=True,
+            pack=1,
+        )
+        return bits.to(tl.uint16).to(dtype, bitcast=True)
     rounded = value.to(dtype)
     if dtype == tl.float16 or dtype == tl.bfloat16:
         # Both 16-bit formats use bit 15 for the sign. Check the remaining bits
