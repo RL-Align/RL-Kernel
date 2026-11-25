@@ -431,6 +431,11 @@ def block_observer(
 
     if stage not in ("transformer_blocks", "token_refiner"):
         raise ValueError(f"unknown stage {stage!r}")
+    refiner = stage == "token_refiner"
+    names = [name for name, _ in (fp.REFINER_NODES if refiner else fp.BLOCK_NODES)]
+    missing = [name for name in names if name not in bindings]
+    if missing:  # otherwise a KeyError in the middle of the forward, with the trace half recorded
+        raise ValueError(f"bindings has no entry for the {stage} nodes {missing}")
 
     def observe(name: str) -> None:
         binding = bindings[name]

@@ -503,9 +503,13 @@ class TestLoRASync:
 
         monkeypatch.setattr(wk, "_gather", gather)
         monkeypatch.setattr(
-            h3_lora, "install_lora_shards", lambda *a, **kw: installs.append("install")
+            h3_lora,
+            "install_lora_shards",
+            lambda *a, **kw: installs.append(("install", kw["refiner"])),
         )
-        monkeypatch.setattr(h3_lora, "attach_lora", lambda *a, **kw: installs.append("attach"))
+        monkeypatch.setattr(
+            h3_lora, "attach_lora", lambda *a, **kw: installs.append(("attach", kw["refiner"]))
+        )
         monkeypatch.setattr(h3_lora, "lora_digests", lambda m: {})
         source = str(tmp_path / "rank{rank}.pt")
         if strict:
@@ -513,11 +517,13 @@ class TestLoRASync:
                 ext.rlk_h3_load_lora(source, scale=2.0)
             with pytest.raises(RuntimeError, match="rlk_h3_attach_seeded_lora failed"):
                 ext.rlk_h3_attach_seeded_lora(refiner=True)
-            assert installs == [] and all("strict refiner row" in e for e in errors)
+            assert installs == []
+            assert len(errors) == 2 and all("strict refiner row" in e for e in errors)
         else:
             ext.rlk_h3_load_lora(source, scale=2.0)
             ext.rlk_h3_attach_seeded_lora(refiner=True)
-            assert installs == ["install", "attach"]
+            assert installs == [("install", [{}, {}]), ("attach", True)]
+            assert errors == []
 
     def test_shards_without_a_are_refused_as_value_errors(self):
         from rl_engine.validation.models import h3_lora

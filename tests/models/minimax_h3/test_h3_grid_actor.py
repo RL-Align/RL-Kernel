@@ -100,6 +100,16 @@ class TestParameters:
         assert not any(p.requires_grad for p in blocks)
         assert all(p.requires_grad for p in refiner)
 
+    # written out rather than taken from ``pl.lora_counted``: the tensors every TP rank holds whole
+    TP_REPLICATED = {
+        ("attn.to_q", "A"),
+        ("attn.to_k", "A"),
+        ("attn.to_v", "A"),
+        ("ff.net.0.proj", "A"),
+        ("attn.to_out.0", "B"),
+        ("ff.net.2", "B"),
+    }
+
     @pytest.mark.parametrize("tp_rank, cp_rank", [(0, 0), (1, 0), (0, 1), (3, 1)])
     def test_each_replicated_tensor_is_counted_once(self, tp_rank, cp_rank):
         actor = _actor(_model(tp_rank=tp_rank), tp_rank=tp_rank, cp_rank=cp_rank)
@@ -112,7 +122,8 @@ class TestParameters:
                 t for t in sorted(pl.TARGETS, key=len, reverse=True) if rest.startswith(t)
             )
             part = rest[len(target) + 1 :]
-            assert actor.counted(p) == pl.lora_counted(target, part, tp_rank, cp_rank)
+            replicated = (target, part) in self.TP_REPLICATED
+            assert actor.counted(p) is (cp_rank == 0 and (tp_rank == 0 or not replicated)), name
 
     def test_refuses_what_it_cannot_train(self):
         with pytest.raises(ValueError, match="strict refiner"):
