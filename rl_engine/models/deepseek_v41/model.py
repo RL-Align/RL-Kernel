@@ -192,6 +192,15 @@ class Dsv41Model:
         out = hc_collapse_cuda(streams, pre, self.norm, self.config.rms_norm_eps)
         return (out, per_layer) if return_streams else out
 
+    def selected_logprob(self, hidden: Tensor, targets: Tensor, temperature: float = 1.0):
+        """``(logp, lse)`` FP32 ``[T]`` of ``targets`` under ``softmax(head(hidden) / T)``
+        (DSv4's logprob kernel, ``dsv4-logprob-v1``); differentiable in ``hidden``."""
+        from rl_engine.kernels.ops.cuda.logprob_dsv4 import selected_logprob
+
+        if self.head is None:
+            raise RuntimeError("the model was loaded without its LM head (load_head=False)")
+        return selected_logprob(hidden, self.head, targets, temperature)
+
     def lora_parameters(self) -> list[Tensor]:
         """Every adapter's ``A`` / ``B``, layer by layer (attention, then MoE)."""
         params: list[Tensor] = []
