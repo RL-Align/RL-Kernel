@@ -91,6 +91,22 @@ def test_random_logp_inputs_are_seeded():
     assert torch.equal(first["token_ids"], second["token_ids"])
 
 
+def test_cfg_combine_renorm_case_passes_explicit_active_policy():
+    args = _args(op="cfg_combine_renorm")
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+
+    assert case.grad_input_names == ("v_main", "v_text", "v_img")
+    assert {name: value for name, value in case.inputs.items() if not torch.is_tensor(value)} == {
+        "cfg_text_scale": 4.0,
+        "cfg_img_scale": 1.5,
+        "timestep": 0.7,
+        "cfg_interval": (0.4, 1.0),
+        "renorm_type": "global",
+        "cfg_renorm_min": 0.0,
+        "eps": 1e-8,
+    }
+
+
 def test_cp_attention_operator_spec_registers_backward_grad_inputs():
     args = _args(op="cp_attention", input_mode="constant", batch=1, seq=2)
 

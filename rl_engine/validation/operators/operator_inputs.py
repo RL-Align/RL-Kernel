@@ -88,8 +88,16 @@ def _make_cfg_inputs(
 ) -> dict[str, Any]:
     shape = (*_batch_seq(args), 64)
     return {
-        name: _floating_tensor(shape, args, dtype, device, offset)
-        for offset, name in enumerate(("v_main", "v_text", "v_img"))
+        "v_main": _floating_tensor(shape, args, dtype, device, offset=0),
+        "v_text": _floating_tensor(shape, args, dtype, device, offset=1),
+        "v_img": _floating_tensor(shape, args, dtype, device, offset=2),
+        "cfg_text_scale": 4.0,
+        "cfg_img_scale": 1.5,
+        "timestep": 0.7,
+        "cfg_interval": (0.4, 1.0),
+        "renorm_type": "global",
+        "cfg_renorm_min": 0.0,
+        "eps": 1e-8,
     }
 
 

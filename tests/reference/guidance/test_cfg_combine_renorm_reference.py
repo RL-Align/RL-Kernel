@@ -52,6 +52,30 @@ def test_forward_and_all_branch_gradients_against_fp64(mode, branch_count, dtype
         assert_accuracy(grad, ref, "gradient_accuracy")
 
 
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("cfg_img_scale", [1.0, 0.5])
+def test_disabled_image_branch_matches_text_only(mode, cfg_img_scale):
+    main = torch.ones(1, 2, 3)
+    text = torch.full_like(main, 3)
+    image = torch.arange(6.0).reshape_as(main).requires_grad_()
+    op = NativeCfgCombineRenormOp()
+    expected = op(main, text, renorm_type=mode)
+    actual = op(main, text, image, renorm_type=mode, cfg_img_scale=cfg_img_scale)
+    assert torch.equal(actual, expected)
+    (grad_image,) = torch.autograd.grad(actual.sum(), image)
+    assert torch.equal(grad_image, torch.zeros_like(image))
+
+
+def test_identity_profile_at_unit_text_scale_without_image():
+    main = torch.arange(6.0).reshape(1, 2, 3).requires_grad_()
+    text = torch.full_like(main, 9)
+    op = NativeCfgCombineRenormOp()
+    actual = op(main, text, v_img=None, cfg_text_scale=1.0, cfg_img_scale=1.5)
+    assert torch.equal(actual, main)
+    (grad_main,) = torch.autograd.grad(actual.sum(), main)
+    assert torch.equal(grad_main, torch.ones_like(main))
+
+
 @pytest.mark.parametrize(
     "main_value,text_value,minimum,scale",
     [(1, -4, 0.5, 0.5), (4, 7, 0.0, 1.0), (1, 1, 0.5, 0.5), (2, 3, 0.0, 1.0)],

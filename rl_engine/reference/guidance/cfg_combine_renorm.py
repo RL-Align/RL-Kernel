@@ -114,6 +114,8 @@ class NativeCfgCombineRenormOp(nn.Module):
             mixed = t + cfg_text_scale * (v - t)
             if renorm_type == "text_channel":
                 mixed = _Renorm.apply(v, mixed, False, cfg_renorm_min, eps)
+            # ByteDance-Seed/Bagel 的 modeling/bagel/bagel.py 与 RFC #435 使用同一分支规则。
+            # 只有 cfg_img_scale > 1.0 才混合图像分支，否则保留两分支文本引导。
             if i is not None:
                 if cfg_img_scale > 1.0:
                     mixed = i + cfg_img_scale * (mixed - i)

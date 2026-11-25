@@ -33,6 +33,15 @@ def test_identity_profile_with_image_and_zero_branch_gradients(policy):
     assert torch.count_nonzero(dt) == torch.count_nonzero(di) == 0
 
 
+def test_identity_profile_at_unit_text_scale_without_image():
+    main = torch.arange(6.0).reshape(1, 2, 3).requires_grad_()
+    text = torch.full_like(main, 9)
+    out = cfg_combine_renorm(main, text, v_img=None, cfg_text_scale=1.0, cfg_img_scale=1.5)
+    assert torch.equal(out, main)
+    (grad_main,) = torch.autograd.grad(out.sum(), main)
+    assert torch.equal(grad_main, torch.ones_like(main))
+
+
 @pytest.mark.parametrize("mode", ["global", "channel", "text_channel"])
 def test_packed_neighbors_and_order_are_bitwise_invariant(mode):
     rng = torch.Generator().manual_seed(65)
@@ -84,13 +93,18 @@ def test_mismatched_branch_is_rejected(other):
 
 def test_optional_branches_follow_effective_scales():
     main = torch.ones(1, 2, 3)
-    text = torch.full_like(main, 3)
-    image = torch.full_like(main, -4, requires_grad=True)
     assert torch.equal(cfg_combine_renorm(main, timestep=0.0), main)
     with pytest.raises(ValueError):
         cfg_combine_renorm(main.expand(2, -1, -1), timestep=torch.tensor([0.0, 1.0]))
+
+
+@pytest.mark.parametrize("cfg_img_scale", [1.0, 0.5])
+def test_disabled_image_branch_matches_text_only(cfg_img_scale):
+    main = torch.ones(1, 2, 3)
+    text = torch.full_like(main, 3)
+    image = torch.arange(6.0).reshape_as(main).requires_grad_()
     two = cfg_combine_renorm(main, text)
-    disabled_image = cfg_combine_renorm(main, text, image, cfg_img_scale=1.0)
+    disabled_image = cfg_combine_renorm(main, text, image, cfg_img_scale=cfg_img_scale)
     assert torch.equal(two, disabled_image)
     (grad_image,) = torch.autograd.grad(disabled_image.sum(), image)
     assert torch.count_nonzero(grad_image) == 0

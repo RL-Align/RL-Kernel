@@ -73,6 +73,9 @@ def request_layout(
     lo, hi = cfg_interval
     if not (math.isfinite(lo) and math.isfinite(hi) and lo <= hi):
         raise ValueError("cfg_interval must contain ordered finite endpoints")
+    # 对齐 ByteDance-Seed/Bagel 的 modeling/bagel/bagel.py 与 RFC #435。
+    # cfg_text_scale <= 1.0 是独立的 identity profile。即使 cfg_img_scale=1.5
+    # 且 v_img=None，也直接输出 v_main。
     active = [cfg_text_scale > 1] * batch
     if timestep is not None:
         t = torch.as_tensor(
