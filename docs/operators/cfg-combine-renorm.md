@@ -20,9 +20,9 @@ With text scale `st > 1`, the text mixture is `U = T + st * (V - T)`. When an im
 | Backend | Wrapper | Native symbol | Validation |
 | --- | --- | --- | --- |
 | PyTorch CPU | `NativeCfgCombineRenormOp` | PyTorch FP32 tensor operations | CPU reference and gradient tests |
-| PyTorch on NVIDIA CUDA | `NativeCfgCombineRenormOp` | Same-device FP32 gold | GPU run pending |
-| Triton on NVIDIA CUDA | `TritonCfgCombineRenormOp` | Shared Triton kernels | GPU run pending on RTX 4090 / L40 / L40S |
-| ROCm, Ascend, MUSA | — | — | Dispatch raises an error. ROCm validation is follow-up work. |
+| PyTorch on NVIDIA CUDA | `NativeCfgCombineRenormOp` | Same-device FP32 gold | Verified on NVIDIA L40 (SM89, CUDA 12.8, PyTorch 2.7.1+cu128, Triton 3.3.1) |
+| Triton on NVIDIA CUDA | `TritonCfgCombineRenormOp` | Shared Triton kernels | Verified on NVIDIA L40 (SM89, CUDA 12.8, PyTorch 2.7.1+cu128, Triton 3.3.1) |
+| ROCm, Ascend, MUSA | — | — | Unverified. Dispatch raises an error. ROCm validation is follow-up work. |
 
 ## Tensor Contract
 
@@ -53,7 +53,16 @@ The WS1 precision profile supplies separate reduction tolerances for forward and
 
 ## Performance Notes
 
-The benchmark checks output and gradients against the native path before timing. It covers typical BAGEL latent widths (`D=64`) and token counts (1024 and 4096). NVIDIA latency, speedup and peak memory measurements are pending the rented-GPU run.
+The benchmark checks output and gradients against the native path before timing. The results below were measured on an NVIDIA L40 at commit `0e52854` with Python 3.11.13, CUDA 12.8, PyTorch 2.7.1+cu128 and Triton 3.3.1. Each case uses three BF16 branches with text and image scales of 4.0 and 1.5. Forward-plus-backward latency is the median of 20 CUDA-event measurements after 5 warmup calls. Extra peak allocation excludes input tensors.
+
+| Shape | Renorm | Native latency (ms) | Triton latency (ms) | Native extra peak (MiB) | Triton extra peak (MiB) | Speedup |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `1x1024x64` | `global` | 1.5508 | 0.7030 | 2.378 | 0.751 | 2.206x |
+| `1x1024x64` | `channel` | 1.1290 | 0.6164 | 2.399 | 0.762 | 1.831x |
+| `1x1024x64` | `text_channel` | 1.1320 | 0.6124 | 2.649 | 0.762 | 1.849x |
+| `2x4096x64` | `global` | 2.9373 | 1.3819 | 18.003 | 6.501 | 2.126x |
+| `2x4096x64` | `channel` | 1.9195 | 0.9958 | 18.098 | 6.547 | 1.928x |
+| `2x4096x64` | `text_channel` | 1.9185 | 1.0035 | 18.098 | 6.547 | 1.912x |
 
 ```bash
 python benchmarks/operators/guidance/benchmark_cfg_combine_renorm.py --output-dir /tmp/cfg_combine_renorm_bench
@@ -69,4 +78,4 @@ python tools/validation/operators/check_operator.py --op cfg_combine_renorm --ca
 
 ## Known Limitations
 
-Only the velocity inputs participate in differentiation. Packed request boundaries and per-request gates are read on the host, which can synchronize CUDA execution. The CPU results cover the mathematical reference and dispatch behavior. CUDA numerical and performance results require a real NVIDIA device.
+Only the velocity inputs participate in differentiation. Packed request boundaries and per-request gates are read on the host, which can synchronize CUDA execution. Accelerator validation covers NVIDIA CUDA on the L40. ROCm validation remains follow-up work.
