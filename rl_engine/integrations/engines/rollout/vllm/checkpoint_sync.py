@@ -50,7 +50,55 @@ def readback_original_tensor(wrapper, logical_name, value):
         if actual.shape[0] != 2 * value.shape[0]:
             raise ValueError(f"unsupported compressor merge shape: {actual_name}")
         actual = actual.narrow(0, shard * value.shape[0], value.shape[0])
+    if logical_name in ("embed.weight", "head.weight"):
+        owner = wrapper.model.embed_tokens if logical_name == "embed.weight" else wrapper.lm_head
+        indices = getattr(owner, "shard_indices", None)
+        if indices is None:
+            if actual.shape != value.shape:
+                raise ValueError("sharded vocabulary requires native shard metadata")
+            return actual_name, shard, actual
+        if indices.num_added_elements:
+            raise ValueError("original checkpoint readback does not support adapter vocabulary")
+        actual = actual.narrow(0, 0, indices.num_org_elements)
     return actual_name, shard, actual
+
+
+def local_original_value(wrapper, logical_name, value, actual):
+    """Use real loader ownership for original floating-state TP readback."""
+    if logical_name in ("embed.weight", "head.weight") and hasattr(
+        wrapper.model.embed_tokens if logical_name == "embed.weight" else wrapper.lm_head,
+        "shard_indices",
+    ):
+        owner = wrapper.model.embed_tokens if logical_name == "embed.weight" else wrapper.lm_head
+        indices = owner.shard_indices
+        start, stop = indices.org_vocab_start_index, indices.org_vocab_end_index
+        expected = value.narrow(0, start, stop - start)
+        partition = dict(axis=0, start=start, stop=stop, logical_shape=list(value.shape))
+    elif tuple(actual.shape) == tuple(value.shape):
+        expected, partition = value, None
+    else:
+        from vllm.distributed import (
+            get_tensor_model_parallel_rank,
+            get_tensor_model_parallel_world_size,
+        )
+
+        tp, rank = get_tensor_model_parallel_world_size(), get_tensor_model_parallel_rank()
+        if (
+            logical_name.endswith(".attn.attn_sink")
+            and value.ndim == actual.ndim == 1
+            and value.shape[0] == actual.shape[0] * tp
+        ):
+            start, stop = rank * actual.shape[0], (rank + 1) * actual.shape[0]
+            expected = value.narrow(0, start, stop - start)
+            partition = dict(axis=0, start=start, stop=stop, logical_shape=list(value.shape))
+        else:
+            raise ValueError(
+                f"unqualified original tensor TP ownership: {logical_name}: "
+                f"{value.shape} -> {actual.shape}"
+            )
+    if expected.shape != actual.shape:
+        raise ValueError(f"actual loader shard shape differs: {logical_name}")
+    return expected, partition
 
 
 def verify_loaded_update(wrapper, payload, loaded):
@@ -68,21 +116,25 @@ def verify_loaded_update(wrapper, payload, loaded):
         ):
             raise ValueError(f"actor update payload differs from its manifest: {logical_name}")
         actual_name, shard, actual = readback_original_tensor(wrapper, logical_name, value)
-        if (
-            actual.shape != value.shape
-            or actual.dtype != value.dtype
-            or digest(actual) != declared["sha256"]
-        ):
+        expected, partition = local_original_value(wrapper, logical_name, value, actual)
+        expected_digest = digest(expected)
+        if actual.dtype != expected.dtype or digest(actual) != expected_digest:
             raise RuntimeError(
                 f"rollout parameter readback differs from actor bytes: {logical_name}"
             )
         checked[logical_name] = dict(
             parameter=actual_name,
             shard=shard,
-            sha256=declared["sha256"],
+            sha256=expected_digest,
             dtype=str(actual.dtype),
             shape=list(actual.shape),
         )
+        if partition is not None and list(actual.shape) != list(value.shape):
+            checked[logical_name].update(
+                tp_partition=partition,
+                logical_sha256=declared["sha256"],
+                logical_shape=declared["shape"],
+            )
         expected_loaded.add(actual_name)
     if set(loaded) != expected_loaded:
         raise RuntimeError(
