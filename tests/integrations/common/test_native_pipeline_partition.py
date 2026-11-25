@@ -155,3 +155,78 @@ def test_mhc_parameter_names_remain_global_and_only_the_last_stage_owns_the_head
     first = NS(decoder=NS(layers=[layer(n) for n in range(1, 7)], post_process=False))
     actual = original_mhc_parameters(first)
     assert len(actual) == 30 and not any(name.startswith("hc_head") for name in actual)
+
+
+@pytest.mark.parametrize("pp", [1, 2])
+def test_seven_original_layers_keep_global_ids_and_exhaustive_endpoint_ownership(pp):
+    keys = {
+        "embed.weight",
+        "head.weight",
+        "norm.weight",
+        "hc_head_fn",
+        "hc_head_base",
+        "hc_head_scale",
+    }
+    keys |= {
+        f"layers.{i}.{part}"
+        for i in range(7)
+        for part in (
+            "attn.compressor.ape",
+            "attn.indexer.compressor.wkv.weight",
+            "ffn.gate.tid2eid",
+            "ffn.experts.255.w2.scale",
+            "hc_ffn_fn",
+        )
+    }
+    if pp == 1:
+        stage, actual = local_checkpoint_keys(
+            model(range(1, 15), True, True, pp=1, num_layers=14), keys
+        )
+        assert stage.layer_ids == tuple(range(7)) and actual == keys
+    else:
+        first, a = local_checkpoint_keys(model(range(1, 9), True, False, num_layers=14), keys)
+        last, b = local_checkpoint_keys(model(range(9, 15), False, True, num_layers=14), keys)
+        assert first.layer_ids == (0, 1, 2, 3) and last.layer_ids == (4, 5, 6)
+        assert a | b == keys and not a & b
+        assert "embed.weight" in a and "head.weight" in b and "hc_head_scale" in b
+        assert not any(f"layers.{i}." in key for i in range(3) for key in b)
+
+
+@pytest.mark.parametrize(
+    "numbers,pre,post",
+    [
+        (range(1, 7), True, False),
+        (range(7, 15), False, True),
+        (range(2, 10), True, False),
+        (range(9, 15), True, False),
+    ],
+)
+def test_seven_layer_pp2_rejects_wrong_layout_and_partial_pairs(numbers, pre, post):
+    with pytest.raises(ValueError):
+        local_checkpoint_keys(model(numbers, pre, post, num_layers=14), set())
+
+
+def test_pinned_bridge_builds_the_seven_layer_four_three_layout():
+    pytest.importorskip("megatron.core")
+    from rl_engine.integrations.orchestrators.verl.native_imports import (
+        install_native_import_adapters,
+    )
+
+    install_native_import_adapters()
+    from rl_engine.integrations.engines.train.megatron.native_pipeline import (
+        configure_native_pipeline,
+    )
+    from megatron.core.models.hybrid.hybrid_model import _validate_hash_moe_pipeline_placement
+
+    provider = NS(
+        pipeline_model_parallel_size=2,
+        num_layers=14,
+        moe_num_hash_layers=3,
+        mtp_num_layers=0,
+        hybrid_layer_pattern="WEWECEHECEHECE",
+    )
+    configure_native_pipeline(provider)
+    assert provider.hybrid_layer_pattern == "WEWECEHE|CEHECE"
+    _validate_hash_moe_pipeline_placement(list("CEHECE"), 8, 6, False)
+    layout = provider.pipeline_model_parallel_layout
+    assert layout is not None
