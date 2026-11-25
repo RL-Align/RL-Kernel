@@ -207,3 +207,208 @@ def random_checkpoint(
         else:
             out[name] = (0.1 * randn(*shape)).to(dtype)
     return out
+
+
+# --------------------------------------------------------------------------- build the model
+def _attention(src, c: Dsv41Config, i: int, max_model_len: int, device, rope_cache: dict):
+    from rl_engine.kernels.ops.cuda.matmul.bf16_linear import Bf16Linear
+    from rl_engine.models.deepseek_v4.rope import rope_cos_sin
+    from rl_engine.models.deepseek_v41.attention import (
+        Bf16OutputProjection,
+        Dsv41Attention,
+        Dsv41AttentionWeights,
+        attention_configs,
+    )
+
+    a = f"layers.{i}.attn."
+    ac = attention_configs(c, max_model_len)[i]
+
+    def t(name):
+        return src[a + name].to(device)
+
+    def dq(name):
+        return mxfp8_dequant(t(name + ".weight"), t(name + ".scale"))
+
+    w = Dsv41AttentionWeights(
+        fused_wqa_wkv=Bf16Linear(torch.cat([dq("wq_a"), dq("wkv")]).contiguous()),
+        q_norm=t("q_norm.weight").contiguous(),
+        kv_norm=t("kv_norm.weight").contiguous(),
+        wq_b=Bf16Linear(dq("wq_b")),
+        attn_sink=t("attn_sink").float().contiguous(),
+        o_proj=Bf16OutputProjection(dq("wo_a"), Bf16Linear(dq("wo_b")), c.o_groups),
+    )
+    if ac.is_kv_source:
+        comp = [t("compressor.wkv.weight")]
+        if ac.ratio > 1:
+            comp.append(t("compressor.wgate.weight"))
+        w.comp_wkv = Bf16Linear(torch.cat(comp).to(torch.bfloat16).contiguous())
+        w.comp_norm = t("compressor.norm.weight").contiguous()
+        w.idx_wk = Bf16Linear(t("indexer.wk.weight").to(torch.bfloat16).contiguous())
+        w.idx_k_norm = t("indexer.k_norm.weight").contiguous()
+    if ac.is_index_source:
+        w.idx_wq_b = Bf16Linear(dq("indexer.wq_b"))
+        w.idx_weights_proj = t("indexer.weights_proj.weight").to(torch.bfloat16).contiguous()
+    kind = 2 if ac.ratio else 1  # rope_cos_sin: 1 = plain (window only), > 1 = YaRN
+    if kind not in rope_cache:
+        rope_cache[kind] = rope_cos_sin(_rope_view(c, max_model_len), kind, max_model_len, device)
+    return Dsv41Attention(ac, w, rope_cache[kind])
+
+
+def _rope_view(c: Dsv41Config, max_model_len: int):
+    """The fields DSv4's ``rope_cos_sin`` reads, with the compressed layers' YaRN parameters
+    as :meth:`Dsv41Config.rope_for_layer` resolves them (``rope_parameters`` first)."""
+    from types import SimpleNamespace
+
+    compressed = [i for i in range(c.num_hidden_layers) if c.compress_ratio(i)]
+    r = c.rope_for_layer(compressed[0]) if compressed else {"kind": "plain"}
+    scaling = {
+        "factor": r.get("factor", 1.0),
+        "original_max_position_embeddings": r.get(
+            "original_max_position_embeddings", max_model_len
+        ),
+        "beta_fast": r.get("beta_fast", 32),
+        "beta_slow": r.get("beta_slow", 1),
+    }
+    return SimpleNamespace(
+        rope_scaling=scaling,
+        qk_rope_head_dim=c.qk_rope_head_dim,
+        rope_theta=c.rope_theta,
+        compress_rope_theta=c.compress_rope_theta,
+    )
+
+
+def _moe(src, c: Dsv41Config, i: int, device, ep_group, experts_limit: int | None = None):
+    import torch.distributed as dist
+
+    from rl_engine.kernels.ops.cuda.matmul.bf16_linear import Bf16Linear
+    from rl_engine.models.deepseek_v4.loader import _mx
+    from rl_engine.models.deepseek_v4.moe import Dsv4MoE
+    from rl_engine.models.deepseek_v4.router import Dsv4Router
+    from rl_engine.models.deepseek_v41.moe import Bf16SharedExpert
+
+    p = f"layers.{i}.ffn."
+
+    def t(name):
+        return src[p + name].to(device)
+
+    router = Dsv4Router(
+        t("gate.weight").contiguous(),
+        bias=t("gate.bias").float().contiguous(),
+        routed_scaling_factor=c.routed_scaling_factor,
+    )
+    world = 1 if ep_group is None else dist.get_world_size(ep_group)
+    rank = 0 if ep_group is None else dist.get_rank(ep_group)
+    if c.n_routed_experts % world:
+        raise ValueError(f"{c.n_routed_experts} experts do not split over {world} ranks")
+    local = c.n_routed_experts // world
+    experts = range(rank * local, (rank + 1) * local)
+    h, f = c.hidden_size, c.moe_intermediate_size
+    w1 = _mx(
+        [torch.cat([t(f"experts.{e}.w1.weight"), t(f"experts.{e}.w3.weight")]) for e in experts],
+        [torch.cat([t(f"experts.{e}.w1.scale"), t(f"experts.{e}.w3.scale")]) for e in experts],
+        2 * f,
+        h,
+    )
+    w2 = _mx(
+        [t(f"experts.{e}.w2.weight") for e in experts],
+        [t(f"experts.{e}.w2.scale") for e in experts],
+        h,
+        f,
+    )
+    s = "shared_experts."
+
+    def dq(name):
+        return mxfp8_dequant(t(s + name + ".weight"), t(s + name + ".scale"))
+
+    shared = Bf16SharedExpert(
+        Bf16Linear(torch.cat([dq("w1"), dq("w3")]).contiguous()), Bf16Linear(dq("w2"))
+    )
+    return Dsv4MoE(router=router, w1=w1, w2=w2, shared_provider=shared, ep_group=ep_group)
+
+
+def load_model(
+    src,
+    config: Dsv41Config | None = None,
+    *,
+    device: str | torch.device = "cuda",
+    max_model_len: int = 65536,
+    num_layers: int | None = None,
+    ep_group=None,
+    load_head: bool = True,
+    token_map: list[int] | None = None,
+    engram_table_device: str | torch.device | None = None,
+):
+    """Build :class:`Dsv41Model` from ``src`` (a checkpoint directory or a ``name -> tensor``
+    mapping). ``num_layers`` keeps the first layers; ``ep_group`` slices the routed experts.
+
+    Engram: ``token_map`` (``engram.build_compressed_token_map``) enables the hasher; the
+    tables stay on ``engram_table_device`` (default: the model's device; pass ``"cpu"`` for
+    the release's 196B-value tables)."""
+    from collections.abc import Mapping
+
+    from rl_engine.kernels.ops.cuda.matmul.bf16_linear import Bf16Linear
+    from rl_engine.models.deepseek_v4.loader import SafetensorsDir
+    from rl_engine.models.deepseek_v4.model import MhcParams
+    from rl_engine.models.deepseek_v41.engram import EngramWeights, NgramHasher
+    from rl_engine.models.deepseek_v41.model import Dsv41DecoderLayer, Dsv41Model
+
+    if not isinstance(src, Mapping):
+        if config is None:
+            config = Dsv41Config.from_pretrained(src)
+        src = SafetensorsDir(src)
+    if config is None:
+        raise ValueError("config is required when src is a mapping")
+    config.check_supported()
+    device = torch.device(device)
+    table_device = device if engram_table_device is None else torch.device(engram_table_device)
+    n = config.num_hidden_layers if num_layers is None else num_layers
+
+    def t(name):
+        return src[name].to(device)
+
+    def mhc(prefix: str, norm: str) -> MhcParams:
+        return MhcParams(
+            t(prefix + "_fn").float().contiguous(),
+            t(prefix + "_scale").float().contiguous(),
+            t(prefix + "_base").float().contiguous(),
+            t(norm).to(torch.bfloat16).contiguous(),
+        )
+
+    rope_cache: dict = {}
+    layers = []
+    for i in range(n):
+        role = config.layer_role(i)
+        engram = None
+        if role.engram is not None:
+            e = f"layers.{i}.engram."
+            engram = EngramWeights(
+                table=src[e + "embed.weight"].to(table_device),
+                table_scale=src[e + "embed.scale"].to(table_device),
+                wkv=Bf16Linear(mxfp8_dequant(t(e + "wkv.weight"), t(e + "wkv.scale"))),
+                q_weight=t(e + "q_weight").to(torch.bfloat16).contiguous(),
+                k_weight=t(e + "k_weight").to(torch.bfloat16).contiguous(),
+                hash_index=role.engram,
+            )
+        layers.append(
+            Dsv41DecoderLayer(
+                index=i,
+                attn=_attention(src, config, i, max_model_len, device, rope_cache),
+                moe=_moe(src, config, i, device, ep_group),
+                hc_attn=mhc(f"layers.{i}.hc_attn", f"layers.{i}.attn_norm.weight"),
+                hc_ffn=mhc(f"layers.{i}.hc_ffn", f"layers.{i}.ffn_norm.weight"),
+                eps=config.rms_norm_eps,
+                engram=engram,
+            )
+        )
+    hasher = None
+    if token_map is not None and config.engram_layer_ids:
+        hasher = NgramHasher(config, token_map, device=device)
+    return Dsv41Model(
+        config=config,
+        embed=t("embed.weight").contiguous(),
+        layers=layers,
+        norm=t("norm.weight").to(torch.bfloat16).contiguous(),
+        head=t("head.weight").contiguous() if load_head else None,
+        max_model_len=max_model_len,
+        hasher=hasher,
+    )

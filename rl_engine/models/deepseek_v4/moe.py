@@ -231,6 +231,9 @@ class Dsv4MoE:
     # Checkpoint FP8 shared expert (used instead of shared_fc1 / shared_fc2):
     # ``((q [2F_s, H], scale), (q [H, F_s], scale))``, 128x128 FP32 block scales.
     shared_fp8: tuple | None = None
+    # A ready shared-expert provider (``forward(x, None) -> (y, saved)``, ``backward_dx``,
+    # ``swiglu_limit``), e.g. DSv4.1's BF16 shared expert; used instead of the above.
+    shared_provider: Any = None
     ep_group: Any = None  # torch.distributed process group; None = EP 1
     # MXFP8 quant fail-closed check: True reads the flag back (one host sync per call);
     # "defer" ORs it into ``nonfinite`` on the device (CUDA-graph capturable; the caller
@@ -247,7 +250,11 @@ class Dsv4MoE:
 
     def __post_init__(self) -> None:
         self._routed = _routed_backend()
-        if self.shared_fp8 is not None:
+        if self.shared_provider is not None:
+            if self.shared_fp8 is not None or self.shared_fc1 is not None:
+                raise ValueError("give one shared expert: provider, shared_fp8 or shared_fc1/2")
+            self._shared = self.shared_provider
+        elif self.shared_fp8 is not None:
             if self.shared_fc1 is not None:
                 raise ValueError("give shared_fc1 / shared_fc2 or shared_fp8, not both")
             self._shared = _shared_backend()
@@ -523,6 +530,8 @@ class Dsv4MoE:
         from rl_engine.models.deepseek_v4.lora import lora_apply
 
         lo, w = self.lora, self._shared_w
+        if w is None:
+            raise NotImplementedError("shared-expert LoRA on a shared_provider is not implemented")
         z = w.fc1(x.contiguous())
         if lo.shared_fc1 is not None:
             z = lora_apply(z, x, lo.shared_fc1)
