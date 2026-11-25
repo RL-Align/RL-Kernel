@@ -11,15 +11,16 @@ import torch
 
 from rl_engine.ops.autograd.backward_runtime import record_backward
 from rl_engine.ops.autograd.canonical_backward import active_session
+from rl_engine.ops.autograd.embedding import _deterministic_embedding_grad_weight
 
 
 def _canonical_embedding_family(family: str) -> str:
     requested = str(family)
     normalized = "cuda" if requested.startswith("cuda") else requested
     if normalized == "ascend":
-        # The Ascend embedding's deterministic grad-weight reuses the CUDA
-        # construction bit-for-bit (see ascend/linear/embedding.py), so the
-        # canonical family normalizes to the same implementation.
+        # The Ascend embedding's deterministic grad-weight reuses the shared
+        # sorted-segment construction bit-for-bit (see ascend/embedding/embedding.py),
+        # so the canonical family normalizes to the same implementation.
         return "cuda"
     if normalized not in {"cuda", "pytorch", "triton"}:
         raise RuntimeError(f"unsupported canonical embedding backend family: {requested!r}")
@@ -46,8 +47,6 @@ def _reduce_embedding_grad_weight(
 
     if family not in {"cuda", "pytorch"}:
         raise RuntimeError(f"unsupported canonical embedding backend family: {family!r}")
-
-    from rl_engine.backends.cuda.embedding.embedding import _deterministic_embedding_grad_weight
 
     return _deterministic_embedding_grad_weight(
         ids.reshape(-1).to(dtype=torch.long),
