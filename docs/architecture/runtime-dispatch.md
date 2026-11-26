@@ -37,6 +37,15 @@ the legacy SM90 LogP backend when `RL_KERNEL_ENABLE_EXPERIMENTAL_SM90_LOGP=1` is
 set. The fused linear logp SM90 backend is gated separately and remains the
 default linear logp backend when the extension is built on Hopper.
 
+## H3 Sigma Schedule
+
+`sigma_schedule_h3` lists only the PyTorch reference on every platform, CUDA
+included; the NVIDIA Triton backend is opt-in through the semantic
+`requested_backend="rlkernel.h3_sigma_schedule.triton"` or direct construction,
+because its device-side build measured 2.5–3.2x slower than CPU construction
+plus transfer at typical H3 sizes (PR #566 evidence). See
+[H3 Sigma Schedule](../operators/h3-sigma-schedule.md).
+
 ## Relevant Files
 
 - `rl_engine/runtime/registry.py`

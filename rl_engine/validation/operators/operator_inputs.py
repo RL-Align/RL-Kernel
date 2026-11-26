@@ -16,6 +16,10 @@ DEFAULT_INTERMEDIATE = 12288
 DEFAULT_VOCAB = 151936
 DEFAULT_ROPE_THETA = 1.0e6
 DEFAULT_RMS_EPS = 1.0e-6
+H3_FREQ_DIM = 256
+H3_TIME_HIDDEN = 5376
+H3_TIME_EMBED = 2688
+H3_HIDDEN = 5376
 
 
 def make_operator_inputs(
@@ -24,13 +28,19 @@ def make_operator_inputs(
     dtype: torch.dtype,
     device: torch.device,
 ) -> dict[str, Any]:
+    """Build operator keyword inputs on the requested device from CLI shape and seed options."""
     builders = {
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
+        "packed_index_copy": _make_packed_index_copy_inputs,
+        "video_patch_pack_unpack": _make_video_patch_pack_unpack_inputs,
+        "video_input_projection_fp32": _make_video_input_projection_fp32_inputs,
+        "video_output_projection_fp32": _make_video_output_projection_fp32_inputs,
         "matmul": _make_matmul_inputs,
         "det_gemm": _make_det_gemm_inputs,
         "attention": _make_attention_inputs,
+        "h3_full_attention": _make_h3_attention_inputs,
         "prefix_shared_attention": _make_prefix_shared_attention_inputs,
         "cp_attention": _make_cp_attention_inputs,
         "logp": _make_logp_inputs,
@@ -40,9 +50,20 @@ def make_operator_inputs(
         "silu": _make_silu_inputs,
         "swiglu": _make_swiglu_inputs,
         "final_logit_softcap": _make_final_logit_softcap_inputs,
+        "conditioning_noise_mix": _make_conditioning_noise_mix_inputs,
         "embedding": _make_embedding_inputs,
         "lm_head": _make_lm_head_inputs,
         "kv_cache_attention": _make_kv_cache_attention_inputs,
+        "timestep_sinusoid_h3": _make_timestep_sinusoid_h3_inputs,
+        "timestep_mlp_fp32": _make_timestep_mlp_fp32_inputs,
+        "adaln_projection_3mod": _make_adaln_projection_3mod_inputs,
+        "adaln_row_gather": _make_adaln_row_gather_inputs,
+        "h3_rmsnorm": _make_h3_rmsnorm_inputs,
+        "adaln_gate_residual": _make_adaln_gate_residual_inputs,
+        "final_adaln_out": _make_final_adaln_out_inputs,
+        "h3_ode_step": _make_h3_ode_step_inputs,
+        # Same [R, C] packed-row case: the velocity step takes the H3 step's inputs.
+        "h3_image_velocity_step": _make_h3_ode_step_inputs,
     }
     try:
         return builders[op_name](args, dtype, device)
@@ -51,6 +72,10 @@ def make_operator_inputs(
 
 
 def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
+    """Return the operator's dimension label for benchmark and evidence reports."""
+    if op_name == "video_patch_pack_unpack":
+        shape = "x".join(str(dim) for dim in _video_patch_shape(args))
+        return f"{_arg_str(args, 'patch_direction', 'pack')}-{shape}"
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
@@ -58,9 +83,13 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "qk_norm": f"{batch}x{seq}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}x"
         f"{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
         "pack": f"{batch}x{seq}x{_normalized_dim(args)}",
+        "packed_index_copy": f"{batch}x{seq}x{_normalized_dim(args)}",
+        "video_input_projection_fp32": f"{batch}x{seq}x96x5376",
+        "video_output_projection_fp32": f"{batch}x{seq}x5376x96",
         "matmul": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "det_gemm": f"{batch}x{seq}x{_matmul_k(args)}x{_matmul_n(args)}",
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
+        "h3_full_attention": f"{batch}x{seq}x56x128",
         "prefix_shared_attention": f"{batch}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}"
         f"x{seq}x{DEFAULT_HEAD_DIM}",
         "cp_attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}xcp2",
@@ -71,14 +100,84 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "silu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "swiglu": f"{batch}x{seq}x{DEFAULT_INTERMEDIATE}",
         "final_logit_softcap": f"{batch}x{seq}x{vocab}",
+        "conditioning_noise_mix": f"{batch}x{seq}x{_normalized_dim(args)}",
         "embedding": f"{batch}x{seq}x{vocab}x{_normalized_dim(args)}",
         "lm_head": f"{batch}x{seq}x{_normalized_dim(args)}x{vocab}",
         "kv_cache_attention": f"{batch}x{DEFAULT_N_HEADS}x1x{seq + 1}x{DEFAULT_HEAD_DIM}",
+        "timestep_sinusoid_h3": f"{_h3_num_timesteps(args)}x{H3_FREQ_DIM}",
+        "timestep_mlp_fp32": f"{_h3_num_timesteps(args)}x{H3_FREQ_DIM}x{H3_TIME_HIDDEN}"
+        f"x{H3_TIME_EMBED}",
+        "adaln_projection_3mod": f"{_h3_num_timesteps(args)}x{H3_TIME_EMBED}"
+        f"x{6 * 3 * _h3_hidden(args)}",
+        "adaln_row_gather": f"{3 * _h3_num_timesteps(args)}x{6 * _h3_hidden(args)}"
+        f"->{batch * seq}",
+        "h3_rmsnorm": f"{batch}x{seq}x{_h3_hidden(args)}",
+        "adaln_gate_residual": f"{batch}x{seq}x{_h3_hidden(args)}",
+        "final_adaln_out": f"{batch}x{seq}x{_h3_hidden(args)}",
+        # batch = packed-row count, seq = latent channel width (24 video / 32 audio)
+        "h3_ode_step": f"{batch}x{seq}",
+        "h3_image_velocity_step": f"{batch}x{seq}",
     }
     try:
         return names[op_name]
     except KeyError as exc:
         raise ValueError(f"unsupported operator shape: {op_name}") from exc
+
+
+def _make_video_input_projection_fp32_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build FP32 H3 projection inputs with fixed widths 96 and 5376.
+
+    Logical keys are unique [batch_index, token_index] pairs in the same order
+    as the flattened input rows, with every row active.
+    """
+
+    if dtype != torch.float32:
+        raise TypeError("video input projection validation requires FP32")
+    batch, seq = _batch_seq(args)
+    keys = torch.stack(
+        (
+            torch.arange(batch, device=device).repeat_interleave(seq),
+            torch.arange(seq, device=device).repeat(batch),
+        ),
+        dim=1,
+    )
+    return {
+        "x": _floating_tensor((batch, seq, 96), args, dtype, device, offset=0),
+        "weight": _floating_tensor((5376, 96), args, dtype, device, offset=1),
+        "bias": _floating_tensor((5376,), args, dtype, device, offset=2),
+        "logical_keys": keys,
+        "parameter_id": "transformer.proj_in",
+    }
+
+
+def _make_video_output_projection_fp32_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build FP32 H3 projection inputs with fixed widths 5376 and 96.
+
+    Logical keys are unique [batch_index, token_index] pairs in the same order
+    as the flattened input rows, with every row active.
+    """
+
+    if dtype != torch.float32:
+        raise TypeError("video output projection validation requires FP32")
+    batch, seq = _batch_seq(args)
+    keys = torch.stack(
+        (
+            torch.arange(batch, device=device).repeat_interleave(seq),
+            torch.arange(seq, device=device).repeat(batch),
+        ),
+        dim=1,
+    )
+    return {
+        "x": _floating_tensor((batch, seq, 5376), args, dtype, device, offset=0),
+        "weight": _floating_tensor((96, 5376), args, dtype, device, offset=1),
+        "bias": _floating_tensor((96,), args, dtype, device, offset=2),
+        "logical_keys": keys,
+        "parameter_id": "transformer.proj_out",
+    }
 
 
 def _make_rms_norm_inputs(
@@ -122,6 +221,57 @@ def _make_pack_inputs(
         mask = torch.randint(0, 2, (batch, seq), generator=generator, device=device) > 0
         mask[:, 0] = True
     return {"x": x, "mask": mask}
+
+
+def _make_packed_index_copy_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    hidden = _normalized_dim(args)
+    indices = torch.arange(seq, device=device, dtype=torch.int64)
+    text_indices, video_indices, audio_indices = (indices[i::3].contiguous() for i in range(3))
+    return {
+        "text": _floating_tensor((batch, text_indices.numel(), hidden), args, dtype, device, 0),
+        "video": _floating_tensor((batch, video_indices.numel(), hidden), args, dtype, device, 1),
+        "audio": _floating_tensor((batch, audio_indices.numel(), hidden), args, dtype, device, 2),
+        "text_indices": text_indices,
+        "video_indices": video_indices,
+        "audio_indices": audio_indices,
+        "sequence_length": seq + 2,
+    }
+
+
+def _video_patch_shape(args: argparse.Namespace) -> tuple[int, int, int, int, int]:
+    return (
+        _arg_int(args, "batch", 2),
+        24,
+        _arg_int(args, "frames", 3),
+        _arg_int(args, "height", 6),
+        _arg_int(args, "width", 10),
+    )
+
+
+def _make_video_patch_pack_unpack_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    shape = _video_patch_shape(args)
+    batch, channels, frames, height, width = shape
+    if min(batch, frames, height, width) < 1 or height % 2 or width % 2:
+        raise ValueError("video patch inputs require positive dimensions and even H/W")
+    direction = _arg_str(args, "patch_direction", "pack")
+    if direction not in ("pack", "unpack"):
+        raise ValueError(f"unsupported video patch direction: {direction}")
+    # Generate tokens independently; a pack/unpack round trip can hide order bugs.
+    input_shape = (
+        (batch, frames * (height // 2) * (width // 2), channels * 4)
+        if direction == "unpack"
+        else shape
+    )
+    return {
+        "x": _floating_tensor(input_shape, args, dtype, device, offset=0),
+        "shape": shape,
+        "unpack": direction == "unpack",
+    }
 
 
 def _make_matmul_inputs(
@@ -292,6 +442,27 @@ def _make_final_logit_softcap_inputs(
     return {"x": _floating_tensor((batch, seq, vocab), args, dtype, device, 0)}
 
 
+def _make_conditioning_noise_mix_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    # Use the shared CLI's normalized_dim as a synthetic width; no normalization is applied.
+    width = _normalized_dim(args)
+    shape = (batch, seq, width)
+    sample = _floating_tensor(shape, args, dtype, device, offset=0)
+    noise = _floating_tensor(shape, args, dtype, device, offset=1)
+    if _arg_str(args, "input_mode", "random") == "constant":
+        timestep = torch.full((batch,), 0.37, dtype=dtype, device=device)
+    else:
+        timestep = torch.rand(
+            (batch,),
+            generator=_generator(args, device, offset=2),
+            dtype=dtype,
+            device=device,
+        )
+    return {"sample": sample, "timestep": timestep, "noise": noise}
+
+
 def _make_embedding_inputs(
     args: argparse.Namespace, dtype: torch.dtype, device: torch.device
 ) -> dict[str, Any]:
@@ -338,6 +509,151 @@ def _make_kv_cache_attention_inputs(
             (batch, DEFAULT_N_KV_HEADS, 1, DEFAULT_HEAD_DIM), args, dtype, device, 4
         ),
         "causal": True,
+    }
+
+
+def _h3_num_timesteps(args: argparse.Namespace) -> int:
+    """Read the packed H3 timestep count, falling back to the CLI batch size."""
+    # H3 packs a handful of distinct timesteps; reuse --batch as their count.
+    return _arg_int(args, "num_timesteps", _arg_int(args, "batch", 2))
+
+
+def _h3_timesteps(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> torch.Tensor:
+    """Build seeded timesteps in [0, 1] with endpoint cases in the requested storage dtype."""
+    num = _h3_num_timesteps(args)
+    mode = _arg_str(args, "input_mode", "random")
+    if mode == "constant":
+        t = torch.full((num,), 0.5, device=device)
+    else:
+        t = torch.rand((num,), generator=_generator(args, device, offset=7), device=device)
+    t[0] = 0.0
+    if num > 1:
+        t[-1] = 1.0
+    return t.to(dtype)
+
+
+def _make_timestep_sinusoid_h3_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Supply a one-dimensional packed timestep tensor to the H3 sinusoid operator."""
+    return {"timestep": _h3_timesteps(args, dtype, device)}
+
+
+def _make_timestep_mlp_fp32_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build [T, 256] sinusoid features and seeded FP32 256→5376→2688 MLP parameters."""
+    # The H3 time_embedder is declared FP32; ``dtype`` does not apply to it.
+    del dtype
+    from rl_engine.reference.minimax_h3.timestep_sinusoid import NativeH3TimestepSinusoidOp
+
+    features = NativeH3TimestepSinusoidOp().forward(_h3_timesteps(args, torch.float32, device))
+    scale1, scale2 = H3_FREQ_DIM**-0.5, H3_TIME_HIDDEN**-0.5
+    return {
+        "x": features,
+        "w1": _floating_tensor((H3_TIME_HIDDEN, H3_FREQ_DIM), args, torch.float32, device, 1)
+        * scale1,
+        "b1": _floating_tensor((H3_TIME_HIDDEN,), args, torch.float32, device, 2) * 0.1,
+        "w2": _floating_tensor((H3_TIME_EMBED, H3_TIME_HIDDEN), args, torch.float32, device, 3)
+        * scale2,
+        "b2": _floating_tensor((H3_TIME_EMBED,), args, torch.float32, device, 4) * 0.1,
+    }
+
+
+def _h3_hidden(args: argparse.Namespace) -> int:
+    """Read the AdaLN channel width, defaulting to the checkpoint's 5376 channels."""
+    return _arg_int(args, "normalized_dim", H3_HIDDEN)
+
+
+def _make_adaln_projection_3mod_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Build FP32 [T, 2688] embeddings and 18H projection parameters in the chosen dtype."""
+    # temb is FP32 by contract (the SiLU runs before the cast); ``dtype`` is the
+    # projection's weight dtype, BF16 in the checkpoint.
+    n_out = 6 * 3 * _h3_hidden(args)
+    temb = _floating_tensor(
+        (_h3_num_timesteps(args), H3_TIME_EMBED), args, torch.float32, device, 0
+    )
+    weight = _floating_tensor((n_out, H3_TIME_EMBED), args, torch.float32, device, 1)
+    bias = _floating_tensor((n_out,), args, torch.float32, device, 2)
+    return {
+        "temb": temb * 2.0,
+        "weight": (weight * H3_TIME_EMBED**-0.5).to(dtype),
+        "bias": (bias * 0.1).to(dtype),
+    }
+
+
+def _make_adaln_row_gather_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # T distinct timesteps (--batch) and a packed sequence of batch * seq rows
+    # mixing all three modalities.
+    batch, seq = _batch_seq(args)
+    num_timesteps = _h3_num_timesteps(args)
+    generator = _generator(args, device, offset=29)
+    packed = batch * seq
+    token_tags = torch.randint(0, 3, (packed,), generator=generator, device=device)
+    timestep_indices = torch.randint(
+        0, num_timesteps, (packed,), generator=generator, device=device
+    )
+    rows = _floating_tensor((3 * num_timesteps, 6 * _h3_hidden(args)), args, dtype, device, 0)
+    return {"rows": rows, "timestep_indices": timestep_indices, "token_tags": token_tags}
+
+
+def _make_h3_rmsnorm_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    weight = _floating_tensor((hidden,), args, torch.float32, device, 1).abs() + 0.5
+    return {
+        "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "weight": weight.to(dtype),
+        "eps": 1e-5,
+    }
+
+
+def _make_adaln_gate_residual_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # gate rows: 3 modality rows for each of --num-timesteps (default --batch) timesteps.
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    rows = 3 * _h3_num_timesteps(args)
+    generator = _generator(args, device, offset=31)
+    return {
+        "residual": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "y": _floating_tensor((batch, seq, hidden), args, dtype, device, 1),
+        "gate": (_floating_tensor((rows, hidden), args, torch.float32, device, 2) * 0.5).to(dtype),
+        "index": torch.randint(0, rows, (seq,), generator=generator, device=device),
+    }
+
+
+def _make_final_adaln_out_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    # temb is FP32 by contract; norm_out.linear/norm/x use ``dtype`` (BF16 in H3).
+    batch, seq = _batch_seq(args)
+    hidden = _h3_hidden(args)
+    num_timesteps = _h3_num_timesteps(args)
+    # Realistic scales (norm weight in [0.5, 1], unit activations): with unscaled
+    # inputs the parameter gradients sum hundreds of rows into values ~1e3, and
+    # their cancelling elements cannot meet a per-element FP32 atol.
+    linear = _floating_tensor((2 * hidden, H3_TIME_EMBED), args, torch.float32, device, 3)
+    norm = 0.5 + 0.5 * torch.sigmoid(_floating_tensor((hidden,), args, torch.float32, device, 4))
+    generator = _generator(args, device, offset=37)
+    return {
+        "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "norm_weight": norm.to(dtype),
+        "temb": _floating_tensor((num_timesteps, H3_TIME_EMBED), args, torch.float32, device, 1),
+        "weight": (linear * H3_TIME_EMBED**-0.5).to(dtype),
+        "bias": (_floating_tensor((2 * hidden,), args, torch.float32, device, 2) * 0.1).to(dtype),
+        "timestep_indices": torch.randint(
+            0, num_timesteps, (seq,), generator=generator, device=device
+        ),
     }
 
 
@@ -405,3 +721,50 @@ def _arg_int(args: argparse.Namespace, name: str, default: int) -> int:
 
 def _arg_str(args: argparse.Namespace, name: str, default: str) -> str:
     return str(getattr(args, name, default))
+
+
+def _make_h3_attention_inputs(args, dtype, device):
+    batch, seq = _batch_seq(args)
+    return {
+        name: _floating_tensor((batch, seq, 56, 128), args, dtype, device, offset)
+        for offset, name in enumerate(("q", "k", "v"))
+    }
+
+
+def _h3_sigma_pair(rows, args, device):
+    """Per-row (sigma, sigma_next) from a deduplicated descending sigma grid.
+
+    The grid is ``linspace(1, 0, steps)``; consecutive fp32 duplicates are removed
+    first, so every step satisfies 1 >= sigma > sigma_next >= 0 and the operator's
+    fail-closed validation never fires on legal input (and raising ``steps`` cannot
+    collapse a pair to ``sigma == sigma_next``).
+    """
+    steps = 8
+    grid = torch.linspace(1.0, 0.0, steps + 1, dtype=torch.float32, device=device)
+    keep = torch.ones(grid.numel(), dtype=torch.bool, device=device)
+    keep[1:] = grid[1:] < grid[:-1]
+    grid = grid[keep]
+    steps = grid.numel() - 1
+    if _arg_str(args, "input_mode", "random") == "constant":
+        index = torch.zeros(rows, dtype=torch.long, device=device)
+    else:
+        generator = _generator(args, device, offset=23)
+        index = torch.randint(0, steps, (rows,), generator=generator, device=device)
+    return grid[index].unsqueeze(-1), grid[index + 1].unsqueeze(-1)
+
+
+def _make_h3_ode_step_inputs(args, dtype, device):
+    """Build the ``[R, C]`` packed-row case for the H3 Euler step.
+
+    For this operator the generic CLI shape flags mean: ``--batch`` is the packed
+    row count and ``--seq`` is the latent channel width (24 video / 32 audio), so
+    the generated case is the documented ``[R, C]`` per-packed-row layout.
+    """
+    rows, channels = _batch_seq(args)
+    sigma, sigma_next = _h3_sigma_pair(rows, args, device)
+    return {
+        "xt": _floating_tensor((rows, channels), args, dtype, device, offset=0),
+        "v": _floating_tensor((rows, channels), args, dtype, device, offset=1),
+        "sigma": sigma,
+        "sigma_next": sigma_next,
+    }
