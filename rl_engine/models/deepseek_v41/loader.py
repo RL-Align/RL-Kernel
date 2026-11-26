@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 
 import torch
 from torch import Tensor
@@ -337,7 +338,7 @@ _ST_DTYPES = {
 
 
 def _mmap_tensor(src, name: str) -> Tensor:
-    """``name`` as a zero-copy, copy-on-write map of its safetensors shard: the pages are the
+    """``name`` as a zero-copy, read-only map of its safetensors shard: the pages are the
     file's (shared by every process that maps it) and only the rows a lookup touches are
     read. For the Engram tables (94 GiB each in the release)."""
     import struct
@@ -349,8 +350,13 @@ def _mmap_tensor(src, name: str) -> Tensor:
         (n,) = struct.unpack("<Q", f.read(8))
         meta = json.loads(f.read(n))[name]
     begin, end = meta["data_offsets"]
-    raw = np.memmap(path, dtype=np.uint8, mode="c", offset=8 + n + begin, shape=(end - begin,))
-    return torch.from_numpy(raw).view(_ST_DTYPES[meta["dtype"]]).view(meta["shape"])
+    # Read-only shared map: a private (copy-on-write) one would charge the whole table to
+    # the commit limit, which fails (ENOMEM) for 94 GiB in a Slurm job.
+    raw = np.memmap(path, dtype=np.uint8, mode="r", offset=8 + n + begin, shape=(end - begin,))
+    with warnings.catch_warnings():  # non-writable array: the tensor is only gathered from
+        warnings.simplefilter("ignore", UserWarning)
+        flat = torch.from_numpy(raw)
+    return flat.view(_ST_DTYPES[meta["dtype"]]).view(meta["shape"])
 
 
 def load_model(
@@ -438,6 +444,10 @@ def load_model(
                 engram=engram,
             )
         )
+        if isinstance(src, SafetensorsDir):
+            # The layer is on the device now: unmap its shards. Kept open, every shard stays
+            # mapped (476 GiB for the release, per rank), past a job's address-space limit.
+            src._open.clear()
     hasher = None
     if token_map is not None and config.engram_layer_ids:
         hasher = NgramHasher(config, token_map, device=device)

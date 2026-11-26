@@ -134,8 +134,14 @@ ratios 1 / 2, Engram gate, q-RoPE without q-norm). Facts that cost time:
 - DeepSeek's reference code ships with the release (`inference/`); release metadata, tokenizer
   and safetensors headers are in `/work/u4478697/dsv4-lora-e2e/models/DeepSeek-V4.1-Flash-meta`
   on cluster u4478697 (`DSV41_META`).
-- Forward done and checked against the reference (toy checkpoint); training, the vLLM plugin
-  and layer-staged SWA are not started.
+- Forward, training (LoRA, the KV group's cross-layer gradient), recompute done. The
+  layerwise gate passes on the release, all 40 layers (2026-11-26, 4 x H200 on `normal2`,
+  EP 4 via torchrun, `--engram-tables mmap`).
+- Loading the release: keep the Engram tables (94 GiB each) as a read-only shared mmap of
+  the shards (a copy-on-write map fails with ENOMEM) and unmap shards after each layer (all
+  shards mapped per rank hit ENOMEM too, with `ulimit -v` unlimited).
+- Next: the vLLM rollout plugin on vLLM main `3f86db3` (design doc 10.1) in env `rlk41`
+  (torch 2.14, whose ATen needs C++20: DeepGEMM's setup is patched), then verl.
 
 ## This cluster (pinghsieh-rsv1)
 
