@@ -442,8 +442,10 @@ class BoundHead:
         if hidden.dtype != torch.float32:
             raise TypeError(f"the head input is cast to FP32 by the caller, got {hidden.dtype}")
         self.calls += 1
+        # The SM90 row refuses strided views (a slice of the packed rows); a copy of the same
+        # values gives the same rows on every backend, and is a no-op on contiguous rows.
         return self.projection.call(
-            hidden,
+            hidden.contiguous(),
             s.weight,
             s.bias,
             logical_keys=logical_keys,
