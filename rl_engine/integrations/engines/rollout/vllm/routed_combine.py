@@ -52,7 +52,26 @@ def fixed_combine_rows(y, tokens, experts, valid, num_tokens, run_id, out):
     with torch.no_grad():
         result = combine_rows(y.contiguous(), tokens, experts, num_tokens, run_id)
     out.copy_(result.reshape(out.shape))
+    if not _STATE.get("executed"):
+        # Bound is not enough: prove the fixed combine is on the executed MoE path.
+        print("RLK_ROLLOUT_FIXED_ROUTED_COMBINE_EXECUTED", run_id, tuple(y.shape), flush=True)
+        _STATE["executed"] = True
     return out
+
+
+def _maybe_dump_rows(routing_data, num_tokens, **tensors):
+    # Diagnostic only (off by default): per-row expert outputs for actor row comparison.
+    dump_dir = os.environ.get("RLK_ROUTED_ROWS_DUMP_DIR")
+    if not dump_dir or str(num_tokens) != os.environ.get("RLK_ROUTED_ROWS_DUMP_M"):
+        return
+    os.makedirs(dump_dir, exist_ok=True)
+    payload = {k: v.detach().cpu() for k, v in tensors.items()}
+    payload.update(
+        tokens=routing_data._rlk_row_tokens.cpu(),
+        experts=routing_data._rlk_row_experts.cpu(),
+        valid=routing_data._rlk_row_valid.cpu(),
+    )
+    torch.save(payload, os.path.join(dump_dir, f"call-{_STATE['calls']:05d}-M{num_tokens}.pt"))
 
 
 def _make_rows_class(base):
@@ -178,22 +197,7 @@ def bind_rollout_fixed_routed_combine():
         out = output_tensor.view(M, K)
         # Same rows, actor order instead of atomic index_add_. Local == global expert at TP1.
         _STATE["calls"] += 1
-        dump_dir = os.environ.get("RLK_ROUTED_ROWS_DUMP_DIR")
-        if dump_dir and str(M) == os.environ.get("RLK_ROUTED_ROWS_DUMP_M"):
-            # Diagnostic only (off by default): per-row expert outputs for actor row comparison.
-            os.makedirs(dump_dir, exist_ok=True)
-            torch.save(
-                dict(
-                    y=y.detach().cpu(),
-                    inter=inter.detach().cpu(),
-                    hidden=hidden_states.detach().cpu(),
-                    tokens=routing_data._rlk_row_tokens.cpu(),
-                    experts=routing_data._rlk_row_experts.cpu(),
-                    valid=routing_data._rlk_row_valid.cpu(),
-                    gammas=gammas.detach().cpu(),
-                ),
-                os.path.join(dump_dir, f"call-{_STATE['calls']:05d}-M{M}.pt"),
-            )
+        _maybe_dump_rows(routing_data, M, inter=inter, y=y, hidden=hidden_states)
         fixed_combine_rows(
             y,
             routing_data._rlk_row_tokens,
@@ -205,6 +209,93 @@ def bind_rollout_fixed_routed_combine():
         )
         return out
 
+    # gfx942 selects TRITON_UNFUSED (UnfusedOAITritonExperts): same 3.8 matmuls with a
+    # separate activation, finalized by its own inline atomic index_add_.
+    unfused_cls = mod.UnfusedOAITritonExperts
+    unfused_index_add = "acc.index_add_(0, gather_tok.to(torch.int64), down.to(torch.float32))"
+    if unfused_index_add not in inspect.getsource(unfused_cls.apply):
+        raise RuntimeError("unsupported vLLM: unfused index_add_ combine not found")
+
+    def unfused_apply(
+        self,
+        output,
+        hidden_states,
+        w1,
+        w2,
+        topk_weights,
+        topk_ids,
+        activation,
+        global_num_experts,
+        expert_map,
+        a1q_scale,
+        a2_scale,
+        workspace13,
+        workspace2,
+        expert_tokens_meta,
+        apply_router_weight_on_input,
+    ):
+        from vllm.distributed import get_tensor_model_parallel_world_size
+
+        if get_tensor_model_parallel_world_size() != 1 or expert_map is not None:
+            raise RuntimeError("fixed routed combine supports TP1 without an expert map only")
+        if self._lora_context is not None:
+            raise RuntimeError("fixed routed combine does not support MoE LoRA")
+        if apply_router_weight_on_input:
+            raise RuntimeError("fixed routed combine needs the router weight in the w2 epilogue")
+        quant_config = self.quant_config
+        if quant_config is None:
+            quant_config = mod.FUSED_MOE_UNQUANTIZED_CONFIG
+        local_num_experts = w1.shape[0]
+        routing_data, _, _ = self._make_routing_data(topk_ids, topk_weights, local_num_experts)
+        if topk_ids.size(1) != _TOP_K or not hasattr(routing_data, "_rlk_row_valid"):
+            raise RuntimeError("fixed routed combine requires bound top-6 routing data")
+        # Verbatim vLLM 3.8 unfused branch up to the combine (LoRA excluded above).
+        act_out_dim = self.adjust_N_for_activation(w1.shape[2], activation)
+        M, K = hidden_states.shape[-2:]
+        a_ragged = routing_data.ragged
+        gather_tok = routing_data.gather_tok
+        gammas = routing_data.gate_scal
+        inter = mod.matmul(
+            hidden_states,
+            w1,
+            quant_config.w1_bias,
+            a_ragged,
+            None,
+            gather_tok,
+            None,
+            quant_config.w1_precision,
+            gammas=None,
+        )
+        act_out = torch.empty(
+            (routing_data.n_valid, act_out_dim),
+            dtype=hidden_states.dtype,
+            device=hidden_states.device,
+        )
+        self.activation(activation, act_out, inter)
+        down = mod.matmul(
+            act_out,
+            w2,
+            quant_config.w2_bias,
+            a_ragged,
+            None,
+            None,
+            None,
+            quant_config.w2_precision,
+            gammas=gammas,
+        )
+        _STATE["calls"] += 1
+        _maybe_dump_rows(routing_data, M, inter=inter, act=act_out, y=down, hidden=hidden_states)
+        fixed_combine_rows(
+            down,
+            routing_data._rlk_row_tokens,
+            routing_data._rlk_row_experts,
+            routing_data._rlk_row_valid,
+            M,
+            f"vllm-unfused-routed-p6-{_STATE['calls']}",
+            output.view(M, K),
+        )
+
+    unfused_cls.apply = unfused_apply
     mod.make_routing_data = make_routing_data
     mod.triton_kernel_fused_experts = triton_kernel_fused_experts
     _rebind_aliases(original_routing, make_routing_data, "make_routing_data")
