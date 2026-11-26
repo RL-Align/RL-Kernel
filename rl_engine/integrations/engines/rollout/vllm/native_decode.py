@@ -208,6 +208,8 @@ def _build_operands(kwargs, block_table, device, batch, fnuz):
     if n_top:
         top_rows, top_pos, top_ids = _expand(top_flat, top_start, top_len, n_top)
         cblock = kwargs["kv_cache"].shape[1]
+        if block_table is None:
+            raise ValueError("compressed cache slots need the real request block table")
         table = block_table[:batch].long()
         logical = torch.empty_like(top_ids)
         present = torch.ones((), device=device, dtype=torch.bool)
@@ -303,7 +305,8 @@ def bind_rollout_decode(attention, observer=None, record_if=None):
             t0 = time.perf_counter()
         kv, indices = _build_operands(
             kwargs,
-            rlk_metadata.block_table,
+            # Warm-up/profile batches carry no metadata; only real top-k rows need the table.
+            None if rlk_metadata is None else rlk_metadata.block_table,
             q.device,
             q.shape[0],
             fp8_dtype(q.device) == torch.float8_e4m3fnuz,

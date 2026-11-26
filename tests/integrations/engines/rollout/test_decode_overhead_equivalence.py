@@ -124,6 +124,18 @@ def test_operands_swa_only_and_sink_only_cpu(monkeypatch, batch):
     assert kv.shape == (1, 512) and not kv.any() and bool((idx == -1).all())
 
 
+@pytest.mark.parametrize("batch", [1, 7])
+def test_warmup_without_metadata_cpu(monkeypatch, batch):
+    # vLLM warm-up/profile runs pass attn_metadata=None; the original loop only touched
+    # block_table for real top-k rows, so no-top-k batches must build without it.
+    monkeypatch.setattr(native_decode, "_dequant", _fake_dequant)
+    for kwargs, _ in (_metadata(batch, 101, "cpu", swa_only=True), _metadata(batch, 102, "cpu", empty=True)):
+        _compare(kwargs, None, "cpu", batch, False)
+    kwargs, _ = _metadata(batch, 103, "cpu")
+    with pytest.raises(ValueError, match="block table"):
+        native_decode._build_operands(kwargs, None, "cpu", batch, False)
+
+
 def test_operand_errors_match_reference_cpu(monkeypatch):
     monkeypatch.setattr(native_decode, "_dequant", _fake_dequant)
     kwargs, table = _metadata(7, 5, "cpu")
