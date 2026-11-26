@@ -8,6 +8,10 @@ The PyTorch path (torch.matmul) is intentionally NOT tested here: it is the
 non-deterministic reference baseline and would fail batch-invariance by design.
 """
 
+import re
+import shutil
+import subprocess
+
 import pytest
 import torch
 
@@ -420,6 +424,93 @@ def test_fixed_leaf_host_plan(k):
             spans[parent] = (lo, hi)
     assert spans == {plan.root: (0, len(starts))}
     assert plan.node_count == 2 * len(starts) - 1
+
+
+_MMA_INSTRUCTION = re.compile(r"\b(?:HMMA|HGMMA|IMMA|DMMA|BMMA|QMMA)\b|\b(?:mma|wmma|wgmma)\.")
+_PTX_FMA = r"\bfma\.rn\.f32\b"
+# For merge-only kernels, LLVM can fold FP32 add followed by BF16 RNE into a BF16 add.
+_PTX_ADD = r"\badd(?:\.rn)?\.(?:f32|bf16(?:x2)?)\b"
+
+
+def _assert_scalar_gemm_ir(name, assembly, scalar_instruction):
+    mma = _MMA_INSTRUCTION.search(assembly)
+    assert mma is None, f"{name} contains tensor-core instruction {mma[0]}"
+    assert re.search(scalar_instruction, assembly), f"{name} lacks {scalar_instruction}"
+
+
+@pytest.mark.cuda_only
+def test_fixed_leaf_cuda_compiled_ir():
+    cuobjdump = shutil.which("cuobjdump")
+    if cuobjdump is None:
+        pytest.skip("cuobjdump is unavailable")
+
+    formats = (
+        ("-sass", r"^\s*Function\s*:\s*(\w+)", r"\bFFMA\b", r"\bFADD\b"),
+        ("-ptx", r"^\s*(?:\.visible\s+)?\.entry\s+(\w+)", _PTX_FMA, _PTX_ADD),
+    )
+    families = (
+        "det_gemm_fixed_tiles",
+        "det_gemm_fixed_tile_roots",
+        "det_gemm_fixed_projection",
+        "det_gemm_fixed_wgrad",
+        "det_gemm_db_small_k",
+        "det_gemm_naive",
+    )
+    # Itanium mangling prefixes each function name with its length. The
+    # anonymous namespace and any template arguments vary between symbols.
+    symbols = re.compile(r"\d+(" + "|".join(families) + r")(?=[IE])")
+    for flag, header, fma, add in formats:
+        dump = subprocess.run([cuobjdump, flag, _C.__file__], capture_output=True, text=True)
+        sections = re.split(header, dump.stdout, flags=re.MULTILINE)
+        seen = set()
+        if dump.returncode:
+            continue
+        for symbol, assembly in zip(sections[1::2], sections[2::2], strict=True):
+            match = symbols.search(symbol)
+            if match is None:
+                continue
+            family = match[1]
+            # det_gemm_naive<output_t, TRANSPOSE_OUTPUT, FIXED_LEAVES>.
+            if family == "det_gemm_naive" and not re.match(
+                r"I13__nv_bfloat16Lb[01]ELb1EE", symbol[match.end() :]
+            ):
+                continue
+            _assert_scalar_gemm_ir(symbol, assembly, add if family.endswith("_roots") else fma)
+            seen.add(family)
+        if seen:
+            assert seen == set(families), f"{flag} missing fixed kernels: {set(families) - seen}"
+            break
+    else:
+        pytest.fail(f"No fixed GEMM kernels found in {_C.__file__}: {dump.stderr}")
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+def test_fixed_leaf_triton_compiled_ir():
+    # Launch independently of the model tests so the cache contains decode,
+    # tiled projection and root, weight gradient, and the strict generic leaf.
+    a, weight = _rand(32, 4096), _rand(64, 4096)
+    _triton_tree_gemm(a[:1], weight.T, fixed_leaf_tree=True)
+    _triton_tree_gemm(a, weight.T, fixed_leaf_tree=True)
+    _triton_tree_gemm(_rand(64, 79), _rand(79, 64), transpose_output=True, fixed_leaf_tree=True)
+    _triton_tree_gemm(_rand(2, 79), _rand(79, 4), fixed_leaf_tree=True)
+
+    kernels = (
+        (triton_det_gemm._fixed_decode_kernel, _PTX_FMA),
+        (triton_det_gemm._fixed_projection_leaves_kernel, _PTX_FMA),
+        (triton_det_gemm._fixed_projection_root_kernel, _PTX_ADD),
+        (triton_det_gemm._fixed_wgrad_kernel, _PTX_FMA),
+        (triton_det_gemm._det_gemm_kernel, _PTX_FMA),
+    )
+    for kernel, instruction in kernels:
+        cache = kernel.device_caches[a.device.index][0]
+        variants = list(cache.values())
+        if kernel is triton_det_gemm._det_gemm_kernel:
+            fixed_leaves = (kernel.arg_names.index("FIXED_LEAVES"),)
+            variants = [v for v in variants if v.src.constants.get(fixed_leaves)]
+        assert variants, f"{kernel.__name__} has no compiled fixed-leaf variants"
+        for compiled in variants:
+            _assert_scalar_gemm_ir(kernel.__name__, compiled.asm["ptx"], instruction)
 
 
 @pytest.mark.cuda_only

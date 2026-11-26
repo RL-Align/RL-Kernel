@@ -124,40 +124,89 @@ def test_projection_parity(n, k, record_property):
         _assert_bits(padded_dx[valid], dx[:24], f"{backend} padded dX")
 
 
-@requires_cuda
-def test_kv_tree_rounding_witness():
-    x = torch.ones((1, 6656), dtype=torch.bfloat16)
-    w = torch.zeros((256, 6656), dtype=torch.bfloat16)
-    w[0, 0], w[0, 25], w[0, 26] = 256, 1, -256
-    w[1, 0], w[1, 31], w[1, 32] = 256, 1, -256
-    w[2, 0], w[2, 32], w[2, 64] = 256, 1, -256
-    # Within one leaf FP32 rounds away the unit before cancellation. Summing
-    # independent eight-element slices and then merging them could retain it.
-    w[3, 0], w[3, 8], w[3, 16] = 2**24, 1, -(2**24)
-    # The 26-wide first leaf rounds away the unit in column 0. The 32-wide
-    # first leaf rounds it away in column 1. A single FP64 sum retains both.
-    # The first three leaves form L0 + (L1 + L2). Pairing L0 with L1 first
-    # would instead return zero in column 2.
-    gold = DetGemmTreeReferenceOp()(x, w[:3].T)
-    assert gold.tolist() == [[1, 0, 1]]
-    assert (x.double() @ w[:4].double().T).tolist() == [[1, 1, 1, 1]]
-    expected = torch.zeros((1, 256), dtype=torch.bfloat16, device="cuda")
-    expected[:, :3] = gold
-    for backend in ("cuda", "triton"):
-        for rows in (1, 35):
-            actual = dense_gemm(x.expand(rows, -1).contiguous().cuda(), w.cuda(), backend=backend)
-            _assert_bits(actual, expected.expand(rows, -1), backend)
+_LEAF_WITNESSES = (
+    # Keep the unit until cancellation within one FP32 leaf. Early BF16 rounding loses it.
+    ((11, 25, 26), (256, 1, -256), 1),
+    # A single FP32 chain loses the unit, while separate eight-term chunks can keep it.
+    ((11, 19, 27), (2**24, 1, -(2**24)), 0),
+    # The first leaf rounds 257 to 256. Moving the boundary past index 32 yields 1.
+    ((11, 31, 32), (256, 1, -256), 0),
+)
 
-    # The 96-token dW kernel has exactly three leaves. These contributions
-    # give 1 with L0 + (L1 + L2) and 0 with (L0 + L1) + L2.
-    batch = torch.zeros(96, 6656, device="cuda", dtype=torch.bfloat16)
-    batch[0, 0], batch[32, 0], batch[64, 0] = 256, 1, -256
-    dy = torch.zeros(96, 256, device="cuda", dtype=torch.bfloat16)
-    dy[:, 0] = 1
-    weight = w.cuda().requires_grad_()
+
+def _projection_witnesses(k):
+    midpoint = (k // 32 // 2) * 32
+    return (
+        *_LEAF_WITNESSES,
+        # Only 256 is in the left root child. A later split (e.g. at 128 of 208
+        # leaves or 512 of 624) pairs it with 1 before cancellation and yields 0.
+        ((midpoint - 32, midpoint, k - 1), (256, 1, -256), 1),
+        # The first two contributions meet at an inner merge and round to 256.
+        # Keeping FP32 until the root would produce 1 instead of 0.
+        ((11, 32, k - 1), (256, 1, -256), 0),
+    )
+
+
+@pytest.mark.ws1
+@requires_cuda
+@pytest.mark.parametrize(("n", "k"), _PROJECTIONS, ids=["+".join(v) for v in _PROJECTIONS.values()])
+@pytest.mark.parametrize("m", (1, 79, 96))
+def test_projection_tree_rounding_witness(n, k, m):
+    options = dict(device="cuda", dtype=torch.bfloat16)
+    x = torch.zeros((m, k), **options)
+    w = torch.zeros((n, k), **options)
+    dy = torch.zeros((m, n), **options)
+
+    # The nonzeros in W's first rows drive Y, and those in its first columns
+    # drive dX. The two blocks of W are disjoint, as are the inputs that reach them.
+    y_cases, dx_cases = _projection_witnesses(k), _projection_witnesses(n)
+    for row, (indices, values, _) in enumerate(y_cases):
+        x[:, indices] = 1
+        w[row, indices] = w.new_tensor(values)
+    for col, (indices, values, _) in enumerate(dx_cases):
+        dy[:, indices] = 1
+        w[indices, col] = w.new_tensor(values)
+
+    # Use unused feature indices to exercise the token reduction in dW.
+    dw_row = len(y_cases)
+    if m == 1:
+        dy[:, dw_row] = 7
+        dw_cases = (((0,), (37,), 260),)  # 259 rounds to 260 (even).
+    else:
+        dy[:, dw_row] = 1
+        dw_cases = (
+            *_LEAF_WITNESSES,
+            # 256 + 1 rounds to 256 at the inner merge. Delaying that cast yields -1.
+            ((0, 32, m - 1), (-258, 256, 1), -2),
+            # L0 + (L1 + L2) gives 1. (L0 + L1) + L2 gives 0, as does
+            # splitting at the element midpoint for the 79-token reduction.
+            ((0, 32, m - 1), (256, 1, -256), 1),
+        )
+    dw_cols = slice(len(dx_cases), len(dx_cases) + len(dw_cases))
+    for col, (indices, values, _) in enumerate(dw_cases, start=dw_cols.start):
+        x[indices, col] = x.new_tensor(values)
+
+    gold = DetGemmTreeReferenceOp()
+    expected_y = x.new_zeros((1, n))
+    expected_dx = x.new_zeros((1, k))
+    y_slice = slice(0, len(y_cases))
+    dx_slice = slice(0, len(dx_cases))
+    dw_rows = slice(dw_row, dw_row + 1)
+    expected_y[0, y_slice] = x.new_tensor([result for _, _, result in y_cases])
+    expected_dx[0, dx_slice] = x.new_tensor([result for _, _, result in dx_cases])
+    expected_dw = x.new_tensor([[result for _, _, result in dw_cases]])
+    for name, lhs, rhs, expected in (
+        ("Y", x[:1], w[y_slice].T, expected_y[:, y_slice]),
+        ("dX", dy[:1], w[:, dx_slice], expected_dx[:, dx_slice]),
+        ("dW", dy[:, dw_rows].T, x[:, dw_cols], expected_dw),
+    ):
+        _assert_bits(gold(lhs.cpu(), rhs.cpu()), expected.cpu(), f"{name} reference")
+
     for backend in ("cuda", "triton"):
-        (dw,) = torch.autograd.grad(dense_gemm(batch, weight, backend=backend), weight, dy)
-        assert dw[0, 0].item() == 1, backend
+        y, dx, dw = _evaluate(backend, x, w, dy)
+        _assert_bits(y, expected_y.expand_as(y), f"{backend} Y")
+        _assert_bits(dx, expected_dx.expand_as(dx), f"{backend} dX")
+        _assert_bits(dw[dw_rows, dw_cols], expected_dw, f"{backend} dW")
 
 
 @requires_cuda
