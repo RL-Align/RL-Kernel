@@ -230,3 +230,67 @@ def test_pinned_bridge_builds_the_seven_layer_four_three_layout():
     _validate_hash_moe_pipeline_placement(list("CEHECE"), 8, 6, False)
     layout = provider.pipeline_model_parallel_layout
     assert layout is not None
+
+
+def _ep_cfg(**kwargs):
+    cfg = dict(
+        tensor_model_parallel_size=1,
+        context_parallel_size=1,
+        expert_model_parallel_size=4,
+        expert_tensor_parallel_size=1,
+        pipeline_model_parallel_size=2,
+    )
+    cfg.update(kwargs)
+    return NS(**cfg)
+
+
+def test_ep4_layout_guard_accepts_only_pp2_dp4_tp_etp_cp1():
+    from rl_engine.integrations.engines.train.megatron.native_pipeline import (
+        validate_native_parallel_layout,
+    )
+
+    assert validate_native_parallel_layout(_ep_cfg(), world_size=8) == 4
+    assert validate_native_parallel_layout(_ep_cfg(expert_model_parallel_size=1), 8) == 1
+    for bad in (
+        dict(expert_model_parallel_size=2),
+        dict(expert_model_parallel_size=8),
+        dict(pipeline_model_parallel_size=1),
+        dict(tensor_model_parallel_size=2),
+        dict(context_parallel_size=2),
+        dict(expert_tensor_parallel_size=2),
+    ):
+        with pytest.raises(ValueError):
+            validate_native_parallel_layout(_ep_cfg(**bad), world_size=8)
+    # DP != EP (expert DP > 1, or non-divisible world) is rejected.
+    for world in (16, 4, 6):
+        with pytest.raises(ValueError, match="DP == EP"):
+            validate_native_parallel_layout(_ep_cfg(), world_size=world)
+
+
+@pytest.mark.parametrize("rank", range(4))
+def test_ep4_expected_keys_keep_only_local_experts(rank):
+    keys = {"embed.weight", "layers.0.ffn.gate.weight", "layers.0.ffn.shared_experts.w1.weight"}
+    keys |= {
+        f"layers.{layer}.ffn.experts.{e}.{n}.{s}"
+        for layer in range(4)
+        for e in range(256)
+        for n in ("w1", "w2", "w3")
+        for s in ("weight", "scale")
+    }
+    m = model(range(1, 7), True, False, num_moe_experts=256, expert_model_parallel_size=4)
+    m.config.pipeline_model_parallel_size = 2
+    m.config.expert_tensor_parallel_size = 1
+    stage, actual = local_checkpoint_keys(m, keys, ep_rank=rank)
+    assert stage.layer_ids == (0, 1, 2)
+    experts = {int(k.split(".")[4]) for k in actual if ".ffn.experts." in k}
+    assert experts == set(range(64 * rank, 64 * rank + 64))
+    assert len([k for k in actual if ".ffn.experts." in k]) == 3 * 64 * 3 * 2
+    assert "layers.0.ffn.shared_experts.w1.weight" in actual
+    assert "layers.0.ffn.gate.weight" in actual and "embed.weight" in actual
+
+
+def test_ep1_expected_keys_unchanged_by_expert_filtering():
+    keys = {f"layers.3.ffn.experts.{e}.w1.weight" for e in range(256)} | {"head.weight"}
+    m = model([7, 8], False, True, num_moe_experts=256)
+    _, actual = local_checkpoint_keys(m, keys)
+    assert actual == keys

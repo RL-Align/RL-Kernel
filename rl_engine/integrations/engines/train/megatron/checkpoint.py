@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Original DSV4 checkpoint importer for native MCore TP=EP=CP=1 stages.
+"""Original DSV4 checkpoint importer for native MCore TP=CP=1 stages (EP1, or EP4 local experts).
 
 Frozen quantized bases remain FP4/FP8 plus original scales. BF16/FP32 native
 parameters (head, norms, mHC, router, compressors) retain their source dtype.
@@ -42,14 +42,18 @@ class _GateUp(torch.nn.Module):
 
 
 class NativePackedExperts(torch.nn.Module):
-    def __init__(self, w1, w2, config):
+    def __init__(self, w1, w2, config, num_experts=None):
         super().__init__()
         self.register_buffer("w1_codes", w1.codes)
         self.register_buffer("w1_scales", w1.scales)
         self.register_buffer("w2_codes", w2.codes)
         self.register_buffer("w2_scales", w2.scales)
+        # EP>1 holds only the local experts; default keeps the EP1 count.
         self.config = ExpertTrainingConfig(
-            config.hidden_size, config.moe_ffn_hidden_size, config.num_moe_experts, mode="base_only"
+            config.hidden_size,
+            config.moe_ffn_hidden_size,
+            config.num_moe_experts if num_experts is None else num_experts,
+            mode="base_only",
         )
         self.backend = RocmExpertTrainingBackend(
             base=RocmPackedMXBackend(), route_gradient=RocmRouteWeightGradient()
@@ -106,8 +110,25 @@ def load_native_checkpoint(model, directory):
         )
     source = safe_open(str(files[0]), framework="pt")
     keys = set(source.keys())
-    stage, expected_keys = local_checkpoint_keys(model, keys)
+    ep_size = cfg.expert_model_parallel_size
+    partition = None
+    if ep_size > 1:
+        from megatron.core import parallel_state
+
+        from .expert_partition import OriginalExpertPartition
+
+        ep_rank = parallel_state.get_expert_model_parallel_rank()
+        partition = OriginalExpertPartition(cfg.num_moe_experts, ep_size, ep_rank)
+        parallel = dict(
+            etp=parallel_state.get_expert_tensor_parallel_world_size(),
+            dense_dp=parallel_state.get_data_parallel_world_size(),
+            expert_dp=parallel_state.get_expert_data_parallel_world_size(),
+        )
+    else:
+        ep_rank = 0
+    stage, expected_keys = local_checkpoint_keys(model, keys, ep_rank=ep_rank)
     model._rlk_checkpoint_stage = stage
+    expert_ids_per_layer = {}
     loaded = set()
     # Native PP final stages can register their CPU-created FP32 contraction
     # before device-created layers. Packed kernels must load on this worker
@@ -242,10 +263,17 @@ def load_native_checkpoint(model, directory):
         )
         shared.linear_fc2 = fp8(prefix + ".ffn.shared_experts.w2")
 
-        def expert_matrix(n, prefix=prefix):
+        if partition is None:
+            local_ids = tuple(range(cfg.num_moe_experts))
+        else:
+            local_ids = partition.expert_ids
+            partition.verify_native(moe.local_expert_indices, **parallel)
+        expert_ids_per_layer[i] = local_ids
+
+        def expert_matrix(n, prefix=prefix, local_ids=local_ids):
             codes = []
             scales = []
-            for e in range(cfg.num_moe_experts):
+            for e in local_ids:
                 stem = f"{prefix}.ffn.experts.{e}.{n}"
                 codes.append(get(stem + ".weight").view(torch.uint8))
                 scales.append(get(stem + ".scale").view(torch.uint8))
@@ -259,9 +287,9 @@ def load_native_checkpoint(model, directory):
         fused = PackedExpertWeight(
             torch.cat((gate.codes, up.codes), dim=1),
             torch.cat((gate.scales, up.scales), dim=1),
-            (cfg.num_moe_experts, 2 * cfg.moe_ffn_hidden_size, cfg.hidden_size),
+            (len(local_ids), 2 * cfg.moe_ffn_hidden_size, cfg.hidden_size),
         )
-        moe.experts = NativePackedExperts(fused, down, cfg)
+        moe.experts = NativePackedExperts(fused, down, cfg, len(local_ids))
         print("RLK_ORIGINAL_PACKED_LAYER_LOADED", i, len(loaded), flush=True)
     if loaded != expected_keys:
         raise ValueError(
@@ -269,7 +297,13 @@ def load_native_checkpoint(model, directory):
             f"unexpected={sorted(loaded - expected_keys)}"
         )
     print("RLK_ORIGINAL_PACKED_CHECKPOINT_LOADED", len(loaded), flush=True)
+    model._rlk_expert_placement = dict(
+        ep_size=ep_size,
+        ep_rank=ep_rank,
+        original_expert_ids_per_layer=expert_ids_per_layer,
+    )
     return {
+        "expert_placement": model._rlk_expert_placement,
         "loaded_tensors": len(loaded),
         "checkpoint_tensors": len(keys),
         "original_layer_ids": list(stage.layer_ids),

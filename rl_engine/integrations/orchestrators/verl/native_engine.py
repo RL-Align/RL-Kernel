@@ -53,15 +53,19 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
         from rl_engine.integrations.engines.train.megatron.checkpoint import load_native_checkpoint
 
         cfg = self.engine_config
-        if any(
-            getattr(cfg, key) != 1
-            for key in (
-                "tensor_model_parallel_size",
-                "expert_model_parallel_size",
-                "context_parallel_size",
-            )
-        ):
-            raise ValueError("native packed DSV4 engine requires TP=EP=CP=1")
+        import os
+
+        from rl_engine.integrations.engines.train.megatron.native_pipeline import (
+            validate_native_parallel_layout,
+        )
+
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            world_size = torch.distributed.get_world_size()
+        else:
+            world_size = int(os.environ.get("WORLD_SIZE", 0)) or None
+        if getattr(cfg, "expert_model_parallel_size", 1) != 1 and world_size is None:
+            raise ValueError("native packed DSV4 EP>1 needs a known world size to check DP == EP")
+        validate_native_parallel_layout(cfg, world_size)
         if cfg.pipeline_model_parallel_size not in (1, 2):
             raise ValueError(
                 "native packed DSV4 engine supports PP=1 or the four-/seven-layer PP2 layouts"

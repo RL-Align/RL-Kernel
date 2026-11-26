@@ -5,21 +5,46 @@ This describes model shards, not independent model replicas. MCore retains its
 native pipeline scheduler and multi-stream activation/gradient transport.
 """
 
+import re
+
 from rl_engine.integrations.common.dsv4_checkpoint_partition import DSV4CheckpointPartition
+
+_EXPERT_KEY = re.compile(r"^layers\.\d+\.ffn\.experts\.(\d+)\.")
+
+
+def validate_native_parallel_layout(cfg, world_size=None):
+    """Admit EP1, or EP4 only as PP2 x DP4 with TP=ETP=CP=1 and expert DP1.
+
+    ``cfg`` needs the MCore parallel-size attributes. ``world_size`` (optional)
+    additionally checks DP == EP, i.e. expert data parallel size 1.
+    """
+    tp = getattr(cfg, "tensor_model_parallel_size", 1)
+    cp = getattr(cfg, "context_parallel_size", 1)
+    ep = getattr(cfg, "expert_model_parallel_size", 1)
+    etp = getattr(cfg, "expert_tensor_parallel_size", None)
+    pp = getattr(cfg, "pipeline_model_parallel_size", 1)
+    if tp != 1 or cp != 1 or etp not in (None, 1) or ep not in (1, 4):
+        raise ValueError(
+            "native packed pipeline requires TP=EP=CP=1 (ETP=1); "
+            f"only EP=4 is also admitted, got TP={tp} EP={ep} ETP={etp} CP={cp}"
+        )
+    if ep == 4:
+        if pp != 2:
+            raise ValueError(f"native packed EP=4 requires PP=2, got PP={pp}")
+        if world_size is not None:
+            dp = world_size // (tp * pp * cp)
+            if world_size % (tp * pp * cp) or dp != ep:
+                raise ValueError(
+                    f"native packed EP=4 requires DP == EP (expert DP 1); "
+                    f"world_size={world_size} gives DP={dp}"
+                )
+    return ep
 
 
 def native_checkpoint_stage(model):
     """Validate native global layer numbers and keep every hash layer on PP0."""
     cfg = model.config
-    if any(
-        getattr(cfg, key) != 1
-        for key in (
-            "tensor_model_parallel_size",
-            "expert_model_parallel_size",
-            "context_parallel_size",
-        )
-    ):
-        raise ValueError("native packed pipeline requires TP=EP=CP=1")
+    validate_native_parallel_layout(cfg)
     if getattr(cfg, "virtual_pipeline_model_parallel_size", None) not in (None, 1):
         raise ValueError("native packed pipeline does not support virtual stages")
     pp = cfg.pipeline_model_parallel_size
@@ -47,9 +72,32 @@ def native_checkpoint_stage(model):
     return stage
 
 
-def local_checkpoint_keys(model, keys):
+def local_checkpoint_keys(model, keys, ep_rank=None):
+    """Keys owned by this PP stage; with EP>1 only locally owned routed experts."""
     stage = native_checkpoint_stage(model)
-    return stage, {key for key in keys if stage.owns(key)}
+    owned = {key for key in keys if stage.owns(key)}
+    ep = model.config.expert_model_parallel_size
+    if ep == 1:
+        return stage, owned
+    if ep_rank is None:
+        from megatron.core import parallel_state
+
+        ep_rank = parallel_state.get_expert_model_parallel_rank()
+    return stage, filter_local_expert_keys(owned, model.config.num_moe_experts, ep, ep_rank)
+
+
+def filter_local_expert_keys(keys, total_experts, ep_size, ep_rank):
+    from rl_engine.integrations.engines.train.megatron.expert_partition import (
+        OriginalExpertPartition,
+    )
+
+    local = set(OriginalExpertPartition(total_experts, ep_size, ep_rank).expert_ids)
+    kept = set()
+    for key in keys:
+        match = _EXPERT_KEY.match(key)
+        if match is None or int(match[1]) in local:
+            kept.add(key)
+    return kept
 
 
 def original_pipeline_layers(total):
