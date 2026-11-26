@@ -26,14 +26,27 @@ class NativeGemmOp:
 _K_TREE_LEAF = 32
 
 
+def _index_order_fma_leaf(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Evaluate one BF16 GEMM leaf with scalar FP32 FMAs in index order."""
+    acc = a.new_zeros((a.size(0), b.size(1)), dtype=torch.float32)
+    a_columns = a.float().double().unsqueeze(-1).unbind(dim=1)
+    b_rows = b.float().double().unsqueeze(0).unbind(dim=1)
+    # BF16 products are exact in FP64. If the exponent gap makes the FP64
+    # sum inexact, the smaller term is too small to change the FP32 rounding
+    # of the larger term. FP32 subnormal ties are resolved exactly in FP64.
+    for a_column, b_row in zip(a_columns, b_rows, strict=True):
+        acc = torch.addcmul(acc.double(), a_column, b_row).float()
+    return acc.to(torch.bfloat16)
+
+
 class DetGemmTreeReferenceOp:
     """Deterministic leaf-space mid-split tree, the canonical gold.
 
     The WS1 deterministic GEMM rounds every 32-element leaf and every tree
     merge node to BF16, so comparing a candidate against the single-rounding
     torch.matmul reference fails structurally at near-cancellation outputs.
-    This op evaluates the exact contract tree (32-element leaves summed in
-    FP32, BF16 RNE at every leaf and every mid-split merge, splitting in
+    This op evaluates the exact contract tree (32-element leaves accumulated
+    with index-order FP32 FMA, BF16 RNE at every leaf and merge, splitting in
     LEAF space) and is the accuracy gold for the deterministic GEMM across
     all backend profiles. Differentiable, so the gradient-accuracy judgment
     also compares against the tree's own VJP.
@@ -53,7 +66,7 @@ class DetGemmTreeReferenceOp:
             if hi - lo == 1:
                 start = lo * _K_TREE_LEAF
                 end = min(start + _K_TREE_LEAF, k)
-                return (a[:, start:end].float() @ b[start:end, :].float()).to(torch.bfloat16)
+                return _index_order_fma_leaf(a[:, start:end], b[start:end, :])
             midpoint = lo + (hi - lo) // 2
             return reduce_range(lo, midpoint) + reduce_range(midpoint, hi)
 

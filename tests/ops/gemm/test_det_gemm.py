@@ -14,7 +14,7 @@ import torch
 from rl_engine.backends.cuda.gemm import deterministic_gemm
 from rl_engine.backends.extension import _C
 from rl_engine.contracts.numerical import load_contract
-from rl_engine.reference.gemm.det_gemm import DetGemmTreeReferenceOp
+from rl_engine.reference.gemm.det_gemm import DetGemmTreeReferenceOp, _index_order_fma_leaf
 
 try:
     import triton
@@ -160,18 +160,51 @@ _K_TREE_LEAF = 32
 
 
 def _k_tree_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Canonical FP32-leaf/BF16-node midpoint tree used by Triton."""
+    """Legacy element-midpoint tree with index-order FP32 FMA leaves."""
 
     a = a.detach().contiguous()
     b = b.detach().contiguous()
 
     def reduce_range(lo: int, hi: int) -> torch.Tensor:
         if hi - lo <= _K_TREE_LEAF:
-            return (a[:, lo:hi].float() @ b[lo:hi, :].float()).to(torch.bfloat16)
+            return _index_order_fma_leaf(a[:, lo:hi], b[lo:hi, :])
         midpoint = lo + (hi - lo) // 2
         return reduce_range(lo, midpoint) + reduce_range(midpoint, hi)
 
     return reduce_range(0, a.size(1))
+
+
+@pytest.mark.unit
+def test_fixed_leaf_reference_preserves_negative_zero_on_underflow():
+    a = torch.zeros((1, 33), dtype=torch.bfloat16, device="cpu")
+    a[0, [31, 32]] = -(2**-100)
+    b = torch.full((33, 1), 2**-100, dtype=torch.bfloat16, device="cpu")
+
+    # Rounding the product first gives -0, which becomes +0 when added to +0.
+    zero = torch.zeros_like(a[:, :1])
+    separate = zero.float() + a[:, -1:].float() * b[-1:].float()
+    _assert_same_raw_bytes(separate.bfloat16(), zero)
+    result = DetGemmTreeReferenceOp()(a, b)
+    _assert_same_raw_bytes(result, torch.full_like(result, -0.0))
+
+
+@pytest.mark.unit
+def test_fixed_leaf_reference_accumulates_in_index_order():
+    a = torch.ones((2, 32), dtype=torch.bfloat16, device="cpu", requires_grad=True)
+    b = torch.zeros((32, 1), dtype=torch.bfloat16, device="cpu")
+    b[0, 0], b[8, 0], b[16, 0] = 2**24, 1, -(2**24)
+    b.requires_grad_()
+
+    # Fix one BLAS-style grouping so the witness is independent of the CPU's
+    # BLAS implementation. Indices 0 and 16 cancel before index 8 adds 1.
+    left, right = a.detach().float(), b.detach().float()
+    split_dot = left[:, ::16] @ right[::16] + left[:, 8::16] @ right[8::16]
+    result = DetGemmTreeReferenceOp()(a, b)
+    _assert_same_raw_bytes(split_dot.bfloat16(), torch.ones_like(result))
+    _assert_same_raw_bytes(result, torch.zeros_like(result))
+    da, db = torch.autograd.grad(result.sum(), (a, b))
+    torch.testing.assert_close(da, b.detach().T.expand_as(a), atol=0, rtol=0)
+    torch.testing.assert_close(db, torch.full_like(b, 2.0), atol=0, rtol=0)
 
 
 def _balanced_tree_sum(parts: list[torch.Tensor]) -> torch.Tensor:
