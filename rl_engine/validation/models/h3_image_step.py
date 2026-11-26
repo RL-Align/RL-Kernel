@@ -36,6 +36,7 @@ or target) and the first packed row.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -350,6 +351,53 @@ def _class_path(op: Any) -> str:
     return f"{type(op).__module__}.{type(op).__qualname__}"
 
 
+class RowSlicedGemm:
+    """A GEMM row run in slices of at most ``max_rows`` rows when it computes no weight gradient.
+
+    ``h3_ffn_down_gemm`` declares at most 32,768 rows (``H3_MAX_ROWS``); two edit requests batched
+    are 34,406. Its forward has fixed 64x64x32 tiles, no split-K and a fixed K order, so each output
+    row depends on its own input row only, and the rows are run in consecutive slices with the
+    matching logical keys. The input gradient is per row as well. A weight gradient is one
+    reduction over every row in one canonical backward session, so with ``weight.requires_grad``
+    the row is called once and its own limit applies. ``slices`` counts the sliced calls.
+    """
+
+    def __init__(self, op: Any, max_rows: int) -> None:
+        self.op = op
+        self.max_rows = int(max_rows)
+        self.slices = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.op, name)
+
+    def __call__(self, x: torch.Tensor, weight: torch.Tensor, **kwargs: Any) -> torch.Tensor:
+        flat = x.reshape(-1, x.shape[-1])
+        rows = flat.shape[0]
+        if rows <= self.max_rows or (torch.is_grad_enabled() and weight.requires_grad):
+            return self.op(x, weight, **kwargs)
+        keys = kwargs.pop("logical_keys", None)
+        parts = []
+        for start in range(0, rows, self.max_rows):
+            stop = min(start + self.max_rows, rows)
+            part_keys = None if keys is None else keys[start:stop]
+            parts.append(self.op(flat[start:stop], weight, logical_keys=part_keys, **kwargs))
+        self.slices += 1
+        return torch.cat(parts).view(*x.shape[:-1], -1)
+
+
+def _row_limited(ops: h3_block.CandidateOps) -> h3_block.CandidateOps:
+    """``ops`` with the ``ffn_down`` row in ``RowSlicedGemm``; a shallow copy, ``ops`` is kept."""
+
+    down = getattr(ops, "down_gemm", None)
+    if down is None or isinstance(down, RowSlicedGemm):
+        return ops
+    from rl_engine.ops.gemm.h3_ffn_down import H3_MAX_ROWS
+
+    ops = copy.copy(ops)
+    setattr(ops, "down_gemm", RowSlicedGemm(down, H3_MAX_ROWS))  # typed None on CandidateOps
+    return ops
+
+
 class StrictImageTransformer:
     """The strict MiniMax-H3-Image transformer on a ``name -> tensor`` mapping (Diffusers names).
 
@@ -377,7 +425,9 @@ class StrictImageTransformer:
         self.device = self.weights["proj_in.weight"].device
         if self.device.type != "cuda":
             raise RuntimeError("the strict transformer runs on CUDA")
-        self.ops = ops if ops is not None else h3_block.CandidateOps(device=self.device)
+        self.ops = _row_limited(
+            ops if ops is not None else h3_block.CandidateOps(device=self.device)
+        )
         hfm.require_candidate_cuda(self.ops)
         if require_attention_row and self.ops.attention_h3 is None:
             # the interim operator holds an O(S^2) workspace: not usable at released image sizes

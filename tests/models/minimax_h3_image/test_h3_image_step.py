@@ -426,3 +426,66 @@ def test_provider_wrong_head_is_caught(provider, monkeypatch):
     monkeypatch.setattr(type(provider), "forward", forward)
     with pytest.raises(ph.HeadDrift, match="step 0 must run head 0"):
         hs.run_provider(provider, _inputs("t2i", step=0))
+
+
+class _LimitedRowOp:
+    """A row-wise GEMM stand-in that refuses more than ``limit`` rows, like ``h3_ffn_down_gemm``."""
+
+    def __init__(self, limit):
+        self.limit, self.calls, self.last_execution = limit, [], {"op": "limited"}
+
+    def __call__(self, x, weight, *, logical_keys=None, parameter_id="w"):
+        if x.shape[0] > self.limit:
+            raise ValueError(f"row count must be in [1,{self.limit}]")
+        self.calls.append((x.shape[0], None if logical_keys is None else logical_keys.clone()))
+        return (x.unsqueeze(1) * weight.unsqueeze(0)).sum(-1)
+
+
+def _row_inputs(rows=10, *, x_grad=False, w_grad=False):
+    g = torch.Generator().manual_seed(11)
+    x = torch.randn(rows, 6, generator=g, requires_grad=x_grad)
+    w = torch.randn(3, 6, generator=g, requires_grad=w_grad)
+    keys = torch.stack([torch.zeros(rows, dtype=torch.int64), torch.arange(rows)], 1)
+    return x, w, keys
+
+
+def test_row_sliced_gemm_runs_slices_without_weight_gradient():
+    x, w, keys = _row_inputs()
+    whole = _LimitedRowOp(100)(x, w, logical_keys=keys)
+    op = _LimitedRowOp(4)
+    sliced = hs.RowSlicedGemm(op, 4)
+    with torch.no_grad():
+        out = sliced(x, w, logical_keys=keys, parameter_id="p")
+    assert torch.equal(out, whole)
+    assert [n for n, _ in op.calls] == [4, 4, 2] and sliced.slices == 1
+    assert torch.equal(torch.cat([k for _, k in op.calls]), keys)
+    assert sliced.last_execution == {"op": "limited"}  # the row's own attributes stay visible
+    with torch.no_grad():
+        sliced(x[:4], w, logical_keys=keys[:4])  # within the limit: one call, no slicing
+    assert [n for n, _ in op.calls][-1] == 4 and sliced.slices == 1
+
+
+def test_row_sliced_gemm_input_gradient_matches_and_weight_gradient_keeps_the_limit():
+    x, w, keys = _row_inputs(x_grad=True)
+    hs.RowSlicedGemm(_LimitedRowOp(4), 4)(x, w, logical_keys=keys).sum().backward()
+    sliced_grad = x.grad.clone()
+    x.grad = None
+    _LimitedRowOp(100)(x, w, logical_keys=keys).sum().backward()
+    assert torch.equal(sliced_grad, x.grad)
+    x, w, keys = _row_inputs(w_grad=True)
+    with pytest.raises(ValueError, match="row count"):
+        hs.RowSlicedGemm(_LimitedRowOp(4), 4)(x, w, logical_keys=keys)
+
+
+def test_row_limited_wraps_only_the_down_row_on_a_copy():
+    class _Ops:
+        down_gemm = None
+
+    bare = _Ops()
+    assert hs._row_limited(bare) is bare
+    ops = _Ops()
+    ops.down_gemm = _LimitedRowOp(8)
+    wrapped = hs._row_limited(ops)
+    assert wrapped is not ops and isinstance(wrapped.down_gemm, hs.RowSlicedGemm)
+    assert wrapped.down_gemm.max_rows == 32768 and isinstance(ops.down_gemm, _LimitedRowOp)
+    assert hs._row_limited(wrapped) is wrapped
