@@ -16,6 +16,7 @@ import pytest
 import torch
 from torch import nn
 
+from rl_engine.reference.embedding.index_select import NativeIndexSelectOp
 from rl_engine.reference.packing.packed_index_copy import NativePackedIndexCopyOp
 from rl_engine.validation.models import h3_packed_forward as hpf
 
@@ -106,7 +107,11 @@ def _run(forward, model):
 
 
 def _bitwise(a, b):
-    return a.dtype == b.dtype and a.shape == b.shape and torch.equal(a.view(-1), b.view(-1))
+    return (
+        a.dtype == b.dtype
+        and a.shape == b.shape
+        and torch.equal(a.contiguous().view(torch.uint8), b.contiguous().view(torch.uint8))
+    )
 
 
 def test_the_installed_provider_forward_is_known():
@@ -123,11 +128,13 @@ def _variant() -> str:
 
 
 @pytest.mark.parametrize("text_dtype", [torch.bfloat16, torch.float32])
-def test_packed_forward_is_bitwise_the_providers(text_dtype):
+@pytest.mark.parametrize("bind_pack", [False, True], ids=["select_only", "pack_and_select"])
+def test_packed_forward_is_bitwise_the_providers(text_dtype, bind_pack):
     variant = _variant()
     model = _Model(text_dtype)
     provider = inspect.unwrap(MODEL.forward)
-    ours = inspect.unwrap(hpf._packed_forward(MODEL, NativePackedIndexCopyOp(), variant))
+    pack = NativePackedIndexCopyOp() if bind_pack else None
+    ours = inspect.unwrap(hpf._packed_forward(MODEL, pack, variant, select=NativeIndexSelectOp()))
     for got, want in zip(_run(ours, model), _run(provider, model), strict=True):
         assert _bitwise(got, want)
 
@@ -135,20 +142,28 @@ def test_packed_forward_is_bitwise_the_providers(text_dtype):
 def test_bind_swaps_the_forward_and_restores_it():
     model = _Model()
     calls = []
+    selections = []
 
     def pack(*args):
         calls.append(len(args))
         return NativePackedIndexCopyOp()(*args)
 
+    def select(x, index, *, dim, unique_indices):
+        assert dim == 1 and unique_indices is True
+        selections.append(index)
+        return NativeIndexSelectOp()(x, index, dim=dim, unique_indices=unique_indices)
+
     if hpf.forward_source_sha256(MODEL) not in hpf.KNOWN_FORWARDS:
         pytest.skip("unknown provider forward")
     model.__class__ = type("_Bound", (MODEL,), {})  # the provider's forward, on the stand-in
     leaves, kwargs = _inputs()
-    with hpf.bind(model, pack):
+    with hpf.bind(model, pack, select=select):
         assert "forward" in model.__dict__
         model.forward(*leaves, **kwargs)
     assert "forward" not in model.__dict__
     assert calls == [7]
+    assert len(selections) == 2
+    assert selections[0] is kwargs["video_indices"] and selections[1] is kwargs["audio_indices"]
 
 
 def test_bind_refuses_an_unknown_forward_and_changes_nothing():
@@ -175,7 +190,9 @@ def test_bind_refuses_a_forward_wrapped_on_the_instance():
     assert model.forward(1) is None
 
 
-needs_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+needs_cuda = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.version.hip is not None, reason="needs NVIDIA CUDA"
+)
 
 
 def _run_cuda(forward, model):
@@ -194,27 +211,43 @@ def _run_cuda(forward, model):
 @needs_cuda
 @pytest.mark.parametrize("text_dtype", [torch.bfloat16, torch.float32])
 def test_the_cuda_row_is_bitwise_the_providers(text_dtype):
-    """The registry's CUDA ``packed_index_copy`` (what ``h3_full_model`` binds), on a GPU."""
+    """Compare the registry's CUDA scatter and Triton gather with the actual provider."""
 
     from rl_engine.backends.cuda.packing.packed_index_copy import PackedIndexCopyCudaOp
+    from rl_engine.backends.shared.triton.embedding.index_select import TritonIndexSelectOp
     from rl_engine.runtime.registry import KernelRegistry
 
     variant = _variant()
-    op = KernelRegistry().get_op("packed_index_copy", device="cuda")
-    assert isinstance(op, PackedIndexCopyCudaOp)
+    registry = KernelRegistry()
+    pack = registry.get_op("packed_index_copy", device="cuda")
+    select = registry.get_op("index_select", device="cuda")
+    assert isinstance(pack, PackedIndexCopyCudaOp)
+    assert isinstance(select, TritonIndexSelectOp)
     model = _Model(text_dtype).cuda()
     provider = inspect.unwrap(MODEL.forward)
-    ours = inspect.unwrap(hpf._packed_forward(MODEL, op, variant))
+    ours = inspect.unwrap(hpf._packed_forward(MODEL, pack, variant, select=select))
     for got, want in zip(_run_cuda(ours, model), _run_cuda(provider, model), strict=True):
         assert _bitwise(got, want)
 
 
 @needs_cuda
-def test_the_full_model_binds_the_cuda_row_and_reports_it():
+@pytest.mark.parametrize("pack_available", [True, False], ids=["pack_and_select", "select_only"])
+def test_the_full_model_binds_the_cuda_rows_and_reports_them(monkeypatch, pack_available):
+    from rl_engine.runtime.registry import KernelRegistry
     from rl_engine.validation.models import h3_full_model as hfm
 
     if hpf.forward_source_sha256(MODEL) not in hpf.KNOWN_FORWARDS:
         pytest.skip("unknown provider forward")
+    if not pack_available:
+        # The Triton gather can run even when the optional CUDA scatter extension is absent.
+        get_op = KernelRegistry.get_op
+
+        def without_pack(registry, name, device):
+            if name == "packed_index_copy":
+                raise RuntimeError("no backend for packed_index_copy")
+            return get_op(registry, name, device=device)
+
+        monkeypatch.setattr(KernelRegistry, "get_op", without_pack)
     model = _Model().cuda()
     model.__class__ = type("_Bound", (MODEL,), {})
     want = _run_cuda(inspect.unwrap(MODEL.forward), model)
@@ -223,7 +256,10 @@ def test_the_full_model_binds_the_cuda_row_and_reports_it():
         assert "forward" in model.__dict__
         got = _run_cuda(lambda m, *a, **k: m.forward(*a, **k), model)
     assert "forward" not in model.__dict__
-    assert trace.packed_bindings == {"packed_index_copy": "row", "packed_index_select": "reference"}
+    assert trace.packed_bindings == {
+        "packed_index_copy": "row" if pack_available else "provider",
+        "packed_index_select": "row",
+    }
     for g, w in zip(got, want, strict=True):
         assert _bitwise(g, w)
 

@@ -76,8 +76,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         shape = "x".join(str(dim) for dim in _video_patch_shape(args))
         return f"{_arg_str(args, 'patch_direction', 'pack')}-{shape}"
     if op_name == "index_select":
-        shape, dim = _index_select_shape(args)
-        return f"{'x'.join(map(str, shape))}-dim{dim}"
+        select_shape, dim = _index_select_shape(args)
+        return f"{'x'.join(map(str, select_shape))}-dim{dim}"
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {

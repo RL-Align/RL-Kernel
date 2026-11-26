@@ -1,7 +1,9 @@
 # Shared Index Select
 
-`index_select` takes rows from a tensor along an explicit axis. This release covers
-the unique-index calls in MiniMax-H3 and BAGEL described in [#680](https://github.com/RL-Align/RL-Kernel/issues/680).
+`index_select` takes rows from a tensor along an explicit axis. The first integration targets
+MiniMax-H3's video and audio output heads on CUDA. The shared API also describes BAGEL's packed
+row selections. The rollout plan tracks ROCm validation after the H3 release and support for
+repeated indices. [Issue #680](https://github.com/RL-Align/RL-Kernel/issues/680)
 
 ## API
 

@@ -51,14 +51,15 @@ def render_workload(results, title, image_path):
         "| --- | --- | --- | ---: | ---: | ---: |",
     ]
     fig, axes = plt.subplots(2, 2, figsize=(11, 7))
-    for ax, (phase, label) in zip(axes.flat, PANELS.items()):
+    for ax, (phase, label) in zip(axes.flat, PANELS.items(), strict=True):
         rows = panel_rows(results, phase)
         memory = phase == "incremental_peak_bytes"
         for (x, grad), backends in rows.items():
             cells = [" / ".join(f"{value:.3f}" for value in backends[key]) for key in BACKENDS]
             table.append(f"| {label} | {x} | {grad} | " + " | ".join(cells) + " |")
         ticks = range(len(rows))
-        for i, (backend, color) in enumerate(zip(BACKENDS, ("#326c99", "#be762c", "#18836b"))):
+        colors = ("#326c99", "#be762c", "#18836b")
+        for i, (backend, color) in enumerate(zip(BACKENDS, colors, strict=True)):
             ax.bar(
                 [tick + (i - 1) * 0.25 for tick in ticks],
                 [backends[backend][0] for backends in rows.values()],
