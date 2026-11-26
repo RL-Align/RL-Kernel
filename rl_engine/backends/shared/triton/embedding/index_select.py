@@ -431,8 +431,9 @@ class TritonIndexSelectOp:
 
     Args:
         x: Rank >= 1 FP32/FP16/BF16 tensor on a supported Triton device.
-        index: Same-device int32/int64 vector of distinct, in-bounds row indices.
-            Triton debug mode reports out-of-bounds indices.
+        index: Same-device int32/int64 vector. With Triton debugging off, the caller
+            must ensure 0 <= index[j] < x.shape[dim] for every j. Out-of-range
+            positions can pass silently. Set TRITON_DEBUG=1 for bounds diagnostics.
         dim: Required keyword axis. Negative axes count from the end of x.
         unique_indices: Pass True when the caller guarantees distinct indices.
             False (the default) raises NotImplementedError. The kernel trusts

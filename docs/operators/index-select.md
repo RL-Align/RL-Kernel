@@ -26,15 +26,23 @@ The Triton and PyTorch implementations expose the same keyword arguments on
 | `unique_indices` | Pass `True` when every row number occurs at most once in this call. Omitting it or passing `False` raises `NotImplementedError` before tensor work, including in inference and on empty inputs. |
 | Output | Contiguous tensor on `x.device` with `x.dtype`. It has the shape of `x` with `x.shape[dim]` replaced by `index.numel()`. |
 
-The caller guarantees uniqueness. Both implementations trust that promise and
-skip scanning for duplicates. Passing repeated indices with `True` gives
-undefined gradients. The repeated-index case proposed in #680 is future work.
+**With Triton debugging off (the default), the caller must ensure that every
+index satisfies `0 <= index[j] < x.shape[dim]`.** Out-of-range indices can pass
+silently. The masks protect device memory. Forward can return a zero slice for
+an invalid position and backward skips its gradient contribution.
+
+Set `TRITON_DEBUG=1` to diagnose out-of-range indices in forward. This also
+checks a nonempty index when an empty `x` skips the gather. On CUDA and ROCm the
+error can surface at the next device synchronization. The PyTorch reference
+checks bounds on every call.
+
+In both debug and ordinary execution, `unique_indices=True` is the caller's
+guarantee that positions are distinct. Both implementations trust that promise.
+Passing repeated indices with `True` gives undefined gradients. The repeated-index
+case proposed in #680 is future work.
 The same index vector applies to every coordinate outside `dim`. For an empty
 index the output is empty and the input gradient is zero. A selected axis of
-length zero requires an empty index. Callers must supply in-range indices in
-normal execution. The PyTorch reference checks bounds on every call. To
-diagnose an out-of-bounds Triton index, run with `TRITON_DEBUG=1`. On CUDA and
-ROCm the error can surface at the next device synchronization.
+length zero requires an empty index.
 
 Triton reads tensor storage directly. Callers are responsible for resolving any
 lazy negative views of `x`, `index`, or the upstream gradient `grad_y`, for
@@ -78,9 +86,6 @@ preserving their bits. Backward sends `grad_y[0]` to input row 3 and `grad_y[1]`
 to input row 1. All other rows receive zero. PyTorch uses its built-in
 `Tensor.index_select` and its autograd backward.
 
-Triton masks out-of-bounds input reads and gradient writes in both modes.
-In debug mode the gather also reports invalid active rows with `tl.device_assert`.
-When an empty `x` skips the gather, debug mode checks any supplied indices separately.
 Both kernels group narrow rows into one program and split wide rows into column
 tiles. Backward reads strided upstream gradients directly and writes each
 selected row of a zero-filled `grad_x` in parallel.
