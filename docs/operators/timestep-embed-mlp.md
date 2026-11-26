@@ -224,6 +224,17 @@ case, CUDA forward plus backward ran 1.12–1.96× as fast as the baseline at
 seed 386. CUDA forward at batch 16 and every sampled Triton timing were slower.
 SM100 was outside this run's scope.
 
+## Post-rebase evidence download
+
+The complete 2026-11-25 H100 execution at `b0359cb245cd5adef3856f88ce23eb9a10bd9f9d` is retained outside the merge diff. This delivery and the later report/CLI repairs do not constitute a new GPU run; device computation, reference arithmetic and the numerical contract are unchanged.
+
+- [h100-b0359cb-results.json](https://gist.githubusercontent.com/zzf2024/ad8e30508f4681145cf430863ce15303/raw/fccaa9a585675295e8cd1434820ab60866dd681f/h100-b0359cb-results.json) — SHA256 `12a1a4662237c802deb21dd0699bb9f4c749e80495a84070648689239f87386e`
+- [p2-cpu-results.json](https://gist.githubusercontent.com/zzf2024/ad8e30508f4681145cf430863ce15303/raw/fccaa9a585675295e8cd1434820ab60866dd681f/p2-cpu-results.json) — SHA256 `df5bd0e24b6b203d13d678613f7918cae9a1361ea1f0eb1f42ad3390a2ae6721`
+- [README.md](https://gist.githubusercontent.com/zzf2024/ad8e30508f4681145cf430863ce15303/raw/fccaa9a585675295e8cd1434820ab60866dd681f/README.md) — SHA256 `827cfe0c87905e8a32e1dcb122e92dced2c5da9386b3c97f1e1534c2eff03513`
+- [SHA256SUMS](https://gist.githubusercontent.com/zzf2024/ad8e30508f4681145cf430863ce15303/raw/fccaa9a585675295e8cd1434820ab60866dd681f/SHA256SUMS) — SHA256 `52ab4348beff33d07a18d013c540eaf6f373961595716f7674dde1c5f0651410`
+
+The H100 archive retains full results, traces, commands, original/derivative hashes and sanitization provenance. The separate CPU archive retains the qualification/trace-control regressions and failures: 95 initial passes and four CLI timeouts, followed by six passing affected CLI cases after correcting test parameters. This covers 99 distinct passing CPU cases across corresponding executions, one compiled-AdaLN skip and 15 unexecuted GPU cases. Earlier CPU allocator aborts remain unresolved and are included.
+
 ## Historical evidence downloads
 
 Complete A100/H100 results are published separately from the merge diff. These are historical executions, not a new GPU run. The A100 and H100 derivatives each replace one device UUID with `<GPU_UUID>` and record publication provenance. All other original JSON values, measurements and original artifact hashes are unchanged. These replacements do not erase prior exposure.
