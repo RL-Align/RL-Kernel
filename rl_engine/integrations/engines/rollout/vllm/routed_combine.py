@@ -10,6 +10,7 @@ The shared expert is not part of this combine (vLLM adds it afterwards in BF16).
 
 import importlib
 import inspect
+import os
 import sys
 
 import torch
@@ -177,6 +178,22 @@ def bind_rollout_fixed_routed_combine():
         out = output_tensor.view(M, K)
         # Same rows, actor order instead of atomic index_add_. Local == global expert at TP1.
         _STATE["calls"] += 1
+        dump_dir = os.environ.get("RLK_ROUTED_ROWS_DUMP_DIR")
+        if dump_dir and str(M) == os.environ.get("RLK_ROUTED_ROWS_DUMP_M"):
+            # Diagnostic only (off by default): per-row expert outputs for actor row comparison.
+            os.makedirs(dump_dir, exist_ok=True)
+            torch.save(
+                dict(
+                    y=y.detach().cpu(),
+                    inter=inter.detach().cpu(),
+                    hidden=hidden_states.detach().cpu(),
+                    tokens=routing_data._rlk_row_tokens.cpu(),
+                    experts=routing_data._rlk_row_experts.cpu(),
+                    valid=routing_data._rlk_row_valid.cpu(),
+                    gammas=gammas.detach().cpu(),
+                ),
+                os.path.join(dump_dir, f"call-{_STATE['calls']:05d}-M{M}.pt"),
+            )
         fixed_combine_rows(
             y,
             routing_data._rlk_row_tokens,
