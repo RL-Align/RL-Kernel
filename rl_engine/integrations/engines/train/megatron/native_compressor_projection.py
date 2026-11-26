@@ -42,3 +42,19 @@ def bind_compressor_projection(compressor):
         assert replacement.weight is original.weight
         setattr(compressor, name, replacement)
     return compressor
+
+
+class IndexerWeightsProjDet(CompressorProjectionFP32):
+    """Indexer ``weights_proj`` on the fixed-order det GEMM (same as rollout), BF16 output."""
+
+    def forward(self, x, **kwargs):
+        y, bias = super().forward(x, **kwargs)
+        return y.to(torch.bfloat16), bias
+
+
+def bind_indexer_weights_proj(indexer):
+    original = indexer.linear_weights_proj
+    replacement = IndexerWeightsProjDet(original)
+    assert replacement.weight is original.weight
+    indexer.linear_weights_proj = replacement
+    return indexer

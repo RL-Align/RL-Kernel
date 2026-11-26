@@ -98,9 +98,7 @@ def packed_indexer_keys(kv, score, ape, norm, cache, epsilon):
 def production_indexer_select(q_raw, kv, score, ape, norm, raw_head_weights, cache, epsilon):
     from rl_engine.backends.rocm.attention.deterministic_indexer_topk import deterministic_topk_prefill
     from vllm.models.deepseek_v4.common.ops.fused_indexer_q import fused_indexer_q_rope_quant
-    from vllm.v1.attention.ops.rocm_aiter_mla_sparse import (
-        rocm_fp8_mqa_logits,
-    )
+    from rl_engine.backends.rocm.attention.indexer_paged_logits import paged_c4_logits_contiguous
 
     t, batch, heads, dim = q_raw.shape
     if dim != 128 or raw_head_weights.shape != (t, batch, heads) or q_raw.dtype != torch.bfloat16:
@@ -122,7 +120,8 @@ def production_indexer_select(q_raw, kv, score, ape, norm, raw_head_weights, cac
             heads**-0.5,
             use_fp4=False,
         )
-        logits = rocm_fp8_mqa_logits(q, (keys[b], scales[b]), weights, starts, ends)
+        # Same paged Triton kernel as rollout decode and (wrapped) rollout prefill; starts are 0.
+        logits = paged_c4_logits_contiguous(q, weights, keys[b], scales[b], starts, ends)
         indices = torch.full((t, 512), -1, device=q.device, dtype=torch.int32)
         # Same Top-512 rule as the rollout: stable, lower column wins ties, relative ascending.
         deterministic_topk_prefill(logits, starts, ends, indices, 512)
