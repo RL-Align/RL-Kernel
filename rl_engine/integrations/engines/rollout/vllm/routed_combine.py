@@ -236,8 +236,9 @@ def bind_rollout_fixed_routed_combine():
     ):
         from vllm.distributed import get_tensor_model_parallel_world_size
 
-        if get_tensor_model_parallel_world_size() != 1 or expert_map is not None:
-            raise RuntimeError("fixed routed combine supports TP1 without an expert map only")
+        tp_size = get_tensor_model_parallel_world_size()
+        if expert_map is not None:
+            raise RuntimeError("fixed routed combine supports no expert map (EP=1) only")
         if self._lora_context is not None:
             raise RuntimeError("fixed routed combine does not support MoE LoRA")
         if apply_router_weight_on_input:
@@ -249,6 +250,13 @@ def bind_rollout_fixed_routed_combine():
         routing_data, _, _ = self._make_routing_data(topk_ids, topk_weights, local_num_experts)
         if topk_ids.size(1) != _TOP_K or not hasattr(routing_data, "_rlk_row_valid"):
             raise RuntimeError("fixed routed combine requires bound top-6 routing data")
+        if tp_size != 1:
+            # TP>1: vLLM's I/TP-split matmuls would need a cross-rank float reduction.
+            # Run the actor's packed W4A16 kernels on N-sharded original weights instead.
+            from .routed_experts_tp import tp_exact_unfused_apply
+
+            tp_exact_unfused_apply(self, output, hidden_states, routing_data, activation, mod)
+            return
         # Verbatim vLLM 3.8 unfused branch up to the combine (LoRA excluded above).
         act_out_dim = self.adjust_N_for_activation(w1.shape[2], activation)
         M, K = hidden_states.shape[-2:]

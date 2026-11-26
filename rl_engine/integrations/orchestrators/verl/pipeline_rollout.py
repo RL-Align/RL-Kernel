@@ -12,6 +12,10 @@ from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer
 
 
+# Seven-layer DSV4: PP2 x TP1, or PP1 with TP-invariant rollout at TP 1/2/4/8.
+_ALLOWED_PP_TP = {(2, 1), (1, 1), (1, 2), (1, 4), (1, 8)}
+
+
 @dataclass
 class RLKPipelineRolloutConfig(RolloutConfig):
     rlk_node_ips: list[str] = field(default_factory=list)
@@ -23,10 +27,10 @@ class RLKPipelineRolloutConfig(RolloutConfig):
             if isinstance(self.mtp, dict)
             else getattr(self.mtp, "enable", False)
         )
+        pp = self.pipeline_model_parallel_size
         if (
             self.name != "vllm"
-            or self.pipeline_model_parallel_size != 2
-            or self.tensor_model_parallel_size != 1
+            or (pp, self.tensor_model_parallel_size) not in _ALLOWED_PP_TP
             or self.expert_parallel_size != 1
             or self.data_parallel_size != 1
             or not self.enforce_eager
@@ -34,7 +38,8 @@ class RLKPipelineRolloutConfig(RolloutConfig):
             or mtp_enabled
         ):
             raise ValueError(
-                "RLK rollout requires eager standalone TP1 PP2 EP1 DP1 without sleep/MTP"
+                "RLK rollout requires eager standalone (PP2, TP1) or (PP1, TP in 1,2,4,8), EP1 DP1 "
+                "without sleep/MTP"
             )
         # Preserve every upstream validation/coercion other than its generic PP
         # rejection. The dedicated server below supplies actual PP2 engine args.
@@ -42,7 +47,7 @@ class RLKPipelineRolloutConfig(RolloutConfig):
         try:
             super().__post_init__()
         finally:
-            object.__setattr__(self, "pipeline_model_parallel_size", 2)
+            object.__setattr__(self, "pipeline_model_parallel_size", pp)
         if self.disaggregation.enabled:
             raise ValueError("RLK PP2 rollout does not support disaggregation")
 
@@ -52,6 +57,14 @@ def validate_pipeline_server(
 ):
     from .pipeline_topology import validate_pp2_layout
 
+    if getattr(config, "pipeline_model_parallel_size", None) == 1:
+        if (
+            not isinstance(config, RLKPipelineRolloutConfig)
+            or rollout_mode != RolloutMode.STANDALONE
+            or workers
+        ):
+            raise ValueError("RLK rollout server requires standalone native workers")
+        return
     if (
         not isinstance(config, RLKPipelineRolloutConfig)
         or rollout_mode != RolloutMode.STANDALONE
@@ -107,8 +120,10 @@ class RLKPipelineVLLMHttpServer(vLLMHttpServer):
         super()._preprocess_engine_kwargs(engine_kwargs)
         if engine_kwargs.get("distributed_executor_backend", "mp") != "mp":
             raise ValueError("RLK PP2 requires the native vLLM multiprocess executor")
-        if engine_kwargs.get("pipeline_parallel_size", 2) != 2:
-            raise ValueError("vLLM pipeline size must match the selected real PP2 topology")
+        if engine_kwargs.get("pipeline_parallel_size", self.config.pipeline_model_parallel_size) != (
+            self.config.pipeline_model_parallel_size
+        ):
+            raise ValueError("vLLM pipeline size must match the selected real PP topology")
         if getattr(self, "nnodes", 1) > 1:
             import inspect
             from vllm.engine.arg_utils import AsyncEngineArgs

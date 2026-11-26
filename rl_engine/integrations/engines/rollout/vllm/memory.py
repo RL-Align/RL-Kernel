@@ -18,7 +18,13 @@ def prepare_worker_ipc(worker):
     config = worker.vllm_config
     tp = get_tp_group()
     if tp.world_size > 1:
-        collective_for_group(tp.device_group)
+        # Capacity for the largest exact TP all-gather (see tp_exact.gather_last_dim).
+        from .tp_exact import capacity_bytes
+
+        collective_for_group(
+            tp.device_group,
+            min_size_bytes=capacity_bytes(config.scheduler_config.max_num_batched_tokens, tp.world_size),
+        )
     cp = int(getattr(config.parallel_config, "prefill_context_parallel_size", 1))
     if cp > 1:
         from vllm.distributed import get_pcp_group
