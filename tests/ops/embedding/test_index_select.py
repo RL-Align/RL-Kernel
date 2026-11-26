@@ -13,10 +13,17 @@ import pytest
 import torch
 
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
+from rl_engine.platforms.device import device_ctx
 from rl_engine.reference.embedding.index_select import NativeIndexSelectOp
 
 DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA or ROCm")
+# PyTorch also exposes ROCm through cuda. The project device probe imports torch_musa.
+TRITON_DEVICES = [pytest.param("cuda", marks=requires_cuda)]
+if hasattr(torch, "xpu") and torch.xpu.is_available():
+    TRITON_DEVICES.append(pytest.param("xpu"))
+if device_ctx.is_musa:
+    TRITON_DEVICES.append(pytest.param("musa"))
 
 
 def assert_bits(actual, expected):
@@ -108,18 +115,7 @@ class TestReference:
         assert_bits(dx, torch.tensor([0.0, -0.0, 0.0, 5.0], dtype=dtype))
 
 
-@pytest.mark.parametrize(
-    "backend",
-    [
-        "pytorch",
-        pytest.param("cuda", marks=requires_cuda),
-        *(
-            name
-            for name in ("xpu", "musa")
-            if hasattr(torch, name) and getattr(torch, name).is_available()
-        ),
-    ],
-)
+@pytest.mark.parametrize("backend", ["pytorch", *TRITON_DEVICES])
 class TestSharedAxes:
     @staticmethod
     def operator(backend):
@@ -393,8 +389,7 @@ class TestCuda:
     def test_backward_masks_invalid_destinations(self):
         from rl_engine.backends.shared.triton.embedding.index_select import _launch_index_select_bwd
 
-        # Call the launcher directly to check the scatter independently of
-        # the asynchronous error normally reported by forward.
+        # Call the launcher directly to check the scatter mask independently of forward.
         index = torch.tensor([-1, 2, 2**63 - 1, 0], device="cuda")
         grad = torch.arange(12, device="cuda", dtype=torch.float32).reshape(4, 3)
         dx = _launch_index_select_bwd(grad, index, (4, 3), 0, unique_indices=True)
@@ -447,6 +442,32 @@ class TestCuda:
         assert_bits(output, x.index_select(1, index))
         assert_bits(dx, expected_gradient(x, index, grad))
 
+    def test_warm_launch_respects_triton_hook(self, monkeypatch):
+        """A pre-run hook installed after warmup must observe the next launch and its inputs."""
+        from rl_engine.backends.shared.triton.embedding.index_select import _index_select_fwd_kernel
+
+        op = self.op()
+        x = torch.arange(8 * 32, device="cuda", dtype=torch.float32).view(8, 32)
+        index = torch.tensor([6, 1, 4], device=x.device)
+        with torch.inference_mode():
+            op(x, index, dim=0, unique_indices=True)
+
+            seen = []
+
+            def record(source, indices, *args, **kwargs):
+                seen.append((source, indices))
+
+            monkeypatch.setattr(
+                _index_select_fwd_kernel,
+                "pre_run_hooks",
+                [*_index_select_fwd_kernel.pre_run_hooks, record],
+            )
+            other_index = index.flip(0)
+            y = op(x, other_index, dim=0, unique_indices=True)
+
+        assert len(seen) == 1 and seen[0][0] is x and seen[0][1] is other_index
+        assert_bits(y, x.index_select(0, other_index))
+
     def test_device_guards_and_deterministic_mode(self):
         from rl_engine.runtime.registry import KernelRegistry
 
@@ -493,33 +514,74 @@ class TestCuda:
             assert_bits(output, x.index_select(dim, index))
             assert_bits(dx, expected_gradient(x, index, grad, dim=dim).to(dtype))
 
+
+@pytest.mark.parametrize("backend", TRITON_DEVICES)
+class TestAcceleratorBounds:
+    @pytest.mark.parametrize("debug", [False, True], ids=["release", "debug"])
     @pytest.mark.parametrize(
-        "shape,indices",
+        "shape,indices,channel_stride",
         [
-            ((1, 7, 32), [-1]),
-            ((1, 7, 32), [7]),
-            ((1, 7, 32), [2**63 - 1]),
-            ((1, 19, 96), [0, 1, 2, 3, 19]),  # bad index in the final narrow-row tile
-            ((0, 7, 32), [7]),
-            ((1, 7, 0), [-1]),
-            ((1, 0, 32), [0]),
+            ((1, 7, 32), [-1], 1),
+            ((1, 7, 32), [7], 1),
+            ((1, 7, 32), [2**63 - 1], 1),
+            ((1, 19, 96), [1, 2, 3, 4, 19], 1),  # bad index in the final narrow-row tile
+            ((1, 19, 96), [1, 2, 3, 4, 19], 2),  # the same tile on a strided source
+            ((0, 7, 32), [7], 1),
+            ((1, 7, 0), [-1], 1),
+            ((1, 0, 32), [0], 1),
         ],
     )
-    def test_invalid_cuda_index_fails_in_isolated_process(self, shape, indices):
+    def test_index_bounds_follow_triton_debug(self, backend, debug, shape, indices, channel_stride):
+        """Set the switch before importing Triton and isolate any device assertion."""
+        storage_shape = (*shape[:-1], shape[-1] * channel_stride)
         code = f"""
+import sys
 import torch
-from rl_engine.backends.shared.triton.embedding.index_select import TritonIndexSelectOp
-x = torch.zeros({shape!r}, device='cuda')
-i = torch.tensor({indices!r}, device='cuda')
-TritonIndexSelectOp()(x, i, dim=1, unique_indices=True)
-torch.cuda.synchronize()
+from rl_engine.runtime.registry import KernelRegistry
+device = torch.device({backend!r})
+accelerator = torch.get_device_module(device)
+x = torch.ones({storage_shape!r}, device=device)[..., ::{channel_stride}].requires_grad_()
+i = torch.tensor({indices!r}, device=device)
+op = KernelRegistry().get_op("index_select", device=device)
+valid = torch.arange(min(x.size(1), i.numel()), device=device)
+op(x, valid, dim=1, unique_indices=True)
+accelerator.synchronize()
+print("valid indices passed", flush=True)
+try:
+    y = op(x, i, dim=1, unique_indices=True)
+    accelerator.synchronize()
+except (IndexError, RuntimeError) as error:
+    sys.exit(str(error))
+if {debug!r}:
+    sys.exit(0)  # The parent expects the debug forward itself to fail.
+# In release mode, distinguish a masked load from reading row zero (which contains ones).
+# An invalid index must also leave row zero's gradient untouched.
+expected_y = torch.zeros_like(y)
+expected_dx = torch.zeros_like(x)
+for position, row in enumerate({indices!r}):
+    if 0 <= row < x.size(1):
+        expected_y[:, position] = 1
+        expected_dx[:, row] = 1
+(dx,) = torch.autograd.grad(y, x, torch.ones_like(y))
+torch.testing.assert_close(y, expected_y, rtol=0, atol=0)
+torch.testing.assert_close(dx, expected_dx, rtol=0, atol=0)
 """
         result = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
             text=True,
             timeout=90,
-            env={**os.environ, "TRITON_DEBUG": "0"},
+            env={**os.environ, "TRITON_DEBUG": "1" if debug else "0"},
         )
-        assert result.returncode != 0
-        assert "device-side assert" in result.stderr or "index values must be" in result.stderr
+        assert "valid indices passed" in result.stdout, result.stderr
+        output = result.stdout + result.stderr
+        if not debug:
+            assert result.returncode == 0, output
+            return
+        assert result.returncode != 0, "debug mode accepted an out-of-bounds index"
+        # Some runtimes print the failed scalar predicate instead of the supplied message.
+        assert (
+            "index values must be" in output
+            or "device-side assert" in output.lower()
+            or ("assert" in output.lower() and "input_[0] != 0" in output)
+        ), output
