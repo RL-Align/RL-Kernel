@@ -161,6 +161,12 @@ def _filter_rocm_incompatible_nvcc_flags(flags: list[str]) -> list[str]:
     return filtered_flags
 
 
+def _cxx_std(torch) -> str:
+    """Host C++ standard: torch >= 2.14's headers need C++20 (``#error`` otherwise)."""
+    major, minor = (int(v) for v in torch.__version__.split("+")[0].split(".")[:2])
+    return "-std=c++20" if (major, minor) >= (2, 14) else "-std=c++17"
+
+
 def get_extensions():
     torch, _, GpuExtension = _load_torch_extension_tools()
     if torch is None:
@@ -371,7 +377,7 @@ def get_extensions():
             nvcc_flags.append("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH")
 
         platform_define = "-DKERNEL_ALIGN_WITH_ROCM" if is_rocm else "-DKERNEL_ALIGN_WITH_CUDA"
-        cxx_flags = ["-O3", "-std=c++17", platform_define]
+        cxx_flags = ["-O3", _cxx_std(torch), platform_define]
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
