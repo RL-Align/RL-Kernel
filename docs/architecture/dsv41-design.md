@@ -588,6 +588,25 @@ existing forward-compat driver serves it). RL-Kernel's `_C`, its pinned DeepGEMM
 (`e21c821f`) and FlashMLA (`a8f794d`) are rebuilt there; vLLM builds its own FlashMLA
 (`b18ed744`) and vendored DeepGEMM. Job: `build_rlk41.sbatch` on the cluster.
 
+**`rlk41` as built (2026-11-26).** Things that cost a build each:
+
+- torch 2.14's headers require C++20: RL-Kernel's build picks `-std=c++20` for torch >= 2.14,
+  and DeepGEMM's setup is patched to C++20. Its version stays the pinned `2.6.1+e21c821` only
+  if the tree is clean (`setup.py` marked assume-unchanged, build markers outside the tree):
+  DeepGEMM appends `+local` otherwise and RL-Kernel refuses it.
+- vLLM main needs GCC >= 13 (C++20 `<format>`); the cluster's newest module is 12.5, so vLLM
+  and `_C` build with the env's conda-forge GCC 14 (`_C` links `-lcuda` against the toolkit
+  stub). vLLM's vendored DeepGEMM needs `elfutils` (`libdwfl.h`).
+- vLLM main builds its own FlashMLA (`b18ed744`) into the torch op namespaces `_flashmla_C` /
+  `_flashmla_extension_C`; loading ours too segfaults in `torch::Library::_def`. Our copy
+  (`a8f794d`, the kernels the gates validated) registers `_rlk_flashmla_C` /
+  `_rlk_flashmla_extension_C` instead. The DSv4 plugin's alias trick (vLLM's FlashMLA module
+  pointed at ours) does not apply here; the DSv4.1 plugin calls ours directly.
+- FlashInfer 0.7.4 requires `nvidia-cudnn-frontend>=1.32`; the attention backward was pinned
+  to 1.31.0. On 1.32.3 the DSv4 sparse / attention backward tests and the DSv4.1 training
+  tests pass, so 1.32.3 is accepted as validated (DSv4 envs keep 1.31.0).
+- In `rlk41`: 256 DSv4.1 kernel and model tests pass, the toy layerwise gate passes.
+
 **Split.** vLLM main has no batch-invariant DSv4.1 path on Hopper (its Hopper kernels are
 TileLang / CuTe DSL / Triton, with aux-stream overlap and batch-shaped planning), so unlike
 the DSv4 plugin, which kept vLLM's attention ops under the fork's BI mode, the DSv4.1

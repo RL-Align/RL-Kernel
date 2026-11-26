@@ -13,6 +13,9 @@ import torch
 from torch import Tensor
 
 CUDNN_FRONTEND_VERSION = "1.31.0"
+# Validated too: 1.32.3, which vLLM main's FlashInfer 0.7.4 requires (env rlk41, torch 2.14;
+# the DSv4 sparse / attention backward and the DSv4.1 training tests pass, 2026-11-26).
+CUDNN_FRONTEND_VALIDATED = (CUDNN_FRONTEND_VERSION, "1.32.3")
 ALLOW_UNPINNED_ENV = "RL_KERNEL_CUDNN_DSA_ALLOW_UNPINNED"
 DETERMINISTIC = False  # dkv uses FP32 atomics on SM90
 
@@ -38,10 +41,10 @@ def require_cudnn_dsa():
             f"nvidia-cudnn-frontend=={CUDNN_FRONTEND_VERSION} is required for the DSv4 "
             "attention backward"
         ) from exc
-    if version != CUDNN_FRONTEND_VERSION and os.environ.get(ALLOW_UNPINNED_ENV) != "1":
+    if version not in CUDNN_FRONTEND_VALIDATED and os.environ.get(ALLOW_UNPINNED_ENV) != "1":
         raise RuntimeError(
-            f"nvidia-cudnn-frontend {version} is not the pinned {CUDNN_FRONTEND_VERSION} "
-            f"(set {ALLOW_UNPINNED_ENV}=1 to accept it for development)"
+            f"nvidia-cudnn-frontend {version} is not one of the validated "
+            f"{CUDNN_FRONTEND_VALIDATED} (set {ALLOW_UNPINNED_ENV}=1 to accept it for development)"
         )
     from cudnn.deepseek_sparse_attention.sparse_attention_backward import (
         sparse_attention_backward_wrapper,
