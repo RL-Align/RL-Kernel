@@ -3,10 +3,12 @@
 
 import types
 
+from rl_engine.backends.rocm.attention.compressor_schedule import pin_c128_compressor_schedule
 from rl_engine.backends.rocm.attention.native_compressor import compressed_kv
 
 
 def bind_native_compressor(compressor, preprocess):
+    pin_c128_compressor_schedule()
     if compressor.head_dim != 512 or compressor.rotate or compressor.compress_ratio not in (4, 128):
         raise ValueError("original main C4/C128 compressor only; indexer is a separate boundary")
 

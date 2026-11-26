@@ -130,6 +130,9 @@ class RLKDeepSeekV4Worker(Worker):
                 json.loads(Path("/outputs/device-allocation.json").read_text()),
             )
         super().load_model(**kwargs)
+        from rl_engine.backends.rocm.attention.compressor_schedule import pin_c128_compressor_schedule
+
+        pin_c128_compressor_schedule()
         from .batch_order import bind_prefill_order
 
         self._rlk_case_request_order = []
