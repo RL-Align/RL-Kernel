@@ -29,6 +29,9 @@ rlk-drift-view = "rl_engine.validation.reports.viewer:main"
 [project.entry-points."vllm.general_plugins"]
 rl_kernel = "rl_engine.integrations.engines.rollout.vllm.runtime:register_vllm_plugin"
 
+[project.entry-points."sglang.multimodal_gen.plugins"]
+rl_kernel_h3 = "rl_engine.integrations.engines.rollout.sglang.plugin:register_sglang_plugin"
+
 [project.optional-dependencies]
 cuda = ["flashinfer-python>=0.6.0,<0.7", "nvidia-ml-py"]
 rocm = ["aiter"]

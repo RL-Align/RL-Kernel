@@ -21,6 +21,7 @@ nav:
       - operators/README.md
       - operators/activation.md
       - operators/attention.md
+      - operators/conditioning-noise-mix.md
       - operators/fused-logp.md
       - operators/linear-logp.md
       - operators/batch-invariant-logp.md
@@ -29,10 +30,31 @@ nav:
       - operators/lm_head.md
       - operators/ratio-kl.md
       - operators/pack-and-pad.md
+      - operators/packed-index-copy.md
+      - operators/video-patch-pack-unpack.md
+      - operators/video-input-projection-fp32.md
+      - operators/video-output-projection-fp32.md
+      - operators/h3-ode-step.md
       - operators/sampling.md
       - operators/det-gemm.md
       - operators/embedding.md
       - operators/final-logit-softcap.md
+      - MiniMax-H3:
+        - operators/h3-qwen3vl-layer50-contract.md
+        - operators/h3-sigma-schedule.md
+        - operators/h3-timestep-sinusoid.md
+        - operators/h3-timestep-mlp.md
+        - operators/h3-adaln-projection.md
+        - operators/h3-adaln-row-gather.md
+        - operators/h3-rmsnorm.md
+        - operators/h3-adaln-gate-residual.md
+        - operators/h3-final-adaln-out.md
+        - operators/h3-tp-adaln-3mod.md
+        - operators/h3-sp-norm-adaln.md
+        - operators/h3-visual-vae-contract.md
+        - operators/h3-image-vae-contract.md
+        - operators/h3-phase-b-full-chain.md
+        - operators/h3-projections.md
   - Developer Guide:
     - contributing/README.md
     - Contributor Guide: contributing/contributor-guide.md

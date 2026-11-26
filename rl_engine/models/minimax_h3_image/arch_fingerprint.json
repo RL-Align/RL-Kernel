@@ -1,0 +1,261 @@
+{
+ "checkpoint": {
+  "architecture": "MiniMaxH3ImageTransformer2DModel",
+  "repo": "MiniMaxAI/MiniMax-H3-Image",
+  "revision": "8ced60068623def5b74b4d10558117cb61d6482d",
+  "tasks": [
+   "t2i",
+   "edit"
+  ],
+  "upstream_architecture": "MiniMaxH3DiTModel"
+ },
+ "components": {
+  "pdd": "d81704913fdaaadc37778b8ec185e0a8ccd5e03cc332fc18c89834b08d215e98",
+  "pipeline": "fbd75a26a0d6a9cc886ba641f5caffb9c84827effea5ae8b03ad7ae984723c57",
+  "processor": "a2150a934d658a586613c63fc3fc9b9feeb5d1c9546c219be396e7c297d749b7",
+  "scheduler": "7db30f5a2a1fa49e12a0f6f5cb9e40bd96f2ccf50f3672320504b6eaf998b8bd",
+  "text_encoder": "985596f13af295ae8cca6b827efc5a3dfa42742e8647fbd6e329740cdf03133d",
+  "tokenizer": "5ff2a17ad808562916a478003d131bb8c0845adaaf0d9e95055975841b28f94b",
+  "transformer": "058e861753f7b3305696e0ab552dc3ff9e00b5fe4e269d87e9654b00dd7cd701",
+  "transformer_diffusers": "5abf198053bfb112f406a1fc273dd367ccadafbf9ab817e0e3c2495ddb97ac79",
+  "vae": "f180df6d76458b9610c231b57c4ff58871027a610c009dfa9ea25c5ef21ca2a8",
+  "vae_diffusers": "f22092e85cb2446694dfbfb0e079fb67788089d7da7a82b930553baf9dc1e81e"
+ },
+ "derived": {
+  "adaln_modalities": 3,
+  "adaln_projection_out": 96768,
+  "attention_inner_dim": 7168,
+  "attention_inner_dim_differs_from_hidden": true,
+  "canvas_multiple": 32,
+  "ffn_gate_up_out": 28672,
+  "final_adaln_out": 10752,
+  "image_patch_width": 96,
+  "num_pdd_heads": 6,
+  "rotary_channels": 96,
+  "rotary_pass_through_channels": 32
+ },
+ "fingerprint_sha256": "0eefe73a8ffa69ac3a4cf8bebcf3b770d3bbf48c21320df1fe72f2ec5ad02579",
+ "graph": {
+  "block_nodes_per_block": 17,
+  "blocks": 50,
+  "digest": "4fb411996b5a7b61a4c7787ffd5961952b98f290aca5bc6c1337a42ba4188bfa",
+  "nodes": 890,
+  "refiner_blocks": 2,
+  "refiner_nodes_per_block": 14,
+  "rows": {
+   "420": [
+    "adaln_gate_residual",
+    "adaln_projection_3mod",
+    "final_adaln_out",
+    "h3_attention_o_gemm",
+    "h3_ffn_down_gemm",
+    "h3_ffn_gate_up_gemm",
+    "h3_full_attention",
+    "h3_mm_rope_3axis_partial",
+    "h3_qk_rmsnorm_d128",
+    "h3_qkv_gemm",
+    "h3_rmsnorm",
+    "h3_swiglu",
+    "text_context_projection",
+    "timestep_mlp_fp32",
+    "timestep_sinusoid_h3",
+    "token_refiner_block",
+    "video_input_projection_fp32"
+   ],
+   "738": [
+    "h3_image_pdd_head_contract",
+    "image_packed_layout_schema",
+    "image_patch_pack_unpack",
+    "image_position_grid",
+    "image_transformer_output_gather"
+   ]
+  },
+  "stem_nodes": 8
+ },
+ "layouts": {
+  "transformer": {
+   "digest": "5dd31adb60f13ef78e0721fa9da288542708c8f56a9d6656b572ffad05930c6b",
+   "parameters": 33122643440,
+   "tensors": 531
+  },
+  "transformer_diffusers": {
+   "digest": "a447bb0af8291a7c5143f58e7f9bbfde86e544ae021c8205d61255e29a68ac48",
+   "parameters": 33125224384,
+   "tensors": 644
+  },
+  "vae": {
+   "digest": "a568eaf48e602f4524c9cc9239c4506907bb3f583a6197499cc4dc028089ee5a",
+   "parameters": 584229432,
+   "tensors": 416
+  },
+  "vae_diffusers": {
+   "digest": "f14fc70408e03c23966ae3a671585ae327603c653370fc5b5911fdda9df79b77",
+   "parameters": 584228408,
+   "tensors": 511
+  }
+ },
+ "mixed_precision": {
+  "bf16": "every other module and the packed residual stream",
+  "fp32_compute_without_parameters": [
+   "time_proj",
+   "rope"
+  ],
+  "fp32_modules": [
+   "proj_in",
+   "time_embedder",
+   "pdd_proj_out"
+  ],
+  "fp64_compute": [
+   "position_grid"
+  ]
+ },
+ "modality_tags": {
+  "audio_unused": 2,
+  "image": 0,
+  "text": 1
+ },
+ "parameters": 33125224384,
+ "pdd": {
+  "file": "pdd_fused_heads.safetensors",
+  "head_sha256": [
+   {
+    "bias": "1fc1f36beef45f19425389c335ec46d063afc064e9ab3ad82e31aade397f6772",
+    "weight": "29eee7d42047ca6108e889340fbfad667a06ccb76a4557979174f8d4f8cdf415"
+   },
+   {
+    "bias": "d80506f81a2b3feec6ced676b2feed3964d3b644eaf8afcb58ccfe76cca3f6ed",
+    "weight": "f66adcbfd159d8057d6cce7db1eb6074a1ae76ffcd098137ba8cec45cd2b8692"
+   },
+   {
+    "bias": "02d3a0b6030c35a1993e1248b811ee5301e6bbbe22f94f0d5826e0912780c558",
+    "weight": "6248bb0200fe9f822efbd1858b5b4536ac1d3d127b0596c5b93fe7163ba9a9f2"
+   },
+   {
+    "bias": "1bc72e7e746d093887d139d31f341eda4956479f35adab7c632490613d919419",
+    "weight": "5a6711c5a5515ac8afac83ad9197e103f255ac68912065e1bf6e0e4d4c6437ad"
+   },
+   {
+    "bias": "53d532a6ac4be2df6c0186bf9e11b518af0766ef6522bcc42a3c253a19ba0dfa",
+    "weight": "d17982400394f3cc233d5951eb785c2a6821c27ac58126294c349981f08906dd"
+   },
+   {
+    "bias": "ccac2475fbe33175e45c54ec9e0730729d465c592e086f2d819b283989d931a1",
+    "weight": "e5052b420f45845123fa9978ced2ebf5840a685433dc4100111d291ab2f9b6a8"
+   }
+  ],
+  "heads": 6,
+  "table_digest": "bc3e92500576c9866dd7009f82b2f0783d9118b99c47a338e065592cd2b306de",
+  "upstream_shared_head": "final_layer.video_out",
+  "upstream_shared_head_is_a_pdd_head": false
+ },
+ "reference_implementation": {
+  "commit": "875373ac7f5856071e345a3e394c74efccc6b9e6",
+  "repo": "huggingface/diffusers"
+ },
+ "scheduler": {
+  "class": "MiniMaxH3Scheduler",
+  "eta": 0.0,
+  "euler_update": "x_next = x_t + (sigma_eff_i - sigma_eff_(i+1)) * v_i, in float32",
+  "euler_update_form": "velocity",
+  "family": "pdd_fixed_grid_euler",
+  "pdd_head": "head i for loop step i; never chosen from the timestep value",
+  "reference_timestep": 0.999,
+  "shift_provided_sigmas": false,
+  "step_sigma": "sigma_eff_i = float32(1 - t_i): the released round trip, one ulp below 0.5",
+  "terminal_sigma": "sigma = 0 ends the grid and has no model evaluation",
+  "timestep": "t_i = float32(1 - sigma_i), t = 1 is clean",
+  "velocity": "data-ward, x0 = x_t + sigma * v"
+ },
+ "schema_version": "rlkernel.h3_image.arch_fingerprint.v1",
+ "sigma_grid": {
+  "config_sigmas": [
+   1.0,
+   0.9675236940383911,
+   0.8875485062599182,
+   0.75,
+   0.5327739119529724,
+   0.23200887441635132,
+   0.0
+  ],
+  "round_trip_moved": [],
+  "step_sigmas": [
+   1.0,
+   0.9675236940383911,
+   0.8875485062599182,
+   0.75,
+   0.5327739119529724,
+   0.23200887441635132,
+   0.0
+  ],
+  "timesteps": [
+   0.0,
+   0.03247630596160889,
+   0.11245149374008179,
+   0.25,
+   0.4672260880470276,
+   0.7679911255836487
+  ]
+ },
+ "tensors": 644,
+ "text_encoder": {
+  "files_sha256": "fa3a3ec973b6530cc0be32ed4c158376ed50ab3846a3ce101d1941e2a580951d",
+  "hidden_state_layer": 50,
+  "identical_to_released_text_encoder": true,
+  "max_sequence_length": 4096,
+  "repo": "MiniMaxAI/MiniMax-H3",
+  "revision": "42ed227ee7df40d41602854ae760620d6eb651fe"
+ },
+ "transformer_config": {
+  "attention_head_dim": 128,
+  "ffn_dim": 14336,
+  "final_norm_eps": 1e-05,
+  "freq_dim": 256,
+  "hidden_size": 5376,
+  "in_channels": 24,
+  "norm_eps": 1e-05,
+  "num_attention_heads": 56,
+  "num_layers": 50,
+  "num_pdd_heads": 6,
+  "num_refiner_layers": 2,
+  "patch_size": [
+   1,
+   2,
+   2
+  ],
+  "qk_norm_eps": 1e-05,
+  "rope_freq_dim": 16,
+  "rope_theta": 10000.0,
+  "text_dim": 5120,
+  "time_embed_dim": 2688,
+  "time_embed_hidden_dim": 5376
+ },
+ "vae": {
+  "class": "AutoencoderKLMiniMaxH3Image",
+  "decoder": {
+   "head_dim": 64,
+   "heads": 16,
+   "layers": 24,
+   "register_tokens": 4,
+   "rope_dim_ratio": 0.5,
+   "rope_theta": 100.0
+  },
+  "decoder_tiling": true,
+  "encoder_tiling": true,
+  "latent_channels": 24,
+  "latent_stats_sha256": "635092c92307ab524f397270c02cad641c3655ca222b2cbbfaeeb9f71eeae65d",
+  "pixel_mean": [
+   0.485,
+   0.456,
+   0.406
+  ],
+  "pixel_std": [
+   0.229,
+   0.224,
+   0.225
+  ],
+  "spatial_compression": 16,
+  "tile_overlap_min": 64,
+  "tile_size": 256,
+  "upstream_class": "MiniMaxH3ImageVAE"
+ }
+}
