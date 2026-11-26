@@ -38,6 +38,69 @@ def _args(**overrides):
     return argparse.Namespace(**values)
 
 
+def test_video_input_projection_contract_and_logical_keys():
+    args = _args(batch=2, seq=3)
+    inputs = make_operator_inputs(
+        "video_input_projection_fp32", args, torch.float32, torch.device("cpu")
+    )
+    assert inputs["x"].shape == (2, 3, 96)
+    assert inputs["weight"].shape == (5376, 96)
+    assert inputs["bias"].shape == (5376,)
+    assert inputs["logical_keys"].tolist() == [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]]
+    assert operator_shape_name("video_input_projection_fp32", args) == "2x3x96x5376"
+    with pytest.raises(TypeError, match="FP32"):
+        make_operator_inputs(
+            "video_input_projection_fp32", args, torch.bfloat16, torch.device("cpu")
+        )
+
+
+def test_video_output_projection_contract_and_logical_keys():
+    args = _args(batch=2, seq=3)
+    inputs = make_operator_inputs(
+        "video_output_projection_fp32", args, torch.float32, torch.device("cpu")
+    )
+    assert inputs["x"].shape == (2, 3, 5376)
+    assert inputs["weight"].shape == (96, 5376)
+    assert inputs["bias"].shape == (96,)
+    assert inputs["logical_keys"].tolist() == [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2]]
+    assert operator_shape_name("video_output_projection_fp32", args) == "2x3x5376x96"
+    with pytest.raises(TypeError, match="FP32"):
+        make_operator_inputs(
+            "video_output_projection_fp32", args, torch.bfloat16, torch.device("cpu")
+        )
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_random_packed_index_copy_inputs_are_seeded_and_valid(dtype):
+    args = _args(input_mode="random", batch=2, seq=11, normalized_dim=17, seed=420)
+    device = torch.device("cpu")
+    first = make_operator_inputs("packed_index_copy", args, dtype, device)
+    repeated = make_operator_inputs("packed_index_copy", args, dtype, device)
+    assert isinstance(first["sequence_length"], int)
+    assert first["sequence_length"] == repeated["sequence_length"]
+    indices = []
+    for modality in ("text", "video", "audio"):
+        source, positions = first[modality], first[f"{modality}_indices"]
+        assert torch.equal(source, repeated[modality])
+        assert torch.equal(positions, repeated[f"{modality}_indices"])
+        assert source.ndim == 3 and source.shape[0] == args.batch
+        assert source.shape[2] == args.normalized_dim and source.dtype == dtype
+        assert source.device == device and source.is_contiguous()
+        assert positions.ndim == 1 and positions.numel() == source.shape[1]
+        assert positions.dtype == torch.int64 and positions.device == device
+        assert positions.is_contiguous()
+        indices.append(positions)
+    packed_indices = torch.cat(indices)
+    assert packed_indices.unique().numel() == packed_indices.numel()
+    assert ((packed_indices >= 0) & (packed_indices < first["sequence_length"])).all()
+    assert 0 < packed_indices.numel() < first["sequence_length"]
+
+    args.seed += 1
+    changed = make_operator_inputs("packed_index_copy", args, dtype, device)
+    for modality in ("text", "video", "audio"):
+        assert not torch.equal(first[modality], changed[modality])
+
+
 @pytest.mark.parametrize(
     "op_name",
     [
@@ -89,6 +152,26 @@ def test_random_logp_inputs_are_seeded():
 
     assert torch.equal(first["logits"], second["logits"])
     assert torch.equal(first["token_ids"], second["token_ids"])
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_random_conditioning_noise_mix_inputs_are_seeded_and_per_sample(dtype):
+    args = _args(input_mode="random", batch=8, seed=420)
+    first = make_operator_inputs("conditioning_noise_mix", args, dtype, torch.device("cpu"))
+    repeated = make_operator_inputs("conditioning_noise_mix", args, dtype, torch.device("cpu"))
+    for name in first:
+        assert torch.equal(first[name], repeated[name])
+
+    timestep = first["timestep"]
+    assert timestep.shape == (args.batch,)
+    assert timestep.dtype == dtype
+    assert torch.isfinite(timestep).all()
+    assert ((timestep >= 0) & (timestep <= 1)).all()
+    assert timestep.unique().numel() > 1
+
+    args.seed += 1
+    changed = make_operator_inputs("conditioning_noise_mix", args, dtype, torch.device("cpu"))
+    assert not torch.equal(timestep, changed["timestep"])
 
 
 def test_cp_attention_operator_spec_registers_backward_grad_inputs():

@@ -1,0 +1,133 @@
+{
+ "checkpoint": {
+  "architecture": "MiniMaxH3Transformer3DModel",
+  "repo": "MiniMaxAI/MiniMax-H3",
+  "revision": "42ed227ee7df40d41602854ae760620d6eb651fe"
+ },
+ "components": {
+  "FL2VA": "35b2e8271752518b683abd327d5a7ce5a164b90faa038bc807efb44f666f5490",
+  "Ref2VA": "9681cadaf0c954a6b28f0962b54a8d19287a6c21924dde127ef38fc8e4328719",
+  "audio_scheduler": "dc8edef0db5c133b968057cc6e0f2ef744444a9ece7ae5814cf77b877c40c356",
+  "scheduler": "e60054558dcfb74246af86d5da946fdb79e5445c0c710bfcfe165e3c5da1f3a9",
+  "transformer": "0785226a50a6480f99dbbe06f81cca5f974bc69e59b54479638125c194875b7a",
+  "transformer_ref": "d41d0949f6bf83c8cce1f2492fd5bc2811f1a6603e7b84f02bb3aacdc7e9bb71"
+ },
+ "derived": {
+  "adaln_modalities": 3,
+  "adaln_projection_out": 96768,
+  "attention_inner_dim": 7168,
+  "attention_inner_dim_differs_from_hidden": true,
+  "audio_width": 32,
+  "ffn_gate_up_out": 28672,
+  "final_adaln_out": 10752,
+  "rotary_channels": 96,
+  "rotary_pass_through_channels": 32,
+  "video_patch_width": 96
+ },
+ "fingerprint_sha256": "805d0ebf601a09d65ede184441fda2694aa374d80f3dc274ba4670cfcfdf0839",
+ "graph": {
+  "block_nodes_per_block": 17,
+  "blocks": 50,
+  "digest": "67c07e832b7af5e3aa060e23db39afbb59310a692aa5d9f7e4f5836aff703041",
+  "nodes": 891,
+  "refiner_blocks": 2,
+  "refiner_nodes_per_block": 14,
+  "rows": [
+   "adaln_gate_residual",
+   "adaln_projection_3mod",
+   "audio_input_projection_fp32",
+   "audio_output_projection_fp32",
+   "final_adaln_out",
+   "h3_attention_o_gemm",
+   "h3_ffn_down_gemm",
+   "h3_ffn_gate_up_gemm",
+   "h3_full_attention",
+   "h3_mm_rope_3axis_partial",
+   "h3_qk_rmsnorm_d128",
+   "h3_qkv_gemm",
+   "h3_rmsnorm",
+   "h3_swiglu",
+   "packed_index_copy",
+   "packed_index_select",
+   "text_context_projection",
+   "timestep_mlp_fp32",
+   "timestep_sinusoid_h3",
+   "token_refiner_block",
+   "video_input_projection_fp32",
+   "video_output_projection_fp32",
+   "video_patch_pack_unpack"
+  ],
+  "stem_nodes": 8
+ },
+ "mixed_precision": {
+  "bf16": "every other module and the packed residual stream",
+  "fp32_compute_without_parameters": [
+   "time_proj",
+   "rope"
+  ],
+  "fp32_modules": [
+   "proj_in",
+   "audio_proj_in",
+   "time_embedder",
+   "proj_out",
+   "audio_proj_out"
+  ]
+ },
+ "modality_tags": {
+  "audio": 2,
+  "text": 1,
+  "video": 0
+ },
+ "parameters": 33122992896,
+ "scheduler": {
+  "audio_shift": 3.0,
+  "eta": 0.0,
+  "euler_update": "x_next = r * xt + (1 - r) * x0, r = sigma_next / sigma",
+  "family": "rectified_flow_euler",
+  "grid": "shifted linspace(1, 0, steps), consecutive FP32 duplicates removed",
+  "sigma_transform": "s * sigma / (1 + (s - 1) * sigma)",
+  "timestep": "t = 1 - sigma",
+  "velocity": "data-ward, x0 = xt + sigma * v",
+  "video_shift": 12.0
+ },
+ "schema_version": "rlkernel.h3.arch_fingerprint.v1",
+ "tensors": 638,
+ "transformer_config": {
+  "attention_head_dim": 128,
+  "audio_in_channels": 32,
+  "ffn_dim": 14336,
+  "final_norm_eps": 1e-05,
+  "freq_dim": 256,
+  "hidden_size": 5376,
+  "in_channels": 24,
+  "norm_eps": 1e-05,
+  "num_attention_heads": 56,
+  "num_layers": 50,
+  "num_refiner_layers": 2,
+  "patch_size": [
+   1,
+   2,
+   2
+  ],
+  "qk_norm_eps": 1e-05,
+  "rope_freq_dim": 16,
+  "rope_theta": 10000.0,
+  "text_dim": 5120,
+  "time_embed_dim": 2688,
+  "time_embed_hidden_dim": 5376
+ },
+ "variants": {
+  "FL2VA": {
+   "bytes": 66280569250,
+   "directory": "transformer",
+   "files": 16,
+   "tensor_table_digest": "9b5e42469bcc46d65399f5625cbb1e766742faf6c460d294d499523990290e0d"
+  },
+  "Ref2VA": {
+   "bytes": 66280569250,
+   "directory": "transformer_ref",
+   "files": 16,
+   "tensor_table_digest": "9b5e42469bcc46d65399f5625cbb1e766742faf6c460d294d499523990290e0d"
+  }
+ }
+}

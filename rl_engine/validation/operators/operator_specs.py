@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,6 +33,55 @@ def _load_object(path: str) -> Any:
 
 
 OP_SPECS = {
+    "h3_full_attention": OperatorSpec(
+        name="h3_full_attention",
+        op_class="attention",
+        gold_path=("rl_engine.reference.attention.standard_attn.H3FullAttentionReference"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "cuda": "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp",
+        },
+        grad_input_names=("q", "k", "v"),
+    ),
+    "video_input_projection_fp32": OperatorSpec(
+        name="video_input_projection_fp32",
+        op_class="reduction",
+        gold_path=(
+            "rl_engine.reference.gemm.video_input_projection_fp32.NativeVideoInputProjectionFP32Op"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.gemm.video_input_projection_fp32."
+                "NativeVideoInputProjectionFP32Op"
+            ),
+            "triton": (
+                "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
+                "TritonVideoInputProjectionFP32Op"
+            ),
+        },
+        grad_input_names=("x", "weight", "bias"),
+    ),
+    "video_output_projection_fp32": OperatorSpec(
+        name="video_output_projection_fp32",
+        op_class="reduction",
+        gold_path=(
+            "rl_engine.reference.gemm.video_output_projection_fp32."
+            "NativeVideoOutputProjectionFP32Op"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.gemm.video_output_projection_fp32."
+                "NativeVideoOutputProjectionFP32Op"
+            ),
+            "triton": (
+                "rl_engine.backends.shared.triton.gemm.video_output_projection_fp32."
+                "TritonVideoOutputProjectionFP32Op"
+            ),
+        },
+        grad_input_names=("x", "weight", "bias"),
+    ),
     "rms_norm": OperatorSpec(
         name="rms_norm",
         op_class="reduction",
@@ -256,6 +306,20 @@ OP_SPECS = {
         },
         grad_input_names=("x",),
     ),
+    "conditioning_noise_mix": OperatorSpec(
+        name="conditioning_noise_mix",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.conditioning.conditioning_noise_mix."
+        "NativeConditioningNoiseMixOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.conditioning.conditioning_noise_mix."
+            "NativeConditioningNoiseMixOp",
+            "cuda": "rl_engine.backends.cuda.conditioning.conditioning_noise_mix."
+            "ConditioningNoiseMixCudaOp",
+        },
+        grad_input_names=("sample", "noise"),
+    ),
     "batch_invariant_logp": OperatorSpec(
         name="batch_invariant_logp",
         op_class="logprob",
@@ -282,6 +346,110 @@ OP_SPECS = {
         },
         grad_input_names=("logits",),
     ),
+    # MiniMax-H3 (RFC #420) conditioning path. The op is FP32 end to end, so
+    # its FP32 rows are the declared contract; other dtypes only change the
+    # timestep input's storage dtype.
+    "timestep_sinusoid_h3": OperatorSpec(
+        name="timestep_sinusoid_h3",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.minimax_h3.timestep_sinusoid.NativeH3TimestepSinusoidOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.minimax_h3.timestep_sinusoid.NativeH3TimestepSinusoidOp"
+            ),
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "timestep_sinusoid.H3TimestepSinusoidCudaOp"
+            ),
+        },
+        grad_input_names=("timestep",),
+    ),
+    "timestep_mlp_fp32": OperatorSpec(
+        name="timestep_mlp_fp32",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.timestep_mlp.NativeH3TimestepMLPOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.minimax_h3.timestep_mlp.NativeH3TimestepMLPOp",
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "timestep_mlp.H3TimestepMLPCudaOp"
+            ),
+        },
+        grad_input_names=("x", "w1", "b1", "w2", "b2"),
+    ),
+    "adaln_projection_3mod": OperatorSpec(
+        name="adaln_projection_3mod",
+        op_class="reduction",
+        gold_path=("rl_engine.reference.minimax_h3.adaln_projection.NativeH3AdaLNProjectionOp"),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.minimax_h3.adaln_projection.NativeH3AdaLNProjectionOp"
+            ),
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "adaln_projection.H3AdaLNProjectionCudaOp"
+            ),
+        },
+        grad_input_names=("temb", "weight", "bias"),
+    ),
+    # The gather's forward is a copy (asserted bitwise in tests/models/minimax_h3), but its VJP
+    # sums every packed position of a table row, so it is judged as a reduction.
+    "adaln_row_gather": OperatorSpec(
+        name="adaln_row_gather",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.adaln_row_gather.NativeH3AdaLNRowGatherOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.reference.minimax_h3.adaln_row_gather.NativeH3AdaLNRowGatherOp"),
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "adaln_row_gather.H3AdaLNRowGatherCudaOp"
+            ),
+        },
+        grad_input_names=("rows",),
+    ),
+    "h3_rmsnorm": OperatorSpec(
+        name="h3_rmsnorm",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp",
+            "cuda": "rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm.H3RMSNormCudaOp",
+        },
+        grad_input_names=("x", "weight"),
+    ),
+    "adaln_gate_residual": OperatorSpec(
+        name="adaln_gate_residual",
+        op_class="reduction",  # forward is elementwise; the gate VJP sums positions
+        gold_path="rl_engine.reference.minimax_h3.gate_residual.NativeH3GateResidualOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.minimax_h3.gate_residual.NativeH3GateResidualOp",
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "gate_residual.H3GateResidualCudaOp"
+            ),
+        },
+        grad_input_names=("residual", "y", "gate"),
+    ),
+    "final_adaln_out": OperatorSpec(
+        name="final_adaln_out",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.final_adaln_out.NativeH3FinalAdaLNOutOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": ("rl_engine.reference.minimax_h3.final_adaln_out.NativeH3FinalAdaLNOutOp"),
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3."
+                "final_adaln_out.H3FinalAdaLNOutCudaOp"
+            ),
+        },
+        grad_input_names=("x", "norm_weight", "temb", "weight", "bias"),
+    ),
     "pack": OperatorSpec(
         name="pack",
         op_class="elementwise",
@@ -292,7 +460,95 @@ OP_SPECS = {
         },
         grad_input_names=("x",),
     ),
+    "packed_index_copy": OperatorSpec(
+        name="packed_index_copy",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+            "cuda": "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp",
+        },
+        grad_input_names=("text", "video", "audio"),
+    ),
+    "video_patch_pack_unpack": OperatorSpec(
+        name="video_patch_pack_unpack",
+        op_class="elementwise",
+        gold_path="rl_engine.validation.operators.operator_specs.GtestVideoPatchPackUnpackOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.reference.packing.video_patch_pack_unpack.NativeVideoPatchPackUnpackOp"
+            ),
+        },
+        grad_input_names=("x",),
+    ),
+    # MiniMax-H3 deterministic rectified-flow Euler step (RFC #420 h3_ode_step).
+    # Element-wise, no reduction: Axis-A batch invariance is expected bitwise.
+    "h3_ode_step": OperatorSpec(
+        name="h3_ode_step",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.flow.ode_step.NativeH3OdeStepOp",
+        gold_method="forward_fp32",
+        # ``pytorch`` is the declared reference candidate, as in the other
+        # reference-backed specs: the harness calls it through ``forward`` (public
+        # entry, dtype cast and validation) while the gold uses ``forward_fp32``,
+        # so the comparison covers that path rather than discriminating numerics.
+        candidate_paths={
+            "pytorch": "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp",
+            "triton": ("rl_engine.backends.shared.triton.flow.ode_step.H3OdeStepTritonOp"),
+            "cuda": "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp",
+            "cuda-sm90": "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp",
+        },
+        grad_input_names=("xt", "v"),
+    ),
+    # MiniMax-H3-Image velocity-form Euler step (RFC #738 image_velocity_step).
+    "h3_image_velocity_step": OperatorSpec(
+        name="h3_image_velocity_step",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.flow.velocity_step.NativeH3ImageVelocityStepOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.flow.velocity_step.NativeH3ImageVelocityStepOp",
+            "triton": (
+                "rl_engine.backends.shared.triton.flow.velocity_step.H3ImageVelocityStepTritonOp"
+            ),
+        },
+        grad_input_names=("xt", "v"),
+    ),
 }
+
+
+class GtestVideoPatchPackUnpackOp:
+    """Adapt the two video permutation methods to the callable gtest interface."""
+
+    def __init__(self, candidate: Any = None) -> None:
+        if candidate is None:
+            from rl_engine.reference.packing.video_patch_pack_unpack import (
+                NativeVideoPatchPackUnpackOp,
+            )
+
+            candidate = NativeVideoPatchPackUnpackOp()
+        self._op = candidate
+
+    def __call__(
+        self, x: torch.Tensor, shape: tuple[int, int, int, int, int], unpack: bool
+    ) -> torch.Tensor:
+        return self._op.unpack(x, shape) if unpack else self._op.pack(x)
+
+    def forward_fp32(
+        self, x: torch.Tensor, shape: tuple[int, int, int, int, int], unpack: bool
+    ) -> torch.Tensor:
+        from rl_engine.reference.packing.video_patch_pack_unpack import (
+            pack_video_patch_reference,
+            unpack_video_patch_reference,
+        )
+
+        return (
+            unpack_video_patch_reference(x.float(), shape)
+            if unpack
+            else pack_video_patch_reference(x.float())
+        )
 
 
 class GtestPackOp:
@@ -376,11 +632,19 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
         candidate_op = _load_object(spec.candidate_paths[candidate_name])()
         if args.op == "logp" and candidate_name == "cuda-sm90":
             candidate_op = _LogpSM90CandidateAdapter(candidate_op)
+        elif args.op == "video_patch_pack_unpack":
+            candidate_op = GtestVideoPatchPackUnpackOp(candidate_op)
         return CandidateSpec(
             name=f"{candidate_name}-{args.op}",
             backend=candidate_name,
             arch_key=args.arch_key,
             fn=candidate_op,
+            backward_context_factory=(
+                _canonical_validation_context
+                if args.op in {"video_input_projection_fp32", "video_output_projection_fp32"}
+                and candidate_name != "pytorch"
+                else None
+            ),
         )
 
     supported = sorted([*spec.candidate_paths, "native"])
@@ -388,3 +652,14 @@ def make_candidate(args: argparse.Namespace) -> CandidateSpec:
         f"unsupported candidate {args.candidate!r} for op {args.op!r}; "
         f"supported candidates: {', '.join(supported)}"
     )
+
+
+@contextmanager
+def _canonical_validation_context():
+    """Keep the session active for forward/backward and check contributions on exit."""
+
+    from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
+
+    with canonical_backward_session() as session:
+        yield session
+        session.validate_complete()

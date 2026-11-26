@@ -60,6 +60,41 @@ def _checked(code, operation):
         raise RuntimeError(f"{operation} failed with status {code}")
 
 
+def _nvrtc_candidates(site=None, cuda_version=None):
+    """NVRTC libraries to try, best match for torch's CUDA build first.
+
+    CUDA 12 wheels ship ``nvidia/cuda_nvrtc/lib/libnvrtc.so.12``; CUDA 13
+    wheels ship ``nvidia/cu13/lib/libnvrtc.so.13``. After the wheel copies
+    come the system sonames for torch's CUDA major, then the unversioned name.
+    """
+    if site is None:
+        site = Path(torch.__file__).parent.parent / "nvidia"
+    if cuda_version is None:
+        cuda_version = torch.version.cuda
+    major = (cuda_version or "").split(".")[0]
+    wheel_dirs = [site / "cuda_nvrtc" / "lib"]
+    if major:
+        wheel_dirs.insert(0, site / f"cu{major}" / "lib")
+    wheel_dirs += sorted(Path(p) for p in glob.glob(str(site / "cu[0-9]*" / "lib")))
+    candidates = []
+    for directory in wheel_dirs:
+        candidates += sorted(glob.glob(str(directory / "libnvrtc.so*")), key=len)
+    if major:
+        candidates.append(f"libnvrtc.so.{major}")
+    candidates += ["libnvrtc.so.13", "libnvrtc.so.12", "libnvrtc.so"]
+    return list(dict.fromkeys(candidates))
+
+
+def _load_nvrtc():
+    errors = []
+    for name in _nvrtc_candidates():
+        try:
+            return C.CDLL(name)
+        except OSError as error:
+            errors.append(f"{name}: {error}")
+    raise OSError("could not load NVRTC; tried:\n  " + "\n  ".join(errors))
+
+
 def _kernel(device):
     device = torch.device(device)
     key = device.index
@@ -74,10 +109,7 @@ def _kernel(device):
         arch = torch.cuda.get_device_properties(device).gcnArchName.split(":")[0]
         source = "#include <hip/hip_runtime.h>\n" + _SOURCE
     else:
-        libs = glob.glob(
-            str(Path(torch.__file__).parent.parent / "nvidia/cuda_nvrtc/lib/libnvrtc.so*")
-        )
-        rtc = C.CDLL(sorted(libs, key=len)[0] if libs else "libnvrtc.so.12")
+        rtc = _load_nvrtc()
         driver = C.CDLL("libcuda.so.1")
         prefix = "nvrtc"
         module_prefix = "cu"
@@ -174,6 +206,66 @@ def norm_from_bins(bins):
     return math.sqrt(math.ldexp(float(total), -298))
 
 
+def exact_norm(values, group=None) -> float:
+    """L2 norm of all elements of ``values`` over the ranks of ``group``, bit-identical on each.
+
+    Each rank passes the tensors it *counts*: a tensor held by several ranks (a replicated
+    parameter, or a gradient every context-parallel rank holds in full) must be passed by
+    exactly one of them. The squares are binned as integers and the bins are summed with an
+    integer all-reduce, so neither the partition of the tensors nor the reduction order of the
+    collective changes the result. Without an initialised process group, or with a group of
+    one rank, this is the norm of the local tensors.
+    """
+
+    values = [values] if isinstance(values, torch.Tensor) else list(values)
+    if any(not isinstance(v, torch.Tensor) or not v.is_cuda for v in values):
+        raise TypeError("exact gradient norm requires accelerator tensors")
+    distributed = torch.distributed.is_available() and torch.distributed.is_initialized()
+    world = torch.distributed.get_world_size(group) if distributed else 1
+    if sum(v.numel() for v in values) * world >= (1 << 63) // 65535:
+        raise OverflowError("exact gradient norm integer accumulator capacity exceeded")
+    bins = integer_square_bins(values)
+    if world > 1:
+        torch.distributed.all_reduce(bins, group=group)
+    return norm_from_bins(bins.cpu().tolist())
+
+
+def clip_grad_norm_exact_(parameters, max_norm: float, *, counted=None, group=None) -> float:
+    """``torch.nn.utils.clip_grad_norm_`` with the exact norm of :func:`exact_norm`.
+
+    ``parameters`` is a Tensor or an iterable of them. ``counted(p)`` selects the parameters whose
+    gradients enter the norm on this rank (default: all of them); use it so that each replicated
+    parameter is counted once across ``group``. Every gradient is then scaled by
+    ``clamp(max_norm / (norm + 1e-6), max=1)`` computed in FP32, as PyTorch does, and multiplied at
+    FP32 whatever the gradients' dtype. A non-finite norm leaves the gradients unchanged and is
+    returned, so that the caller can skip the step (verl's FSDP2 clip does the same).
+    """
+
+    if isinstance(parameters, torch.Tensor):  # one parameter, as torch.nn.utils.clip_grad_norm_
+        parameters = [parameters]
+    params = [p for p in parameters if p.grad is not None]
+    keep = params if counted is None else [p for p in params if counted(p)]
+    total = exact_norm([p.grad for p in keep], group)
+    if not math.isfinite(total):
+        return total
+    coef = torch.clamp(
+        torch.tensor(max_norm, dtype=torch.float32)
+        / (torch.tensor(total, dtype=torch.float32) + 1e-6),
+        max=1.0,
+    )
+    # The FP32 coefficient is passed as a Python scalar, so the kernels multiply at FP32 for FP16
+    # and BF16 gradients too. PyTorch's clip passes a 0-d tensor, which type promotion casts to
+    # the gradients' dtype: a coefficient below FP16's range then zeroes every gradient. For FP32
+    # gradients the two agree. One foreach multiply per (device, dtype) group, no device copy.
+    scale = float(coef)
+    groups: dict[tuple[torch.device, torch.dtype], list[torch.Tensor]] = {}
+    for p in params:
+        groups.setdefault((p.grad.device, p.grad.dtype), []).append(p.grad)
+    for grads in groups.values():
+        torch._foreach_mul_(grads, scale)
+    return total
+
+
 def install():
     from megatron.core.optimizer import clip_grads, optimizer
 
@@ -184,18 +276,7 @@ def install():
     def get_norm(grads_for_norm, norm_type=2, grad_stats_parallel_group=None):
         if float(norm_type) != 2:
             return original(grads_for_norm, norm_type, grad_stats_parallel_group)
-        values = (
-            [grads_for_norm] if isinstance(grads_for_norm, torch.Tensor) else list(grads_for_norm)
-        )
-        if any(not isinstance(v, torch.Tensor) or not v.is_cuda for v in values):
-            raise TypeError("exact gradient norm requires accelerator tensors")
-        group = grad_stats_parallel_group
-        world = torch.distributed.get_world_size(group)
-        if sum(v.numel() for v in values) * world >= (1 << 63) // 65535:
-            raise OverflowError("exact gradient norm integer accumulator capacity exceeded")
-        bins = integer_square_bins(values)
-        torch.distributed.all_reduce(bins, group=group)
-        return norm_from_bins(bins.cpu().tolist())
+        return exact_norm(grads_for_norm, grad_stats_parallel_group)
 
     clip_grads.get_grad_norm_fp32 = get_norm
     optimizer.get_grad_norm_fp32 = get_norm

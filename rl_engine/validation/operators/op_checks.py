@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -40,6 +41,7 @@ class CandidateSpec:
     backend: str = "unknown"
     arch_key: str | None = None
     provenance: BackendProvenance | None = None
+    backward_context_factory: Callable[[], AbstractContextManager] | None = None
 
 
 @dataclass(frozen=True)
@@ -218,23 +220,29 @@ def _run_case_backward(
 
     candidate_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
     gold_inputs = _clone_inputs_for_backward(case.inputs, case.grad_input_names)
-    candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, candidate_inputs))
-    gold_outputs = _flatten_tensors(case.gold_fn(**gold_inputs))
+    context = (
+        candidate.backward_context_factory()
+        if candidate.backward_context_factory
+        else nullcontext()
+    )
     # Candidate and gold must use the same upstream gradients; otherwise we
     # would compare different vector-Jacobian products.
     # grad_mode="ones" is the old output.sum().backward() smoke path.
     # grad_mode="random" is closer to training, where dL/doutput is non-uniform.
-    grad_outputs = _make_grad_outputs(candidate_outputs, grad_mode=grad_mode, seed=grad_seed)
-    shared_upstreams = [
-        grad.to(device=output.device, dtype=output.dtype)
-        for grad, output in zip(grad_outputs, candidate_outputs, strict=True)
-    ]
-    candidate_grads = _backward_grads(
-        candidate_outputs,
-        candidate_inputs,
-        case.grad_input_names,
-        grad_outputs=shared_upstreams,
-    )
+    with context:
+        candidate_outputs = _flatten_tensors(_call_candidate(candidate.fn, candidate_inputs))
+        grad_outputs = _make_grad_outputs(candidate_outputs, grad_mode=grad_mode, seed=grad_seed)
+        shared_upstreams = [
+            grad.to(device=output.device, dtype=output.dtype)
+            for grad, output in zip(grad_outputs, candidate_outputs, strict=True)
+        ]
+        candidate_grads = _backward_grads(
+            candidate_outputs,
+            candidate_inputs,
+            case.grad_input_names,
+            grad_outputs=shared_upstreams,
+        )
+    gold_outputs = _flatten_tensors(case.gold_fn(**gold_inputs))
     gold_grads = _backward_grads(
         gold_outputs,
         gold_inputs,
