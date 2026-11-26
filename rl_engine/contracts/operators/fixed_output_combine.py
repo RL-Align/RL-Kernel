@@ -34,6 +34,23 @@ class PreparedFixedOutputCombine:
     _tokens: Tensor
     _versions: tuple[int, int]
 
+    @classmethod
+    def trusted(cls, plan, num_tokens, mapping_run_id, provenance, rows, tokens):
+        """Wrap caller-verified canonical rows without re-validation (rollout fast path).
+
+        ``rows`` [T,6] int64 and ``tokens`` must be version-tracked tensors (built under
+        ``torch.inference_mode(False)``). The caller owns the proof that rows are canonical.
+        """
+        return cls(
+            plan,
+            num_tokens,
+            mapping_run_id,
+            MappingProxyType(dict(provenance)),
+            rows,
+            tokens,
+            (rows._version, tokens._version),
+        )
+
     def canonical_rows(self) -> Tensor:
         """Diagnostic copy; callers cannot mutate the execution map through it."""
         return self._rows.clone()

@@ -20,6 +20,21 @@ PROFILE = "rlk-deterministic-indexer-topk-stable-sort-lower-index-ascending-rela
 # Rows per sort chunk are capped so values + int64 indices stay bounded.
 _CHUNK_ELEMENTS = 1 << 24
 _PAD = torch.iinfo(torch.int64).max
+_ARANGES = {}
+
+
+def _aranges(cols, k, device):
+    # Cached int64 aranges; a pow2-grown buffer sliced to cols has the same values as
+    # torch.arange(cols), without a per-call launch or unbounded per-length growth.
+    big = _ARANGES.get(("cols", device))
+    if big is None or big.numel() < cols:
+        big = torch.arange(1 << max(cols - 1, 1).bit_length(), device=device, dtype=torch.int64)
+        _ARANGES[("cols", device)] = big
+    rank = _ARANGES.get(("rank", k, device))
+    if rank is None:
+        rank = torch.arange(k, device=device, dtype=torch.int64)
+        _ARANGES[("rank", k, device)] = rank
+    return big[:cols], rank
 
 
 def _select(logits, starts, ends, indices, topk):
@@ -32,8 +47,7 @@ def _select(logits, starts, ends, indices, topk):
     if rows == 0:
         return
     k = min(topk, cols)
-    column = torch.arange(cols, device=logits.device, dtype=torch.int64)
-    rank = torch.arange(k, device=logits.device, dtype=torch.int64)
+    column, rank = _aranges(cols, k, logits.device)
     lowest = torch.finfo(logits.dtype).min
     step = max(1, _CHUNK_ELEMENTS // max(cols, 1))
     for r0 in range(0, rows, step):

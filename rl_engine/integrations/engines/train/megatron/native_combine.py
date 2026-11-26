@@ -10,7 +10,7 @@ from rl_engine.contracts.operators.moe import MoEOutputCombineInputs, MoEOutputC
 from rl_engine.ops.moe.output_combine import output_combine
 
 
-def combine_rows(expert_output, tokens, experts, num_tokens, run_id):
+def prepare_combine_rows(expert_output, tokens, experts, num_tokens, run_id):
     order = (tokens * 256 + experts).argsort(stable=True)
     slots = torch.empty_like(tokens)
     slots[order] = torch.arange(tokens.numel(), device=tokens.device, dtype=torch.int64) % 6
@@ -28,6 +28,11 @@ def combine_rows(expert_output, tokens, experts, num_tokens, run_id):
     prepared = prepare_fixed_output_combine(
         plan, inputs, expected_mapping_run_id=run_id, num_experts=256
     )
+    return prepared
+
+
+def combine_rows(expert_output, tokens, experts, num_tokens, run_id):
+    prepared = prepare_combine_rows(expert_output, tokens, experts, num_tokens, run_id)
     return output_combine(prepared, expert_output, mapping_run_id=run_id)
 
 

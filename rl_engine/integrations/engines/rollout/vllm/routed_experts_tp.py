@@ -243,8 +243,8 @@ def tp_exact_unfused_apply(backend, output, hidden_states, routing_data, activat
         down = packed_w4a16(act, slices.down_codes, slices.down_scales, offsets, gammas)
         width = down.shape[1]
         local = torch.empty((M, width), device=down.device, dtype=torch.bfloat16)
-        if bool(valid.all()):
-            fixed_combine_rows(down, tokens, experts, valid, M, run_id, local)
+        if routing_data._rlk_all_valid:
+            fixed_combine_rows(down, tokens, experts, valid, M, run_id, local, True)
         else:
             # Warm-up/dummy batches with -1 slots: same per-slice pipeline, FP32 index_add_
             # over valid rows restricted to the local column slice (no cross-rank reduction).

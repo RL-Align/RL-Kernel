@@ -8,6 +8,10 @@ import torch
 from rl_engine.backends.shared.triton.embedding.lm_head import TritonLMHeadOp
 from rl_engine.backends.shared.triton.logprob.logp import TritonLogpOp
 
+# Stateless ops: construct once, not per call.
+_LM_HEAD_OP = TritonLMHeadOp()
+_LOGP_OP = TritonLogpOp()
+
 
 def bind_output_head(wrapper, worker):
     if worker.role != "rollout" or hasattr(wrapper, "_rlk_output_worker"):
@@ -33,7 +37,7 @@ def bind_output_head(wrapper, worker):
 
     def compute_logits(hidden_states):
         with worker.request(worker.version):
-            local = TritonLMHeadOp().forward_fp32(hidden_states, wrapper.lm_head.weight)
+            local = _LM_HEAD_OP.forward_fp32(hidden_states, wrapper.lm_head.weight)
             result = processor._gather_logits(local) if tp > 1 else local
             if result is None:
                 return None  # Native gather only returns scores on its sampling rank.
@@ -63,7 +67,7 @@ def selected_raw_logprobs(wrapper, logits, token_ids, *, weight_version):
         raise ValueError("raw rollout scores require nonempty int64 target columns")
     with worker.request(weight_version):
         values = torch.stack(
-            [TritonLogpOp()(logits, token_ids[:, i]) for i in range(token_ids.shape[1])], -1
+            [_LOGP_OP(logits, token_ids[:, i]) for i in range(token_ids.shape[1])], -1
         )
         if not getattr(worker, "_rollout_logprob_executed", False):
             print(

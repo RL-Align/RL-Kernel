@@ -38,19 +38,89 @@ def routing_row_metadata(topk_ids):
     return tokens, experts, valid
 
 
-def fixed_combine_rows(y, tokens, experts, valid, num_tokens, run_id, out):
-    """Combine routed rows ``y`` into ``out`` ([M, K]) in the actor's fixed order."""
-    from rl_engine.integrations.engines.train.megatron.native_combine import combine_rows
+_VALIDATE_EVERY = 256
+_NUM_EXPERTS = 256
+_FAST = {"count": {}, "plan": {}}
+
+
+def _fast_prepared(y, tokens, experts, num_tokens, run_id):
+    """Prepared combine with canonical rows built on device, no host reads.
+
+    Canonical row (t, s) is ``order[t*6 + s]`` where ``order`` is the stable argsort of
+    ``token*256 + expert``: every token owns exactly 6 rows (rows come from a permutation of
+    T*6 slots, all valid, checked by the caller) and slot == position within the token's
+    expert-ascending run, exactly as in native_combine.prepare_combine_rows. The full
+    host-side validation runs on the first call per shape and every 256th call, and must
+    produce identical rows.
+    """
+    from rl_engine.contracts.operators.fixed_output_combine import PreparedFixedOutputCombine
+    from rl_engine.contracts.operators.moe import MoEOutputCombinePlan
+    from rl_engine.integrations.engines.train.megatron.native_combine import prepare_combine_rows
+
+    hidden = y.shape[1]
+    key = (num_tokens, hidden, y.device)
+    count = _FAST["count"].get(key, 0)
+    _FAST["count"][key] = count + 1
+    order = (tokens * 256 + experts).argsort(stable=True)
+    rows = order.view(num_tokens, _TOP_K)
+    if count % _VALIDATE_EVERY == 0:
+        reference = prepare_combine_rows(y, tokens, experts, num_tokens, run_id)
+        if not torch.equal(reference._rows, rows):
+            raise RuntimeError("fast combine rows disagree with prepare_fixed_output_combine")
+        return reference
+    # Device-side stand-ins for the validate() host checks (async, abort on violation).
+    torch._assert_async((experts < _NUM_EXPERTS).all())
+    torch._assert_async(torch.isfinite(y).all())
+    cached = _FAST["plan"].get(hidden)
+    if cached is None:
+        plan = MoEOutputCombinePlan(_TOP_K, hidden, expert_weight_applied=True)
+        cached = (
+            plan,
+            {
+                "semantic_op": "moe_output_combine",
+                "plan_version": plan.plan_version,
+                "plan_fingerprint": plan.fingerprint,
+                "mapping_schema_version": plan.mapping_schema_version,
+                "mapping_run_id_verified": False,
+                "top_k": _TOP_K,
+                "hidden_size": hidden,
+                "producer_backend": "RLK.native.W4A16",
+                "producer_build_fingerprint": "dsv4-fixed-p6-expert-ascending-v1",
+                "profile": PROFILE,
+                "residual_owner": "P1.mhc_post",
+                "fast_path": True,
+            },
+        )
+        _FAST["plan"][hidden] = cached
+    plan, base = cached
+    provenance = dict(base, mapping_run_id=run_id, num_tokens=num_tokens)
+    # Version-tracked copies, as prepare_fixed_output_combine makes under inference mode.
+    with torch.inference_mode(False):
+        rows = rows.detach().clone()
+        tokens = tokens.detach().to(torch.int64).clone()
+    return PreparedFixedOutputCombine.trusted(plan, num_tokens, run_id, provenance, rows, tokens)
+
+
+def fixed_combine_rows(y, tokens, experts, valid, num_tokens, run_id, out, all_valid=None):
+    """Combine routed rows ``y`` into ``out`` ([M, K]) in the actor's fixed order.
+
+    ``all_valid``: host bool from the caller (one sync per layer); computed here if None.
+    """
+    from rl_engine.ops.moe.output_combine import output_combine
 
     if y.dim() != 2 or y.shape[0] != num_tokens * _TOP_K:
         raise ValueError("routed combine needs exactly num_tokens * 6 expert rows")
     if y.dtype != torch.bfloat16 or out.dtype != torch.bfloat16:
         raise ValueError("routed combine supports BF16 expert rows and output only")
-    if not bool(valid.all()):
+    if all_valid is None:
+        all_valid = bool(valid.all())
+    if not all_valid:
         # Non-local (EP) slots would leave a token with fewer than 6 rows.
         raise ValueError("routed combine requires all 6 expert slots local (no -1 slots)")
     with torch.no_grad():
-        result = combine_rows(y.contiguous(), tokens, experts, num_tokens, run_id)
+        y = y.contiguous()
+        prepared = _fast_prepared(y, tokens, experts, num_tokens, run_id)
+        result = output_combine(prepared, y, mapping_run_id=run_id)
     out.copy_(result.reshape(out.shape))
     if not _STATE.get("executed"):
         # Bound is not enough: prove the fixed combine is on the executed MoE path.
@@ -61,8 +131,13 @@ def fixed_combine_rows(y, tokens, experts, valid, num_tokens, run_id, out):
 
 def _maybe_dump_rows(routing_data, num_tokens, **tensors):
     # Diagnostic only (off by default): per-row expert outputs for actor row comparison.
-    dump_dir = os.environ.get("RLK_ROUTED_ROWS_DUMP_DIR")
-    if not dump_dir or str(num_tokens) != os.environ.get("RLK_ROUTED_ROWS_DUMP_M"):
+    if "dump" not in _STATE:  # env read once per process
+        _STATE["dump"] = (
+            os.environ.get("RLK_ROUTED_ROWS_DUMP_DIR"),
+            os.environ.get("RLK_ROUTED_ROWS_DUMP_M"),
+        )
+    dump_dir, dump_m = _STATE["dump"]
+    if not dump_dir or str(num_tokens) != dump_m:
         return
     os.makedirs(dump_dir, exist_ok=True)
     payload = {k: v.detach().cpu() for k, v in tensors.items()}
@@ -77,7 +152,7 @@ def _maybe_dump_rows(routing_data, num_tokens, **tensors):
 def _make_rows_class(base):
     # RoutingData has __slots__ (no __dict__/__weakref__): extra attributes need a subclass.
     class RoutingDataWithRows(base):
-        __slots__ = ("_rlk_row_tokens", "_rlk_row_experts", "_rlk_row_valid")
+        __slots__ = ("_rlk_row_tokens", "_rlk_row_experts", "_rlk_row_valid", "_rlk_all_valid")
 
     return RoutingDataWithRows
 
@@ -111,8 +186,8 @@ def bind_rollout_fixed_routed_combine():
     def make_routing_data(topk_ids, topk_weights, num_local_experts):
         routing, gather_a, gather_b = original_routing(topk_ids, topk_weights, num_local_experts)
         tokens, experts, valid = routing_row_metadata(topk_ids)
-        if not torch.equal(tokens.to(routing.gather_tok.dtype), routing.gather_tok):
-            raise RuntimeError("recomputed routing rows disagree with make_routing_data")
+        # Async device assert instead of a host torch.equal sync.
+        torch._assert_async((tokens.to(routing.gather_tok.dtype) == routing.gather_tok).all())
         wrapped = rows_class(
             routing.ragged,
             routing.gate_scal,
@@ -124,6 +199,8 @@ def bind_rollout_fixed_routed_combine():
         wrapped._rlk_row_tokens = tokens
         wrapped._rlk_row_experts = experts
         wrapped._rlk_row_valid = valid
+        # The single host sync per layer: drives the warm-up fallback and the combine guard.
+        wrapped._rlk_all_valid = bool(valid.all())
         return wrapped, gather_a, gather_b
 
     def triton_kernel_fused_experts(
@@ -206,6 +283,7 @@ def bind_rollout_fixed_routed_combine():
             M,
             f"vllm-routed-p6-{_STATE['calls']}",
             out,
+            routing_data._rlk_all_valid,
         )
         return out
 
@@ -293,7 +371,7 @@ def bind_rollout_fixed_routed_combine():
         )
         _STATE["calls"] += 1
         _maybe_dump_rows(routing_data, M, inter=inter, act=act_out, y=down, hidden=hidden_states)
-        if not bool(routing_data._rlk_row_valid.all()):
+        if not routing_data._rlk_all_valid:
             # vLLM warm-up/dummy batches can carry -1 slots (zero-gamma rows). Keep vLLM's
             # original finalize there and log it; audited scores must show no fallback.
             _STATE["fallbacks"] = _STATE.get("fallbacks", 0) + 1
@@ -311,6 +389,7 @@ def bind_rollout_fixed_routed_combine():
             M,
             f"vllm-unfused-routed-p6-{_STATE['calls']}",
             output.view(M, K),
+            True,
         )
 
     unfused_cls.apply = unfused_apply
