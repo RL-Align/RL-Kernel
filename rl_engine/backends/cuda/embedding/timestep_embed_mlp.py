@@ -18,11 +18,17 @@ def _extension():
         except ModuleNotFoundError as exc:
             if exc.name != "rl_engine._timestep_cuda":
                 raise
-    from torch.utils.cpp_extension import load
-
     source = Path(__file__).resolve().parents[4] / "csrc/cuda/embedding/timestep_embed_mlp.cu"
     if not source.is_file():
         raise RuntimeError("CUDA extension is not installed and checkout CUDA source is absent")
+    # Build helpers belong to source checkouts; installed prebuilt modules return above.
+    from build_tools.extensions import _relaxed_math_reason
+
+    relaxed_reason = _relaxed_math_reason(require_fmad_false=True)
+    if relaxed_reason is not None:
+        raise RuntimeError(f"Cannot JIT-build strict timestep CUDA extension: {relaxed_reason}")
+    from torch.utils.cpp_extension import load
+
     return load(
         name="timestep_official_cuda",
         sources=[str(source)],

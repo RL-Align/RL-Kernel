@@ -86,6 +86,20 @@ prebuilt module is absent. JIT needs a compatible CUDA toolkit, C++ compiler,
 Python headers and Ninja. Set `TORCH_EXTENSIONS_DIR` and `TRITON_CACHE_DIR` to
 isolated writable directories. The Triton backend needs a compatible Triton install.
 
+The timestep build checks `NVCC_PREPEND_FLAGS`, `NVCC_APPEND_FLAGS` and
+`TORCH_NVCC_FLAGS`. Relaxed math (`--use_fast_math`, `--ftz=true`,
+`--prec-div=false`, `--prec-sqrt=false` or `--fmad=true`), unparseable values and
+indirect options files prevent timestep compilation: `setup.py` warns and omits
+its independent extension, while checkout JIT raises before invoking the compiler.
+Safe explicit precision flags leave the existing compile arguments unchanged.
+The checkout JIT path uses the same `build_tools` check as `setup.py`; installed
+prebuilt modules load before that source-only helper is needed. Changing build
+flags does not alter an already loaded module. Prebuilt or disk-cached artifacts
+with unknown build flags need independent verification or a fresh isolated
+validation build. The recorded H100 acceptance used fresh isolated caches and
+retained the executed artifact identity. Use a new isolated validation root for
+subsequent acceptance.
+
 Native CUDA primitives reject tensors, dimensions and outputs outside signed int32
 indexing before allocation or launch. Embedding output must fit `B*256`; matrix
 output must fit `M*N`, and its reduction length must be at most `INT_MAX-31`.
