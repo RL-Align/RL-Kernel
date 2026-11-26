@@ -1,0 +1,25 @@
+diff --git a/vllm/model_executor/layers/fused_moe/experts/gpt_oss_triton_kernels_moe.py b/vllm/model_executor/layers/fused_moe/experts/gpt_oss_triton_kernels_moe.py
+index f16f22a7e7..f8a201c679 100644
+--- a/vllm/model_executor/layers/fused_moe/experts/gpt_oss_triton_kernels_moe.py
++++ b/vllm/model_executor/layers/fused_moe/experts/gpt_oss_triton_kernels_moe.py
+@@ -1408,7 +1408,19 @@ class UnfusedOAITritonExperts(LoRAExpertsMixin, BaseOAITritonExperts):
+                 down = down_tt[order]
+ 
+             acc = torch.zeros((M, K), dtype=torch.float32, device=hidden_states.device)
+-            acc.index_add_(0, gather_tok.to(torch.int64), down.to(torch.float32))
++            tok = gather_tok.to(torch.int64)
++            if down.shape[0] == M * topk:
++                # Fixed reduction order. index_add_ with repeated indices adds a token's routed
++                # rows in no defined order on the GPU, so the FP32 sum (and its BF16 rounding)
++                # can change between calls, batches and engines. The ragged rows are sorted by
++                # expert id; a stable sort by token keeps that order, and the rows of every
++                # token are then added one by one in ascending expert id.
++                rows = down.to(torch.float32)[torch.argsort(tok, stable=True)].view(M, topk, K)
++                for k in range(topk):
++                    acc += rows[:, k]
++            else:
++                # Some slots are invalid (e.g. expert parallel dispatch): keep the scatter-add.
++                acc.index_add_(0, tok, down.to(torch.float32))
+             output.view(M, K).copy_(acc.to(output.dtype))
+             return
+ 
