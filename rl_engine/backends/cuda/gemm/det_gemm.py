@@ -238,13 +238,31 @@ class _DetGemmFn(torch.autograd.Function):
 
 class _DetLinearFn(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, a, weight):
+    def forward(ctx, a, weight, fixed_leaf_tree=False):
         ctx.save_for_backward(a, weight)
+        ctx.fixed_leaf_tree = fixed_leaf_tree
+        if fixed_leaf_tree:
+            return _fixed_leaf_linear_forward(a, weight)
         return det_gemm_linear(a, weight)
 
     @staticmethod
     def backward(ctx, grad_out):
         a, weight = ctx.saved_tensors
+        if ctx.fixed_leaf_tree:
+            da = dweight = None
+            with torch.cuda.device(a.device):
+                if ctx.needs_input_grad[0]:
+                    da = _C.det_gemm_fwd(grad_out, weight, fixed_leaf_tree=True)
+                if ctx.needs_input_grad[1]:
+                    dweight = _C.det_gemm_db_transposed(a, grad_out, fixed_leaf_tree=True)
+            record_backward(
+                "det_gemm",
+                kernel_id="muse_glimmer.cuda.fixed_leaf_tree",
+                impl="muse_glimmer_dense_gemm",
+                family="cuda",
+            )
+            return da, dweight, None
+
         grad_out = grad_out.contiguous()
         if grad_out.dtype != torch.bfloat16:
             grad_out = grad_out.to(torch.bfloat16)
@@ -272,7 +290,23 @@ class _DetLinearFn(torch.autograd.Function):
             impl="strict_det_gemm",
             family="cuda",
         )
-        return da, dweight
+        return da, dweight, None
+
+
+def _fixed_leaf_linear_forward(a: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    with torch.cuda.device(a.device):
+        return _C.det_gemm_fwd_rhs_transposed(a, weight, fixed_leaf_tree=True)
+
+
+def fixed_leaf_linear(a: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    """Apply a native [N,K] weight through the fixed-leaf CUDA kernels."""
+    if _C is None or torch.version.hip is not None:
+        raise RuntimeError("Muse-Glimmer CUDA dense GEMM requires the native CUDA extension")
+    if a.device != weight.device:
+        raise RuntimeError("fixed-leaf CUDA linear inputs must share one CUDA device")
+    if torch.is_inference_mode_enabled():
+        return _fixed_leaf_linear_forward(a, weight)
+    return _DetLinearFn.apply(a, weight, True)
 
 
 class _DetGemmAccumFn(torch.autograd.Function):

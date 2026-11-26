@@ -35,6 +35,7 @@ from rl_engine.utils.logger import logger
 
 # Pinned. NOT autotuned (autotune picks per-shape configs -> breaks invariance).
 _BLOCK_M, _BLOCK_N, _BLOCK_K = 64, 64, 32
+_FIXED_PROJECTION_REDUCTIONS = (256, 4096, 6656, 19968)
 # Keep the intermediate tree workspace bounded.  A VLLM warmup can present a
 # very large flattened token dimension; allocating ``node_count * M * N`` in
 # one shot would otherwise create a multi-terabyte virtual tensor on ROCm.
@@ -1440,7 +1441,7 @@ def _triton_tree_gemm(
         if transpose_output and k_size > 0:
             # (A @ B).T = B.T @ A.T, both as stride-only views.
             return _triton_fixed_wgrad(b.T, a.T)
-        if not transpose_output and k_size in (256, 4096, 6656, 19968):
+        if not transpose_output and k_size in _FIXED_PROJECTION_REDUCTIONS:
             return _triton_fixed_projection(a, b)
     plan = _device_tree_plan(k_size, a.device, fixed_leaf_tree=fixed_leaf_tree)
     workspace_elements = plan.host.node_count * m_size * n_size
@@ -1725,6 +1726,61 @@ class _TritonDetGemmFn(torch.autograd.Function):
             family="triton",
         )
         return da, db, None
+
+
+def _fixed_leaf_linear_forward(a: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    with torch.cuda.device(a.device):
+        if (
+            torch.version.hip is None
+            and weight.ndim == 2
+            and a.shape == (1, weight.size(1))
+            and weight.size(1) in _FIXED_PROJECTION_REDUCTIONS
+            and 0 < weight.size(0) <= 2**31 - 1
+            and a.stride(1) == weight.stride(1) == 1
+            and a.dtype == weight.dtype == torch.bfloat16
+            and a.device == weight.device
+        ):
+            return _triton_fixed_decode(a, weight)
+        return _triton_tree_gemm(a, weight.T, fixed_leaf_tree=True)
+
+
+class _TritonDetLinearFn(torch.autograd.Function):
+    """Fixed-leaf autograd for a native [N,K] weight."""
+
+    @staticmethod
+    def forward(ctx, a, weight):
+        ctx.save_for_backward(a, weight)
+        return _fixed_leaf_linear_forward(a, weight)
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        a, weight = ctx.saved_tensors
+        da = dweight = None
+        with torch.cuda.device(a.device):
+            if ctx.needs_input_grad[0]:
+                da = _triton_tree_gemm(grad_out, weight, fixed_leaf_tree=True)
+            if ctx.needs_input_grad[1]:
+                dweight = _triton_tree_gemm(
+                    a.T,
+                    grad_out,
+                    transpose_output=True,
+                    preserve_a_strides=True,
+                    fixed_leaf_tree=True,
+                )
+        record_backward(
+            "det_gemm",
+            kernel_id="muse_glimmer.triton.fixed_leaf_tree",
+            impl="muse_glimmer_dense_gemm",
+            family="triton",
+        )
+        return da, dweight
+
+
+def fixed_leaf_linear(a: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    """Apply a native [N,K] weight through the fixed-leaf Triton kernels."""
+    if torch.is_inference_mode_enabled():
+        return _fixed_leaf_linear_forward(a, weight)
+    return _TritonDetLinearFn.apply(a, weight)
 
 
 class TritonDetGemmOp:
