@@ -285,6 +285,16 @@ def bind_rollout_fixed_routed_combine():
         )
         _STATE["calls"] += 1
         _maybe_dump_rows(routing_data, M, inter=inter, act=act_out, y=down, hidden=hidden_states)
+        if not bool(routing_data._rlk_row_valid.all()):
+            # vLLM warm-up/dummy batches can carry -1 slots (zero-gamma rows). Keep vLLM's
+            # original finalize there and log it; audited scores must show no fallback.
+            _STATE["fallbacks"] = _STATE.get("fallbacks", 0) + 1
+            print("RLK_ROLLOUT_ROUTED_COMBINE_FALLBACK", _STATE["calls"], "M", M,
+                  "invalid", int((~routing_data._rlk_row_valid).sum()), flush=True)
+            acc = torch.zeros((M, K), dtype=torch.float32, device=hidden_states.device)
+            acc.index_add_(0, gather_tok.to(torch.int64), down.to(torch.float32))
+            output.view(M, K).copy_(acc.to(output.dtype))
+            return
         fixed_combine_rows(
             down,
             routing_data._rlk_row_tokens,
