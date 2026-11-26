@@ -136,7 +136,7 @@ __device__ nv_bf16 k_tree_naive(const nv_bf16* __restrict__ a_row,
     const nv_bf16* a = a_row + lo;
     const nv_bf16* b = b_col + static_cast<int64_t>(lo) * stride_bk;
     for (int k = lo; k < hi; ++k, ++a, b += stride_bk)
-      acc += __bfloat162float(*a) * __bfloat162float(*b);
+      acc = __fmaf_rn(__bfloat162float(*a), __bfloat162float(*b), acc);
     value = __float2bfloat16(acc);
 
     while (true) {
@@ -240,8 +240,8 @@ __global__ void det_gemm_db_small_k(const nv_bf16* __restrict__ X,
 
     float acc = 0.0f;
     for (int token = 0; token < tokens; ++token)
-      acc += __bfloat162float(sX[token * SMALL_N_TILE + feature]) *
-             __bfloat162float(sY[token * SMALL_M_TILE + output]);
+      acc = __fmaf_rn(__bfloat162float(sX[token * SMALL_N_TILE + feature]),
+                     __bfloat162float(sY[token * SMALL_M_TILE + output]), acc);
     dW[static_cast<int64_t>(global_output) * in_features + global_feature] = cast_output<output_t>(acc);
   }
 }
@@ -287,8 +287,12 @@ template <int WIDTH>
 __device__ __forceinline__ float fixed_warp_tree(float value) {
 #pragma unroll
   for (int step = 1; step < WIDTH; step *= 2) {
-    const float right = __shfl_down_sync(0xffffffff, value, step);
-    value = __bfloat162float(__float2bfloat16_rn(value + right));
+#if defined(__HIPCC__) || defined(__HIP_PLATFORM_AMD__)
+    const float right = __shfl_down(value, step, 32);
+#else
+    const float right = __shfl_down_sync(0xffffffffu, value, step, 32);
+#endif
+    value = __bfloat162float(__float2bfloat16(value + right));
   }
   return value;
 }
@@ -335,11 +339,11 @@ __global__ void det_gemm_fixed_projection(const nv_bf16* __restrict__ x,
     }
 #pragma unroll
     for (int r = 0; r < ROWS; ++r) {
-      const float leaf = __bfloat162float(__float2bfloat16_rn(acc[r]));
+      const float leaf = __bfloat162float(__float2bfloat16(acc[r]));
       if constexpr (pack_leaves)
         leaf_values[i] = leaf;
       else
-        values[r] = i == first_leaf ? leaf : __bfloat162float(__float2bfloat16_rn(values[r] + leaf));
+        values[r] = i == first_leaf ? leaf : __bfloat162float(__float2bfloat16(values[r] + leaf));
     }
   }
 
@@ -347,7 +351,7 @@ __global__ void det_gemm_fixed_projection(const nv_bf16* __restrict__ x,
     __syncthreads();
     values[0] = leaf_values[start];
     if (count == 2)
-      values[0] = __bfloat162float(__float2bfloat16_rn(values[0] + leaf_values[start + 1]));
+      values[0] = __bfloat162float(__float2bfloat16(values[0] + leaf_values[start + 1]));
   }
 
   __shared__ float warp_roots[ROWS][warps];
@@ -362,7 +366,7 @@ __global__ void det_gemm_fixed_projection(const nv_bf16* __restrict__ x,
     for (int r = 0; r < ROWS; ++r) {
       const float root = fixed_warp_tree<warps>(warp_roots[r][tid % warps]);
       if (tid == 0 && row + r < M)
-        output[static_cast<int64_t>(row + r) * N + col] = __float2bfloat16_rn(root);
+        output[static_cast<int64_t>(row + r) * N + col] = __float2bfloat16(root);
     }
   }
 }
@@ -498,7 +502,7 @@ struct FixedOperandTile {
       if constexpr (PARTIAL_K) {
         if (k >= leaf_len) {
 #pragma unroll
-          for (int j = 0; j < 8; ++j) packets[slot].values[j] = __float2bfloat16_rn(0.0f);
+          for (int j = 0; j < 8; ++j) packets[slot].values[j] = __float2bfloat16(0.0f);
           continue;
         }
       }
@@ -607,7 +611,7 @@ __global__ void det_gemm_fixed_tiles(const nv_bf16* __restrict__ a,
     for (int r = 0; r < per_row; ++r) {
       Bf16Quad value;
 #pragma unroll
-      for (int j = 0; j < per_col; ++j) value.values[j] = __float2bfloat16_rn(acc[r][j]);
+      for (int j = 0; j < per_col; ++j) value.values[j] = __float2bfloat16(acc[r][j]);
       for (int i = 0; i < merge.joins; ++i) {
         const auto left = pending[merge.depth - 1 - i][r][threadIdx.x];
 #pragma unroll
@@ -756,7 +760,7 @@ __global__ void det_gemm_fixed_wgrad(const nv_bf16* __restrict__ dy,
     for (int r = 0; r < WGRAD_PER_ROW; ++r) {
       Bf16Quad value;
 #pragma unroll
-      for (int j = 0; j < WGRAD_PER_COL; ++j) value.values[j] = __float2bfloat16_rn(acc[r][j]);
+      for (int j = 0; j < WGRAD_PER_COL; ++j) value.values[j] = __float2bfloat16(acc[r][j]);
       for (int i = 0; i < merge.joins; ++i) {
         const auto left = wgrad_pending[merge.depth - 1 - i][r][threadIdx.x];
 #pragma unroll
@@ -776,7 +780,7 @@ template <bool STRIDED>
 void launch_fixed_wgrad(const torch::Tensor& x, const torch::Tensor& dy, torch::Tensor& dw,
                         int tokens, int leaves, int stack_bytes, int optin_bytes) {
   if (optin_bytes != 0)
-    C10_CUDA_CHECK(cudaFuncSetAttribute(det_gemm_fixed_wgrad<STRIDED>,
+    C10_CUDA_CHECK(cudaFuncSetAttribute(reinterpret_cast<const void*>(det_gemm_fixed_wgrad<STRIDED>),
                    cudaFuncAttributeMaxDynamicSharedMemorySize, optin_bytes));
   const int out_features = dy.size(1), in_features = x.size(1);
   const dim3 grid(in_features / TILE_COLS, out_features / TILE_ROWS);

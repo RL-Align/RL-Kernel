@@ -14,6 +14,7 @@ import torch
 from rl_engine.backends.cuda.gemm import deterministic_gemm
 from rl_engine.backends.extension import _C
 from rl_engine.contracts.numerical import load_contract
+from rl_engine.reference.gemm.det_gemm import DetGemmTreeReferenceOp
 
 try:
     import triton
@@ -29,6 +30,7 @@ else:
         _GFX942_QWEN_TP_SHARD_FORWARD_LEAF_CONFIGS,
         _GFX942_QWEN_TP_SHARD_WGRAD_LEAF_CONFIGS,
         _GFX942_QWEN_WGRAD_LEAF_CONFIGS,
+        _build_tree_plan,
         _copy_tree_root_kernel,
         _det_gemm_tree_leaf_kernel,
         _det_gemm_tree_reduce_kernel,
@@ -52,15 +54,16 @@ IS_GFX942 = (
     and str(getattr(torch.cuda.get_device_properties(0), "gcnArchName", "")).startswith("gfx942")
 )
 
-pytestmark = pytest.mark.skipif(
-    not HAS_SUPPORTED_GPU,
-    reason="det_gemm requires a ROCm GPU or CUDA SM80+",
-)
-
 # ROCm acceptance intentionally depends only on the Triton implementation.
 _BACKENDS = [] if IS_ROCM else [("cuda", deterministic_gemm)]
 if _HAS_TRITON:
     _BACKENDS.append(("triton", deterministic_gemm_triton))
+
+
+@pytest.fixture(autouse=True)
+def _require_supported_gpu(request):
+    if not HAS_SUPPORTED_GPU and request.node.get_closest_marker("unit") is None:
+        pytest.skip("det_gemm requires a ROCm GPU or CUDA SM80+")
 
 
 def _rand(*shape):
@@ -362,6 +365,80 @@ def test_transposed_db_is_bitwise_and_canonical_contiguous(shape):
     assert tuple(actual.stride()) == (in_features, 1)
     assert actual.is_contiguous()
     assert torch.equal(actual, expected)
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+@pytest.mark.parametrize("k", (1, 65, 96, 256, 4096, 6656, 19968))
+def test_fixed_leaf_host_plan(k):
+    plan = _build_tree_plan(k, fixed_leaf_tree=True)
+    starts = tuple(range(0, k, 32))
+    assert plan.leaf_starts == starts
+    assert plan.leaf_lengths == tuple(min(32, k - start) for start in starts)
+    # Track intervals of leaf indices. Each midpoint splits the leaf count
+    # with the smaller half on the left, even when K ends in a partial leaf.
+    spans = {node: (i, i + 1) for i, node in enumerate(plan.leaf_nodes)}
+    for level in plan.reduction_levels:
+        for left, right, parent in level:
+            lo, mid = spans.pop(left)
+            right_lo, hi = spans.pop(right)
+            assert mid == right_lo == lo + (hi - lo) // 2
+            spans[parent] = (lo, hi)
+    assert spans == {plan.root: (0, len(starts))}
+    assert plan.node_count == 2 * len(starts) - 1
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+@pytest.mark.parametrize("tokens", [96, 130])
+def test_fixed_weight_gradient_partial_tile_with_offset_inputs(tokens):
+    # The extension also accepts projections whose last 64-row dW tile is half full.
+    options = dict(device="cuda", dtype=torch.bfloat16)
+    gen = torch.Generator(device="cuda").manual_seed(501)
+    inputs, outputs = 128, 96
+    x = torch.randn(tokens * inputs + 1, generator=gen, **options)[1:].view(tokens, inputs)
+    dy = torch.randn(tokens * outputs + 1, generator=gen, **options)[1:].view(tokens, outputs)
+    expected = DetGemmTreeReferenceOp()(x.T.cpu(), dy.cpu()).T.contiguous()
+    for a, grad in ((x, dy), (x.clone(), dy.clone())):
+        actual = _C.det_gemm_db_transposed(a, grad, fixed_leaf_tree=True)
+        _assert_same_raw_bytes(actual.cpu(), expected)
+        triton = _triton_tree_gemm(
+            a.T, grad, transpose_output=True, preserve_a_strides=True, fixed_leaf_tree=True
+        )
+        _assert_same_raw_bytes(triton.cpu(), expected)
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+@pytest.mark.parametrize("tokens", [5, 35, 257, 16385, 524289])
+def test_fixed_weight_gradient_preserves_signed_zero_and_special_values(tokens):
+    # Exercise a short leaf in both Triton schedules and the CUDA shared
+    # memory opt-in at 513 leaves. The largest case also covers Triton's
+    # bounded per-CTA root reduction. The views have offsets and strides.
+    options = dict(device="cuda", dtype=torch.bfloat16)
+    x = torch.zeros((tokens, 129), **options)[:, 1::2]
+    dy = torch.zeros((tokens, 65), **options)[:, 1::2]
+    dy[:, 0] = 2**-100
+    x[31::32, 0] = -(2**-100)
+    x[-1, 0] = -(2**-100)
+    # Each leaf ends in a negative FP32 underflow. An extra +0 FMA would
+    # erase its sign, and one +0 leaf would erase the final root's sign.
+    x[0, 1:4] = torch.tensor([float("inf"), -float("inf"), float("nan")], **options)
+    if tokens > 64:
+        right_start = ((tokens + 31) // 32 // 2) * 32
+        x[0, 4], x[right_start, 4], x[-1, 4] = 256, 1, -256
+
+    cuda = _C.det_gemm_db_transposed(x, dy, fixed_leaf_tree=True)
+    triton = _triton_tree_gemm(
+        x.T, dy, transpose_output=True, preserve_a_strides=True, fixed_leaf_tree=True
+    )
+    _assert_same_raw_bytes(triton, cuda)
+    assert cuda[0, 0].view(torch.int16).item() == -32768
+    assert cuda[0, 1].item() == float("inf")
+    assert cuda[0, 2].item() == -float("inf")
+    assert torch.isnan(cuda[0, 3]).item()
+    if tokens > 64:
+        assert cuda[0, 4].item() == 2**-100
 
 
 @pytest.mark.parametrize("shape", [(128, 128, 128), (31, 70, 65)])

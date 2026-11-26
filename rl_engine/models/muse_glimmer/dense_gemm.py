@@ -2,6 +2,7 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 """Strict BF16 linear projection shared by Muse-Glimmer training and rollout."""
 
+import functools
 from typing import Literal
 
 import torch
@@ -11,7 +12,10 @@ from rl_engine.backends.shared.triton.gemm.det_gemm import _triton_fixed_decode,
 from rl_engine.models.muse_glimmer.operator_trace import MuseGlimmerSpec
 from rl_engine.ops.autograd.backward_runtime import record_backward
 
-_WEIGHT_SHAPES = frozenset(MuseGlimmerSpec.from_manifest().gemm_shapes().values())
+
+@functools.lru_cache(maxsize=1)
+def _weight_shapes() -> frozenset[tuple[int, int]]:
+    return frozenset(MuseGlimmerSpec.from_manifest().gemm_shapes().values())
 
 
 def _project(x, weight, backend):
@@ -70,7 +74,7 @@ def dense_gemm(
         raise ValueError("Muse-Glimmer dense GEMM requires X[M,K] and W[N,K] with the same K")
     if x.size(0) == 0:
         raise ValueError("Muse-Glimmer dense GEMM requires positive M")
-    if tuple(weight.shape) not in _WEIGHT_SHAPES:
+    if tuple(weight.shape) not in _weight_shapes():
         raise ValueError("Muse-Glimmer dense GEMM requires a single projection weight shape")
     if x.dtype != torch.bfloat16 or weight.dtype != torch.bfloat16:
         raise TypeError("Muse-Glimmer dense GEMM requires BF16 inputs and weights")
