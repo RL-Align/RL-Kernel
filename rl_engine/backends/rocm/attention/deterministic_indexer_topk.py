@@ -42,8 +42,10 @@ def _select(logits, starts, ends, indices, topk):
         start = starts[r0:r1].clamp(min=0, max=cols)[:, None]
         end = ends[r0:r1].clamp(min=0, max=cols)[:, None]
         valid = (column[None, :] >= start) & (column[None, :] < end)
-        torch._assert_async(torch.logical_not(torch.logical_and(torch.isnan(lg), valid).any()))
-        key = torch.where(valid, lg.clamp(min=lowest), float("-inf"))
+        # vLLM warm-up runs on uninitialized caches and may produce NaN/-inf logits; rank them
+        # last (deterministically, lower index first). Real NaNs are caught downstream by the
+        # finite-logprob verifier; a device assert here would abort the engine during warm-up.
+        key = torch.where(valid, torch.nan_to_num(lg, nan=lowest, neginf=lowest), float("-inf"))
         _, order = torch.sort(key, dim=-1, descending=True, stable=True)
         order = order[:, :k]
         n_valid = (end - start).clamp(min=0)

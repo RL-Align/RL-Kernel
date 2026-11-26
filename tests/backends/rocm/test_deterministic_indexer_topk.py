@@ -74,10 +74,10 @@ def test_valid_neg_inf_beats_invalid_columns():
     assert run_prefill(logits, i32(2), i32(5), 3).tolist() == [[0, 1, 2]]
 
 
-def test_nan_in_valid_range_raises():
-    logits = torch.tensor([[1.0, float("nan"), 2.0]])
-    with pytest.raises(RuntimeError):
-        run_prefill(logits, i32(0), i32(3), 2)
+def test_nan_in_valid_range_ranks_last():
+    logits = torch.tensor([[1.0, float("nan"), 2.0, float("nan")]])
+    assert run_prefill(logits, i32(0), i32(4), 2).tolist() == [[0, 2]]
+    assert run_prefill(logits, i32(0), i32(4), 3).tolist() == [[0, 1, 2]]
 
 
 def test_nan_outside_valid_range_ignored():
