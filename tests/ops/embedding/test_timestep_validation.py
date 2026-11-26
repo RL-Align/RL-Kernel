@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 import torch
+
 from rl_engine.ops.embedding.timestep_embed_mlp import TimestepEmbedMLPOp
 from tools.validation.operators.validate_timestep_official import (
     eager_batched,

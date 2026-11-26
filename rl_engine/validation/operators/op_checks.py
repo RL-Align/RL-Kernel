@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import torch
+
 from rl_engine.contracts.numerical import (
     BackendProvenance,
     ContractResolveError,
