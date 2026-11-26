@@ -3,7 +3,7 @@
 """Official reduction-contract accuracy, invariance, observed kernels and timing.
 
 Does not alter tolerances. JSON preserves failures; nonzero exit means failure.
-Use --device cpu --backends pytorch for plumbing only, never GPU certification.
+Use --device cpu --backends pytorch --reference-only for plumbing, never GPU certification.
 """
 
 import argparse
@@ -263,7 +263,17 @@ def benchmark(op, values, iterations):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", choices=("cuda", "cpu"))
-    parser.add_argument("--backends", nargs="+", default=["cuda", "triton"])
+    parser.add_argument(
+        "--backends",
+        nargs="+",
+        choices=("cuda", "triton", "pytorch", "native"),
+        default=["cuda", "triton"],
+    )
+    parser.add_argument(
+        "--reference-only",
+        action="store_true",
+        help="Check reference plumbing only; report passed remains false without a candidate.",
+    )
     parser.add_argument("--dtypes", nargs="+", default=["fp32", "bf16"])
     parser.add_argument("--batches", nargs="+", type=int, default=[1, 3, 16])
     parser.add_argument("--hidden", type=int, default=3072)
@@ -273,6 +283,17 @@ def main():
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument("--trace", action="store_true")
     args = parser.parse_args()
+    args.backends = ["pytorch" if backend == "native" else backend for backend in args.backends]
+    if args.reference_only and any(backend != "pytorch" for backend in args.backends):
+        parser.error("--reference-only requires only pytorch/native reference baselines")
+    if args.device == "cpu" and any(backend != "pytorch" for backend in args.backends):
+        parser.error("--device cpu supports only pytorch/native reference baselines")
+    if args.trace and (
+        args.device != "cuda" or any(backend == "pytorch" for backend in args.backends)
+    ):
+        parser.error("--trace requires --device cuda and only cuda/triton backends")
+    if args.benchmark and args.device != "cuda":
+        parser.error("--benchmark requires --device cuda")
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -292,6 +313,12 @@ def main():
         "benchmark_method": "cuda_events_warmed_device_frequency_v2",
         "source_sha256": {},
         "cases": [],
+        "validation_scope": (
+            "reference_baseline"
+            if all(b == "pytorch" for b in args.backends)
+            else "candidate_accuracy"
+        ),
+        "reference_baselines_passed": False,
         "passed": False,
     }
     paths = [
@@ -392,7 +419,11 @@ def main():
                                 args.iterations,
                             )
                         row["passed"] = (
-                            suite.passed
+                            (
+                                suite.reference_baselines_passed
+                                if backend == "pytorch"
+                                else suite.passed
+                            )
                             and row.get("invariance", {}).get("passed", True)
                             and row.get("trace", {}).get("passed", True)
                         )
@@ -420,9 +451,15 @@ def main():
                         ),
                         flush=True,
                     )
-    report["passed"] = bool(report["cases"]) and all(r["passed"] for r in report["cases"])
+    candidate_rows = [r for r in report["cases"] if r["validation_scope"] == "candidate_accuracy"]
+    baseline_rows = [r for r in report["cases"] if r["validation_scope"] == "reference_baseline"]
+    report["passed"] = bool(candidate_rows) and all(r["passed"] for r in report["cases"])
+    report["reference_baselines_passed"] = bool(baseline_rows) and all(
+        r["passed"] for r in baseline_rows
+    )
     save()
-    raise SystemExit(0 if report["passed"] else 1)
+    passed = report["reference_baselines_passed"] if args.reference_only else report["passed"]
+    raise SystemExit(0 if passed else 1)
 
 
 if __name__ == "__main__":

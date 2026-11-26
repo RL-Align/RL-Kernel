@@ -43,9 +43,13 @@ is used for semantic regression and performance comparison.
 The registered `pytorch` (alias `native`) entry is a reference/plumbing baseline.
 Validation reports place its comparisons under `reference_baselines`, exclude
 them from `total_candidates` and `passed_candidates`, and report zero candidate
-pass rate when only the baseline runs. A baseline-only `passed` result checks
-plumbing, not independent reference accuracy or GPU qualification. The dedicated
-validation CLI also labels these cases `validation_scope="reference_baseline"`.
+pass rate when only the baseline runs. Suite `passed` requires at least one
+candidate with nonempty case/output coverage and passing comparisons; baseline
+failures also fail a mixed suite. Baseline-only reports keep `passed=false` and
+record plumbing success separately as `reference_baselines_passed`. Both validation
+CLIs require explicit `--reference-only` to return success for baseline plumbing;
+the report retains `validation_scope="reference_baseline"` and never qualifies a
+GPU candidate. This does not independently establish reference accuracy.
 CUDA/Triton comparisons remain candidate accuracy checks against the independent
 reference; conventional-expression tests, finite differences and the separate
 FP32-phase audit provide the reference's independent checks.
@@ -109,7 +113,24 @@ python tools/validation/operators/check_operator.py --op timestep_embed_mlp --ca
 
 python tools/validation/operators/validate_timestep_official.py --trace --benchmark \
     --output /absolute/isolated/output/matrix.json
+
+# Explicit CPU reference plumbing; suite passed remains false (no GPU candidate).
+python tools/validation/operators/check_operator.py --op timestep_embed_mlp --candidate native \
+    --device cpu --batch 1 --seq 1 --check-grad --reference-only --json
+python tools/validation/operators/validate_timestep_official.py --device cpu --backends pytorch \
+    --reference-only --hidden 17 --batches 1 --seeds 386 --dtypes fp32 \
+    --output /absolute/isolated/output/reference.json
 ```
+
+The operator-check CLI uses fixed production H=3072 and B=`batch * seq`; its
+reference-only example therefore runs one row at H=3072. `--normalized-dim` does
+not change this operator's dimensions. The dedicated validator's `--hidden`
+selects smaller test dimensions explicitly.
+
+`--trace` requires a CUDA device and only `cuda`/`triton` backends. PyTorch/native
+baselines, including mixed backend lists, cannot request kernel-family tracing.
+CUDA-event `--benchmark` requires a CUDA device. Unsupported combinations fail
+argument validation before creating output files or initializing CUDA.
 
 The default matrix uses production H=3072, batches 1/3/16, seeds 386/9386,
 FP32/BF16 and both GPU backends. Accuracy gold runs on CPU with the same input and

@@ -10,7 +10,6 @@ from unittest.mock import patch
 
 import pytest
 import torch
-
 from rl_engine.ops.embedding.timestep_embed_mlp import TimestepEmbedMLPOp
 from tools.validation.operators.validate_timestep_official import (
     eager_batched,
@@ -22,7 +21,9 @@ from tools.validation.operators.validate_timestep_official import (
 )
 
 
-def test_cpu_report_separates_reference_baseline(tmp_path, monkeypatch):
+@pytest.mark.parametrize("backend", ["pytorch", "native"])
+@pytest.mark.parametrize("reference_only", [False, True])
+def test_cpu_report_separates_reference_baseline(tmp_path, monkeypatch, backend, reference_only):
     from tools.validation.operators.validate_timestep_official import main
 
     output = tmp_path / "baseline.json"
@@ -34,7 +35,8 @@ def test_cpu_report_separates_reference_baseline(tmp_path, monkeypatch):
             "--device",
             "cpu",
             "--backends",
-            "pytorch",
+            backend,
+            *(["--reference-only"] if reference_only else []),
             "--dtypes",
             "fp32",
             "--hidden",
@@ -49,16 +51,61 @@ def test_cpu_report_separates_reference_baseline(tmp_path, monkeypatch):
     )
     with pytest.raises(SystemExit) as result:
         main()
-    assert result.value.code == 0
+    assert result.value.code == (0 if reference_only else 1)
     report = json.loads(output.read_text())
-    assert report["passed"]
+    assert report["passed"] is False
+    assert report["reference_baselines_passed"] is True
+    assert report["validation_scope"] == "reference_baseline"
     (case,) = report["cases"]
     assert case["validation_scope"] == "reference_baseline"
     accuracy = case["accuracy"]
+    assert accuracy["passed"] is False
+    assert accuracy["reference_baselines_passed"] is True
     assert accuracy["total_candidates"] == accuracy["passed_candidates"] == 0
     assert accuracy["pass_rate"] == 0.0 and accuracy["candidates"] == []
     (baseline,) = accuracy["reference_baselines"]
     assert baseline["passed"] and baseline["total_outputs"] == 6
+
+
+@pytest.mark.parametrize(
+    "flags,message",
+    [
+        (["--device", "cpu", "--backends", "pytorch", "--trace"], "--trace requires"),
+        (["--device", "cuda", "--backends", "pytorch", "--trace"], "--trace requires"),
+        (["--device", "cuda", "--backends", "native", "--trace"], "--trace requires"),
+        (["--device", "cuda", "--backends", "cuda", "pytorch", "--trace"], "--trace requires"),
+        (["--device", "cuda", "--backends", "native", "triton", "--trace"], "--trace requires"),
+        (["--device", "cpu", "--backends", "pytorch", "--benchmark"], "--benchmark requires"),
+        (["--device", "cpu", "--backends", "cuda"], "--device cpu supports only"),
+        (["--device", "cpu", "--backends", "pytorch", "triton"], "--device cpu supports only"),
+        (["--backends", "cuda", "pytorch", "--reference-only"], "--reference-only requires only"),
+        (["--backends", "pytorch", "--reference-only", "--trace"], "--trace requires"),
+        (["--backends", "unknown"], "invalid choice"),
+    ],
+)
+def test_invalid_collection_options_fail_before_cuda_or_output(
+    flags, message, tmp_path, monkeypatch, capsys
+):
+    from tools.validation.operators import validate_timestep_official as validation
+
+    output = tmp_path / "not-created" / "matrix.json"
+    monkeypatch.setattr(
+        sys, "argv", ["validate_timestep_official.py", *flags, "--output", str(output)]
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("invalid request reached CUDA or candidate execution")
+
+    monkeypatch.setattr(torch.cuda, "get_device_name", forbidden)
+    monkeypatch.setattr(torch.cuda, "synchronize", forbidden)
+    monkeypatch.setattr(torch.profiler, "profile", forbidden)
+    monkeypatch.setattr(validation, "inputs", forbidden)
+    monkeypatch.setattr(validation, "TimestepEmbedMLPOp", forbidden)
+    with pytest.raises(SystemExit) as result:
+        validation.main()
+    assert result.value.code == 2
+    assert message in capsys.readouterr().err
+    assert not output.parent.exists()
 
 
 @pytest.mark.parametrize("backend", ["cuda", "triton"])

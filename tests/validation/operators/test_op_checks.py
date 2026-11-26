@@ -7,7 +7,6 @@ import argparse
 
 import pytest
 import torch
-
 from rl_engine.contracts.numerical import BackendProvenance, ContractResolveError
 from rl_engine.reference.embedding.embedding import NativeEmbeddingOp
 from rl_engine.reference.embedding.lm_head import NativeLMHeadOp
@@ -199,7 +198,11 @@ def test_reference_baselines_do_not_count_as_candidates(include_candidate, bad_b
     report = run_operator_suite("square", candidates=entries, cases=[case], check_grad=True)
     assert report.total_candidates == report.passed_candidates == int(include_candidate)
     assert report.pass_rate == float(include_candidate)
-    assert report.passed == (not bad_baseline)
+    assert report.passed == (include_candidate and not bad_baseline)
+    assert report.reference_baselines_passed == (not bad_baseline)
+    assert report.validation_scope == (
+        "candidate_accuracy" if include_candidate else "reference_baseline"
+    )
     assert [c.candidate_name for c in report.candidates] == (
         ["actual"] if include_candidate else []
     )
@@ -211,6 +214,54 @@ def test_reference_baselines_do_not_count_as_candidates(include_candidate, bad_b
     output = capsys.readouterr().out
     assert "reference_baseline=reference" in output
     assert "candidate=reference" not in output
+
+
+@pytest.mark.parametrize("reference_baseline", [False, True])
+@pytest.mark.parametrize("empty", ["candidates", "cases", "outputs"])
+def test_empty_coverage_cannot_pass_qualification_or_reference_plumbing(reference_baseline, empty):
+    fn = (lambda x: []) if empty == "outputs" else (lambda x: x * 2)
+    entry = CandidateSpec("empty", fn, reference_baseline=reference_baseline)
+    case = OperatorCase(
+        name="empty",
+        op_class="elementwise",
+        dtype=torch.float32,
+        inputs={"x": torch.tensor([2.0])},
+        gold_fn=fn,
+    )
+    report = run_operator_suite(
+        "empty",
+        candidates=[] if empty == "candidates" else [entry],
+        cases=[] if empty == "cases" else [case],
+    )
+    assert not report.passed
+    assert not report.reference_baselines_passed
+    for result in [*report.candidates, *report.reference_baselines]:
+        assert not result.passed
+        assert result.total_outputs == 0
+
+
+@pytest.mark.parametrize("bad_candidate", [False, True])
+def test_candidate_qualification_still_requires_passing_candidate_with_baseline(bad_candidate):
+    case = OperatorCase(
+        name="double",
+        op_class="elementwise",
+        dtype=torch.float32,
+        inputs={"x": torch.tensor([2.0])},
+        gold_fn=lambda x: x * 2,
+    )
+    report = run_operator_suite(
+        "double",
+        candidates=[
+            CandidateSpec("baseline", lambda x: x * 2, reference_baseline=True),
+            CandidateSpec("candidate", lambda x: x * 2 + int(bad_candidate)),
+        ],
+        cases=[case],
+    )
+    assert report.passed == (not bad_candidate)
+    assert report.reference_baselines_passed
+    assert report.total_candidates == 1
+    assert report.passed_candidates == int(not bad_candidate)
+    assert report.pass_rate == float(not bad_candidate)
 
 
 @pytest.mark.parametrize("name", ["pytorch", "native"])
