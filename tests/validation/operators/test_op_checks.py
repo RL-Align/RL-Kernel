@@ -174,6 +174,104 @@ def test_gpu_candidate_compares_with_cpu_gold_for_outputs_and_gradients(dtype):
     assert all(output.max_abs_error == 0 for output in report.candidates[0].cases[0].outputs)
 
 
+@pytest.mark.parametrize("include_candidate", [False, True])
+@pytest.mark.parametrize("bad_baseline", [False, True])
+def test_reference_baselines_do_not_count_as_candidates(include_candidate, bad_baseline, capsys):
+    from tools.validation.operators.check_operator import _summarize
+
+    case = OperatorCase(
+        name="square",
+        op_class="elementwise",
+        dtype=torch.float32,
+        inputs={"x": torch.tensor([1.0, 2.0])},
+        gold_fn=lambda x: x.square(),
+        grad_input_names=("x",),
+    )
+    entries = [
+        CandidateSpec(
+            "reference",
+            lambda x: x.square() + int(bad_baseline),
+            reference_baseline=True,
+        )
+    ]
+    if include_candidate:
+        entries.append(CandidateSpec("actual", lambda x: x.square()))
+    report = run_operator_suite("square", candidates=entries, cases=[case], check_grad=True)
+    assert report.total_candidates == report.passed_candidates == int(include_candidate)
+    assert report.pass_rate == float(include_candidate)
+    assert report.passed == (include_candidate and not bad_baseline)
+    assert report.reference_baselines_passed == (not bad_baseline)
+    assert report.validation_scope == (
+        "candidate_accuracy" if include_candidate else "reference_baseline"
+    )
+    assert [c.candidate_name for c in report.candidates] == (
+        ["actual"] if include_candidate else []
+    )
+    baseline = report.to_dict()["reference_baselines"][0]
+    assert baseline["candidate_name"] == "reference"
+    assert baseline["total_outputs"] == 2
+    assert baseline["passed"] == (not bad_baseline)
+    _summarize(report)
+    output = capsys.readouterr().out
+    assert "reference_baseline=reference" in output
+    assert "candidate=reference" not in output
+
+
+@pytest.mark.parametrize("reference_baseline", [False, True])
+@pytest.mark.parametrize("empty", ["candidates", "cases", "outputs"])
+def test_empty_coverage_cannot_pass_qualification_or_reference_plumbing(reference_baseline, empty):
+    fn = (lambda x: []) if empty == "outputs" else (lambda x: x * 2)
+    entry = CandidateSpec("empty", fn, reference_baseline=reference_baseline)
+    case = OperatorCase(
+        name="empty",
+        op_class="elementwise",
+        dtype=torch.float32,
+        inputs={"x": torch.tensor([2.0])},
+        gold_fn=fn,
+    )
+    report = run_operator_suite(
+        "empty",
+        candidates=[] if empty == "candidates" else [entry],
+        cases=[] if empty == "cases" else [case],
+    )
+    assert not report.passed
+    assert not report.reference_baselines_passed
+    for result in [*report.candidates, *report.reference_baselines]:
+        assert not result.passed
+        assert result.total_outputs == 0
+
+
+@pytest.mark.parametrize("bad_candidate", [False, True])
+def test_candidate_qualification_still_requires_passing_candidate_with_baseline(bad_candidate):
+    case = OperatorCase(
+        name="double",
+        op_class="elementwise",
+        dtype=torch.float32,
+        inputs={"x": torch.tensor([2.0])},
+        gold_fn=lambda x: x * 2,
+    )
+    report = run_operator_suite(
+        "double",
+        candidates=[
+            CandidateSpec("baseline", lambda x: x * 2, reference_baseline=True),
+            CandidateSpec("candidate", lambda x: x * 2 + int(bad_candidate)),
+        ],
+        cases=[case],
+    )
+    assert report.passed == (not bad_candidate)
+    assert report.reference_baselines_passed
+    assert report.total_candidates == 1
+    assert report.passed_candidates == int(not bad_candidate)
+    assert report.pass_rate == float(not bad_candidate)
+
+
+@pytest.mark.parametrize("name", ["pytorch", "native"])
+def test_timestep_reference_aliases_are_baselines(name):
+    args = _spec_args("timestep_embed_mlp")
+    args.candidate = name
+    assert make_candidate(args).reference_baseline
+
+
 def test_embedding_native_candidate_suite_passes_issue_108_helper():
     report = run_operator_suite(
         "embedding",

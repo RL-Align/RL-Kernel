@@ -71,10 +71,17 @@ def _select_device(value: str) -> torch.device:
 
 
 def _summarize(report: Any) -> None:
-    print(f"suite={report.suite_name} passed={report.passed} pass_rate={report.pass_rate:.4f}")
-    for candidate in report.candidates:
+    print(
+        f"suite={report.suite_name} passed={report.passed} pass_rate={report.pass_rate:.4f} "
+        f"validation_scope={report.validation_scope} "
+        f"reference_baselines_passed={report.reference_baselines_passed}"
+    )
+    for candidate, role in [
+        *((candidate, "candidate") for candidate in report.candidates),
+        *((baseline, "reference_baseline") for baseline in report.reference_baselines),
+    ]:
         print(
-            f"candidate={candidate.candidate_name} requested_backend={candidate.backend} "
+            f"{role}={candidate.candidate_name} requested_backend={candidate.backend} "
             f"passed={candidate.passed} pass_rate={candidate.pass_rate:.4f}"
         )
         for case in candidate.cases:
@@ -110,6 +117,14 @@ def parse_args() -> argparse.Namespace:
         "--candidate",
         default="pytorch",
         help="Candidate backend to validate, for example pytorch, cuda, cuda-sm90, triton, ascend.",
+    )
+    parser.add_argument(
+        "--reference-only",
+        action="store_true",
+        help=(
+            "Run only a registered reference baseline; "
+            "exit success is plumbing, not qualification."
+        ),
     )
     parser.add_argument("--dtype", choices=("fp32", "bf16", "fp16"), default="fp32")
     parser.add_argument("--device", default="auto")
@@ -154,6 +169,8 @@ def main() -> None:
     dtype = _parse_dtype(args.dtype)
     device = _select_device(args.device)
     candidate = make_candidate(args, observe_backend=True)
+    if args.reference_only and not candidate.reference_baseline:
+        raise SystemExit("--reference-only requires a registered reference baseline")
     case = make_operator_case(args, dtype, device)
     report = run_operator_suite(
         args.op,
@@ -169,7 +186,8 @@ def main() -> None:
     else:
         _summarize(report)
 
-    if not report.passed:
+    passed = report.reference_baselines_passed if args.reference_only else report.passed
+    if not passed:
         raise SystemExit(1)
 
 

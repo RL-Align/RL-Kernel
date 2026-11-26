@@ -21,7 +21,8 @@ def _load_extension_config(
     hip: str | None,
     fast_math: bool = False,
     nvcc_env: dict[str, str] | None = None,
-) -> dict[str, Any]:
+    extension_name: str | None = "rl_engine._C",
+) -> dict[str, Any] | list[dict[str, Any]]:
     captured: dict[str, Any] = {}
 
     def fake_setup(**kwargs: Any) -> None:
@@ -55,7 +56,9 @@ def _load_extension_config(
         monkeypatch.setenv("PYTORCH_ROCM_ARCH", "gfx942")
 
     runpy.run_path("setup.py", run_name=f"rl_kernel_setup_probe_{hip or 'cuda'}")
-    return captured["ext_modules"][0]
+    if extension_name is None:
+        return captured["ext_modules"]
+    return next(ext for ext in captured["ext_modules"] if ext["name"] == extension_name)
 
 
 def test_rocm_build_excludes_cuda_ipc_collective_and_driver(monkeypatch) -> None:
@@ -202,3 +205,78 @@ def test_adaln_build_registers_native_source_only_for_precise_cuda(
     extension = _load_extension_config(monkeypatch, hip=hip, fast_math=fast_math == "1")
     assert ("csrc/cuda/norm/adaln_modulation.cu" in extension["sources"]) is enabled
     assert ("-DRLK_ADALN_CUDA_ENABLED" in extension["extra_compile_args"]["cxx"]) is enabled
+
+
+@pytest.mark.parametrize("fast_math", [False, True])
+@pytest.mark.parametrize(
+    "nvcc_env",
+    [
+        {},
+        {"NVCC_PREPEND_FLAGS": "-lineinfo --fmad=false"},
+        {"NVCC_APPEND_FLAGS": "--ftz false --prec-div=true --prec-sqrt true --fmad false"},
+        {"TORCH_NVCC_FLAGS": "--ftz=false;--prec-div=true;--prec-sqrt=true;--fmad=false"},
+    ],
+)
+def test_timestep_cuda_build_preserves_strict_flags(monkeypatch, fast_math, nvcc_env) -> None:
+    extension = _load_extension_config(
+        monkeypatch,
+        hip=None,
+        fast_math=fast_math,
+        nvcc_env=nvcc_env,
+        extension_name="rl_engine._timestep_cuda",
+    )
+    assert extension["sources"] == ["csrc/cuda/embedding/timestep_embed_mlp.cu"]
+    assert extension["extra_compile_args"] == {"cxx": ["-O3"], "nvcc": ["-O3", "--fmad=false"]}
+
+
+@pytest.mark.parametrize(
+    "variable", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS"]
+)
+@pytest.mark.parametrize(
+    "flags",
+    [
+        "--use_fast_math",
+        "--ftz=true",
+        "--prec-div=false",
+        "--prec-sqrt=false",
+        "--fmad=true",
+        "--fmad true",
+        "--fmad=1",
+        "--fmad",
+        "--fmad=maybe",
+        "'unterminated",
+        "@external.flags",
+        "--options-file=external.flags",
+        "-optf external.flags",
+    ],
+)
+def test_timestep_cuda_build_omits_only_unsafe_independent_extension(monkeypatch, variable, flags):
+    with pytest.warns(RuntimeWarning) as captured:
+        extensions = _load_extension_config(
+            monkeypatch,
+            hip=None,
+            nvcc_env={variable: flags},
+            extension_name=None,
+        )
+    assert any(ext["name"] == "rl_engine._C" for ext in extensions)
+    assert not any(ext["name"] == "rl_engine._timestep_cuda" for ext in extensions)
+    assert any(
+        variable in str(warning.message) and "timestep CUDA extension" in str(warning.message)
+        for warning in captured
+    )
+
+
+def test_timestep_fmad_guard_preserves_existing_core_math_policy(monkeypatch):
+    from build_tools.extensions import _relaxed_math_reason
+
+    clean_core = _load_extension_config(monkeypatch, hip=None)
+    with pytest.warns(RuntimeWarning, match="timestep CUDA extension"):
+        extensions = _load_extension_config(
+            monkeypatch,
+            hip=None,
+            nvcc_env={"NVCC_APPEND_FLAGS": "--fmad=true"},
+            extension_name=None,
+        )
+    assert next(ext for ext in extensions if ext["name"] == "rl_engine._C") == clean_core
+    assert _relaxed_math_reason() is None
+    assert "--fmad=true" in _relaxed_math_reason(require_fmad_false=True)

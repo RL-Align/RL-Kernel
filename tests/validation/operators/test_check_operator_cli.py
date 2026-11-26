@@ -57,7 +57,9 @@ def test_cli_text_and_json_report_observed_backend(op, candidate, actual):
             cwd=ROOT,
             capture_output=True,
             text=True,
-            env=dict(os.environ, PYTHONPATH=str(ROOT)),
+            env=dict(
+                os.environ, PYTHONPATH=str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")
+            ),
             timeout=30,
         )
         for flags in ([], ["--json"])
@@ -119,3 +121,71 @@ def test_text_reports_each_case_trace_independently(capsys):
     ):
         assert f"case=case-{i} {expected}" in output
     assert "fallback_reason=case-domain" in output
+
+
+@pytest.mark.parametrize("candidate", ["pytorch", "native"])
+@pytest.mark.parametrize("reference_only", [False, True])
+def test_timestep_cli_requires_explicit_reference_only_without_qualification(
+    candidate, reference_only
+):
+    command = [
+        sys.executable,
+        "tools/validation/operators/check_operator.py",
+        "--op",
+        "timestep_embed_mlp",
+        "--candidate",
+        candidate,
+        "--device",
+        "cpu",
+        "--batch",
+        "1",
+        "--seq",
+        "1",
+        "--json",
+        "--check-grad",
+    ]
+    if reference_only:
+        command.append("--reference-only")
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")),
+        # The fixed H3072 CPU reference includes forward and five VJPs.
+        timeout=90,
+    )
+    assert result.returncode == (0 if reference_only else 1), result.stdout + result.stderr
+    # Some optional native builds print a warning before the structured CLI report.
+    payload = json.loads(result.stdout[result.stdout.index("{") :])
+    assert payload["passed"] is False
+    assert payload["reference_baselines_passed"] is True
+    assert payload["validation_scope"] == "reference_baseline"
+    assert payload["total_candidates"] == 0 and payload["candidates"] == []
+    (baseline,) = payload["reference_baselines"]
+    assert baseline["passed"] and baseline["total_outputs"] == 6
+
+    assert baseline["cases"][0]["outputs"][0]["shape"] == [1, 3072]
+
+
+def test_reference_only_cli_rejects_an_actual_candidate():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/validation/operators/check_operator.py",
+            "--op",
+            "logp",
+            "--candidate",
+            "pytorch",
+            "--device",
+            "cpu",
+            "--reference-only",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")),
+        timeout=30,
+    )
+    assert result.returncode != 0
+    assert "--reference-only requires a registered reference baseline" in result.stderr

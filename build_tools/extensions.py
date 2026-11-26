@@ -50,7 +50,7 @@ def _nvcc_flag_tokens(text: str) -> list[str]:
     return tokens
 
 
-def _tokens_relax_math(tokens: list[str]) -> str | None:
+def _tokens_relax_math(tokens: list[str], *, require_fmad_false: bool = False) -> str | None:
     """Return the first token that relaxes FP32 math or cannot be verified."""
 
     for index, flag in enumerate(tokens):
@@ -64,6 +64,9 @@ def _tokens_relax_math(tokens: list[str]) -> str | None:
         if name == "use_fast_math":
             return flag
         relaxed_values = _RELAXED_MATH_VALUE_FLAGS.get(name)
+        exact_value = _EXACT_MATH_VALUES.get(name)
+        if require_fmad_false and name == "fmad":
+            relaxed_values, exact_value = {"true", "1"}, "false"
         if relaxed_values is None:
             continue
         spelled = flag
@@ -75,12 +78,12 @@ def _tokens_relax_math(tokens: list[str]) -> str | None:
         normalized = value.lower()
         if normalized in relaxed_values:
             return spelled
-        if normalized != _EXACT_MATH_VALUES[name]:
+        if normalized != exact_value:
             return f"{spelled} with an unsupported value"
     return None
 
 
-def _relaxed_math_reason() -> str | None:
+def _relaxed_math_reason(*, require_fmad_false: bool = False) -> str | None:
     """Describe external NVCC math flags; fail closed when they cannot be checked."""
 
     for name in _EXTERNAL_NVCC_FLAG_VARS:
@@ -88,7 +91,7 @@ def _relaxed_math_reason() -> str | None:
             tokens = _nvcc_flag_tokens(os.environ.get(name, ""))
         except ValueError as exc:
             return f"{name} cannot be parsed ({exc})"
-        relaxed = _tokens_relax_math(tokens)
+        relaxed = _tokens_relax_math(tokens, require_fmad_false=require_fmad_false)
         if relaxed is not None:
             return f"{name} contains {relaxed}"
     return None
@@ -490,6 +493,28 @@ def get_extensions():
                 extra_link_args=extra_link_args,
             )
         )
+
+    # Independent binding keeps timestep's strict FP32 flags separate from
+    # optional fast-math settings used by other operators.
+    if not is_rocm and torch.cuda.is_available():
+        timestep_math_reason = _relaxed_math_reason(require_fmad_false=True)
+        if timestep_math_reason is not None:
+            warnings.warn(
+                f"External NVCC flags relax timestep FP32 math or cannot be checked "
+                f"({timestep_math_reason}); the timestep CUDA extension is left out "
+                "of this build.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        else:
+            extensions.append(
+                GpuExtension(
+                    name="rl_engine._timestep_cuda",
+                    sources=["csrc/cuda/embedding/timestep_embed_mlp.cu"],
+                    extra_compile_args={"cxx": ["-O3"], "nvcc": ["-O3", "--fmad=false"]},
+                    extra_link_args=torch_rpath,
+                )
+            )
 
     extensions.extend(_ascend_extensions())
 

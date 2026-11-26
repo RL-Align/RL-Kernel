@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import torch
@@ -42,6 +42,7 @@ class CandidateSpec:
     backend: str = "unknown"
     arch_key: str | None = None
     provenance: BackendProvenance | None = None
+    reference_baseline: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,9 @@ class OperatorCheckReport:
     pass_rate: float
     passed: bool
     candidates: list[CandidateReport]
+    reference_baselines: list[CandidateReport] = field(default_factory=list)
+    reference_baselines_passed: bool = False
+    validation_scope: str = "candidate_accuracy"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -122,7 +126,7 @@ def run_operator_suite(
     # cases : test object
     # camdidate : test instance
     # loaded_contract : tolerance table
-    candidate_reports = [
+    reports = [
         _run_candidate(
             candidate,
             cases,
@@ -133,6 +137,16 @@ def run_operator_suite(
         )
         for candidate in candidates
     ]
+    candidate_reports = [
+        report
+        for candidate, report in zip(candidates, reports, strict=True)
+        if not candidate.reference_baseline
+    ]
+    reference_reports = [
+        report
+        for candidate, report in zip(candidates, reports, strict=True)
+        if candidate.reference_baseline
+    ]
     passed_candidates = sum(1 for report in candidate_reports if report.passed)
     total_candidates = len(candidate_reports)
     pass_rate = float(passed_candidates / total_candidates) if total_candidates else 0.0
@@ -141,8 +155,17 @@ def run_operator_suite(
         total_candidates=total_candidates,
         passed_candidates=passed_candidates,
         pass_rate=pass_rate,
-        passed=passed_candidates == total_candidates,
+        # Qualification requires an actual candidate; baseline plumbing is separate.
+        passed=bool(candidate_reports) and all(report.passed for report in reports),
         candidates=candidate_reports,
+        reference_baselines=reference_reports,
+        reference_baselines_passed=bool(reference_reports)
+        and all(report.passed for report in reference_reports),
+        validation_scope=(
+            "candidate_accuracy"
+            if candidate_reports
+            else "reference_baseline" if reference_reports else "empty"
+        ),
     )
 
 
@@ -192,7 +215,7 @@ def _run_candidate(
         total_outputs=total_outputs,
         passed_outputs=passed_outputs,
         pass_rate=pass_rate,
-        passed=passed_outputs == total_outputs,
+        passed=total_outputs > 0 and all(case.passed for case in case_checks),
         cases=case_checks,
         backend_provenance=candidate.provenance,
     )
@@ -390,7 +413,7 @@ def _compare_case_outputs(
         case_name=case.name,
         dtype=str(case.dtype),
         op_class=case.op_class,
-        passed=all(output.passed for output in output_checks),
+        passed=bool(output_checks) and all(output.passed for output in output_checks),
         outputs=output_checks,
         backend_trace=dict(trace) if trace is not None else None,
     )

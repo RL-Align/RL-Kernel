@@ -1,0 +1,274 @@
+# Standard Qwen-Image timestep embedding MLP
+
+`timestep_embed_mlp` implements the standard 256-channel cosine-first sinusoidal
+embedding, Linear(256, 3072), SiLU, Linear(3072, 3072), and first-order backward.
+It does not add guidance or conditioning. Smaller hidden dimensions are accepted
+for testing. Weights follow `torch.nn.Linear` layout `[out_features, in_features]`.
+
+```python
+from rl_engine.ops.embedding.timestep_embed_mlp import TimestepEmbedMLPOp
+
+op = TimestepEmbedMLPOp("cuda")  # or "triton"; "pytorch" is the slow independent gold
+output, trace = op(timestep, weight1, bias1, weight2, bias2, return_trace=True)
+output.backward(upstream)
+print(trace.actual_backend, trace.kernels)
+```
+
+Parameters use FP32 or BF16 storage, all on the timestep device. Timesteps are
+one-dimensional FP32/BF16 or int32/int64 values at the embedding-module boundary.
+Integer timesteps support forward and parameter gradients, not timestep gradients.
+All intermediate values and accumulations use FP32; output and parameter gradients
+return to parameter dtype. Timestep gradients return to timestep dtype. Autocast
+and higher-order differentiation are unsupported. This fused precision policy
+avoids intermediate BF16 quantization; it is not a bitwise emulation of the
+unfused Diffusers BF16 module.
+
+For `i=0..127`, frequencies are `exp((-log(10000)*i)/128)` and phase is
+`(timestep*frequency)*1000`, in that order. Output embedding concatenates cosine
+then sine. Fixed FP32 frequencies are generated normally and cached per operator
+and device. There are no CPU library hashes, MKL dispatch requirements or
+frequency-fingerprint gates.
+
+## Accuracy and deterministic layouts
+
+The operator is registered in `rl_engine/validation/operators/operator_specs.py` with `op_class="reduction"`
+and all five differentiable inputs. The unchanged shared contract resolves forward
+and gradient accuracy independently. The independent gold uses pure PyTorch FP32
+compensated forward/input-VJP product sums, explicit FP32 outer-product weight
+VJPs and torch.sum bias VJPs, plus torch sigmoid autograd. Parameter-gradient
+accuracy is tolerance-based; the gold does not promise bitwise permutation invariance.
+It does not invoke candidate primitives. A separate conventional `F.linear` path
+is used for semantic regression and performance comparison.
+
+The registered `pytorch` (alias `native`) entry is a reference/plumbing baseline.
+Validation reports place its comparisons under `reference_baselines`, exclude
+them from `total_candidates` and `passed_candidates`, and report zero candidate
+pass rate when only the baseline runs. Suite `passed` requires at least one
+candidate with nonempty case/output coverage and passing comparisons; baseline
+failures also fail a mixed suite. Baseline-only reports keep `passed=false` and
+record plumbing success separately as `reference_baselines_passed`. Both validation
+CLIs require explicit `--reference-only` to return success for baseline plumbing;
+the report retains `validation_scope="reference_baseline"` and never qualifies a
+GPU candidate. This does not independently establish reference accuracy.
+CUDA/Triton comparisons remain candidate accuracy checks against the independent
+reference; conventional-expression tests, finite differences and the separate
+FP32-phase audit provide the reference's independent checks.
+
+CUDA long dot products use compensated FP32 lane accumulation and a fixed warp
+tree; Triton uses a fixed compensated FP32 tree. Short reductions use ordered FMA.
+Neither backend uses atomic accumulation, TF32, tensor-core reduced precision, or
+batch-dependent autotuning. Backend-to-backend bit equality is not promised;
+configuration invariance is checked separately, byte for byte.
+
+`chunk_size` changes forward row partitioning. Backward always reduces the entire
+logical active sample set in a fixed order. For permuted/padded physical input:
+
+```python
+output = op(t, w1, b1, w2, b2,
+            sample_ids=logical_ids, active_mask=mask, chunk_size=2)
+```
+
+`sample_ids` is a device-local int64 `[B]` with unique active IDs. `active_mask` is
+a device-local bool `[B]`. Active rows are evaluated in ascending ID order and
+outputs are restored to physical positions; padding output and timestep gradients
+are zero. This makes parameter gradients invariant for the **same full logical
+sample set**. Ordinary external microbatch `.backward()` calls that add already
+rounded BF16 parameter gradients are not covered. Singleton invariance covers
+outputs and row-local timestep gradients only, not parameter gradients for a
+different sample set.
+
+## Backends, build and trace
+
+The CUDA backend first imports the independent `rl_engine._timestep_cuda` extension
+built by `setup.py`, with strict FP32 flags independent of other operators' fast
+math options. In a source checkout it can JIT-build the same CUDA source when the
+prebuilt module is absent. JIT needs a compatible CUDA toolkit, C++ compiler,
+Python headers and Ninja. Set `TORCH_EXTENSIONS_DIR` and `TRITON_CACHE_DIR` to
+isolated writable directories. The Triton backend needs a compatible Triton install.
+
+The timestep build checks `NVCC_PREPEND_FLAGS`, `NVCC_APPEND_FLAGS` and
+`TORCH_NVCC_FLAGS`. Relaxed math (`--use_fast_math`, `--ftz=true`,
+`--prec-div=false`, `--prec-sqrt=false` or `--fmad=true`), unparseable values and
+indirect options files prevent timestep compilation: `setup.py` warns and omits
+its independent extension, while checkout JIT raises before invoking the compiler.
+Safe explicit precision flags leave the existing compile arguments unchanged.
+The checkout JIT path uses the same `build_tools` check as `setup.py`; installed
+prebuilt modules load before that source-only helper is needed. Changing build
+flags does not alter an already loaded module. Prebuilt or disk-cached artifacts
+with unknown build flags need independent verification or a fresh isolated
+validation build. The recorded H100 acceptance used fresh isolated caches and
+retained the executed artifact identity. Use a new isolated validation root for
+subsequent acceptance.
+
+Native CUDA primitives reject tensors, dimensions and outputs outside signed int32
+indexing before allocation or launch. Embedding output must fit `B*256`; matrix
+output must fit `M*N`, and its reduction length must be at most `INT_MAX-31`.
+These checks do not change arithmetic for supported shapes. Matrix launches use
+a shared block-size constant constrained to complete warps.
+
+Unavailable backends raise by default. `allow_fallback=True` explicitly enables
+the PyTorch reference; the returned trace records requested/actual backend and the
+reason. Kernel execution errors are not silently converted into fallback results.
+Trace objects belong to individual calls and are updated by their own backward.
+Launch records are diagnostic labels; the validation script separately requires
+observed CUDA profiler events from embedding, matrix, activation and timestep VJP
+kernels. The repository's unrelated `_C unavailable` import warning does not
+identify this independently built extension's execution path.
+
+## Reproduce
+
+```bash
+OMP_NUM_THREADS=4 python -m pytest tests/ops/embedding/test_timestep_official.py \
+    tests/contracts/test_tolerance_contract.py tests/validation/operators/test_operator_inputs.py -q
+
+python tools/validation/operators/check_operator.py --op timestep_embed_mlp --candidate cuda \
+    --device cuda --dtype bf16 --batch 3 --seq 1 --seed 386 --check-grad --json
+# Repeat with --candidate triton and --dtype fp32.
+
+python tools/validation/operators/validate_timestep_official.py --trace --benchmark \
+    --output /absolute/isolated/output/matrix.json
+
+# Explicit CPU reference plumbing; suite passed remains false (no GPU candidate).
+python tools/validation/operators/check_operator.py --op timestep_embed_mlp --candidate native \
+    --device cpu --batch 1 --seq 1 --check-grad --reference-only --json
+python tools/validation/operators/validate_timestep_official.py --device cpu --backends pytorch \
+    --reference-only --hidden 17 --batches 1 --seeds 386 --dtypes fp32 \
+    --output /absolute/isolated/output/reference.json
+```
+
+The operator-check CLI uses fixed production H=3072 and B=`batch * seq`; its
+reference-only example therefore runs one row at H=3072. `--normalized-dim` does
+not change this operator's dimensions. The dedicated validator's `--hidden`
+selects smaller test dimensions explicitly.
+
+`--trace` requires a CUDA device and only `cuda`/`triton` backends. PyTorch/native
+baselines, including mixed backend lists, cannot request kernel-family tracing.
+CUDA-event `--benchmark` requires a CUDA device. Unsupported combinations fail
+argument validation before creating output files or initializing CUDA.
+
+The default matrix uses production H=3072, batches 1/3/16, seeds 386/9386,
+FP32/BF16 and both GPU backends. Accuracy gold runs on CPU with the same input and
+upstream values. The JSON records source hashes, resolved tolerances, per-output
+errors, full invariance verdicts, observed kernels, environment, and timing samples.
+CUDA-event timings include operator dispatch and allocation overhead after warmup;
+compilation is excluded. Both paths prepare their immutable device frequency table
+before timing (method `cuda_events_warmed_device_frequency_v2`). Reports record
+the actual checkout HEAD, tracked-dirty status and source hashes. The performance
+baseline is ordinary batched PyTorch with
+the same fused FP32 compute policy, not the deliberately slow compensated oracle.
+
+`TIMESTEP_RUN_ROOT=/absolute/isolated/root bash ci/scripts/run_timestep_official.sh`
+provides an A100-only fresh-cache reproduction including pytest, four official CLI
+runs, the matrix, package inventory and device information. Activate the desired
+venv and set CUDA_HOME/CPATH for your environment first. It does not connect to a
+server, install dependencies or alter system configuration.
+
+## Implementation and historical validation
+
+| Component | Canonical location |
+| --- | --- |
+| Semantic API and autograd | `rl_engine/ops/embedding/timestep_embed_mlp.py` |
+| Independent PyTorch reference | `rl_engine/reference/embedding/timestep_embed_mlp.py` |
+| Native CUDA source and loader | `csrc/cuda/embedding/timestep_embed_mlp.cu`, `rl_engine/backends/cuda/embedding/timestep_embed_mlp.py` |
+| Triton kernels and adapter | `rl_engine/backends/cuda/embedding/timestep_embed_mlp_triton.py` |
+| API and reference tests | `tests/ops/embedding/test_timestep_official.py`, `tests/reference/test_timestep_reference_audit.py` |
+| Acceptance and reference audit | `tools/validation/operators/validate_timestep_official.py`, `tools/validation/operators/audit_timestep_reference.py` |
+
+The Triton implementation uses NVIDIA libdevice and is registered only for NVIDIA
+CUDA devices. Legacy Python modules remain aliases of these canonical modules,
+sharing class identities and the CUDA extension cache. Recorded operator identities
+remain stable across the move. New code and reproduction commands use canonical paths.
+
+These executions predate the directory migration and the rebase:
+
+| Check | A100 / sm80, 2026-10-02 | H100 / sm90, 2026-10-07 |
+| --- | --- | --- |
+| H3072, B1/3/16, seeds 386/9386, CUDA/Triton, FP32/BF16 | 24/24 passed | 24/24 passed |
+| H17, B33/64 long reductions | 8/8 passed | 8/8 passed |
+| Official forward/backward CLI checks | 4/4 passed | 4/4 passed |
+| Original related tests | 60 passed | 60 passed |
+| Reference VJP finite differences / expanded suite | Not run | 63 passed, no skips |
+| Related gtest framework regressions | Not claimed | 155 passed, no skips |
+| Independent FP32-phase reference audit | Not run | 8/8 passed |
+| Profiler confirmation without fallback | Four traces | Four traces |
+
+The H100 acceptance source is `ea55fa686706892ce94ebe7020829c19c108496c`;
+source manifests, dependencies, commands, seeds, thresholds, raw measurements,
+traces and failed attempts remain preserved outside the current tree. The directory migration preserved backend arithmetic and launch settings. Later
+native host-side index guards preserve the same device computation for these
+historical shapes. The rebase validation below covers H100. A100 acceptance
+remains historical.
+
+The independent audit compares all six tensors against FP64 trig/MLP/autograd
+at the specified **FP32 phase boundary**. It passed all eight H3072 cases.
+A separate all-FP64-phase diagnostic exceeded tolerance in 3/4 FP32 cases;
+it changes both frequency/Jacobian precision and phase values, so it does not
+isolate phase-value rounding alone and is not an acceptance substitute. In the historical
+B16/seed9386 case, timestep-gradient error/tolerance was 5.311 for the old
+reference, 0.642 for the current reference, and 80.892 for the all-FP64 diagnostic.
+
+Historical H100 CUDA forward+backward timing ratios were approximately 1.51–1.85x
+using 20 CUDA-event samples and medians. That older baseline rebuilt and transferred
+its frequency table inside every timed call while the candidate cached it; these
+setup-inclusive ratios used unequal setup costs. B16 forward and most Triton cases
+were slower under the older method. No full-model speedup or
+Hopper-specific WGMMA/TMA optimization is claimed. Full-model training,
+multi-GPU execution and full-repository native builds remain unverified.
+The target branch's GitHub workflows did not execute these GPU acceptance runs.
+An older local double-free remains undiagnosed; the isolated H100 suites passed.
+
+## H100 rebase validation
+
+The 2026-11-25 run tested the clean revision
+`b0359cb245cd5adef3856f88ce23eb9a10bd9f9d` on one NVIDIA H100 SXM 80 GB (SM90).
+It used driver 595.112.07, CUDA toolkit 12.8.93, PyTorch 2.8.0+cu128,
+Triton 3.4.0 and Python 3.12.3 on Ubuntu 24.04.
+
+`ci/scripts/run_timestep_sm90.sh` reported 75 passing tests, four passing
+gradient CLI combinations and 24 passing production cases. Separate commands
+reported 33 passing boundary and reference tests, eight passing long-reduction
+cases and eight passing cases in the independent FP32-phase audit. The FP32 and
+BF16 cases cover both GPU backends, forward output, five gradients and batch
+invariance. Four profiler traces captured the requested native CUDA and
+Triton kernels without fallback. The timestep native extension was compiled
+with JIT. The full core extension was unavailable.
+
+With the prepared batched PyTorch baseline and 20 warmed CUDA-event samples per
+case, CUDA forward plus backward ran 1.12–1.96× as fast as the baseline at
+seed 386. CUDA forward at batch 16 and every sampled Triton timing were slower.
+SM100 was outside this run's scope.
+
+## Post-rebase evidence download
+
+The complete 2026-11-25 H100 execution at `b0359cb245cd5adef3856f88ce23eb9a10bd9f9d` is retained outside the merge diff. This delivery and the later report/CLI repairs do not constitute a new GPU run; device computation, reference arithmetic and the numerical contract are unchanged.
+
+- [h100-b0359cb-results.json](https://gist.githubusercontent.com/zzf2024/ad8e30508f4681145cf430863ce15303/raw/fccaa9a585675295e8cd1434820ab60866dd681f/h100-b0359cb-results.json) — SHA256 `12a1a4662237c802deb21dd0699bb9f4c749e80495a84070648689239f87386e`
+- [p2-cpu-results.json](https://gist.githubusercontent.com/zzf2024/ad8e30508f4681145cf430863ce15303/raw/fccaa9a585675295e8cd1434820ab60866dd681f/p2-cpu-results.json) — SHA256 `df5bd0e24b6b203d13d678613f7918cae9a1361ea1f0eb1f42ad3390a2ae6721`
+- [README.md](https://gist.githubusercontent.com/zzf2024/ad8e30508f4681145cf430863ce15303/raw/fccaa9a585675295e8cd1434820ab60866dd681f/README.md) — SHA256 `827cfe0c87905e8a32e1dcb122e92dced2c5da9386b3c97f1e1534c2eff03513`
+- [SHA256SUMS](https://gist.githubusercontent.com/zzf2024/ad8e30508f4681145cf430863ce15303/raw/fccaa9a585675295e8cd1434820ab60866dd681f/SHA256SUMS) — SHA256 `52ab4348beff33d07a18d013c540eaf6f373961595716f7674dde1c5f0651410`
+
+The H100 archive retains full results, traces, commands, original/derivative hashes and sanitization provenance. The separate CPU archive retains the qualification/trace-control regressions and failures: 95 initial passes and four CLI timeouts, followed by six passing affected CLI cases after correcting test parameters. This covers 99 distinct passing CPU cases across corresponding executions, one compiled-AdaLN skip and 15 unexecuted GPU cases. Earlier CPU allocator aborts remain unresolved and are included.
+
+## Historical evidence downloads
+
+Complete A100/H100 results are published separately from the merge diff. These are historical executions, not a new GPU run. The A100 and H100 derivatives each replace one device UUID with `<GPU_UUID>` and record publication provenance. All other original JSON values, measurements and original artifact hashes are unchanged. These replacements do not erase prior exposure.
+
+- [Provenance and limitations](https://gist.githubusercontent.com/zzf2024/013d1510aa34a3a29d27574bf9159bfa/raw/6379214f6b23484ff1274d5896b86b051a415cc8/README.md)
+- [Checksum manifest](https://gist.githubusercontent.com/zzf2024/013d1510aa34a3a29d27574bf9159bfa/raw/6379214f6b23484ff1274d5896b86b051a415cc8/SHA256SUMS)
+
+| Bundle | SHA256 |
+| --- | --- |
+| [a100-results.json](https://gist.githubusercontent.com/zzf2024/013d1510aa34a3a29d27574bf9159bfa/raw/6379214f6b23484ff1274d5896b86b051a415cc8/a100-results.json) | `6871f6908d1f51df5d668f14f70a341b147d0ab154f8a562b832e2cdc5a34493` |
+| [h100-results.json](https://gist.githubusercontent.com/zzf2024/013d1510aa34a3a29d27574bf9159bfa/raw/6379214f6b23484ff1274d5896b86b051a415cc8/h100-results.json) | `59f21a0aa8b41d0636b0ae53fb81ecba27a179633efe51981eff958341d88ddd` |
+
+Additional reproduction commands, with isolated output paths:
+
+```bash
+TIMESTEP_RUN_ROOT=/absolute/new-h100-run bash ci/scripts/run_timestep_sm90.sh
+python tools/validation/operators/validate_timestep_official.py --hidden 17 \
+    --batches 33 64 --seeds 386 --output /absolute/new-long-reduction.json
+OMP_NUM_THREADS=4 TIMESTEP_CUDA_JIT_ONLY=1 TORCH_CUDA_ARCH_LIST=9.0 \
+    python tools/validation/operators/audit_timestep_reference.py \
+    --output /absolute/new-audit.json
+python -m pytest tests/reference/test_timestep_reference_audit.py -q
+```
