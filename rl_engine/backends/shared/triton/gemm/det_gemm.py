@@ -531,7 +531,7 @@ if _TRITON_AVAILABLE:
                 right = _fixed_add(right, sibling)
         return _fixed_add(left, right)
 
-    @triton.jit
+    @triton.jit(do_not_specialize=["M"])
     def _fixed_projection_leaves_kernel(
         a,
         b,
@@ -721,7 +721,7 @@ if _TRITON_AVAILABLE:
             pending = tl.where(slots[None, :] == depth, root[:, None], pending)
         return root
 
-    @triton.jit
+    @triton.jit(do_not_specialize=["M"])
     def _fixed_projection_root_kernel(
         leaves_ptr,
         output_ptr,
@@ -1211,35 +1211,38 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
     leaves = k // _BLOCK_K
     result = a.new_empty((m, n))
-    grouped = m >= 16 and triton.cdiv(m, 32) <= 65535
-    if grouped and leaves == 8 and triton.cdiv(m, 16) <= 65535:
+    grouped = m != 1
+    if grouped and leaves == 8:
         # The K/V input gradient fits its entire eight-leaf tree in one tile.
-        _fixed_projection_leaves_kernel[(triton.cdiv(n, 64), triton.cdiv(m, 16), 1)](
-            a,
-            b,
-            result,
-            m,
-            n,
-            *a.stride(),
-            *b.stride(),
-            BLOCK_M=16,
-            BLOCK_N=64,
-            WGRAD_96=False,
-            LEAVES=8,
-            PACK=8,
-            num_warps=4,
-        )
+        max_rows = 65535 * 16
+        for row in range(0, m, max_rows):
+            chunk_m = min(max_rows, m - row)
+            grid = (triton.cdiv(n, 64), triton.cdiv(chunk_m, 16), 1)
+            _fixed_projection_leaves_kernel[grid](
+                a[row:] if row else a,
+                b,
+                result[row:] if row else result,
+                chunk_m,
+                n,
+                *a.stride(),
+                *b.stride(),
+                BLOCK_M=16,
+                BLOCK_N=64,
+                WGRAD_96=False,
+                LEAVES=8,
+                PACK=8,
+                num_warps=4,
+            )
         return result
     if grouped:
         block_m, block_n = 32, 128
         groups = triton.next_power_of_2(leaves) // 4
         # The wide, non-power-of-two projections reuse a column-major register tile.
         # The 128-leaf O projection has a fully unrolled four-leaf subtree.
-        column_first = m >= 32 and b.stride(0) == 1 and k in (6656, 19968) and n >= 4096
+        column_first = b.stride(0) == 1 and k in (6656, 19968) and n >= 4096
         pack = 16 if b.stride(0) == 1 and not column_first else 8
     else:
-        block_m = min(128, triton.next_power_of_2(m))
-        block_n = 32 if block_m == 128 else 64
+        block_m, block_n = 1, 64
         groups, pack, column_first = leaves, 1, False
 
     # On Hopper, merging more adjacent FFN outputs per block speeds up workspace reads.
@@ -1251,42 +1254,57 @@ def _triton_fixed_projection(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     ):
         root_block = 128
 
-    # Only subtree roots cross the kernel boundary. Reuse their buffer
-    # across column chunks, taking the last chunk's width as its row stride.
-    column_limit = _MAX_TREE_WORKSPACE_ELEMENTS // (m * groups)
-    columns = min(n, column_limit if column_limit < block_n else column_limit // block_n * block_n)
-    workspace = a.new_empty((groups, m, columns))
-    for first in range(0, n, columns):
-        chunk_n = min(columns, n - first)
-        grid = (triton.cdiv(chunk_n, block_n), triton.cdiv(m, block_m), groups)
-        _fixed_projection_leaves_kernel[grid](
-            a,
-            b if first == 0 else b[:, first:],
-            workspace,
-            m,
-            chunk_n,
-            *a.stride(),
-            *b.stride(),
-            BLOCK_M=block_m,
-            BLOCK_N=block_n,
-            WGRAD_96=False,
-            LEAVES=leaves if grouped else 0,
-            GROUP_LEVELS=groups.bit_length() - 1,
-            PACK=pack,
-            COLUMN_FIRST=column_first,
-            STATIC_M=96 if column_first and m == 96 else 0,
-            num_warps=2 if block_m == 1 else 4,
-        )
-        _fixed_projection_root_kernel[(triton.cdiv(m * chunk_n, root_block),)](
-            workspace,
-            result if first == 0 else result[:, first:],
-            m,
-            chunk_n,
-            n,
-            groups,
-            groups.bit_length() - 1,
-            BLOCK=root_block,
-        )
+    # Size column chunks to fit the 96-row training schedule. Balance their
+    # tile counts so a narrow final column chunk does not limit utilization.
+    # Larger batches reuse the same scratch allocation across row chunks.
+    max_outputs = _MAX_TREE_WORKSPACE_ELEMENTS // groups
+    column_tiles = max(1, max_outputs // ((96 if grouped else 1) * block_n))
+    tiles_n = triton.cdiv(n, block_n)
+    column_chunks = triton.cdiv(tiles_n, column_tiles)
+    columns = min(n, triton.cdiv(tiles_n, column_chunks) * block_n, max_outputs)
+    row_limit = min(65535 * block_m, max_outputs // columns)
+    # Whole tiles keep row starts aligned for vector loads and stores.
+    if row_limit >= block_m:
+        row_limit = row_limit // block_m * block_m
+    rows = min(m, row_limit)
+    workspace = a.new_empty((groups, rows, columns))
+    levels = groups.bit_length() - 1
+    # In the 96-token training case, the compiler can eliminate the row masks.
+    static_m = 96 if m == rows == 96 else 0
+    for row in range(0, m, rows):
+        chunk_m = min(rows, m - row)
+        lhs = a if row == 0 else a[row:]
+        for col in range(0, n, columns):
+            chunk_n = min(columns, n - col)
+            grid = (triton.cdiv(chunk_n, block_n), triton.cdiv(chunk_m, block_m), groups)
+            _fixed_projection_leaves_kernel[grid](
+                lhs,
+                b if col == 0 else b[:, col:],
+                workspace,
+                chunk_m,
+                chunk_n,
+                *a.stride(),
+                *b.stride(),
+                BLOCK_M=block_m,
+                BLOCK_N=block_n,
+                WGRAD_96=False,
+                LEAVES=leaves if grouped else 0,
+                GROUP_LEVELS=levels,
+                PACK=pack,
+                COLUMN_FIRST=column_first,
+                STATIC_M=static_m,
+                num_warps=4 if grouped else 2,
+            )
+            _fixed_projection_root_kernel[(triton.cdiv(chunk_m * chunk_n, root_block),)](
+                workspace,
+                result[row:, col:] if row or col else result,
+                chunk_m,
+                chunk_n,
+                n,
+                groups,
+                levels,
+                BLOCK=root_block,
+            )
     return result
 
 
@@ -1296,6 +1314,10 @@ def _triton_fixed_wgrad(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     n = b.size(1)
     result = a.new_empty((m, n))
     leaves = triton.cdiv(tokens, _BLOCK_K)
+    # Unroll the first eight tree sizes, then specialize by tree depth.
+    # Each depth has at most three group layouts (2, 3, or uneven leaves
+    # per group) and two tail cases. For each case the output-feature
+    # chunks are fixed, so specializations grow as O(log(tokens)).
     direct = leaves <= 8
     levels = 0 if direct else leaves.bit_length() - 2
     groups = 1 << levels
@@ -1418,12 +1440,7 @@ def _triton_tree_gemm(
         if transpose_output and k_size > 0:
             # (A @ B).T = B.T @ A.T, both as stride-only views.
             return _triton_fixed_wgrad(b.T, a.T)
-        if (
-            not transpose_output
-            and k_size in (256, 4096, 6656, 19968)
-            and triton.cdiv(m_size, 128) <= 65535
-            and m_size * (k_size // _BLOCK_K) <= _MAX_TREE_WORKSPACE_ELEMENTS
-        ):
+        if not transpose_output and k_size in (256, 4096, 6656, 19968):
             return _triton_fixed_projection(a, b)
     plan = _device_tree_plan(k_size, a.device, fixed_leaf_tree=fixed_leaf_tree)
     workspace_elements = plan.host.node_count * m_size * n_size

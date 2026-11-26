@@ -24,6 +24,7 @@ except ModuleNotFoundError as exc:
     _HAS_TRITON = False
 else:
     from rl_engine.backends.shared.triton.gemm import deterministic_gemm_triton
+    from rl_engine.backends.shared.triton.gemm import det_gemm as triton_det_gemm
     from rl_engine.backends.shared.triton.gemm.det_gemm import (
         _DEFAULT_TREE_LEAF_CONFIG,
         _GFX942_QWEN_FORWARD_LEAF_CONFIGS,
@@ -386,6 +387,29 @@ def test_fixed_leaf_host_plan(k):
             spans[parent] = (lo, hi)
     assert spans == {plan.root: (0, len(starts))}
     assert plan.node_count == 2 * len(starts) - 1
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+def test_fixed_projection_specializations_are_independent_of_batch_size(monkeypatch):
+    # Force both row and column chunks, including short final chunks, with
+    # a smaller output than the full Muse-Glimmer FFN.
+    monkeypatch.setattr(triton_det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", 1 << 20)
+    a, weight = _rand(512, 6656), _rand(448, 6656)
+    expected = _C.det_gemm_fwd_rhs_transposed(a, weight, fixed_leaf_tree=True)
+    device = a.device.index
+    kernels = (
+        triton_det_gemm._fixed_projection_leaves_kernel,
+        triton_det_gemm._fixed_projection_root_kernel,
+    )
+
+    counts = []
+    for m in (32, 33, 5, 17, 47, 64, 100, 128, 200, 333, 512):
+        actual = _triton_tree_gemm(a[:m], weight.T, fixed_leaf_tree=True)
+        _assert_same_raw_bytes(actual, expected[:m])
+        counts.append(tuple(len(kernel.device_caches[device][0]) for kernel in kernels))
+
+    assert counts[2:] == [counts[1]] * (len(counts) - 2)
 
 
 @pytest.mark.cuda_only
