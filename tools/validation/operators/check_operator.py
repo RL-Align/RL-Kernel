@@ -110,6 +110,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--height", type=int, default=6, help="Video latent height before packing.")
     parser.add_argument("--width", type=int, default=10, help="Video latent width before packing.")
     parser.add_argument("--seq", type=int, default=16)
+    parser.add_argument(
+        "--select-shape", type=int, nargs="+", help="index_select input shape; default: B S D."
+    )
+    parser.add_argument(
+        "--select-dim", type=int, default=1, help="index_select axis (negative allowed)."
+    )
     parser.add_argument("--vocab", type=int, default=257)
     parser.add_argument("--input-mode", choices=("random", "constant"), default="random")
     parser.add_argument("--constant-value", type=float, default=0.25)

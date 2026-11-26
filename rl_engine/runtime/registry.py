@@ -232,6 +232,9 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     # WS1 pure-PyTorch ground-truth embedding ops
     TRITON_EMBEDDING = "rl_engine.kernels.ops.triton.linear.embedding.TritonEmbeddingOp"
     PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
+    TRITON_INDEX_SELECT = (
+        "rl_engine.backends.shared.triton.embedding.index_select.TritonIndexSelectOp"
+    )
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
 
@@ -592,6 +595,35 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
             implementation_class_or_factory=OpBackend.PYTORCH_H3_ODE_STEP.value,
             fallback_policy=OperatorFallbackPolicy.ERROR,
             version_or_build_fingerprint="h3-euler-fp32-reference-v1",
+        ),
+        OperatorBackendDescriptor(
+            semantic_op="index_select",
+            backend_id="triton-index-select",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda", "rocm", "musa", "xpu"}),
+            supported_dtypes=frozenset({"float32", "float16", "bfloat16"}),
+            supported_topologies={
+                "rollout": {
+                    "world_size": (1,),
+                    "tensor_parallel_size": (1,),
+                    "context_parallel_size": (1,),
+                },
+                "training": {"world_size": (1,), "sharding": ("unsharded",)},
+            },
+            determinism_or_alignment_properties={
+                "algorithm": "unique_index_scatter_fp32_cast_once",
+                "layout": "strided_rank_ge_1_explicit_dim",
+                "unique_indices_required": True,
+                "gradient_compute_dtype": "float32",
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "split_policy": "none",
+            },
+            lifecycle=OperatorLifecycle.REQUEST,
+            implementation_class_or_factory=OpBackend.TRITON_INDEX_SELECT.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="rlkernel-index-select-unique-fp32-v1",
         ),
         OperatorBackendDescriptor(
             semantic_op="selected_logprob",
@@ -1034,6 +1066,7 @@ class KernelRegistry:
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
+                "index_select": [OpBackend.TRITON_INDEX_SELECT],
                 "silu": [
                     OpBackend.CUDA_SILU,
                     OpBackend.TRITON_SILU,
@@ -1141,6 +1174,7 @@ class KernelRegistry:
                 "rms_norm": [OpBackend.PYTORCH_NATIVE_RMS_NORM],
                 "lm_head": [OpBackend.PYTORCH_NATIVE_LM_HEAD],
                 "embedding": [OpBackend.PYTORCH_NATIVE_EMBEDDING],
+                "index_select": [OpBackend.TRITON_INDEX_SELECT],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
@@ -1209,6 +1243,7 @@ class KernelRegistry:
                     OpBackend.TRITON_EMBEDDING,
                     OpBackend.PYTORCH_NATIVE_EMBEDDING,
                 ],
+                "index_select": [OpBackend.TRITON_INDEX_SELECT],
                 "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
                 "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
                 "timestep_sinusoid_h3": [OpBackend.PYTORCH_H3_TIMESTEP_SINUSOID],
@@ -1591,7 +1626,20 @@ class KernelRegistry:
             raise RuntimeError("video input projection is qualified on CUDA SM90 only")
         if op_type == "video_output_projection_fp32" and platform != "cuda":
             raise RuntimeError("video output projection is qualified on CUDA SM90 only")
-        candidates = self._priority_map.get(platform, {}).get(op_type, [OpBackend.PYTORCH_NATIVE])
+        candidates = self._priority_map.get(platform, {}).get(op_type)
+        if candidates is None and op_type == "index_select":
+            # The legacy dispatcher maps devices without a priority table to CPU.
+            # For an explicit XPU or HIP device, use this operator's descriptor.
+            # An unsupported device gets no candidate: the generic fallback is a logp op.
+            if device is not None:
+                device_type = torch.device(device).type
+                platform = "rocm" if device_type == "hip" else device_type
+            descriptor = self.semantic.backend_descriptor(op_type, "triton-index-select")
+            candidates = (
+                [OpBackend.TRITON_INDEX_SELECT] if platform in descriptor.supported_devices else []
+            )
+        if candidates is None:
+            candidates = [OpBackend.PYTORCH_NATIVE]
 
         for backend in candidates:
             op_instance = self._get_or_create_backend(backend)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sys
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from types import MethodType
 
 import torch
@@ -441,47 +441,45 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
 
 @contextmanager
 def _packed_rows(model, trace):
-    """Bind the top-level forward's scatter to ``packed_index_copy`` (``h3_packed_forward``).
+    """Bind the available scatter and gather independently and record which rows ran."""
 
-    The row is pure data movement, so the forward is bitwise the provider's either way. It is
-    bound when its CUDA operator and a known provider forward are present; otherwise the
-    provider's scatter runs, and ``trace.packed_bindings`` says which one ran (``row`` /
-    ``provider``). It is reported, not required: a strict run without the operator is the same
-    bytes.
-    """
-
-    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.runtime.registry import KernelRegistry, OpBackend
     from rl_engine.validation.models import h3_packed_forward as hpf
 
-    pack_cls = "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp"
-    # Only a missing operator (the registry's RuntimeError, an ImportError) or a forward that is
-    # not a known provider forward (``UnknownForwardError``) leaves the provider scatter on; an
-    # out-of-memory error, or any other error while binding, is an error of the run and raises.
-    context = None
-    try:
-        op = KernelRegistry().get_op("packed_index_copy", device="cuda")
-    except torch.cuda.OutOfMemoryError:
-        raise
-    except (RuntimeError, ImportError):
-        op = None
-    if op is not None and f"{type(op).__module__}.{type(op).__qualname__}" == pack_cls:
-        context = hpf.bind(model, op)
+    registry = KernelRegistry()
+
+    def resolve(name, backend, device):
+        # The registry can fall back to PyTorch. Only count the requested kernel as a bound row.
         try:
-            context.__enter__()
-        except (hpf.UnknownForwardError, ImportError):
-            context = None
-    if context is None:
+            op = registry.get_op(name, device=device)
+        except torch.cuda.OutOfMemoryError:
+            raise
+        except (RuntimeError, ImportError):
+            return None
+        if f"{type(op).__module__}.{type(op).__qualname__}" == backend.value:
+            return op
+        return None
+
+    pack = resolve("packed_index_copy", OpBackend.CUDA_PACKED_INDEX_COPY, "cuda")
+    select = None
+    # PyTorch also exposes ROCm tensors as 'cuda'. H3's first rollout targets NVIDIA CUDA.
+    output_weight = next(model.proj_out.parameters(), None)
+    if output_weight is not None and output_weight.is_cuda and torch.version.hip is None:
+        select = resolve("index_select", OpBackend.TRITON_INDEX_SELECT, output_weight.device)
+
+    with ExitStack() as stack:
+        if pack is not None or select is not None:
+            try:
+                stack.enter_context(hpf.bind(model, pack, select=select))
+            except (hpf.UnknownForwardError, ImportError):
+                pass  # An unknown provider or an existing wrapper keeps its original forward.
+            else:
+                if pack is not None:
+                    trace.packed_bindings["packed_index_copy"] = hpf.ROWS["packed_index_copy"]
+                if select is not None:
+                    trace.packed_bindings["packed_index_select"] = hpf.ROWS["packed_index_select"]
+        # Errors while running a bound operator propagate to the caller.
         yield
-        return
-    trace.packed_bindings["packed_index_copy"] = "row"
-    exc_info: tuple = (None, None, None)
-    try:
-        yield
-    except BaseException:
-        exc_info = sys.exc_info()
-        raise
-    finally:
-        context.__exit__(*exc_info)
 
 
 @contextmanager

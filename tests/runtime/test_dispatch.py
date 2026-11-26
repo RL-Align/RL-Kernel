@@ -143,6 +143,7 @@ class TestMusaPlatform:
                 OpBackend.TRITON_EMBEDDING,
                 OpBackend.PYTORCH_NATIVE_EMBEDDING,
             ],
+            "index_select": [OpBackend.TRITON_INDEX_SELECT],
             "silu": [OpBackend.TRITON_SILU, OpBackend.PYTORCH_NATIVE_SILU],
             "swiglu": [OpBackend.TRITON_SWIGLU, OpBackend.PYTORCH_NATIVE_SWIGLU],
             "h3_ode_step": [OpBackend.TRITON_H3_ODE_STEP],

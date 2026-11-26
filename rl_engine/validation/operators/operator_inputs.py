@@ -30,6 +30,7 @@ def make_operator_inputs(
 ) -> dict[str, Any]:
     """Build operator keyword inputs on the requested device from CLI shape and seed options."""
     builders = {
+        "index_select": _make_index_select_inputs,
         "rms_norm": _make_rms_norm_inputs,
         "qk_norm": _make_qk_norm_inputs,
         "pack": _make_pack_inputs,
@@ -74,6 +75,9 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     if op_name == "video_patch_pack_unpack":
         shape = "x".join(str(dim) for dim in _video_patch_shape(args))
         return f"{_arg_str(args, 'patch_direction', 'pack')}-{shape}"
+    if op_name == "index_select":
+        select_shape, dim = _index_select_shape(args)
+        return f"{'x'.join(map(str, select_shape))}-dim{dim}"
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
@@ -174,6 +178,37 @@ def _make_video_output_projection_fp32_inputs(
         "bias": _floating_tensor((96,), args, dtype, device, offset=2),
         "logical_keys": keys,
         "parameter_id": "transformer.proj_out",
+    }
+
+
+def _index_select_shape(args: argparse.Namespace) -> tuple[tuple[int, ...], int]:
+    """Read an explicit shape/axis, defaulting to the H3 [B,S,D] use case."""
+    shape = getattr(args, "select_shape", None)
+    if shape is None:
+        batch, seq = _batch_seq(args)
+        shape = (batch, seq, _arg_int(args, "n_dim", 96))
+    dim = _arg_int(args, "select_dim", 1)
+    if not shape or any(size < 0 for size in shape):
+        raise ValueError("select_shape must contain nonnegative dimensions")
+    if not -len(shape) <= dim < len(shape):
+        raise ValueError(f"select_dim must be in [{-len(shape)}, {len(shape)})")
+    return tuple(shape), dim
+
+
+def _make_index_select_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    """Select alternate slices along dim, in reverse order and without duplicates."""
+    shape, dim = _index_select_shape(args)
+    axis_size = shape[dim]
+    # Skipped slices should have zero input gradient. Reversing distinguishes
+    # selection order from source order, including when the selection axis is 0.
+    index = torch.arange(0, axis_size, 2, device=device).flip(0)
+    return {
+        "x": _floating_tensor(shape, args, dtype, device, offset=0),
+        "index": index,
+        "dim": dim,
+        "unique_indices": True,
     }
 
 
