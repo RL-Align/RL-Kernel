@@ -96,10 +96,9 @@ def packed_indexer_keys(kv, score, ape, norm, cache, epsilon):
 
 
 def production_indexer_select(q_raw, kv, score, ape, norm, raw_head_weights, cache, epsilon):
-    from vllm._aiter_ops import rocm_aiter_ops
+    from rl_engine.backends.rocm.attention.deterministic_indexer_topk import deterministic_topk_prefill
     from vllm.models.deepseek_v4.common.ops.fused_indexer_q import fused_indexer_q_rope_quant
     from vllm.v1.attention.ops.rocm_aiter_mla_sparse import (
-        _launch_aiter_top_k_per_row_prefill,
         rocm_fp8_mqa_logits,
     )
 
@@ -125,18 +124,8 @@ def production_indexer_select(q_raw, kv, score, ape, norm, raw_head_weights, cac
         )
         logits = rocm_fp8_mqa_logits(q, (keys[b], scales[b]), weights, starts, ends)
         indices = torch.full((t, 512), -1, device=q.device, dtype=torch.int32)
-        if rocm_aiter_ops.is_indexer_top_k_supported(
-            is_prefill=True,
-            compress_ratio=4,
-            num_rows=t,
-            max_valid_seq_len=keys.shape[1],
-            topk_tokens=512,
-        ):
-            _launch_aiter_top_k_per_row_prefill(logits, starts, ends, indices, 512)
-        else:
-            torch.ops._C.top_k_per_row_prefill(
-                logits, starts, ends, indices, t, logits.stride(0), logits.stride(1), 512
-            )
+        # Same Top-512 rule as the rollout: stable, lower column wins ties, relative ascending.
+        deterministic_topk_prefill(logits, starts, ends, indices, 512)
         logits_rows.append(logits)
         selections.append(indices)
         q_operands.append(q)
