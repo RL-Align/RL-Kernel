@@ -378,6 +378,24 @@ def test_cuda_binding_is_the_row_on_sm90_and_interim_elsewhere():
             ph.head_projection("cuda", "row")
 
 
+def test_bound_head_hands_the_projection_contiguous_rows():
+    # The SM90 projection row raises on strided views; the bound head copies a slice first.
+    seen = []
+
+    class _Recorder:
+        def call(self, x, weight, bias, *, logical_keys=None, parameter_id=None):
+            seen.append(x.is_contiguous())
+            return x @ weight.t() + bias
+
+    bound = _heads().bind(4)
+    bound.projection = _Recorder()
+    x = torch.randn(2, 9, ph.HIDDEN, generator=torch.Generator().manual_seed(5))
+    out = bound(x[:, 3:4])
+    rows = x[:, 3:4].contiguous()
+    assert seen == [True]
+    assert torch.equal(out, rows @ bound.selection.weight.t() + bound.selection.bias)
+
+
 @CUDA
 def test_cuda_projection_is_accurate_and_row_invariant():
     heads = _heads().to("cuda")
