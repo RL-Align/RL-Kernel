@@ -118,14 +118,13 @@ def combine_owner_bits(parts, dtype):
 
 def bind_exact_embedding(embed_tokens):
     """Make the cross-rank vocab combine exact, including -0.0; no-op at TP1."""
-    _, size, _ = tp_info()
+    _, size, device_group = tp_info()
     if size == 1:
         return embed_tokens
     if getattr(embed_tokens, "_rlk_exact_embedding", False):
         return embed_tokens
 
     import vllm.model_executor.layers.vocab_parallel_embedding as vpe
-    from vllm.distributed import tensor_model_parallel_all_reduce
 
     if not embed_tokens.reduce_results:
         raise RuntimeError("exact embedding expects reduce_results=True")
@@ -160,10 +159,8 @@ def bind_exact_embedding(embed_tokens):
             bits.masked_fill_(input_mask.unsqueeze(-1), 0)
         # One owner row + zeros: the integer sum is exact, -0.0 included.
         wide = bits.to(torch.int32)
-        if self.parallel_group is not None:
-            wide = self.parallel_group.all_reduce(wide)
-        else:
-            wide = tensor_model_parallel_all_reduce(wide)
+        # Plain RCCL on the TP device group: vLLM's custom/quick all-reduce is float-only.
+        torch.distributed.all_reduce(wide, group=device_group)
         return bits_to_dtype(wide, dtype)
 
     embed_tokens.forward = MethodType(forward, embed_tokens)
