@@ -63,7 +63,7 @@ if _TRITON_AVAILABLE:
         if DEPTH == 0:
             # After floor(log2(leaves)) splits each range has one or two leaves.
             for leaf in range(lo, hi):
-                k0 = leaf.to(tl.int64) * 32
+                k0 = tl.cast(leaf, tl.int64) * 32
                 acc = tl.full((BLOCK_M, BLOCK_N), 0, tl.float32)
                 for k in range(k0, tl.minimum(k0 + 32, R)):
                     a = tl.load(a_rows + k, mask=m_mask, other=0.0)
