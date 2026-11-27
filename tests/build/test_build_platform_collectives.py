@@ -5,6 +5,10 @@ from __future__ import annotations
 
 import os
 import runpy
+import shutil
+import subprocess
+from contextlib import nullcontext
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -39,7 +43,7 @@ def _load_extension_config(
         monkeypatch.setattr(torch.musa, "is_available", lambda: False)
     monkeypatch.delenv("KERNEL_ALIGN_FORCE_SM90", raising=False)
     monkeypatch.delenv("KERNEL_ALIGN_DET_GEMM_SM90", raising=False)
-    for name in ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS"):
+    for name in ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS", "PYTORCH_NVCC"):
         monkeypatch.delenv(name, raising=False)
     for name, value in (nvcc_env or {}).items():
         monkeypatch.setenv(name, value)
@@ -63,6 +67,7 @@ def test_rocm_build_excludes_cuda_ipc_collective_and_driver(monkeypatch) -> None
 
     assert "csrc/cuda/collectives/deterministic_collective.cu" not in extension["sources"]
     assert "csrc/cuda/attention/joint_attn_softmax.cu" not in extension["sources"]
+    assert "csrc/cuda/gemm/attn_out_bias_gemm.cu" not in extension["sources"]
     assert "csrc/rocm/collectives/deterministic_collective.hip" in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" not in extension["extra_compile_args"]["cxx"]
@@ -74,6 +79,7 @@ def test_cuda_build_keeps_existing_ipc_collective(monkeypatch) -> None:
 
     assert "csrc/cuda/collectives/deterministic_collective.cu" in extension["sources"]
     assert "csrc/cuda/attention/joint_attn_softmax.cu" in extension["sources"]
+    assert "csrc/cuda/gemm/attn_out_bias_gemm.cu" in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" not in extension["extra_compile_args"]["cxx"]
@@ -85,6 +91,64 @@ def test_fast_math_build_excludes_bit_reference_softmax(monkeypatch) -> None:
 
     assert "csrc/cuda/attention/joint_attn_softmax.cu" not in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" not in extension["extra_compile_args"]["cxx"]
+
+
+@pytest.mark.parametrize(
+    ("hip", "fast_math", "nvcc_env", "expected"),
+    [
+        (None, False, {}, True),
+        (None, True, {}, False),
+        (None, False, {"NVCC_APPEND_FLAGS": "--ftz=true"}, False),
+        (None, False, {"PYTORCH_NVCC": 'ccache "/opt/CUDA Toolkit/bin/nvcc" --ftz=true'}, False),
+        (None, False, {"PYTORCH_NVCC": "/opt/cuda/bin/nvcc --use_fast_math"}, False),
+        (None, False, {"PYTORCH_NVCC": 'ccache "/opt/CUDA Toolkit/bin/nvcc" --ftz=false'}, True),
+        (None, False, {"PYTORCH_NVCC": "env NVCC_APPEND_FLAGS=--ftz=true nvcc"}, False),
+        (None, False, {"PYTORCH_NVCC": 'NVCC_PREPEND_FLAGS="-O2 --ftz true" nvcc'}, False),
+        (None, False, {"PYTORCH_NVCC": 'env NVCC_APPEND_FLAGS="$EXTRA_NVCC_FLAGS" nvcc'}, False),
+        (
+            None,
+            False,
+            {"PYTORCH_NVCC": 'env NVCC_APPEND_FLAGS="-O2 --ftz=false" ccache "/opt/CUDA Kit/nvcc"'},
+            True,
+        ),
+        ("test", False, {}, False),
+    ],
+)
+def test_attn_out_bindings_follow_build_config(monkeypatch, hip, fast_math, nvcc_env, expected):
+    warning = (
+        pytest.warns(RuntimeWarning, match="attn-out bias GEMM")
+        if nvcc_env and not expected
+        else nullcontext()
+    )
+    with warning:
+        extension = _load_extension_config(
+            monkeypatch, hip=hip, fast_math=fast_math, nvcc_env=nvcc_env
+        )
+    assert ("csrc/cuda/gemm/attn_out_bias_gemm.cu" in extension["sources"]) == expected
+    assert ("csrc/cuda/norm/txt_in_rmsnorm_linear.cu" in extension["sources"]) == expected
+    compiler = shutil.which("c++")
+    if compiler is None:
+        pytest.skip("C++ preprocessor unavailable")
+    source = (Path(__file__).resolve().parents[2] / "csrc/bindings/ops.cpp").read_text()
+    # Exercise the actual platform guards without needing CUDA/ROCm headers.
+    source = "\n".join(line for line in source.splitlines() if not line.startswith("#include"))
+    result = subprocess.run(
+        [compiler, "-E", "-P", "-x", "c++", *extension["extra_compile_args"]["cxx"], "-"],
+        input=source,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    for symbol in (
+        "attn_out_bias_gemm_cuda_forward",
+        "attn_out_tree_gemm_cuda",
+        "attn_out_dw_left_fold_cuda",
+        "txt_in_row_tree_reduce_cuda",
+        "txt_in_norm_stats_cuda",
+        "txt_in_dx_cuda",
+        "txt_in_dgamma_fold_cuda",
+    ):
+        assert (symbol in result.stdout) == expected
 
 
 @pytest.mark.parametrize("variable", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS"])

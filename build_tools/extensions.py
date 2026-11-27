@@ -15,11 +15,8 @@ from setuptools.command.build_py import build_py as _BuildPy
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-_EXTERNAL_NVCC_FLAG_VARS = (
-    "NVCC_PREPEND_FLAGS",
-    "NVCC_APPEND_FLAGS",
-    "TORCH_NVCC_FLAGS",
-)
+_NVCC_ENV_FLAG_VARS = ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS")
+_EXTERNAL_NVCC_FLAG_VARS = (*_NVCC_ENV_FLAG_VARS, "TORCH_NVCC_FLAGS", "PYTORCH_NVCC")
 _RELAXED_MATH_VALUE_FLAGS = {
     "ftz": {"true", "1"},
     "prec-div": {"false", "0"},
@@ -80,15 +77,34 @@ def _tokens_relax_math(tokens: list[str]) -> str | None:
     return None
 
 
+def _nvcc_command_relaxation(command: str) -> str | None:
+    """Check direct compiler arguments and flags set in the compiler's environment."""
+
+    tokens = shlex.split(command)
+    for token in tokens:
+        name, sep, value = token.partition("=")
+        if not sep or name not in _NVCC_ENV_FLAG_VARS:
+            continue
+        if "$" in value or "`" in value:
+            return f"{name} with an expansion that cannot be checked"
+        relaxed = _tokens_relax_math(_nvcc_flag_tokens(value))
+        if relaxed is not None:
+            return f"{name} containing {relaxed}"
+    return _tokens_relax_math(tokens)
+
+
 def _relaxed_math_reason() -> str | None:
     """Describe external NVCC math flags; fail closed when they cannot be checked."""
 
     for name in _EXTERNAL_NVCC_FLAG_VARS:
         try:
-            tokens = _nvcc_flag_tokens(os.environ.get(name, ""))
+            value = os.environ.get(name, "")
+            if name == "PYTORCH_NVCC":
+                relaxed = _nvcc_command_relaxation(value)
+            else:
+                relaxed = _tokens_relax_math(_nvcc_flag_tokens(value))
         except ValueError as exc:
             return f"{name} cannot be parsed ({exc})"
-        relaxed = _tokens_relax_math(tokens)
         if relaxed is not None:
             return f"{name} contains {relaxed}"
     return None
@@ -298,10 +314,9 @@ def get_extensions():
         relaxed_math_env = relaxed_reason is not None
         if relaxed_math_env:
             warnings.warn(
-                f"External NVCC flags relax FP32 math or cannot be checked "
-                f"({relaxed_reason}); the joint-attention softmax CUDA "
-                "bit reference is left out of this build and dispatch falls back to "
-                "another backend.",
+                f"External NVCC flags relax FP32 math or cannot be checked ({relaxed_reason}). "
+                "Disabling the joint-attention softmax CUDA bit reference, attn-out bias GEMM, "
+                "and txt-in RMSNorm linear native bindings.",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -315,7 +330,7 @@ def get_extensions():
             "csrc/cuda/attention/deterministic_attention.cu",
         ]
         adaln_cuda_enabled = not is_rocm and not envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
-        joint_attn_softmax_enabled = False
+        strict_cuda_math = not is_rocm and not use_fast_math and not relaxed_math_env
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared
             # deterministic_logp_kernel.cu keeps the SM90-tuned CUDA path.
@@ -342,8 +357,9 @@ def get_extensions():
             # The issue #386 CUDA bit reference must never inherit fast-math.
             # When fast-math is requested for other kernels, leave these
             # symbols out so registry fallback remains explicit and truthful.
-            joint_attn_softmax_enabled = not use_fast_math and not relaxed_math_env
-            if joint_attn_softmax_enabled:
+            if strict_cuda_math:
+                cuda_sources.append("csrc/cuda/gemm/attn_out_bias_gemm.cu")
+                cuda_sources.append("csrc/cuda/norm/txt_in_rmsnorm_linear.cu")
                 cuda_sources.append("csrc/cuda/attention/joint_attn_softmax.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
@@ -435,7 +451,8 @@ def get_extensions():
         cxx_flags = ["-O3", "-std=c++17", platform_define]
         if adaln_cuda_enabled:
             cxx_flags.append("-DRLK_ADALN_CUDA_ENABLED")
-        if joint_attn_softmax_enabled:
+        if strict_cuda_math:
+            cxx_flags.append("-DKERNEL_ALIGN_WITH_ATTN_OUT_BIAS_GEMM")
             cxx_flags.append("-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX")
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 
 import pytest
 import torch
@@ -538,3 +539,283 @@ def test_random_grad_mode_catches_nonuniform_upstream_gradient_bug():
     assert not random_report.passed
     assert gradient_output.message == "gradient:x"
     assert gradient_output.max_abs_error > 0.0
+
+
+class _FrozenScaledIdentity(torch.autograd.Function):
+    """Identity forward with a deliberately NON-derived backward (3x).
+
+    autograd through any plain forward of this op yields the TRUE 1x
+    gradient; the frozen contract pins 3x. This difference makes the gold
+    gradient SOURCE observable: differentiating gold_fn must fail the
+    bitwise bar, while gold_backward_fn (the frozen chain) must pass it.
+    """
+
+    @staticmethod
+    def forward(ctx, x):
+        return x.clone()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output * 3.0
+
+
+def _frozen_scaled_identity(x):
+    return _FrozenScaledIdentity.apply(x)
+
+
+def _bump_one_ulp_bf16(t: torch.Tensor) -> torch.Tensor:
+    out = t.detach().clone()
+    view = out.view(torch.int16)
+    view[0, 0] += 1
+    return out
+
+
+def _strict_identity_case() -> OperatorCase:
+    generator = torch.Generator().manual_seed(3)
+    x = torch.randn(4, 5, generator=generator).to(torch.bfloat16)
+    return OperatorCase(
+        name="strict-identity-bf16",
+        op_class="elementwise",
+        dtype=torch.bfloat16,
+        inputs={"x": x},
+        gold_fn=lambda x: x.float(),
+        grad_input_names=("x",),
+        bitwise_strict=True,
+        gold_backward_fn=_frozen_scaled_identity,
+    )
+
+
+def test_bitwise_strict_forward_rejects_one_ulp_despite_tolerance():
+    # one bf16 ulp is far inside the generic tolerance, but the strict bar
+    # compares bit patterns: the bumped candidate must FAIL.
+    report = run_operator_suite(
+        "identity",
+        candidates=[
+            CandidateSpec(name="bumped", backend="test", fn=lambda x: _bump_one_ulp_bf16(x))
+        ],
+        cases=[_strict_identity_case()],
+        check_grad=False,
+    )
+    forward = report.candidates[0].cases[0].outputs[0]
+    assert not forward.passed
+    assert "bitwise: bit-pattern mismatch" in forward.message
+    # the tolerance judgment alone WOULD have passed it -- stats stay diagnostic
+    assert forward.max_abs_error > 0.0
+
+
+def test_bitwise_strict_uses_frozen_gold_backward_not_autograd_graph():
+    # candidate implements the frozen 3x backward: passes against
+    # gold_backward_fn but would differ from autograd-through-gold_fn (1x).
+    report = run_operator_suite(
+        "identity",
+        candidates=[CandidateSpec(name="frozen", backend="test", fn=_frozen_scaled_identity)],
+        cases=[_strict_identity_case()],
+        check_grad=True,
+    )
+    assert report.passed
+    for output in report.candidates[0].cases[0].outputs:
+        assert output.passed
+        assert "bitwise" in output.message
+
+
+def test_bitwise_strict_gradient_rejects_one_ulp():
+    class _FrozenScaledIdentityOffByOne(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, x):
+            return x.clone()
+
+        @staticmethod
+        def backward(ctx, grad_output):
+            return _bump_one_ulp_bf16(grad_output * 3.0)
+
+    report = run_operator_suite(
+        "identity",
+        candidates=[
+            CandidateSpec(
+                name="grad-off-one-ulp", backend="test", fn=_FrozenScaledIdentityOffByOne.apply
+            )
+        ],
+        cases=[_strict_identity_case()],
+        check_grad=True,
+    )
+    gradient = report.candidates[0].cases[0].outputs[1]
+    assert not report.passed
+    assert not gradient.passed
+    assert "bitwise: bit-pattern mismatch" in gradient.message
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.float64])
+def test_bitwise_unsupported_dtype_reports_failure_and_continues(dtype):
+    report = run_operator_suite(
+        "identity",
+        candidates=[
+            CandidateSpec(name="unsupported", backend="test", fn=lambda x: x.to(dtype)),
+            CandidateSpec(name="valid", backend="test", fn=lambda x: x),
+        ],
+        cases=[_strict_identity_case()],
+    )
+    bad, good = report.candidates
+    failed = bad.cases[0].outputs[0]
+    assert not report.passed
+    assert not failed.passed
+    assert f"unsupported dtype {dtype}" in failed.message
+    assert good.cases[0].passed
+
+
+@pytest.mark.parametrize(
+    ("input_dtype", "wrong_dtype"),
+    [(torch.bfloat16, torch.float32), (torch.float32, torch.bfloat16)],
+)
+def test_attn_out_bitwise_verdict_enforces_output_dtype(input_dtype, wrong_dtype):
+    args = _spec_args("attn_out_bias_gemm")
+    case = make_operator_case(args, input_dtype, torch.device("cpu"))
+
+    def wrong(**inputs):
+        return case.gold_fn(**inputs).to(wrong_dtype)
+
+    report = run_operator_suite(
+        args.op,
+        candidates=[
+            CandidateSpec(name="wrong-dtype", backend="test", fn=wrong),
+            make_candidate(args),
+        ],
+        cases=[case],
+    )
+    bad, good = report.candidates
+    failed = bad.cases[0].outputs[0]
+    assert not report.passed
+    assert not failed.passed
+    assert f"dtype mismatch: candidate={wrong_dtype} expected={input_dtype}" in failed.message
+    assert good.cases[0].passed
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU candidate and CPU gold")
+def test_bitwise_strict_cross_device():
+    case = _strict_identity_case()
+    report = run_operator_suite(
+        "identity",
+        candidates=[
+            CandidateSpec(name="correct", fn=lambda x: x.cuda()),
+            CandidateSpec(name="one-ulp", fn=lambda x: _bump_one_ulp_bf16(x).cuda()),
+        ],
+        cases=[case],
+    )
+    good, bad = report.candidates
+    assert good.passed
+    assert not bad.passed
+    assert "bit-pattern mismatch" in bad.cases[0].outputs[0].message
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("side", ["candidate", "reference", "both"])
+def test_strict_forward_rejects_nonfinite(invalid, side):
+    case = _strict_identity_case()
+    gold_value = 1.0 if side == "candidate" else invalid
+    candidate_value = 1.0 if side == "reference" else invalid
+    case = replace(case, gold_fn=lambda x: torch.full_like(x, gold_value, dtype=torch.float32))
+    report = run_operator_suite(
+        "identity",
+        candidates=[CandidateSpec(name="test", fn=lambda x: torch.full_like(x, candidate_value))],
+        cases=[case],
+    )
+    forward = report.candidates[0].cases[0].outputs[0]
+    assert not report.passed and not forward.passed
+    sources = "candidate and reference" if side == "both" else side
+    assert f"non-finite {sources}" in forward.message
+
+
+def test_strict_forward_rejects_overflow_at_output_cast():
+    case = replace(
+        _strict_identity_case(),
+        gold_fn=lambda x: torch.full_like(x, torch.finfo(torch.float32).max, dtype=torch.float32),
+    )
+    report = run_operator_suite(
+        "identity",
+        candidates=[CandidateSpec(name="bf16", fn=lambda x: case.gold_fn(x).to(x.dtype))],
+        cases=[case],
+    )
+    assert not report.passed
+    assert "non-finite candidate and reference" in report.candidates[0].cases[0].outputs[0].message
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_attn_out_rejects_overflow_in_all_requested_gradients(monkeypatch, dtype):
+    args = _spec_args("attn_out_bias_gemm")
+    args.constant_value = 1.0
+    case = make_operator_case(args, dtype, torch.device("cpu"))
+
+    def large_upstream(outputs, *, grad_mode, seed):
+        return [
+            torch.full_like(out, torch.finfo(dtype).max, dtype=torch.float32) for out in outputs
+        ]
+
+    monkeypatch.setattr(
+        "rl_engine.validation.operators.op_checks._make_grad_outputs", large_upstream
+    )
+    report = run_operator_suite(
+        args.op, candidates=[make_candidate(args)], cases=[case], check_grad=True
+    )
+    forward, *gradients = report.candidates[0].cases[0].outputs
+    assert forward.passed
+    assert not report.passed
+    assert len(gradients) == 3
+    for grad, name in zip(gradients, ("x", "weight", "bias"), strict=True):
+        assert not grad.passed
+        assert f"gradient:{name}" in grad.message
+        assert "non-finite candidate and reference" in grad.message
+
+
+@pytest.mark.parametrize(
+    "dtype,integer", [(torch.float32, torch.int32), (torch.bfloat16, torch.int16)]
+)
+def test_strict_finite_results_preserve_zero_sign_and_subnormal_bits(dtype, integer):
+    x = torch.tensor([-0.0, 0.0], dtype=dtype)
+    x.view(integer)[1] = 1  # Smallest positive subnormal.
+    case = OperatorCase(
+        name="finite-bits",
+        op_class="elementwise",
+        dtype=dtype,
+        inputs={"x": x},
+        gold_fn=lambda x: x.float(),
+        candidate_output_dtype=dtype,
+        bitwise_strict=True,
+    )
+    report = run_operator_suite(
+        "identity",
+        candidates=[
+            CandidateSpec(name="exact", fn=lambda x: x),
+            CandidateSpec(name="changed-zero-sign", fn=lambda x: x.abs()),
+            CandidateSpec(
+                name="flushed-subnormal", fn=lambda x: torch.copysign(torch.zeros_like(x), x)
+            ),
+        ],
+        cases=[case],
+    )
+    exact, changed_zero_sign, flushed_subnormal = report.candidates
+    assert exact.passed
+    assert not changed_zero_sign.passed
+    assert not flushed_subnormal.passed
+
+
+def test_default_backward_order_runs_candidate_before_reference():
+    args = _spec_args("rms_norm")
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    candidate = make_candidate(args)
+    calls = []
+
+    def observed(fn, side):
+        def run(**inputs):
+            result = fn(**inputs)
+            result.register_hook(lambda grad: calls.append(side))
+            return result
+
+        return run
+
+    report = run_operator_suite(
+        args.op,
+        candidates=[replace(candidate, fn=observed(candidate.fn, "candidate"))],
+        cases=[replace(case, gold_fn=observed(case.gold_fn, "reference"))],
+        check_grad=True,
+    )
+    assert report.passed
+    assert calls == ["candidate", "reference"]

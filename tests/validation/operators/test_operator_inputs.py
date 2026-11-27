@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 import pytest
 import torch
@@ -255,3 +256,19 @@ def test_constant_lm_head_inputs_match_operator_contract():
     assert torch.equal(inputs["weight"], torch.full((17, 128), 0.51))
     assert inputs["bias"] is None
     assert operator_shape_name("lm_head", args) == "1x2x128x17"
+
+
+@pytest.mark.parametrize(
+    ("op", "flags", "width"),
+    [
+        ("attn_out_bias_gemm", [], 3072),
+        ("attn_out_bias_gemm", ["--normalized-dim", "257"], 257),
+        ("rms_norm", [], 4096),
+    ],
+)
+def test_cli_default_projection_width(monkeypatch, op, flags, width):
+    from tools.validation.operators.check_operator import parse_args
+
+    monkeypatch.setattr(sys, "argv", ["check_operator.py", "--op", op, *flags])
+    args = parse_args()
+    assert operator_shape_name(op, args) == f"2x16x{width}"
