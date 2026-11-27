@@ -428,8 +428,9 @@ def test_fixed_leaf_host_plan(k):
 
 _MMA_INSTRUCTION = re.compile(r"\b(?:HMMA|HGMMA|IMMA|DMMA|BMMA|QMMA)\b|\b(?:mma|wmma|wgmma)\.")
 _PTX_FMA = r"\bfma\.rn\.f32\b"
-# For merge-only kernels, LLVM can fold FP32 add followed by BF16 RNE into a BF16 add.
-_PTX_ADD = r"\badd(?:\.rn)?\.(?:f32|bf16(?:x2)?)\b"
+# For merge-only kernels, LLVM can fold FP32 add followed by BF16 RNE into a
+# BF16 add on SM90+ or fma.rn.bf16(x2) with 1.0 on SM80.
+_PTX_ADD = r"\b(?:add(?:\.rn)?\.(?:f32|bf16(?:x2)?)|fma\.rn\.bf16(?:x2)?)\b"
 
 
 def _assert_scalar_gemm_ir(name, assembly, scalar_instruction):

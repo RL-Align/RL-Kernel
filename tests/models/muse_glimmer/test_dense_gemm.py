@@ -216,12 +216,9 @@ def test_projection_partial_tile_and_offset_views(m):
     # Exercise decode, a thin batch, and the partial 32-row tile in prefill.
     generator = torch.Generator(device="cuda").manual_seed(501)
     k, n = 6656, 256
-    options = dict(device="cuda", dtype=torch.int16, generator=generator)
-
-    # Every 32-term leaf sum is exact in FP32 for these inputs, regardless
-    # of which accumulation order the CPU reference's matmul chooses.
-    x = torch.randint(-256, 256, (m * k + 1,), **options).to(torch.bfloat16)[1:].view(m, k)
-    w = torch.randint(-256, 256, (n * k + 1,), **options).to(torch.bfloat16)[1:].view(n, k)
+    options = dict(device="cuda", dtype=torch.bfloat16, generator=generator)
+    x = torch.randn(m * k + 1, **options)[1:].view(m, k)
+    w = torch.randn(n * k + 1, **options)[1:].view(n, k)
     expected = DetGemmTreeReferenceOp()(x.cpu(), w.T.cpu())
     for backend in ("cuda", "triton"):
         _assert_bits(dense_gemm(x, w, backend=backend).cpu(), expected, f"{backend} offset views")
