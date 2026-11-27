@@ -3,6 +3,7 @@
 
 import importlib
 import runpy
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +11,8 @@ import pytest
 
 @pytest.fixture
 def benchmark():
-    return runpy.run_path("benchmarks/benchmark_attn_out_bias_gemm.py")
+    script = Path(__file__).resolve().parents[2] / "benchmarks" / "benchmark_attn_out_bias_gemm.py"
+    return runpy.run_path(str(script))
 
 
 @pytest.mark.parametrize(
