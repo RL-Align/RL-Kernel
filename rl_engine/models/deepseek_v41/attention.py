@@ -49,6 +49,7 @@ __all__ = [
     "Dsv41AttentionWeights",
     "Dsv41Batch",
     "LayerCaches",
+    "block_sizes",
     "new_group_caches",
 ]
 
@@ -205,16 +206,25 @@ def _slots(table: Tensor, req: Tensor, index: Tensor, block: int) -> Tensor:
     return table[req, index // block].long() * block + index % block
 
 
+def block_sizes(caches: LayerCaches) -> tuple[int, int, int]:
+    """Rows per block of the SWA, compressed KV and indexer-K caches (``caches.extra``
+    ``"swa_block"`` / ``"kv_block"`` / ``"idx_block"``; :data:`KV_BLOCK` when absent). A
+    serving engine's block sizes are its own (vLLM: 32 window rows, 64 / ratio entries)."""
+    e = caches.extra
+    return e.get("swa_block", KV_BLOCK), e.get("kv_block", KV_BLOCK), e.get("idx_block", KV_BLOCK)
+
+
 def _gather_indexer_k(caches: LayerCaches, batch: Dsv41Batch, ratio: int):
     """Each request's indexer entries packed for the prefill logits: FP8 ``[E, 128]`` and
     FP32 scales ``[E]``."""
     _, entry_req, entry_id, _ = batch.entries[ratio]
     assert caches.idx_k is not None and caches.idx_k_table is not None
-    slots = _slots(caches.idx_k_table, entry_req, entry_id, KV_BLOCK)
+    blk = block_sizes(caches)[2]
+    slots = _slots(caches.idx_k_table, entry_req, entry_id, blk)
     rows = caches.idx_k.view(caches.idx_k.shape[0], -1)
-    b, i = slots // KV_BLOCK, slots % KV_BLOCK
-    data = rows.as_strided((rows.shape[0], KV_BLOCK, 128), (rows.stride(0), 128, 1))
-    scales = rows[:, KV_BLOCK * 128 : KV_BLOCK * 132].view(torch.float32)
+    b, i = slots // blk, slots % blk
+    data = rows.as_strided((rows.shape[0], blk, 128), (rows.stride(0), 128, 1))
+    scales = rows[:, blk * 128 : blk * 132].view(torch.float32)
     return data[b, i].contiguous().view(torch.float8_e4m3fn), scales[b, i].contiguous()
 
 
@@ -265,9 +275,12 @@ class Dsv41Attention:
         q = q.view(tokens, c.heads, c.head_dim)
         if saved is not None:
             saved.update(qr_kv=qr_kv, qr=qr, q=q)
-        swa_slots = _slots(caches.swa_table, req, positions, KV_BLOCK)
+        swa_block, kv_block, _ = block_sizes(caches)
+        if not c.ratio:
+            kv_block = swa_block  # window layers gather nothing compressed, from the SWA cache
+        swa_slots = _slots(caches.swa_table, req, positions, swa_block)
         q_pad = core.q_rope_kv_insert(
-            q, kv, positions, self.cos_sin, caches.swa, KV_BLOCK, swa_slots, c.padded_heads
+            q, kv, positions, self.cos_sin, caches.swa, swa_block, swa_slots, c.padded_heads
         )
 
         topk = None
@@ -285,16 +298,16 @@ class Dsv41Attention:
         compressed = c.ratio > 0
         if batch.decode:
             ws, idx, lens = core.build_compact(
-                req, positions, c.window, ratio, top_k, caches.swa, caches.swa_table, KV_BLOCK,
-                caches.kv, caches.kv_table, KV_BLOCK, topk, compressed=compressed,
+                req, positions, c.window, ratio, top_k, caches.swa, caches.swa_table, swa_block,
+                caches.kv, caches.kv_table, kv_block, topk, compressed=compressed,
             )  # fmt: skip
         else:
             layout = core.SlabLayout(
                 c.max_model_len // ratio if compressed else 0, batch.max_gather
             )
             ws = core.build_workspace(
-                layout, batch.seq_lens, batch.gather_lens, caches.swa, caches.swa_table, KV_BLOCK,
-                caches.kv if compressed else None, caches.kv_table, KV_BLOCK, ratio,
+                layout, batch.seq_lens, batch.gather_lens, caches.swa, caches.swa_table, swa_block,
+                caches.kv if compressed else None, caches.kv_table, kv_block, ratio,
             )  # fmt: skip
             idx, lens = core.build_indices(
                 layout, req, positions, batch.seq_lens - batch.gather_lens, c.window, ratio,
@@ -314,9 +327,10 @@ class Dsv41Attention:
         positions, req = batch.positions, batch.token_req
         tokens = hidden.shape[0]
         assert w.comp_wkv is not None and w.idx_wk is not None
+        _, kv_block, idx_block = block_sizes(caches)
         entry = positions // c.ratio
         boundary = (positions + 1) % c.ratio == 0
-        kv_slots = torch.where(boundary, _slots(caches.kv_table, req, entry, KV_BLOCK), -1)
+        kv_slots = torch.where(boundary, _slots(caches.kv_table, req, entry, kv_block), -1)
         latent = torch.zeros(tokens, c.head_dim, dtype=torch.bfloat16, device=hidden.device)
         if c.ratio == 2:
             score = w.comp_wkv(hidden, torch.float32)  # [T, 2 * head_dim]: kv | gate
@@ -330,22 +344,22 @@ class Dsv41Attention:
                 self._zero_ape,
                 positions,
                 caches.state,
-                _slots(caches.state_table, req, positions, STATE_BLOCK),
+                _slots(caches.state_table, req, positions, caches.state.shape[1]),
             )
             dsv41_compress_main_cuda(
                 caches.state, caches.state_table, req.int(), positions, w.comp_norm, c.eps,
-                self.cos_sin, caches.kv, KV_BLOCK, kv_slots, latent,
+                self.cos_sin, caches.kv, kv_block, kv_slots, latent,
             )  # fmt: skip
         else:  # ratio 1: the BF16 wkv row (DeepSeek keeps it BF16), no pooling
             rows = w.comp_wkv(hidden).float()
             dsv41_store_rows_cuda(
-                rows, positions, w.comp_norm, c.eps, self.cos_sin, caches.kv, KV_BLOCK,
+                rows, positions, w.comp_norm, c.eps, self.cos_sin, caches.kv, kv_block,
                 kv_slots, 1, latent,
             )  # fmt: skip
         k_pre = w.idx_wk(latent).float()  # BF16 wk output, as DeepSeek's and vLLM's
-        k_slots = torch.where(boundary, _slots(caches.idx_k_table, req, entry, KV_BLOCK), -1)
+        k_slots = torch.where(boundary, _slots(caches.idx_k_table, req, entry, idx_block), -1)
         dsv41_store_rows_cuda(
-            k_pre, positions, w.idx_k_norm, c.eps, self.cos_sin, caches.idx_k, KV_BLOCK,
+            k_pre, positions, w.idx_k_norm, c.eps, self.cos_sin, caches.idx_k, idx_block,
             k_slots, c.ratio,
         )  # fmt: skip
 
@@ -365,7 +379,9 @@ class Dsv41Attention:
         )
         ratio = c.ratio
         ends = ((positions + 1) // ratio).int()
-        if batch.decode:
+        # DeepGEMM's paged MQA logits (pinned build) take 64-entry blocks; other block sizes
+        # gather the entries and run the prefill logits, which the gate holds byte-equal.
+        if batch.decode and block_sizes(caches)[2] == KV_BLOCK:
             context = (batch.seq_lens // ratio).view(-1, 1).contiguous()
             local = indexer_logits_decode(
                 q8.view(tokens, 1, c.index_heads, c.index_head_dim).contiguous(),
