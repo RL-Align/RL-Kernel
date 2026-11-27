@@ -83,7 +83,8 @@ class RlkEngineConfig(EngineConfig):
     the world size; 1 = every rank holds every expert). ``activation_recompute``: per-layer
     activation recompute in training forwards (``Dsv4Model.forward_train``): one BF16
     ``[T, 4, H]`` tensor per layer instead of the layer's activations, for one more forward
-    per layer in the backward. Changes no forward byte.
+    per layer in the backward. Changes no forward byte. ``max_model_len``: the longest
+    sequence (RoPE tables).
     """
 
     strategy: str = BACKEND
@@ -96,6 +97,7 @@ class RlkEngineConfig(EngineConfig):
     entropy_chunk_rows: int = 1024
     expert_parallel_size: int = 1
     activation_recompute: bool = False
+    max_model_len: int = 65536
 
     def __post_init__(self):
         assert self.strategy == BACKEND, f"strategy {self.strategy} is not {BACKEND}"
@@ -113,6 +115,47 @@ class RlkActorConfig(ActorConfig):
     def __post_init__(self):
         super().__post_init__()
         self.engine = self.rlkernel
+
+
+def model_family(path: str) -> str:
+    """``"dsv41"`` for a DeepSeek-V4.1 checkpoint (``DeepseekV41ForCausalLM``), else
+    ``"dsv4"``."""
+    import json
+
+    with open(os.path.join(path, "config.json")) as f:
+        archs = json.load(f).get("architectures") or []
+    return "dsv41" if "DeepseekV41ForCausalLM" in archs else "dsv4"
+
+
+def _load_dsv41(path: str, device, ep_group, max_model_len: int):
+    """:class:`Dsv41Model` with its Engram hasher; the Engram tables stay a read-only mmap
+    of the shards, shared by every process on the node (``RL_KERNEL_DSV41_ENGRAM_TABLES``
+    overrides: ``cuda`` / ``cpu``, as in the rollout plugin)."""
+    from rl_engine.models.deepseek_v41 import Dsv41Config
+    from rl_engine.models.deepseek_v41.engram import build_compressed_token_map
+    from rl_engine.models.deepseek_v41.loader import load_model
+
+    cfg = Dsv41Config.from_pretrained(path)
+    token_map = None
+    if cfg.engram_layer_ids:
+        token_map, _ = build_compressed_token_map(os.path.join(path, "tokenizer.json"))
+    return load_model(
+        path,
+        cfg,
+        device=device,
+        max_model_len=max_model_len,
+        ep_group=ep_group,
+        token_map=token_map,
+        engram_table_device=os.environ.get("RL_KERNEL_DSV41_ENGRAM_TABLES", "mmap"),
+    )
+
+
+def _engram_windows(ids: torch.Tensor, lens: list[int], max_ngram: int) -> torch.Tensor:
+    """DSv4.1's n-gram windows of packed full sequences (positions ``0..len-1``)."""
+    from rl_engine.models.deepseek_v41.engram import ngram_windows
+
+    seqs = list(ids.split(lens))
+    return ngram_windows(seqs, [torch.arange(n, device=ids.device) for n in lens], max_ngram)
 
 
 def named_adapters(model) -> list[tuple[str, Any]]:
@@ -156,6 +199,7 @@ class RlkernelEngine(BaseEngine):
         self.ep_group = None
         self.ep_size = 1
         self._routed: list[int] = []  # master indices of the routed (EP-summed) adapters
+        self.family = "dsv4"
 
     # ------------------------------------------------------------------ setup
     @property
@@ -190,7 +234,13 @@ class RlkernelEngine(BaseEngine):
         torch.cuda.set_device(self.device)
         self._init_expert_parallel(cfg.expert_parallel_size)
         path = self.model_config.local_path or self.model_config.path
-        self.model = load_model(path, device=self.device, ep_group=self.ep_group)
+        self.family = model_family(path)
+        if self.family == "dsv41":
+            self.model = _load_dsv41(path, self.device, self.ep_group, cfg.max_model_len)
+        else:
+            self.model = load_model(
+                path, device=self.device, ep_group=self.ep_group, max_model_len=cfg.max_model_len
+            )
         rank = cfg.lora_rank
         if rank <= 0:
             if not cfg.forward_only:
@@ -306,8 +356,6 @@ class RlkernelEngine(BaseEngine):
         return postprocess_batch_func(output_lst=outputs, indices=indices, data=data)
 
     def forward_step(self, micro_batch: TensorDict, loss_function, forward_only):
-        from rl_engine.models.deepseek_v4.attention import Dsv4Batch
-
         mb = micro_batch.to(self.device)
         if tu.get_non_tensor_data(mb, key="use_remove_padding", default=True) is False:
             raise NotImplementedError("rlkernel needs use_remove_padding inputs")
@@ -316,18 +364,29 @@ class RlkernelEngine(BaseEngine):
         offsets = ids_nt.offsets()
         lens = offsets.diff().tolist()
         ids = ids_nt.values().long()
-        batch = Dsv4Batch.from_lens(lens, lens, model.config.sliding_window, self.device)
+        window = model.config.sliding_window
+        if self.family == "dsv41":
+            from rl_engine.models.deepseek_v41.attention import Dsv41Batch
+
+            batch = Dsv41Batch.from_lens(lens, lens, window, device=self.device)
+        else:
+            from rl_engine.models.deepseek_v4.attention import Dsv4Batch
+
+            batch = Dsv4Batch.from_lens(lens, lens, window, self.device)
         pos = mb["position_ids"]
         pos = pos.values() if pos.is_nested else pos
         if pos.dim() != 1 or not torch.equal(pos.long(), batch.positions):
             raise ValueError("rlkernel expects positions 0..len-1 for every sequence")
         targets = torch.roll(ids, -1)
         caches = model.new_caches(len(lens), max(lens))
+        kw = {}
+        if self.family == "dsv41" and model.hasher is not None:
+            kw["engram_windows"] = _engram_windows(ids, lens, model.config.engram_max_ngram_size)
         if forward_only or not torch.is_grad_enabled():
-            hidden = model.forward_batch(ids, batch, caches)
+            hidden = model.forward_batch(ids, batch, caches, **kw)
         else:
             recompute = self.engine_config.activation_recompute
-            hidden = model.forward_train(ids, batch, caches, recompute=recompute)
+            hidden = model.forward_train(ids, batch, caches, recompute=recompute, **kw)
         del caches
 
         temps = _temperatures(mb, len(lens))

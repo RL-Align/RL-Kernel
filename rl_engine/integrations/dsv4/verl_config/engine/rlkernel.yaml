@@ -39,3 +39,6 @@ expert_parallel_size: 1
 activation_recompute: False
 
 seed: 42
+
+# Longest sequence the model serves (RoPE tables)
+max_model_len: 65536

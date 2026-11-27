@@ -39,37 +39,12 @@ from verl.workers.rollout.vllm_rollout.utils import vLLMColocateWorkerExtension 
 from vllm.logger import init_logger  # noqa: E402
 from vllm.v1.worker.gpu_worker import Worker  # noqa: E402
 
+from rl_engine.models.deepseek_v4.lora import adapters_from_tensors  # noqa: E402
+
 logger = init_logger(__name__)
 # Negative control for the bitwise metric: receive the adapters but keep the old ones.
 ENV_SKIP_SYNC = "RL_KERNEL_DSV4_SKIP_ADAPTER_SYNC"
-
-_ATTN = ("wq_a", "wkv", "wq_b", "wo_b")
-_MOE = ("fc1", "fc2", "shared_fc1", "shared_fc2")
-
-
-def adapters_from_tensors(tensors: dict, layers: list[int], alpha: float):
-    """Per layer ``(attention dict, MoeLora | None)`` from the engine's exported tensors;
-    every tensor must be used."""
-    from rl_engine.models.deepseek_v4.lora import LoraAdapter, MoeLora
-
-    used = set()
-
-    def get(prefix):
-        a, b = f"{prefix}.lora_A", f"{prefix}.lora_B"
-        if a not in tensors:
-            return None
-        used.update((a, b))
-        return LoraAdapter(tensors[a], tensors[b], alpha)
-
-    out = []
-    for i in layers:
-        attn = {t: ad for t in _ATTN if (ad := get(f"layers.{i}.attn.{t}")) is not None}
-        moe = {n: ad for n in _MOE if (ad := get(f"layers.{i}.moe.{n}")) is not None}
-        out.append((attn, MoeLora(**moe) if moe else None))
-    extra = set(tensors) - used
-    if extra:
-        raise ValueError(f"adapters for layers this rollout does not hold: {sorted(extra)[:4]}")
-    return out
+__all__ = ["RlkWorker", "RlkWorkerExtension", "adapters_from_tensors"]
 
 
 class RlkWorker(Worker):

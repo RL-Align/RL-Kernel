@@ -22,6 +22,8 @@ Supported: vLLM's V2 model runner, eager mode, no prefix caching, tensor and pip
 parallel 1, no speculative decoding; data parallel attention with expert parallel MoE.
 
 ``RL_KERNEL_DSV41_TEST_LORA=rank,alpha,seed`` attaches random adapters (the gate's).
+verl's adapter sync installs the actor's (``vllm_worker.py``,
+:meth:`RlkDeepseekV41ForCausalLM.rlk_set_lora`).
 ``RL_KERNEL_DSV41_DUMP=<dir>`` (once the directory exists) saves each forward's tokens,
 request layout, per-layer streams and final hidden state.
 """
@@ -298,6 +300,38 @@ class RlkDeepseekV41ForCausalLM(nn.Module):
         )
         self._rlk_test_lora()
         return {n for n, _ in self.named_parameters()}
+
+    def rlk_set_lora(self, adapters: list) -> None:
+        """Install the actor's adapters, one ``(attention dict, MoeLora | None)`` per layer
+        (``lora.adapters_from_tensors``). Adapters with the installed ones' targets and
+        shapes are copied into them; others replace them."""
+        layers = self.rlk_model.layers
+        if len(adapters) != len(layers):
+            raise ValueError(f"{len(adapters)} layers of adapters for {len(layers)} layers")
+
+        def flat(per_layer):
+            out = []
+            for attn, moe in per_layer:
+                out += [(f"attn.{k}", attn[k]) for k in sorted(attn)]
+                out += [(f"moe.{n}", ad) for n, ad in moe.adapters()] if moe is not None else []
+            return out
+
+        cur = flat((layer.attn.w.lora, layer.moe.lora) for layer in layers)
+        new = flat(adapters)
+        same = len(cur) == len(new) and all(
+            cn == nn_ and c.a.shape == n.a.shape and c.b.shape == n.b.shape
+            and float(c.alpha) == float(n.alpha)
+            for (cn, c), (nn_, n) in zip(cur, new)
+        )  # fmt: skip
+        if same:
+            with torch.no_grad():
+                for (_, c), (_, n) in zip(cur, new):
+                    c.a.copy_(n.a)
+                    c.b.copy_(n.b)
+            return
+        for layer, (attn, moe) in zip(layers, adapters):
+            layer.attn.w.lora = dict(attn)
+            layer.moe.lora = moe
 
     def _rlk_test_lora(self) -> None:
         spec = os.environ.get(ENV_TEST_LORA)

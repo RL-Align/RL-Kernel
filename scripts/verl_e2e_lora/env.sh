@@ -6,11 +6,22 @@
 : "${LORA_E2E_ROOT:=$HOME/dsv4-lora-e2e}"
 export LORA_E2E_ROOT
 export SRC_DIR=$LORA_E2E_ROOT/src
-export MODEL_DIR=$LORA_E2E_ROOT/models/DeepSeek-V4-Flash
+# MODEL_FAMILY=dsv41: DeepSeek-V4.1-Flash on vLLM main (env RLK41_ENV); LAYERS=40 is the
+# release itself.
+export MODEL_FAMILY=${MODEL_FAMILY:-dsv4}
 export DATA_DIR=$LORA_E2E_ROOT/data
 export OUT_DIR=${OUT_DIR:-$LORA_E2E_ROOT/outputs}
-export LAYERS=${LAYERS:-4}            # first N layers of the checkpoint (README section 0)
-export MODEL_CUT=$LORA_E2E_ROOT/models/DeepSeek-V4-Flash-L$LAYERS
+if [[ $MODEL_FAMILY == dsv41 ]]; then
+  export MODEL_DIR=$LORA_E2E_ROOT/models/DeepSeek-V4.1-Flash
+  export LAYERS=${LAYERS:-40}
+  if [[ -n ${MODEL_CUT:-} ]]; then :  # set by the caller (e.g. the toy checkpoint)
+  elif [[ $LAYERS == 40 ]]; then export MODEL_CUT=$MODEL_DIR
+  else export MODEL_CUT=$MODEL_DIR-L$LAYERS; fi
+else
+  export MODEL_DIR=$LORA_E2E_ROOT/models/DeepSeek-V4-Flash
+  export LAYERS=${LAYERS:-4}          # first N layers of the checkpoint (README section 0)
+  export MODEL_CUT=$LORA_E2E_ROOT/models/DeepSeek-V4-Flash-L$LAYERS
+fi
 
 # --- Model and data ---
 export MODEL_REPO=deepseek-ai/DeepSeek-V4-Flash
@@ -42,6 +53,9 @@ export HADAMARD_COMMIT=e7706faf8d1c3b9f241e36860640ad1dac644ede
 
 # --- RL-Kernel env (conda, Python 3.12, torch 2.13 + CUDA 13.0) ---
 export RLK_ENV=${RLK_ENV:-$LORA_E2E_ROOT/envs/rlk}
+# DSv4.1: torch 2.14, vLLM main 3f86db3 (editable from $SRC_DIR/vllm-main), verl as above
+export RLK41_ENV=${RLK41_ENV:-$LORA_E2E_ROOT/envs/rlk41}
+if [[ $MODEL_FAMILY == dsv41 ]]; then export RLK_ENV=$RLK41_ENV; fi
 export VLLM_FORK_REPO=https://github.com/ISEEKYAN/vllm.git
 export VLLM_FORK_COMMIT=1a6542cdebbaabbf9972c358de8d6baa54e46b0c   # vLLM #54955 lineage
 # vLLM's DS4 deterministic top-k, built by setup.sh (the BI rollout loads it)

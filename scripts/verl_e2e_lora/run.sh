@@ -43,12 +43,13 @@ OVERLONG=${OVERLONG:-512}
 # - math: verl's own scorer for the data's data_source (math_dapo: the "Answer:" line
 #   against the ground truth), for the full model.
 REWARD=${REWARD:-synthetic}
+[[ $MODEL_FAMILY == dsv41 ]] && TOKEN_FAMILY=deepseekv41 || TOKEN_FAMILY=deepseekv4
 COMMON=(
   data.prompt_key=prompt
   data.trust_remote_code=True
   +data.apply_chat_template_kwargs.enable_thinking=False
   +data.continuous_token.enable=True
-  +data.continuous_token.model_family=deepseekv4
+  +data.continuous_token.model_family=$TOKEN_FAMILY
 )
 case $REWARD in
   synthetic) REWARD_FN=(
@@ -69,6 +70,7 @@ DAPO_REWARD=(
 
 use_rlk_env() {
   if [[ -n ${SYSTEM_CUDA_HOME:-} ]]; then export CUDA_HOME=$SYSTEM_CUDA_HOME
+  elif [[ $MODEL_FAMILY == dsv41 ]]; then export CUDA_HOME=$LORA_E2E_ROOT/envs/cuda130-home41
   else export CUDA_HOME=$LORA_E2E_ROOT/envs/cuda130-home; fi
   export PATH=$CUDA_HOME/bin:$RLK_ENV/bin:$PATH
   # $RLK_ENV/lib holds the toolkit's libcuda stub; the compat libcuda must come before it.
@@ -152,7 +154,8 @@ case $VARIANT in
   control)
     # The rollout receives the adapters but keeps its old ones: the mismatch count must turn
     # nonzero from step 2 (step 1 runs the zero-B adapters, equal to the base model).
-    export RL_KERNEL_DSV4_SKIP_ADAPTER_SYNC=1 STEPS=${CONTROL_STEPS:-3}
+    export RL_KERNEL_DSV4_SKIP_ADAPTER_SYNC=1 RL_KERNEL_DSV41_SKIP_ADAPTER_SYNC=1
+    export STEPS=${CONTROL_STEPS:-3}
     rlkernel "$@"
     ;;
   ablation)

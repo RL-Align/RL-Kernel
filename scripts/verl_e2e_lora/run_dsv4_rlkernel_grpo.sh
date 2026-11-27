@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# DSv4 LoRA GRPO with verl on RL-Kernel: the rlkernel engine (actor) + the vLLM rollout plugin,
-# both on RL-Kernel's batch-invariant kernels. verl and vLLM run unmodified; RL-Kernel plugs in
-# through verl's model.external_lib / hydra search path and vLLM's worker_extension_cls.
+# DSv4 / DSv4.1 LoRA GRPO with verl on RL-Kernel: the rlkernel engine (actor) + the vLLM rollout
+# plugin, both on RL-Kernel's batch-invariant kernels. verl and vLLM run unmodified; RL-Kernel
+# plugs in through verl's model.external_lib / hydra search path and vLLM's
+# worker_extension_cls.
 #
 #   MODEL_PATH=... DATA=... N_GPUS=2 \
 #     bash scripts/verl_e2e_lora/run_dsv4_rlkernel_grpo.sh [overrides]
@@ -78,11 +79,32 @@ GRAPH=${GRAPH:-0}
 [[ $GRAPH == 1 ]] && EAGER=False || EAGER=True
 EXPERIMENT_NAME=${EXPERIMENT_NAME:-grpo_lora_bi$BI}
 VLLM_KW=+actor_rollout_ref.rollout.engine_kwargs.vllm
-RLK_WORKER=rl_engine.integrations.dsv4.vllm_worker
-
+# MODEL_FAMILY: dsv4 or dsv41, from the checkpoint's architecture by default.
+if [[ -z ${MODEL_FAMILY:-} ]]; then
+  MODEL_FAMILY=dsv4
+  grep -q DeepseekV41ForCausalLM "$MODEL_PATH/config.json" && MODEL_FAMILY=dsv41
+fi
 export PYTHONPATH=$RLK_ROOT${PYTHONPATH:+:$PYTHONPATH}
-export RL_KERNEL_DSV4_ROLLOUT=1 RL_KERNEL_DSV4_LORA=$LORA_RANK,$LORA_ALPHA
-if [[ $BI == 1 ]]; then
+ROLLOUT_EXTRA=()
+if [[ $MODEL_FAMILY == dsv41 ]]; then
+  # DSv4.1 on vLLM main (rl_engine/integrations/dsv41): eager, no prefix caching; vLLM keeps
+  # scheduling and caches, RL-Kernel computes. No BI=0 ablation and no CUDA graphs yet.
+  if [[ $BI != 1 || $GRAPH == 1 ]]; then
+    echo "DSv4.1: only BI=1 GRAPH=0 so far" >&2
+    exit 64
+  fi
+  RLK_WORKER=rl_engine.integrations.dsv41.vllm_worker
+  export RL_KERNEL_DSV41_ROLLOUT=1
+  ROLLOUT_EXTRA=(actor_rollout_ref.rollout.enable_prefix_caching=False
+    actor_rollout_ref.actor.rlkernel.max_model_len=$MAX_MODEL_LEN)
+else
+  RLK_WORKER=rl_engine.integrations.dsv4.vllm_worker
+  export RL_KERNEL_DSV4_ROLLOUT=1 RL_KERNEL_DSV4_LORA=$LORA_RANK,$LORA_ALPHA
+  ROLLOUT_EXTRA=($VLLM_KW.kv_cache_dtype=fp8)
+fi
+if [[ $MODEL_FAMILY == dsv41 ]]; then
+    :  # vLLM's batch-invariant mode is not needed: no vLLM kernel computes
+elif [[ $BI == 1 ]]; then
     # vLLM's BI indexer selects with its DS4 deterministic top-k, a separate library
     # (csrc/ds4_bi_topk_extension.cu; scripts/verl_e2e_lora/setup.sh builds it). Without it the
     # rollout fails at the first sequence past ~2048 tokens (index_topk = 512 C4 entries).
@@ -144,12 +166,12 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.max_num_batched_tokens=$MAX_NUM_BATCHED_TOKENS \
     actor_rollout_ref.rollout.enforce_eager=$EAGER \
     actor_rollout_ref.rollout.load_format=auto \
-    $VLLM_KW.kv_cache_dtype=fp8 \
+    "${ROLLOUT_EXTRA[@]}" \
     $VLLM_KW.worker_cls=$RLK_WORKER.RlkWorker \
     $VLLM_KW.worker_extension_cls=$RLK_WORKER.RlkWorkerExtension \
     $VLLM_KW.enable_flashinfer_autotune=False \
     trainer.logger="$LOGGER" \
-    trainer.project_name=dsv4_rlkernel \
+    trainer.project_name=${MODEL_FAMILY}_rlkernel \
     trainer.experiment_name=$EXPERIMENT_NAME \
     trainer.n_gpus_per_node=$N_GPUS \
     trainer.nnodes=1 \

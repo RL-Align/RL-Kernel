@@ -173,3 +173,31 @@ class MoeLora:
     def adapters(self) -> list[tuple[str, LoraAdapter]]:
         names = ("fc1", "fc2", "shared_fc1", "shared_fc2")
         return [(n, getattr(self, n)) for n in names if getattr(self, n) is not None]
+
+
+_ATTN = ("wq_a", "wkv", "wq_b", "wo_b")
+_MOE = ("fc1", "fc2", "shared_fc1", "shared_fc2")
+
+
+def adapters_from_tensors(tensors: dict, layers: list[int], alpha: float):
+    """Per layer ``(attention dict, MoeLora | None)`` from the ``rlkernel`` engine's exported
+    adapters (``layers.<i>.attn.<target>.lora_A`` / ``.lora_B``, ``layers.<i>.moe.<name>...``;
+    the rollout plugins' adapter sync). Every tensor must be used."""
+    used = set()
+
+    def get(prefix):
+        a, b = f"{prefix}.lora_A", f"{prefix}.lora_B"
+        if a not in tensors:
+            return None
+        used.update((a, b))
+        return LoraAdapter(tensors[a], tensors[b], alpha)
+
+    out = []
+    for i in layers:
+        attn = {t: ad for t in _ATTN if (ad := get(f"layers.{i}.attn.{t}")) is not None}
+        moe = {n: ad for n in _MOE if (ad := get(f"layers.{i}.moe.{n}")) is not None}
+        out.append((attn, MoeLora(**moe) if moe else None))
+    extra = set(tensors) - used
+    if extra:
+        raise ValueError(f"adapters for layers this rollout does not hold: {sorted(extra)[:4]}")
+    return out
