@@ -12,8 +12,12 @@ from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer
 
 
-# Seven-layer DSV4: PP2 x TP1, or PP1 with TP-invariant rollout at TP 1/2/4/8.
-_ALLOWED_PP_TP = {(2, 1), (1, 1), (1, 2), (1, 4), (1, 8)}
+# Any pipeline size with TP1, or PP1 with TP-invariant rollout at TP 1/2/4/8.
+_PP1_TP = (1, 2, 4, 8)
+
+
+def _allowed_pp_tp(pp, tp):
+    return type(pp) is int and pp >= 1 and (tp == 1 or (pp == 1 and tp in _PP1_TP))
 
 
 @dataclass
@@ -30,7 +34,7 @@ class RLKPipelineRolloutConfig(RolloutConfig):
         pp = self.pipeline_model_parallel_size
         if (
             self.name != "vllm"
-            or (pp, self.tensor_model_parallel_size) not in _ALLOWED_PP_TP
+            or not _allowed_pp_tp(pp, self.tensor_model_parallel_size)
             or self.expert_parallel_size != 1
             or self.data_parallel_size != 1
             or not self.enforce_eager
@@ -38,11 +42,12 @@ class RLKPipelineRolloutConfig(RolloutConfig):
             or mtp_enabled
         ):
             raise ValueError(
-                "RLK rollout requires eager standalone (PP2, TP1) or (PP1, TP in 1,2,4,8), EP1 DP1 "
-                "without sleep/MTP"
+                "RLK rollout requires eager standalone (TP1, PP>=1) or (PP1, TP in 1,2,4,8), "
+                "EP1 DP1 without sleep/MTP"
             )
         # Preserve every upstream validation/coercion other than its generic PP
         # rejection. The dedicated server below supplies actual PP2 engine args.
+        pp = self.pipeline_model_parallel_size
         object.__setattr__(self, "pipeline_model_parallel_size", 1)
         try:
             super().__post_init__()
@@ -77,6 +82,7 @@ def validate_pipeline_server(
             node_rank=node_rank,
             gpus_per_node=gpus_per_node,
             visible_devices=cuda_visible_devices,
+            stages=config.pipeline_model_parallel_size,
         )
     except ValueError as exc:
         raise ValueError("RLK PP2 server requires standalone native workers: " + str(exc)) from exc
@@ -120,10 +126,9 @@ class RLKPipelineVLLMHttpServer(vLLMHttpServer):
         super()._preprocess_engine_kwargs(engine_kwargs)
         if engine_kwargs.get("distributed_executor_backend", "mp") != "mp":
             raise ValueError("RLK PP2 requires the native vLLM multiprocess executor")
-        if engine_kwargs.get("pipeline_parallel_size", self.config.pipeline_model_parallel_size) != (
-            self.config.pipeline_model_parallel_size
-        ):
-            raise ValueError("vLLM pipeline size must match the selected real PP topology")
+        stages = self.config.pipeline_model_parallel_size
+        if engine_kwargs.get("pipeline_parallel_size", stages) != stages:
+            raise ValueError("vLLM pipeline size must match the selected real pipeline topology")
         if getattr(self, "nnodes", 1) > 1:
             import inspect
             from vllm.engine.arg_utils import AsyncEngineArgs
@@ -134,5 +139,5 @@ class RLKPipelineVLLMHttpServer(vLLMHttpServer):
                 raise RuntimeError("installed vLLM lacks multi-node mp engine arguments")
         # The pinned verl server passes nnodes/node_rank/master address to vLLM
         # and starts a headless follower. Its mp executor already spans nodes.
-        engine_kwargs["pipeline_parallel_size"] = self.config.pipeline_model_parallel_size
+        engine_kwargs["pipeline_parallel_size"] = stages
         engine_kwargs["distributed_executor_backend"] = "mp"

@@ -66,10 +66,8 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
         if getattr(cfg, "expert_model_parallel_size", 1) != 1 and world_size is None:
             raise ValueError("native packed DSV4 EP>1 needs a known world size to check DP == EP")
         validate_native_parallel_layout(cfg, world_size)
-        if cfg.pipeline_model_parallel_size not in (1, 2):
-            raise ValueError(
-                "native packed DSV4 engine supports PP=1 or the four-/seven-layer PP2 layouts"
-            )
+        if cfg.pipeline_model_parallel_size < 1:
+            raise ValueError("native packed DSV4 engine requires PP >= 1")
         from rl_engine.integrations.engines.train.megatron.native_pipeline import (
             configure_native_pipeline,
         )

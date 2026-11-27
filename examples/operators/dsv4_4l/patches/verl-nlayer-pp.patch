@@ -1,0 +1,184 @@
+diff --git a/verl/experimental/rl_kernel/acceptance.py b/verl/experimental/rl_kernel/acceptance.py
+index 57b1d899..a7627099 100644
+--- a/verl/experimental/rl_kernel/acceptance.py
++++ b/verl/experimental/rl_kernel/acceptance.py
+@@ -222,7 +222,7 @@ def stress_current_version(trainer, repeats):
+             label = f"stress-{iteration:05d}-{group}-" + "".join(order)
+             reply = ray.get(server.rlk_score_sequences.remote(selected, f"v3-{label}"))
+             if (
+-                len(reply["stages"]) != 2
++                len(reply["stages"]) != len(pids)
+                 or len(reply["scores"]) != len(selected)
+                 or reply["global_steps"] != 3
+                 or any(
+@@ -269,12 +269,12 @@ def stress_current_version(trainer, repeats):
+     path = root / "policy-v3-stress-readback.pt"
+     exports = trainer.actor_rollout_wg.rlk_export_policy(str(path))
+     (root / "stress-v3-actor-readback.json").write_text(json.dumps(exports, indent=2))
+-    if len(exports) != 2 or any(e["weight_version"] != 3 or e["manifest"] != expected for e in exports):
++    if not exports or any(e["weight_version"] != 3 or e["manifest"] != expected for e in exports):
+         raise RuntimeError("actual actor parameters changed during inference stress")
+     readbacks = ray.get(server.rlk_verify_current_policy.remote(str(path)))
+     (root / "stress-v3-rollout-readback.json").write_text(json.dumps(readbacks, indent=2))
+     covered = set()
+-    if len(readbacks) != 2:
++    if len(readbacks) != len(pids):
+         raise RuntimeError("final stress readback requires both actual PP stages")
+     for ack in readbacks:
+         if worker_key(ack) != pids[ack["pipeline_stage"]] or ack["weight_version"] != 3:
+diff --git a/verl/experimental/rl_kernel/cluster.py b/verl/experimental/rl_kernel/cluster.py
+index 89c48263..68efbd2d 100644
+--- a/verl/experimental/rl_kernel/cluster.py
++++ b/verl/experimental/rl_kernel/cluster.py
+@@ -3,6 +3,7 @@
+ 
+ import hashlib
+ import json
++import os
+ from pathlib import Path
+ from uuid import uuid4
+ 
+@@ -52,8 +53,9 @@ def preflight(config):
+     (challenge / "challenge").write_text(nonce)
+     model = Path(config.actor_rollout_ref.model.path)
+     metadata = json.loads((model / "config.json").read_text())
+-    if metadata.get("num_hidden_layers") != 4:
+-        raise ValueError("this integration still requires the four-layer checkpoint")
++    split = [int(x) for x in os.environ.get("RLK_DSV4_PP_SPLIT", "3,1").split(",")]
++    if metadata.get("num_hidden_layers") != sum(split):
++        raise ValueError(f"checkpoint layers do not match RLK_DSV4_PP_SPLIT={split}")
+     paths = [str(model / name) for name in ("config.json", "tokenizer.json")]
+     weights = sorted(model.glob("*.safetensors"))
+     if not weights:
+diff --git a/verl/experimental/rl_kernel/cluster_contract.py b/verl/experimental/rl_kernel/cluster_contract.py
+index 966c9dbb..540cea6c 100644
+--- a/verl/experimental/rl_kernel/cluster_contract.py
++++ b/verl/experimental/rl_kernel/cluster_contract.py
+@@ -6,6 +6,28 @@ import json
+ from pathlib import Path
+ 
+ 
++def pp_size():
++    """Number of pipeline stages, from RLK_DSV4_PP_SPLIT (default "3,1")."""
++    import os
++
++    return len(os.environ.get("RLK_DSV4_PP_SPLIT", "3,1").split(","))
++
++
++def rollout_pp():
++    """Rollout pipeline stages, from RLK_ROLLOUT_PP_SPLIT (default: same as the actor)."""
++    import os
++
++    split = os.environ.get("RLK_ROLLOUT_PP_SPLIT") or os.environ.get("RLK_DSV4_PP_SPLIT", "3,1")
++    return len(split.split(","))
++
++
++def rollout_tp():
++    """Rollout tensor-parallel size, from RLK_ROLLOUT_TP (default 1)."""
++    import os
++
++    return int(os.environ.get("RLK_ROLLOUT_TP", "1"))
++
++
+ def topology(config):
+     """Validate explicit placement without enabling new numerical layouts."""
+     rlk = config.get("rlk", {})
+@@ -16,7 +38,7 @@ def topology(config):
+     rollout_ips = list(rollout.get("rlk_node_ips", []))
+     for role, settings, ips in [("actor", trainer, actor_ips), ("rollout", rollout, rollout_ips)]:
+         nodes, gpus = settings["nnodes"], settings["n_gpus_per_node"]
+-        if type(nodes) is not int or type(gpus) is not int or (nodes, gpus) not in [(1, 2), (2, 1)]:
++        if type(nodes) is not int or type(gpus) is not int or nodes * gpus != (rollout_pp() * rollout_tp() if role == "rollout" else pp_size()):
+             raise ValueError(f"{role}: only PP2/DP1 on 1x2 or 2x1 GPUs is implemented")
+         if enabled:
+             if len(ips) != nodes or len(set(ips)) != nodes:
+@@ -61,7 +83,8 @@ def verify_placement(plan, actor_records, rollout_records, nodes):
+     all_devices = set()
+     actual = {}
+     for role, records in [("actor", actor_records), ("rollout", rollout_records)]:
+-        if len(records) != 2 or {r["rank"] for r in records} != {0, 1}:
++        stages = rollout_pp() if role == "rollout" else pp_size()
++        if len(records) != stages or {r["rank"] for r in records} != set(range(stages)):
+             raise RuntimeError(f"{role}: missing or duplicate PP rank")
+         counts = {}
+         for record in records:
+diff --git a/verl/experimental/rl_kernel/trainer_contract.py b/verl/experimental/rl_kernel/trainer_contract.py
+index 0fff7bf5..0a4bec3d 100644
+--- a/verl/experimental/rl_kernel/trainer_contract.py
++++ b/verl/experimental/rl_kernel/trainer_contract.py
+@@ -17,7 +17,7 @@ import hashlib
+ import json
+ from pathlib import Path
+ 
+-from .cluster_contract import topology, worker_key
++from .cluster_contract import pp_size, rollout_pp, rollout_tp, topology, worker_key
+ 
+ VERL_REVISION = "cc35929bf8eedf5f3eb7c4ace3441dfd9f6d4c0e"
+ 
+@@ -52,7 +52,7 @@ def validate_trainer_config(config):
+         "actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu": 1,
+         "actor_rollout_ref.actor.ppo_epochs": 1,
+         "actor_rollout_ref.actor.megatron.strategy": "rlk_verl_megatron",
+-        "actor_rollout_ref.actor.megatron.pipeline_model_parallel_size": 2,
++        "actor_rollout_ref.actor.megatron.pipeline_model_parallel_size": pp_size(),
+         "actor_rollout_ref.actor.megatron.tensor_model_parallel_size": 1,
+         "actor_rollout_ref.actor.megatron.expert_model_parallel_size": 1,
+         "actor_rollout_ref.actor.megatron.context_parallel_size": 1,
+@@ -61,8 +61,8 @@ def validate_trainer_config(config):
+         "actor_rollout_ref.actor.megatron.use_remove_padding": False,
+         "actor_rollout_ref.actor.megatron.use_fused_kernels": False,
+         "actor_rollout_ref.rollout.name": "vllm",
+-        "actor_rollout_ref.rollout.pipeline_model_parallel_size": 2,
+-        "actor_rollout_ref.rollout.tensor_model_parallel_size": 1,
++        "actor_rollout_ref.rollout.pipeline_model_parallel_size": rollout_pp(),
++        "actor_rollout_ref.rollout.tensor_model_parallel_size": rollout_tp(),
+         "actor_rollout_ref.rollout.data_parallel_size": 1,
+         "actor_rollout_ref.rollout.expert_parallel_size": 1,
+         "actor_rollout_ref.rollout.enforce_eager": True,
+@@ -127,10 +127,10 @@ def logical_cases(input_ids):
+ 
+ def validate_stage_acks(acks, manifest, version, previous_pids=None):
+     """Every original tensor must be read back once on the two live stages."""
+-    if len(acks) != 2 or {ack["pipeline_stage"] for ack in acks} != {0, 1}:
++    if len(acks) != rollout_pp() or {ack["pipeline_stage"] for ack in acks} != set(range(rollout_pp())):
+         raise RuntimeError("weight sync requires exactly two different PP stage acknowledgments")
+     pids = {ack["pipeline_stage"]: worker_key(ack) for ack in acks}
+-    if len(set(pids.values())) != 2 or (previous_pids is not None and pids != previous_pids):
++    if len(set(pids.values())) != rollout_pp() or (previous_pids is not None and pids != previous_pids):
+         raise RuntimeError("rollout worker PIDs changed across the continuous update")
+     checked = {}
+     for ack in acks:
+diff --git a/verl/experimental/rl_kernel/trainer_rollout.py b/verl/experimental/rl_kernel/trainer_rollout.py
+index a38c31a1..a1c051a6 100644
+--- a/verl/experimental/rl_kernel/trainer_rollout.py
++++ b/verl/experimental/rl_kernel/trainer_rollout.py
+@@ -35,7 +35,7 @@ class RLKTrainerVLLMServer(RLKPipelineVLLMHttpServer):
+         os.environ["RLK_NODE_ID"] = ray.get_runtime_context().get_node_id()
+         os.environ["RLK_SYNC_DIR"] = str(kwargs["config"].rlk_sync_dir or "/outputs/policy-sync")
+         os.environ.update(
+-            VLLM_PP_LAYER_PARTITION="3,1",
++            VLLM_PP_LAYER_PARTITION=os.environ.get("RLK_ROLLOUT_PP_SPLIT") or os.environ.get("RLK_DSV4_PP_SPLIT", "3,1"),
+             VLLM_ROCM_USE_AITER="1",
+             VLLM_ENABLE_V1_MULTIPROCESSING="1",
+         )
+diff --git a/verl/experimental/rl_kernel/trainer_sync.py b/verl/experimental/rl_kernel/trainer_sync.py
+index 2b0ea789..071ee869 100644
+--- a/verl/experimental/rl_kernel/trainer_sync.py
++++ b/verl/experimental/rl_kernel/trainer_sync.py
+@@ -14,6 +14,7 @@
+ """Quiesced PP2 weight sync for the ordinary synchronous verl trainer."""
+ 
+ import asyncio
++import os
+ import json
+ from pathlib import Path
+ from uuid import uuid4
+@@ -56,7 +57,7 @@ class RLKPolicySync:
+         )
+         path = self.root / f"policy-{uuid4().hex}.pt"
+         exports = self.actor_wg.rlk_export_policy(str(path))
+-        if not exports or len(exports) != 2:
++        if not exports or len(exports) != len(os.environ.get("RLK_DSV4_PP_SPLIT", "3,1").split(",")):
+             raise RuntimeError("expected both actor PP stages to export")
+         first = exports[0]
+         if any(item != first for item in exports):

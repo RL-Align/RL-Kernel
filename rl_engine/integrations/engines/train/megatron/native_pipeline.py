@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Original checkpoint ownership for native four-/seven-layer uneven PP2 layouts.
+"""Original checkpoint ownership for native DSV4 pipeline layouts.
 
-This describes model shards, not independent model replicas. MCore retains its
-native pipeline scheduler and multi-stream activation/gradient transport.
+The split defaults to the qualified 3+1 (four layers) and 4+3 (seven layers)
+layouts; RLK_DSV4_PP_SPLIT selects any other split. This describes model
+shards, not independent model replicas. MCore retains its native pipeline
+scheduler and multi-stream activation/gradient transport.
 """
 
 import re
@@ -10,6 +12,9 @@ import re
 from rl_engine.integrations.common.dsv4_checkpoint_partition import DSV4CheckpointPartition
 
 _EXPERT_KEY = re.compile(r"^layers\.\d+\.ffn\.experts\.(\d+)\.")
+
+# Qualified default ownership per original layer count (hash layers 0-2 on PP0).
+_DEFAULT_SPLITS = {4: "3,1", 7: "4,3"}
 
 
 def validate_native_parallel_layout(cfg, world_size=None):
@@ -41,6 +46,26 @@ def validate_native_parallel_layout(cfg, world_size=None):
     return ep
 
 
+def pp2_split(total):
+    """Original layers owned by each PP stage: RLK_DSV4_PP_SPLIT="n0,n1,...".
+
+    Defaults to 3,1 for four layers and 4,3 for seven layers. Two or more stages.
+    The first stage must own every hash-routed layer (the first three original layers).
+    """
+    import os
+
+    value = os.environ.get("RLK_DSV4_PP_SPLIT") or _DEFAULT_SPLITS.get(total)
+    if value is None:
+        raise ValueError(f"set RLK_DSV4_PP_SPLIT for a {total}-layer pipeline")
+    split = tuple(int(x) for x in value.split(","))
+    if len(split) < 2 or sum(split) != total or split[0] < 3 or min(split) < 1:
+        raise ValueError(
+            f"RLK_DSV4_PP_SPLIT={split} does not partition {total} original layers "
+            "with the three hash layers on PP0"
+        )
+    return split
+
+
 def native_checkpoint_stage(model):
     """Validate native global layer numbers and keep every hash layer on PP0."""
     cfg = model.config
@@ -48,8 +73,8 @@ def native_checkpoint_stage(model):
     if getattr(cfg, "virtual_pipeline_model_parallel_size", None) not in (None, 1):
         raise ValueError("native packed pipeline does not support virtual stages")
     pp = cfg.pipeline_model_parallel_size
-    if pp not in (1, 2) or cfg.num_layers % 2:
-        raise ValueError("native checkpoint requires whole attention/MoE pairs and PP=1 or 2")
+    if cfg.num_layers % 2:
+        raise ValueError("native checkpoint requires whole attention/MoE pairs")
     layers = list(model.decoder.layers)
     numbers = [layer.layer_number for layer in layers]
     if not numbers or len(numbers) % 2 or numbers[0] % 2 != 1:
@@ -63,11 +88,23 @@ def native_checkpoint_stage(model):
         if ids != tuple(range(total)) or not stage.pre_process or not stage.post_process:
             raise ValueError("PP1 must own the complete checkpoint and both endpoints")
     else:
-        first, last = original_pipeline_layers(total)
-        expected = (first, True, False) if stage.pre_process else (last, False, True)
+        split = pp2_split(total)
+        if len(split) != pp:
+            raise ValueError(f"RLK_DSV4_PP_SPLIT={split} does not match PP={pp}")
+        starts = [sum(split[:i]) for i in range(pp)]
+        if ids[0] not in starts:
+            raise ValueError(
+                f"stage layers {ids} do not start on a RLK_DSV4_PP_SPLIT={split} boundary"
+            )
+        index = starts.index(ids[0])
+        expected = (
+            tuple(range(starts[index], starts[index] + split[index])),
+            index == 0,
+            index == pp - 1,
+        )
         if (ids, stage.pre_process, stage.post_process) != expected:
             raise ValueError(
-                f"{total}-layer PP2 requires original layers {first} / {last} (hash layers on PP0)"
+                f"PP stage {index} must own original layers {expected[0]} (split {split})"
             )
     return stage
 
@@ -101,39 +138,40 @@ def filter_local_expert_keys(keys, total_experts, ep_size, ep_rank):
 
 
 def original_pipeline_layers(total):
-    """Keep original hash layers 0-2 on stage zero; never split attention/MoE pairs."""
-    if total not in (4, 7):
-        raise ValueError("native PP2 currently qualifies only four- or seven-layer ownership")
-    split = 3 if total == 4 else 4
-    return tuple(range(split)), tuple(range(split, total))
+    """PP2 ownership: original layers of stage 0 and stage 1 (hash layers on stage 0)."""
+    split = pp2_split(total)
+    if len(split) != 2:
+        raise ValueError(f"RLK_DSV4_PP_SPLIT={split} is not a two-stage split")
+    return tuple(range(split[0])), tuple(range(split[0], total))
 
 
 def configure_native_pipeline(provider):
-    """Use the pinned Bridge API and native scheduler for original 3+1 or 4+3."""
+    """Use the pinned Bridge layout API and native MCore PP scheduler for the selected split."""
     if provider.pipeline_model_parallel_size == 1:
         return
     if (
-        provider.pipeline_model_parallel_size != 2
-        or provider.num_layers not in (8, 14)
+        provider.num_layers % 2
         or provider.moe_num_hash_layers != 3
         or getattr(provider, "mtp_num_layers", 0)
         or getattr(provider, "virtual_pipeline_model_parallel_size", None) not in (None, 1)
     ):
         raise ValueError(
-            "native packed PP2 requires four or seven original layers, "
-            "three hash layers, no VPP/MTP"
+            "native packed PP requires whole original layers, three hash layers, no VPP/MTP"
         )
     from megatron.bridge.models.deepseek.deepseek_v4_bridge import (
         set_deepseek_v4_pipeline_model_parallel_layout,
     )
     from megatron.core.transformer.pipeline_parallel_layer_layout import PipelineParallelLayerLayout
 
-    stages = original_pipeline_layers(provider.num_layers // 2)
-    set_deepseek_v4_pipeline_model_parallel_layout(
-        provider, logical_layers_per_stage=tuple(map(len, stages))
-    )
+    split = pp2_split(provider.num_layers // 2)
+    if len(split) != provider.pipeline_model_parallel_size:
+        raise ValueError(
+            f"RLK_DSV4_PP_SPLIT={split} does not match PP={provider.pipeline_model_parallel_size}"
+        )
+    set_deepseek_v4_pipeline_model_parallel_layout(provider, logical_layers_per_stage=split)
     provider.num_layers_in_first_pipeline_stage = None
     provider.num_layers_in_last_pipeline_stage = None
     provider.pipeline_model_parallel_layout = PipelineParallelLayerLayout(
-        layout=provider.pipeline_model_parallel_layout, pipeline_model_parallel_size=2
+        layout=provider.pipeline_model_parallel_layout,
+        pipeline_model_parallel_size=provider.pipeline_model_parallel_size,
     )
