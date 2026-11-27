@@ -297,6 +297,40 @@ OP_SPECS = {
         },
         grad_input_names=("gate", "up"),
     ),
+    "final_logit_softcap": OperatorSpec(
+        name="final_logit_softcap",
+        op_class="elementwise",
+        gold_path=(
+            "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap."
+            "NativeFinalLogitSoftcapOp"
+        ),
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": (
+                "rl_engine.kernels.ops.pytorch.activation.final_logit_softcap."
+                "NativeFinalLogitSoftcapOp"
+            ),
+            "triton": (
+                "rl_engine.kernels.ops.triton.activation.final_logit_softcap."
+                "TritonFinalLogitSoftcapOp"
+            ),
+        },
+        grad_input_names=("x",),
+    ),
+    "conditioning_noise_mix": OperatorSpec(
+        name="conditioning_noise_mix",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.conditioning.conditioning_noise_mix."
+        "NativeConditioningNoiseMixOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.conditioning.conditioning_noise_mix."
+            "NativeConditioningNoiseMixOp",
+            "cuda": "rl_engine.backends.cuda.conditioning.conditioning_noise_mix."
+            "ConditioningNoiseMixCudaOp",
+        },
+        grad_input_names=("sample", "noise"),
+    ),
     "batch_invariant_logp": OperatorSpec(
         name="batch_invariant_logp",
         op_class="logprob",
@@ -437,6 +471,17 @@ OP_SPECS = {
         },
         grad_input_names=("x",),
     ),
+    "packed_index_copy": OperatorSpec(
+        name="packed_index_copy",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.packing.packed_index_copy.NativePackedIndexCopyOp",
+            "cuda": "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp",
+        },
+        grad_input_names=("text", "video", "audio"),
+    ),
     "video_patch_pack_unpack": OperatorSpec(
         name="video_patch_pack_unpack",
         op_class="elementwise",
@@ -448,6 +493,25 @@ OP_SPECS = {
             ),
         },
         grad_input_names=("x",),
+    ),
+    # MiniMax-H3 deterministic rectified-flow Euler step (RFC #420 h3_ode_step).
+    # Element-wise, no reduction: Axis-A batch invariance is expected bitwise.
+    "h3_ode_step": OperatorSpec(
+        name="h3_ode_step",
+        op_class="elementwise",
+        gold_path="rl_engine.reference.flow.ode_step.NativeH3OdeStepOp",
+        gold_method="forward_fp32",
+        # ``pytorch`` is the declared reference candidate, as in the other
+        # reference-backed specs: the harness calls it through ``forward`` (public
+        # entry, dtype cast and validation) while the gold uses ``forward_fp32``,
+        # so the comparison covers that path rather than discriminating numerics.
+        candidate_paths={
+            "pytorch": "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp",
+            "triton": ("rl_engine.backends.shared.triton.flow.ode_step.H3OdeStepTritonOp"),
+            "cuda": "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp",
+            "cuda-sm90": "rl_engine.backends.cuda.flow.ode_step.H3OdeStepCUDAOp",
+        },
+        grad_input_names=("xt", "v"),
     ),
 }
 

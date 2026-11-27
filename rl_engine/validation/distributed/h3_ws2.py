@@ -312,7 +312,8 @@ def _region_times(collective, case, lay, iters) -> dict[str, float]:
 # --- real multi-process groups -------------------------------------------------
 
 
-def _bootstrap(rank, world, init_method, queue, inputs_path, target, kwargs):
+def _bootstrap(rank, world, init_method, queue, inputs_path, target, kwargs, with_collective=True):
+    """One rank of ``run_world``: join the group, run ``target``, save its result, report."""
     import traceback
 
     import torch.distributed as dist
@@ -325,7 +326,11 @@ def _bootstrap(rank, world, init_method, queue, inputs_path, target, kwargs):
             "nccl", init_method=init_method, rank=rank, world_size=world, device_id=rank
         )
         inputs = {k: v.cuda() for k, v in torch.load(inputs_path).items()}
-        collective = DeterministicCollective(device=rank, max_size_bytes=256 << 20)
+        collective = (
+            DeterministicCollective(device=rank, max_size_bytes=256 << 20)
+            if with_collective
+            else None
+        )
         out = target(collective, **inputs, **kwargs)
         # Results go through a file: tensors sent over the queue are shared by
         # file descriptor and vanish if this process exits before the parent reads.
@@ -333,19 +338,31 @@ def _bootstrap(rank, world, init_method, queue, inputs_path, target, kwargs):
             {k: v.cpu() if isinstance(v, torch.Tensor) else v for k, v in out.items()},
             inputs_path.with_name(f"rank{rank}.pt"),
         )
-        collective.close()
+        if collective is not None:
+            collective.close()
         dist.destroy_process_group()
         queue.put({"rank": rank})
     except Exception:  # forwarded to the parent
         queue.put({"rank": rank, "error": traceback.format_exc()})
 
 
-def run_world(world: int, target, inputs: dict[str, torch.Tensor], timeout: float = 900, **kwargs):
+def run_world(
+    world: int,
+    target,
+    inputs: dict[str, torch.Tensor],
+    timeout: float = 900,
+    deterministic_collective: bool = True,
+    **kwargs,
+):
     """Run ``target(collective, **inputs, **kwargs)`` on ranks ``0..world-1`` (one GPU each).
 
     ``target`` must be importable (it is pickled into spawned processes). Each
     rank gets a NCCL group and a ``DeterministicCollective``; results come back
     on the CPU, ordered by rank. Any rank's exception is re-raised here.
+
+    ``deterministic_collective=False`` passes ``None`` instead: the fixed-tree collective only
+    exists for 1, 2, 4 and 8 ranks, and the ring / packed-IO paths use plain point-to-point and
+    all-gather, so they also run on 3, 5, 6 or 7 ranks.
     """
 
     import tempfile
@@ -364,7 +381,10 @@ def run_world(world: int, target, inputs: dict[str, torch.Tensor], timeout: floa
         queue = ctx.Queue()
         init = (Path(tmp) / "init").as_uri()
         procs = [
-            ctx.Process(target=_bootstrap, args=(r, world, init, queue, path, target, kwargs))
+            ctx.Process(
+                target=_bootstrap,
+                args=(r, world, init, queue, path, target, kwargs, deterministic_collective),
+            )
             for r in range(world)
         ]
         started = []

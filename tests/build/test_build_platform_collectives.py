@@ -8,7 +8,9 @@ import re
 import runpy
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -16,6 +18,7 @@ import setuptools
 import torch
 from torch.utils import cpp_extension
 
+from build_tools import extensions
 from build_tools.extensions import (
     _OPTIONS_FILE_MAX_BYTES,
     H3_BITWISE_SOURCES,
@@ -86,6 +89,15 @@ def test_cuda_build_keeps_existing_ipc_collective(monkeypatch) -> None:
     assert "-DKERNEL_ALIGN_WITH_CUDA" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" not in extension["extra_compile_args"]["cxx"]
     assert "-lcuda" in extension["extra_link_args"]
+
+
+def test_force_musa_enables_cross_compile_without_visible_device(monkeypatch) -> None:
+    fake_torch = SimpleNamespace(musa=SimpleNamespace(is_available=lambda: False))
+    monkeypatch.setitem(sys.modules, "torch_musa", SimpleNamespace())
+    monkeypatch.setenv("FORCE_MUSA", "1")
+    monkeypatch.delenv("TORCH_MUSA_ARCH_LIST", raising=False)
+
+    assert extensions._musa_build_available(fake_torch)
 
 
 def test_package_data_json_links_resolve_to_real_content(tmp_path) -> None:
@@ -453,3 +465,34 @@ def test_unrelated_nvcc_flags_keep_the_h3_kernels(monkeypatch) -> None:
 
     assert set(H3_BITWISE_SOURCES) <= set(extension["sources"])
     assert H3_KERNELS_DEFINE in extension["extra_compile_args"]["nvcc"]
+
+
+@pytest.mark.parametrize(
+    ("version", "standard"),
+    [
+        ("2.9.1", "c++17"),
+        ("2.10.0+cu128", "c++17"),  # 10 > 9 as numbers, not as strings
+        ("2.13.0+cu130", "c++17"),
+        ("2.14.0", "c++20"),
+        ("2.14.0+cu130", "c++20"),
+        ("2.14.0a0+git1234567", "c++20"),
+        ("3.0.0", "c++20"),
+    ],
+)
+def test_host_cxx_standard_follows_torch(version: str, standard: str) -> None:
+    # torch 2.14 headers stop with "C++20 or later compatible compiler is required".
+    assert extensions._host_cxx_standard(version) == standard
+
+
+@pytest.mark.parametrize("hip", [None, "test"])
+@pytest.mark.parametrize(
+    ("version", "standard"), [("2.13.0+cu130", "c++17"), ("2.14.0+cu130", "c++20")]
+)
+def test_host_flags_carry_one_std_from_the_torch_version(
+    monkeypatch, hip, version, standard
+) -> None:
+    _clear_nvcc_env(monkeypatch)
+    monkeypatch.setattr(torch, "__version__", version)
+    cxx = _load_extension_config(monkeypatch, hip=hip)["extra_compile_args"]["cxx"]
+
+    assert [flag for flag in cxx if flag.startswith("-std=")] == [f"-std={standard}"]

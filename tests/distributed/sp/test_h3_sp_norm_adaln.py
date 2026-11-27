@@ -406,7 +406,9 @@ def test_plain_norm_uses_activation_device_and_separate_cache():
         assert op.plan(None, None, device="cuda:0").plan.send_local.device.index == 0
 
 
-def _worker_exit_without_result(rank, world, init, queue, path, target, kwargs):
+def _worker_exit_without_result(
+    rank, world, init, queue, path, target, kwargs, with_collective=True
+):
     import time
 
     if rank == 0:
@@ -414,7 +416,7 @@ def _worker_exit_without_result(rank, world, init, queue, path, target, kwargs):
     time.sleep(60)
 
 
-def _worker_reports_error(rank, world, init, queue, path, target, kwargs):
+def _worker_reports_error(rank, world, init, queue, path, target, kwargs, with_collective=True):
     import time
 
     if rank == 0:
@@ -422,7 +424,7 @@ def _worker_reports_error(rank, world, init, queue, path, target, kwargs):
     time.sleep(60)
 
 
-def _worker_never_reports(rank, world, init, queue, path, target, kwargs):
+def _worker_never_reports(rank, world, init, queue, path, target, kwargs, with_collective=True):
     import time
 
     time.sleep(60)
@@ -447,7 +449,15 @@ def test_run_world_cleans_up_failed_workers(monkeypatch, mode):
     before = {p.pid for p in mp.active_children()}
     start = time.monotonic()
     expected = TimeoutError if mode == "timeout" else RuntimeError
-    with pytest.raises(expected):
+    # Match the message: a double that cannot be called also ends in a RuntimeError (or, while
+    # the spawned workers still import torch, in the 1 s timeout), and must not pass as one.
+    message = {
+        "clean_exit": "rank 0 exited with code 0 without completing",
+        "crash": "rank 0 exited with code 7",
+        "reported_error": "intentional worker failure",
+        "timeout": "timed out",
+    }[mode]
+    with pytest.raises(expected, match=message):
         run_world(
             2,
             None,
@@ -459,7 +469,7 @@ def test_run_world_cleans_up_failed_workers(monkeypatch, mode):
     assert {p.pid for p in mp.active_children()} <= before
 
 
-def _worker_reports_result(rank, world, init, queue, path, target, kwargs):
+def _worker_reports_result(rank, world, init, queue, path, target, kwargs, with_collective=True):
     torch.save({"value": torch.tensor(rank)}, path.with_name(f"rank{rank}.pt"))
     queue.put({"rank": rank})
 

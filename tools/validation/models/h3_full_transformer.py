@@ -5,9 +5,10 @@
 Runs the released BF16 checkpoint on one GPU three ways on a small packed input:
 
 * ``provider``  - diffusers' own arithmetic (cuBLAS / SDPA);
-* ``candidate`` - the 50 real blocks through the RL-Kernel block graph, and (default) the
-  audio projections, the text projection and the token refiner through their rows
-  (``--provider-boundaries`` keeps those on the provider);
+* ``candidate`` - the 50 real blocks through the RL-Kernel block graph, and (default) every
+  boundary module (the video and audio projections, the text projection, the token refiner,
+  ``time_embedder`` and ``norm_out``) through its row (``--provider-boundaries`` keeps all of
+  them on the provider);
 * ``candidate`` again - to prove the strict run is bitwise repeatable.
 
 Reports forward/backward agreement with the provider, bitwise repeatability of the outputs,

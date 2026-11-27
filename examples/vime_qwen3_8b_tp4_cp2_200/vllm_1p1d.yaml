@@ -1,0 +1,12 @@
+{
+  "vllm": [
+    {
+      "name": "default",
+      "update_weights": true,
+      "server_groups": [
+        {"worker_type": "prefill", "num_gpus": 4, "num_gpus_per_engine": 4},
+        {"worker_type": "decode", "num_gpus": 4, "num_gpus_per_engine": 4}
+      ]
+    }
+  ]
+}

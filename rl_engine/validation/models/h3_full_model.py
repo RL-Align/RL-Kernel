@@ -10,6 +10,7 @@ not qualification of the reference/interim bindings as final RFC kernels.
 
 from __future__ import annotations
 
+import sys
 from collections import Counter
 from contextlib import contextmanager
 from types import MethodType
@@ -81,6 +82,9 @@ class FullModelTrace:
         self.execution_order = []
         self._events = set()
         self.boundary_bindings = {}
+        self.ops = None  # the candidate ops: ``validate`` reports the bindings they ran
+        # the packed-sequence rows of the top-level forward (``h3_packed_forward``)
+        self.packed_bindings = {"packed_index_copy": "provider", "packed_index_select": "reference"}
 
     def record_event(self, name):
         if name not in self._events:
@@ -143,6 +147,8 @@ class FullModelTrace:
             ]
             if missing_nodes:
                 raise ValueError(f"candidate nodes did not execute: {missing_nodes}")
+            if self.ops is None:  # the static table would report rows this run did not bind
+                raise ValueError("a candidate trace without its ops cannot report its bindings")
         return dict(
             candidate_calls=dict(self.candidate_calls),
             execution_order=self.execution_order,
@@ -151,16 +157,21 @@ class FullModelTrace:
             actual_backends=self.actual_backends,
             calls=dict(self.calls),
             backward_calls=dict(self.backward_calls),
+            # the block nodes as this run bound them; a provider run binds none of them, so
+            # each is the provider's arithmetic rather than the static row table
             bindings={
-                n.name: dict(
-                    rfc_row=n.binding.rfc_row, status=n.binding.status, backend=n.binding.backend
+                name: (
+                    dict(rfc_row=b.rfc_row, status=b.status, backend=b.backend)
+                    if self.candidate and name not in self.provider_nodes  # ran the provider replay
+                    else dict(rfc_row=b.rfc_row, status="reference", backend="provider")
                 )
-                for n in h3_block.NODES
+                for name, b in h3_block.bindings(self.ops if self.candidate else None).items()
             },
             boundary_binding=(
                 "strict rows + provider" if self.boundary_bindings else "provider/reference"
             ),
             boundary_bindings=self.boundary_bindings,
+            packed_bindings=dict(self.packed_bindings),
             # not empty only for a diagnostic hybrid, whose nodes ran the provider replay: such a
             # trace is localisation evidence, never a candidate result
             diagnostic_provider_nodes=list(self.provider_nodes),
@@ -169,17 +180,28 @@ class FullModelTrace:
         )
 
 
+class CandidateBindingError(RuntimeError, ValueError):
+    """The RL-Kernel graph could not be bound: a candidate or boundary row has no CUDA op.
+
+    This is the only error a caller may treat as a fallback (audit mode runs the provider
+    instead). A structural or configuration error of the model or of the call is a plain
+    ``ValueError`` and must propagate. It subclasses both ``RuntimeError`` (what the registry
+    raises for a missing backend) and ``ValueError`` (what ``require_candidate_cuda`` raised).
+    """
+
+
 def require_candidate_cuda(ops):
+    """The candidate ops' backends; raises ``CandidateBindingError`` if one is not CUDA."""
+
     backends = ops.backends()
     for name in ("projection", "norm", "gate"):
         if ".cuda." not in backends[name]:
-            raise ValueError(f"candidate {name} fell back from its CUDA implementation")
+            raise CandidateBindingError(f"candidate {name} fell back from its CUDA implementation")
     return backends
 
 
-# Boundary modules bound to RL-Kernel rows by ``strict_boundaries``; the others keep provider
-# arithmetic and are reported as such (``time_embedder``/``norm_out`` have their own rows
-# but are not part of this binding yet).
+# Boundary modules bound to RL-Kernel rows by ``strict_boundaries``. ``time_proj`` has no
+# parameters and is not a boundary module; it stays provider arithmetic.
 STRICT_BOUNDARY_ROWS = {
     "proj_in": "video_input_projection_fp32",
     "proj_out": "video_output_projection_fp32",
@@ -187,38 +209,155 @@ STRICT_BOUNDARY_ROWS = {
     "audio_proj_out": "audio_output_projection_fp32",
     "context_embedder": "text_context_projection",
     "token_refiner": "token_refiner_block",
+    "time_embedder": "timestep_mlp_fp32",
+    "norm_out": "final_adaln_out",
 }
-PROVIDER_BOUNDARIES = ("time_embedder", "norm_out")
+# Bound by a dedicated binding, not by the linear-projection ``project`` below.
+_NON_LINEAR_BOUNDARIES = frozenset({"token_refiner", "time_embedder", "norm_out"})
+# The CUDA op each boundary row must resolve to. ``timestep_mlp_fp32`` / ``final_adaln_out``
+# keep the PyTorch reference after the CUDA op in their CUDA priority lists (#484, #489), which the
+# registry picks when the CUDA op cannot be constructed (e.g. an ``_C`` without the H3 kernels);
+# the projection rows' lists hold their CUDA op alone. Strict mode checks every row, so a
+# reference added to a list later is refused too.
+_CUDA_ROW_OPS = {
+    "video_input_projection_fp32": (
+        "rl_engine.backends.shared.triton.gemm.video_input_projection_fp32."
+        "TritonVideoInputProjectionFP32Op"
+    ),
+    "video_output_projection_fp32": (
+        "rl_engine.backends.shared.triton.gemm.video_output_projection_fp32."
+        "TritonVideoOutputProjectionFP32Op"
+    ),
+    "audio_input_projection_fp32": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioInputProjectionCudaOp"
+    ),
+    "audio_output_projection_fp32": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3AudioOutputProjectionCudaOp"
+    ),
+    "text_context_projection": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.projection.H3TextContextProjectionCudaOp"
+    ),
+    "timestep_mlp_fp32": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.timestep_mlp.H3TimestepMLPCudaOp"
+    ),
+    "final_adaln_out": (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.final_adaln_out.H3FinalAdaLNOutCudaOp"
+    ),
+}
+
+
+def _cuda_row(registry, row: str):
+    """The CUDA op of ``row``; refuses the PyTorch reference the registry may fall back to."""
+
+    op = registry.get_op(row, device="cuda")
+    got = f"{type(op).__module__}.{type(op).__qualname__}"
+    if got != _CUDA_ROW_OPS[row]:
+        raise CandidateBindingError(
+            f"strict {row} resolved to {got}, not its CUDA op; refusing to fall back"
+        )
+    return op
+
+
+# Boundary projections whose rows take ``logical_keys`` / ``parameter_id`` and reduce their
+# parameter gradients in a ``canonical_backward_session`` (#562, #646).
+KEYED_BOUNDARIES = frozenset({"proj_in", "proj_out"})
+
+
+def _flat_keys(x: torch.Tensor) -> torch.Tensor:
+    """Logical ``(batch row, token position)`` of every row of ``[B, S, C]`` (or ``[M, C]``)."""
+
+    if x.dim() == 2:
+        positions = torch.arange(x.shape[0], device=x.device)
+        return torch.stack([torch.zeros_like(positions), positions], dim=1)
+    return h3_block._row_keys(x)
+
+
+@contextmanager
+def _canonical_session(needed: bool):
+    """The canonical backward session the keyed rows need, unless the caller already opened one.
+
+    One session holds one forward and one backward of the keyed rows: a second forward of a
+    trainable ``proj_in`` / ``proj_out`` registers the same logical rows again (refused as
+    duplicate keys), and a forward after backward started is refused by the session. Run each
+    step in its own context. If the body raises, the error propagates as it is; the session is
+    validated only when the body completed.
+    """
+
+    from rl_engine.ops.autograd.canonical_backward import active_session, canonical_backward_session
+
+    if not needed or active_session() is not None:
+        yield
+        return
+    with canonical_backward_session() as session:
+        yield
+        if session.backward_started:
+            session.validate_complete()
 
 
 @contextmanager
 def _strict_boundaries(model, trace, ops, native=frozenset()):
-    """Rebind the video and audio projections, the text projection and the token refiner to rows."""
+    """Rebind every boundary module to its row: the projections, the token refiner and the
+    ``time_embedder`` / ``norm_out`` pair."""
 
     from rl_engine.runtime.registry import KernelRegistry
     from rl_engine.validation.models import h3_refiner
 
     registry = KernelRegistry()
-    row_ops = {
-        name: registry.get_op(row, device="cuda")
-        for name, row in STRICT_BOUNDARY_ROWS.items()
-        if name != "token_refiner" and name not in native
-    }
+    try:
+        row_ops = {
+            name: _cuda_row(registry, row)
+            for name, row in STRICT_BOUNDARY_ROWS.items()
+            if name not in _NON_LINEAR_BOUNDARIES and name not in native
+        }
+        # resolved before anything is bound, so a refused op leaves the model untouched
+        time_op = None if "time_embedder" in native else _cuda_row(registry, "timestep_mlp_fp32")
+        norm_op = None if "norm_out" in native else _cuda_row(registry, "final_adaln_out")
+    except CandidateBindingError:
+        raise
+    except RuntimeError as exc:  # no functional CUDA backend for a row
+        raise CandidateBindingError(str(exc)) from exc
     originals = []
 
     def project(name):
         module, op = getattr(model, name), row_ops[name]
         # the projection-row ops expose ``forward``; the video rows are callables
         call = getattr(op, "forward", op)
+        keyed = name in KEYED_BOUNDARIES
 
         def forward(x):
+            """Run the bound row on ``x`` as rows; keyed rows also get row keys and a name."""
             flat = x.reshape(-1, x.shape[-1])
-            out = call(flat, module.weight, module.bias)
+            if keyed:
+                # the video rows reduce a trainable weight's gradient over logical rows, in a
+                # canonical backward session (opened by the caller of ``project``), and need
+                # the rows' identities
+                out = call(
+                    flat, module.weight, module.bias, logical_keys=_flat_keys(x), parameter_id=name
+                )
+            else:
+                out = call(flat, module.weight, module.bias)
             return out.view(*x.shape[:-1], out.shape[-1])
 
-        originals.append((module, module.forward))
+        originals.append((module, module.__dict__.get("forward")))
         module.forward = forward
 
+    # the rows compute from ``weight`` / ``bias`` alone: a wrapped module (e.g. a PEFT adapter)
+    # would lose its own parameters, so it is refused before anything is bound
+    linears = {name: getattr(model, name) for name in row_ops}
+    if time_op is not None:  # the timestep MLP row reads both linears' weights and biases
+        linears.update(
+            {
+                f"time_embedder.{n}": getattr(model.time_embedder, n)
+                for n in ("linear_1", "linear_2")
+            }
+        )
+    if norm_op is not None:  # the final AdaLN row reads ``norm_out.linear``'s weight and bias
+        linears["norm_out.linear"] = model.norm_out.linear
+    for name, module in linears.items():
+        if type(module) is not torch.nn.Linear:
+            raise ValueError(
+                f"strict {name} binding needs a plain nn.Linear, got {type(module).__name__}"
+            )
     for name in row_ops:
         project(name)
 
@@ -241,20 +380,108 @@ def _strict_boundaries(model, trace, ops, native=frozenset()):
         )
 
     if "token_refiner" not in native:
-        originals.append((refiner, refiner.forward))
+        originals.append((refiner, refiner.__dict__.get("forward")))
         refiner.forward = refine
+
+    if "time_embedder" not in native:
+        embedder = model.time_embedder
+
+        def embed(sample, condition=None):
+            """``time_embedder`` on its row; refuses what the row does not compute."""
+            # the row is ``linear_1`` -> SiLU -> ``linear_2``; anything else is not this row
+            if condition is not None:
+                raise ValueError("the timestep_mlp_fp32 row has no condition input")
+            for extra in ("cond_proj", "post_act"):
+                if getattr(embedder, extra, None) is not None:
+                    raise ValueError(f"timestep_mlp_fp32 does not cover time_embedder.{extra}")
+            if type(getattr(embedder, "act", None)) is not torch.nn.SiLU:
+                raise ValueError("timestep_mlp_fp32 covers a SiLU time_embedder.act only")
+            return time_op.forward(
+                sample,
+                embedder.linear_1.weight,
+                embedder.linear_1.bias,
+                embedder.linear_2.weight,
+                embedder.linear_2.bias,
+            )
+
+        originals.append((embedder, embedder.__dict__.get("forward")))
+        embedder.forward = embed
+
+    if "norm_out" not in native:
+        final = model.norm_out
+
+        def final_norm(hidden_states, temb, timestep_indices):
+            return norm_op.forward(
+                hidden_states,
+                final.norm.weight,
+                temb,
+                final.linear.weight,
+                final.linear.bias,
+                timestep_indices,
+                final.norm.eps,
+            )
+
+        originals.append((final, final.__dict__.get("forward")))
+        final.forward = final_norm
+
     trace.boundary_bindings = {
-        **{
-            n: dict(row=r, status="provider" if n in native else "row")
-            for n, r in STRICT_BOUNDARY_ROWS.items()
-        },
-        **{n: dict(row=None, status="provider") for n in PROVIDER_BOUNDARIES},
+        n: dict(row=r, status="provider" if n in native else "row")
+        for n, r in STRICT_BOUNDARY_ROWS.items()
     }
     try:
-        yield
+        with _canonical_session(any(n in row_ops for n in KEYED_BOUNDARIES)):
+            yield
     finally:
-        for module, _original in originals:
-            module.__dict__.pop("forward", None)  # back to the class method
+        for module, original in originals:
+            if original is None:
+                module.__dict__.pop("forward", None)  # back to the class method
+            else:
+                module.forward = original  # the instance ``forward`` it had before
+
+
+@contextmanager
+def _packed_rows(model, trace):
+    """Bind the top-level forward's scatter to ``packed_index_copy`` (``h3_packed_forward``).
+
+    The row is pure data movement, so the forward is bitwise the provider's either way. It is
+    bound when its CUDA operator and a known provider forward are present; otherwise the
+    provider's scatter runs, and ``trace.packed_bindings`` says which one ran (``row`` /
+    ``provider``). It is reported, not required: a strict run without the operator is the same
+    bytes.
+    """
+
+    from rl_engine.runtime.registry import KernelRegistry
+    from rl_engine.validation.models import h3_packed_forward as hpf
+
+    pack_cls = "rl_engine.backends.cuda.packing.packed_index_copy.PackedIndexCopyCudaOp"
+    # Only a missing operator (the registry's RuntimeError, an ImportError) or a forward that is
+    # not a known provider forward (``UnknownForwardError``) leaves the provider scatter on; an
+    # out-of-memory error, or any other error while binding, is an error of the run and raises.
+    context = None
+    try:
+        op = KernelRegistry().get_op("packed_index_copy", device="cuda")
+    except torch.cuda.OutOfMemoryError:
+        raise
+    except (RuntimeError, ImportError):
+        op = None
+    if op is not None and f"{type(op).__module__}.{type(op).__qualname__}" == pack_cls:
+        context = hpf.bind(model, op)
+        try:
+            context.__enter__()
+        except (hpf.UnknownForwardError, ImportError):
+            context = None
+    if context is None:
+        yield
+        return
+    trace.packed_bindings["packed_index_copy"] = "row"
+    exc_info: tuple = (None, None, None)
+    try:
+        yield
+    except BaseException:
+        exc_info = sys.exc_info()
+        raise
+    finally:
+        context.__exit__(*exc_info)
 
 
 @contextmanager
@@ -287,17 +514,39 @@ def full_model_execution(
     if unknown_boundaries:
         raise ValueError(f"unknown boundary modules: {sorted(unknown_boundaries)}")
     if candidate:
-        ops = ops or h3_block.CandidateOps()
+        if ops is None:
+            try:
+                ops = h3_block.CandidateOps(device=next(model.parameters()).device)
+            except torch.cuda.OutOfMemoryError:
+                raise  # the device is out of memory: an error of the run, not a missing kernel
+            except RuntimeError as exc:  # e.g. the candidate ops' CUDA kernels are missing
+                raise CandidateBindingError(str(exc)) from exc
         if hasattr(ops, "backends"):
             trace.actual_backends = require_candidate_cuda(ops)
+        trace.ops = ops
+    # the block / refiner GEMM rows reduce weight gradients in a canonical session (as the keyed
+    # boundaries do); one session per context, so run each step in its own context
+    gemm_context = _canonical_session(True) if candidate and h3_block.binds_gemm_rows(ops) else None
     boundary_context = (
         _strict_boundaries(model, trace, ops, frozenset(native_boundaries))
         if strict_boundaries
         else None
     )
+    pack_context = _packed_rows(model, trace) if candidate else None
+    exc_info: tuple = (None, None, None)
+    boundary_entered = False  # exit the boundary context only if its ``__enter__`` returned
+    gemm_entered = False
+    pack_entered = False
     try:
+        if gemm_context is not None:
+            gemm_context.__enter__()
+            gemm_entered = True
+        if pack_context is not None:
+            pack_context.__enter__()
+            pack_entered = True
         if boundary_context is not None:
             boundary_context.__enter__()
+            boundary_entered = True
         for i, block in enumerate(model.transformer_blocks):
             if candidate:
                 original = block.forward
@@ -323,6 +572,7 @@ def full_model_execution(
                         temb=temb,
                         index=adaln_indices,
                         rope=rotary_emb,
+                        parameter_prefix=f"transformer_blocks.{_block_index}",
                         provider_nodes=frozenset(provider_nodes),
                         node_observer=lambda name: trace.candidate_calls.update(
                             [f"block.{_block_index}.{name}"]
@@ -349,13 +599,28 @@ def full_model_execution(
 
             handles.append(getattr(model, name).register_forward_hook(hook))
         yield trace
+    except BaseException:
+        # the boundary context must see the error: it skips its end-of-step checks then, so
+        # the caller gets this error and not a follow-on one
+        exc_info = sys.exc_info()
+        raise
     finally:
         for handle in handles:
             handle.remove()
         for block, original in originals:
             block.forward = original
-        if boundary_context is not None:
-            boundary_context.__exit__(None, None, None)
+        # nested, so an error raised while one context exits still closes the ones after it
+        # (the pack binding, then the GEMM session)
+        try:
+            if boundary_context is not None and boundary_entered:
+                boundary_context.__exit__(*exc_info)
+        finally:
+            try:
+                if pack_context is not None and pack_entered:
+                    pack_context.__exit__(*exc_info)
+            finally:
+                if gemm_context is not None and gemm_entered:
+                    gemm_context.__exit__(*exc_info)
 
 
 # --- Numerics shared with the generation runner --------------------------------------------------

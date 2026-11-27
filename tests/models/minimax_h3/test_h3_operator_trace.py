@@ -58,12 +58,16 @@ def test_accumulator_contract_per_row() -> None:
 
 
 def test_an_unreported_accumulator_or_split_policy_is_not_filled_in_from_the_contract() -> None:
+    """Accumulator, split policy and fallback stay unobserved until an operator reports them."""
     trace = ot.OperatorTrace()
     call = trace.record_node("transformer_blocks.3.q_proj", status="row", backend="b")
     assert (call.accumulator, call.split_policy) == (ot.NOT_OBSERVED, ot.NOT_OBSERVED)
+    assert call.fallback is None  # only an explicit report can claim "no fallback"
+    assert ot.OperatorCall("proj_in", "video_input_projection_fp32", "row", "b").fallback is None
     problems = trace.violations(paths=["transformer_blocks.3.q_proj"])
     assert any("accumulator not observed" in p for p in problems), problems
     assert any("split policy not observed" in p for p in problems), problems
+    assert any("fallback not observed" in p for p in problems), problems
     with pytest.raises(ValueError, match="not strict"):
         trace.assert_strict(paths=["transformer_blocks.3.q_proj"])
     # checking the bindings alone is possible, but only by asking for it
@@ -149,9 +153,21 @@ def test_digest_is_stable_and_content_sensitive() -> None:
 
 
 def test_roundtrip_and_tamper_detection() -> None:
+    """A trace survives dumps/loads, keeps an unobserved fallback as None, and detects tampering."""
     trace = _run(ot.OperatorTrace(metadata={"run": "x"}))
     again = ot.OperatorTrace.loads(trace.dumps())
     assert again.digest == trace.digest and again.calls == trace.calls
+    # an unobserved fallback survives serialisation as None, distinct from a reported False
+    unobserved = ot.OperatorTrace()
+    unobserved.record_node("proj_in", status="row", backend="b")
+    [call] = ot.OperatorTrace.loads(unobserved.dumps()).calls
+    assert call.fallback is None
+    assert ot.OperatorTrace.loads(_run(ot.OperatorTrace()).dumps()).calls[0].fallback is False
+    raw = unobserved.to_dict()
+    # one call (``OperatorCall.from_dict``) without the field reads as not observed; a whole trace
+    # without it fails its digest instead
+    del raw["calls"][0]["fallback"]
+    assert ot.OperatorCall.from_dict(raw["calls"][0]).fallback is None
     raw = trace.to_dict()
     raw["calls"][5]["backend"] = "edited"
     with pytest.raises(ValueError, match="trace_sha256"):
@@ -163,6 +179,11 @@ def test_roundtrip_and_tamper_detection() -> None:
     raw = trace.to_dict()
     raw["schema_version"] = "v0"
     with pytest.raises(ValueError, match="schema"):
+        ot.OperatorTrace.from_dict(raw)
+    # a v1 trace may carry the old ``fallback: false`` default for unobserved calls: refused
+    raw = trace.to_dict()
+    raw["schema_version"] = "rlkernel.h3.operator_trace.v1"
+    with pytest.raises(ValueError, match="unsupported trace schema"):
         ot.OperatorTrace.from_dict(raw)
 
 
@@ -295,6 +316,41 @@ def test_unresolved_resolution_cannot_become_a_call() -> None:
 # --- the real one-block replay (CUDA) ----------------------------------------------------------
 
 
+def _bindings_the_ops_loaded(h3_block, ops):
+    """Each node's binding, derived from the ops (not from ``h3_block.bindings``)."""
+
+    out = {node.name: node.binding for node in h3_block.NODES}
+    for name, row in h3_block.GEMM_ROWS.items():
+        if ops.gemm_op(row) is None:
+            out[name] = h3_block.Binding(out[name].rfc_row, "interim", h3_block.INTERIM_GEMM)
+    if ops.attention_h3 is None:
+        out["attention"] = h3_block.Binding(
+            out["attention"].rfc_row, "interim", h3_block.INTERIM_ATTENTION
+        )
+    return out
+
+
+def test_block_observer_requires_the_runs_bindings() -> None:
+    """The static node table does not say what ran: the observer has no default for it."""
+
+    with pytest.raises(TypeError, match="bindings"):
+        ot.block_observer(ot.OperatorTrace(), block_index=0)
+
+
+@pytest.mark.parametrize("stage", ["transformer_blocks", "token_refiner"])
+def test_block_observer_refuses_a_partial_map_before_the_forward(stage) -> None:
+    nodes = fp.REFINER_NODES if stage == "token_refiner" else fp.BLOCK_NODES
+    names = [name for name, _ in nodes]
+    full = {name: object() for name in names}
+    ot.block_observer(ot.OperatorTrace(), bindings=full, stage=stage)  # every node: accepted
+    with pytest.raises(ValueError, match=rf"{stage} nodes \['{names[3]}'\]"):
+        ot.block_observer(
+            ot.OperatorTrace(),
+            bindings={k: v for k, v in full.items() if k != names[3]},
+            stage=stage,
+        )
+
+
 def test_block_replay_trace_matches_h3_block_bindings(h3_block_weights_cuda) -> None:
     torch = pytest.importorskip("torch")
     from rl_engine.validation.models import h3_block
@@ -302,19 +358,17 @@ def test_block_replay_trace_matches_h3_block_bindings(h3_block_weights_cuda) -> 
     ops = h3_block.CandidateOps()
     ctx = h3_block.make_block_context(h3_block_weights_cuda, layout="tiny", seed=0, batch=1)
     trace = ot.OperatorTrace(mode="candidate", metadata={"layout": "tiny", "block": 0})
-    ctx["node_observer"] = ot.block_observer(trace, block_index=0)
+    bound = h3_block.bindings(ops)
+    ctx["node_observer"] = ot.block_observer(trace, block_index=0, bindings=bound)
     with torch.no_grad():
         h3_block.run_graph("candidate", ctx, ops)
 
     assert [c.path for c in trace.calls] == BLOCK0
     assert trace.coverage(paths=BLOCK0) == {"wrong_count": [], "unexpected": []}
-    bindings = {n.name: n.binding for n in h3_block.NODES}
+    expected = _bindings_the_ops_loaded(h3_block, ops)
     for call, node in zip(trace.calls, h3_block.NODES):
-        assert (call.status, call.backend, call.row) == (
-            bindings[node.name].status,
-            bindings[node.name].backend,
-            bindings[node.name].rfc_row,
-        )
+        want = expected[node.name]
+        assert (call.status, call.backend, call.row) == (want.status, want.backend, want.rfc_row)
     # Today's stack still has interim and reference nodes: the strict gate must say so.
     assert trace.violations(paths=BLOCK0)
     # The hook sees only node names: accumulator, split policy and fallback stay unobserved.
@@ -324,7 +378,7 @@ def test_block_replay_trace_matches_h3_block_bindings(h3_block_weights_cuda) -> 
     assert trace.violations(paths=BLOCK0, allowed_statuses=every, require_observed=False) == []
     # Replaying twice gives the same ledger: the trace is part of the repeatable surface.
     again = ot.OperatorTrace(mode="candidate", metadata={"layout": "tiny", "block": 0})
-    ctx["node_observer"] = ot.block_observer(again, block_index=0)
+    ctx["node_observer"] = ot.block_observer(again, block_index=0, bindings=bound)
     with torch.no_grad():
         h3_block.run_graph("candidate", ctx, ops)
     assert again.digest == trace.digest

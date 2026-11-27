@@ -175,6 +175,8 @@ and [measured H100 results](docs/usage/h100-matrix-validation.md) for exact cove
 Join us on [Slack](https://rl-align.slack.com/join/shared_invite/zt-46bxj7uyt-gEK3xzwSJr_lppJsZolR~g#/shared-invite/email)
 or [WeChat](docs/community/wechat.md), and
 [open an issue](https://github.com/RL-Align/RL-Kernel/issues) for bugs and feature requests.
+We hold a weekly developer meeting on Google Meet, Saturdays 21:00–22:00 Beijing time
+(UTC+8) — see the [community page](docs/community/README.md#developer-meeting).
 Contributions to kernels, framework integrations, hardware adaptation, and benchmarks
 are welcome. See the [contributing guide](docs/contributing/README.md).
 

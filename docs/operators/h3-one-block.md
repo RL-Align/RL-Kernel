@@ -21,14 +21,11 @@ at S = 264, 925 and 3160:
 - **Accuracy.** The block output is exactly as close to the FP32 golden as diffusers' (relative
   error 5.2e-3 / 7.9e-3 / 9.0e-3).
 
-The current graph binds seven of the 17 nodes to four row operators: AdaLN projection,
-modulated RMSNorm, gate residual, and the new Triton partial MM-RoPE. The other ten use
-**interim** deterministic operators until their own rows land (see Bindings). Speed and exact
-rounding of interim nodes belong to those operators, not to this row. The block-level tests
-apply to every binding. The new MM-RoPE binding has now been exercised on A6000:
-its isolated forward checks and block backward test passed, while existing RMSNorm
-provider-bitwise discrepancies still prevent complete block acceptance. The
-historical measurements below do not qualify the current binding or environment.
+The current graph uses the AdaLN projection, modulated RMSNorm, gate residual, fused QKV,
+and Triton partial MM-RoPE operators. Attention and the three GEMM projections use their
+row operators where supported. The bindings table below gives the conditions for each.
+An earlier A6000 run with Triton MM-RoPE passed the isolated RoPE forward checks and the
+block backward test. The block forward tests in that run reported RMSNorm differences.
 
 ## Entry Point
 
@@ -59,15 +56,28 @@ python tools/validation/models/plot_h3_block.py report.json
 |---|---|---|
 | `adaln_projection` | `adaln_projection_3mod` | **row**: `H3AdaLNProjectionCudaOp` (registry) |
 | `norm1`, `norm2` | `h3_rmsnorm` | **row**: `H3RMSNormCudaOp.forward_modulated` (registry) |
-| `q_proj`, `k_proj`, `v_proj` | `h3_qkv_gemm` | interim: Triton FP32-accumulate GEMM, one BF16 rounding |
+| `q_proj`, `k_proj`, `v_proj` | `h3_qkv_gemm` | **row**: `H3QKVGemmCudaOp`, one fused call (registry) |
 | `q_norm`, `k_norm` | `h3_qk_rmsnorm_d128` | interim: `H3RMSNormCudaOp.forward` on the 128-wide heads |
 | `rope_q`, `rope_k` | `h3_mm_rope_3axis_partial` | **row**: `TritonH3MMRoPEOp` (explicit candidate; full-block qualification pending) |
-| `attention` | `h3_full_attention` | interim: `DeterministicAttentionOp(causal=False)` |
-| `o_proj` | `h3_attention_o_gemm` | interim: Triton FP32-accumulate GEMM |
+| `attention` | `h3_full_attention` | **row**: `H3FullAttentionOp` (#553); interim `DeterministicAttentionOp(causal=False)` when its extension is missing |
+| `o_proj` | `h3_attention_o_gemm` | **row** on SM90: `H3AttentionOGemmOp` (#554); interim elsewhere |
 | `residual_attn`, `residual_mlp` | `adaln_gate_residual` | **row**: `H3GateResidualCudaOp` (registry) |
-| `ffn_gate_up` | `h3_ffn_gate_up_gemm` | interim: Triton FP32-accumulate GEMM |
+| `ffn_gate_up` | `h3_ffn_gate_up_gemm` | **row** on SM90: `H3FFNGateUpGemmOp` (#554); interim elsewhere |
 | `swiglu` | `h3_swiglu` | interim: `SwiGLUCudaOp` (FP32 math, one rounding) |
-| `ffn_down` | `h3_ffn_down_gemm` | interim: Triton FP32-accumulate GEMM |
+| `ffn_down` | `h3_ffn_down_gemm` | **row** on SM90: `H3FFNDownGemmOp` (#535); interim elsewhere |
+
+Each report entry states the binding that ran (`h3_block.bindings(ops)`), not the table above.
+
+The three GEMM rows' operators run on SM90 only. `CandidateOps(gemm_rows=...)` picks them:
+- `"auto"` (the default) binds them on SM90 and the interim GEMM elsewhere;
+- `"row"` binds them or raises;
+- `"interim"` keeps the interim GEMM.
+
+Bound, each call passes the rows' logical `(batch row, position)` keys and a parameter id per block
+(`transformer_blocks.<i>.<weight>`, `token_refiner.refiner_blocks.<i>.<weight>`). Weight gradients
+are reduced in a `canonical_backward_session`: the backward replay opens one per evaluation, and
+`full_model_execution` one per context. One session holds one forward and one backward, so run each
+training step in its own context.
 
 When a row lands, replacing its node's `candidate` callable is the whole integration. The node's
 report entries then become that operator's block-level evidence.
@@ -77,12 +87,10 @@ Its backward uses the same quantized coefficients with FP32 products and additio
 only the final input gradient. The standalone operator uses a model-boundary acceptance
 reference and separately reports unrounded FP32 mathematical error. Block reports add
 `isolated_model_boundary_accuracy` for both RoPE nodes on actual provider inputs.
-The provider and full-block mathematical golden remain unchanged; their relative-error
-checks remain comparative block checks, not RoPE's elementwise acceptance gate. The report
-labels these roles with `golden_role` and `rope_acceptance_reference`. The RoPE reference
-choice is a Draft PR review item, not a claim of maintainer or complete-model approval.
+The block also compares the provider and candidate against the full-block mathematical
+golden. The report labels the two comparisons with `golden_role` and `rope_acceptance_reference`.
 
-The interim GEMMs use `_triton_gemm_fp32`, one fixed-order FP32 K loop with no split-K, and round
+Off SM90 the interim GEMMs use `_triton_gemm_fp32`, one fixed-order FP32 K loop with no split-K, and round
 to BF16 once. They do not use `TritonDetGemmOp.__call__`, whose K tree has BF16 nodes. Measured on
 B200:
 
@@ -136,9 +144,8 @@ The one-block and review-fix suites reported **19 passed, 2 failed, no skips**.
   repeatability and batch invariance for both layouts. The `tiny` block backward
   test passed its existing repeatability, batch and accuracy assertions.
 
-The block suite remains failed; the replacement comparison does not waive the
-RMSNorm checks or establish full-model acceptance. Raw logs and per-node reports
-are retained with the MM-RoPE PR evidence, rather than committed benchmark data.
+The A6000 block suite failed the RMSNorm checks on the tested revision. The MM-RoPE PR
+evidence includes the raw logs and per-node reports for that run.
 
 ### Historical B200 run with provider-only MM-RoPE
 
@@ -213,11 +220,9 @@ RL_KERNEL_H3_WEIGHTS=<dir> CUDA_VISIBLE_DEVICES=0,1 python -m pytest tests/model
 
 - **Single platform.** CUDA only. `DeterministicAttentionOp` and the Triton GEMM also build for
   ROCm, but the block has not been run there.
-- **Interim nodes.** Ten of the 17 nodes use interim operators. Their speed and rounding are
-  not the owning rows' final ones.
-- **Current block acceptance.** The A6000 run with Triton MM-RoPE has passing RoPE
-  node checks and block backward, but existing RMSNorm isolated-provider checks
-  still fail. Neither historical B200 results nor isolated RoPE parity waive this.
+- **Interim nodes.** Q/K head normalization and SwiGLU always use interim operators here.
+  Attention and the three GEMM projections can also use interim operators depending on the device
+  and available extensions. Each report records which implementation ran.
 - **Stand-in inputs.** The block input is a seeded stand-in and `temb` is the provider's.
   Real packed projections arrive with the input-projection rows.
 - **Not covered here.** Block 0 only (`ws1_full_h3_transformer` covers 50 blocks and the refiner),

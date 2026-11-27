@@ -26,9 +26,11 @@ def _validate_dtype(x: Tensor, name: str) -> None:
         raise TypeError(f"{name} must have dtype fp16, bf16, or fp32, got {x.dtype}.")
 
 
+# Every kernel widens pid to int64 before scaling by BLOCK: in int32 the flat
+# offset wraps negative past 2**31 elements(#640).
 @triton.jit
 def _silu_fwd_kernel(x_ptr, y_ptr, n_elements, BLOCK: tl.constexpr):
-    pid = tl.program_id(0)
+    pid = tl.program_id(0).to(tl.int64)
     offs = pid * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n_elements
     x = tl.load(x_ptr + offs, mask=mask, other=0.0).to(tl.float32)
@@ -39,7 +41,7 @@ def _silu_fwd_kernel(x_ptr, y_ptr, n_elements, BLOCK: tl.constexpr):
 
 @triton.jit
 def _silu_bwd_kernel(dy_ptr, x_ptr, dx_ptr, n_elements, BLOCK: tl.constexpr):
-    pid = tl.program_id(0)
+    pid = tl.program_id(0).to(tl.int64)
     offs = pid * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n_elements
     dy = tl.load(dy_ptr + offs, mask=mask, other=0.0).to(tl.float32)
@@ -52,7 +54,7 @@ def _silu_bwd_kernel(dy_ptr, x_ptr, dx_ptr, n_elements, BLOCK: tl.constexpr):
 
 @triton.jit
 def _swiglu_fwd_kernel(gate_ptr, up_ptr, y_ptr, n_elements, BLOCK: tl.constexpr):
-    pid = tl.program_id(0)
+    pid = tl.program_id(0).to(tl.int64)
     offs = pid * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n_elements
     g = tl.load(gate_ptr + offs, mask=mask, other=0.0).to(tl.float32)
@@ -64,7 +66,7 @@ def _swiglu_fwd_kernel(gate_ptr, up_ptr, y_ptr, n_elements, BLOCK: tl.constexpr)
 
 @triton.jit
 def _swiglu_bwd_kernel(dy_ptr, gate_ptr, silu_grad_ptr, d_up_ptr, n_elements, BLOCK: tl.constexpr):
-    pid = tl.program_id(0)
+    pid = tl.program_id(0).to(tl.int64)
     offs = pid * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n_elements
     dy = tl.load(dy_ptr + offs, mask=mask, other=0.0).to(tl.float32)
@@ -81,7 +83,7 @@ def _swiglu_bwd_kernel(dy_ptr, gate_ptr, silu_grad_ptr, d_up_ptr, n_elements, BL
 def _swiglu_dgate_kernel(
     dy_ptr, up_ptr, silu_grad_ptr, d_gate_ptr, n_elements, BLOCK: tl.constexpr
 ):
-    pid = tl.program_id(0)
+    pid = tl.program_id(0).to(tl.int64)
     offs = pid * BLOCK + tl.arange(0, BLOCK)
     mask = offs < n_elements
     dy = tl.load(dy_ptr + offs, mask=mask, other=0.0).to(tl.float32)
@@ -128,7 +130,11 @@ def _launch_swiglu_fwd(gate: Tensor, up: Tensor) -> Tensor:
     if n == 0:
         return y
     grid = (triton.cdiv(n, _BLOCK),)
-    _swiglu_fwd_kernel[grid](gate_c, up_c, y, n, BLOCK=_BLOCK)
+    # Tensor allocation does not select Triton's launch device. Use the input
+    # backend's guard (torch.cuda also covers ROCm) and restore the caller on exit.
+    device_module = torch.get_device_module(gate_c.device)
+    with device_module.device(gate_c.device):
+        _swiglu_fwd_kernel[grid](gate_c, up_c, y, n, BLOCK=_BLOCK)
     return y
 
 
@@ -143,22 +149,26 @@ def _launch_swiglu_bwd(dy: Tensor, gate: Tensor, up: Tensor) -> tuple[Tensor, Te
     if n == 0:
         return d_gate, d_up
     grid = (triton.cdiv(n, _BLOCK),)
-    _swiglu_bwd_kernel[grid](
-        dy_c,
-        gate_c,
-        silu_grad,
-        d_up,
-        n,
-        BLOCK=_BLOCK,
-    )
-    _swiglu_dgate_kernel[grid](
-        dy_c,
-        up_c,
-        silu_grad,
-        d_gate,
-        n,
-        BLOCK=_BLOCK,
-    )
+    # Both stages use the input device's current stream so d_gate observes
+    # silu_grad without synchronization, including direct launcher calls.
+    device_module = torch.get_device_module(gate_c.device)
+    with device_module.device(gate_c.device):
+        _swiglu_bwd_kernel[grid](
+            dy_c,
+            gate_c,
+            silu_grad,
+            d_up,
+            n,
+            BLOCK=_BLOCK,
+        )
+        _swiglu_dgate_kernel[grid](
+            dy_c,
+            up_c,
+            silu_grad,
+            d_gate,
+            n,
+            BLOCK=_BLOCK,
+        )
     return d_gate, d_up
 
 

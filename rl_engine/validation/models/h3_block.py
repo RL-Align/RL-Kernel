@@ -36,7 +36,7 @@ import hashlib
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import torch
 
@@ -75,18 +75,78 @@ class Node:
     provider_bitwise_isolated: bool
 
 
+# The three GEMM rows of the block and the refiner: node -> RFC row, and the row's operator
+# (#554 for the attention output and the gate/up projection, #535 for the down projection).
+GEMM_ROWS = {
+    "o_proj": "h3_attention_o_gemm",
+    "ffn_gate_up": "h3_ffn_gate_up_gemm",
+    "ffn_down": "h3_ffn_down_gemm",
+}
+GEMM_ROW_OPS = {
+    "h3_attention_o_gemm": "rl_engine.ops.gemm.h3_projections.H3AttentionOGemmOp",
+    "h3_ffn_gate_up_gemm": "rl_engine.ops.gemm.h3_projections.H3FFNGateUpGemmOp",
+    "h3_ffn_down_gemm": "rl_engine.ops.gemm.h3_ffn_down.H3FFNDownGemmOp",
+}
+_GEMM_ATTRS = {
+    "h3_attention_o_gemm": "o_gemm",
+    "h3_ffn_gate_up_gemm": "gate_up_gemm",
+    "h3_ffn_down_gemm": "down_gemm",
+}
+INTERIM_GEMM = "triton _det_gemm_fp32_kernel (FP32 K loop, one BF16 rounding)"
+INTERIM_ATTENTION = "DeterministicAttentionOp(causal=False)"
+
+
+def gemm_rows_supported(device: torch.device | None = None) -> bool:
+    """Whether the GEMM rows' operators run here.
+
+    They declare SM90 (H100) only, and both of their backends (``FixedFP32Backend`` in
+    ``h3_projection_fp32`` and ``h3_down_fp32_backend``) launch the Triton
+    ``_det_gemm_fp32_kernel``, so Triton must be importable as well.
+    """
+
+    if device is not None and device.type != "cuda":
+        return False  # e.g. weights on the CPU: the rows have no CPU path
+    if not torch.cuda.is_available() or torch.cuda.get_device_capability(device) != (9, 0):
+        return False
+    try:
+        from rl_engine.backends.shared.triton.gemm import det_gemm
+    except ImportError:
+        return False
+    return bool(det_gemm._TRITON_AVAILABLE)
+
+
+def _gemm_row_op(row: str):
+    import importlib
+
+    module, _, name = GEMM_ROW_OPS[row].rpartition(".")
+    return getattr(importlib.import_module(module), name)()
+
+
 class CandidateOps:
     """The operators bound to the block's nodes, resolved once per run.
 
-    The three conditioning rows are resolved through the registry, so the
-    report records what dispatch actually returned. MM-RoPE binds its Triton
-    candidate directly for block-level qualification. The interim operators are
-    named directly because their registry entries (``det_gemm``,
-    ``attention``, ``swiglu``) prefer backends that are not available or not
-    deterministic on every GPU this replay runs on.
+    The registry resolves the norm, gate, AdaLN-projection and QKV operators. Both MM-RoPE
+    nodes use the Triton candidate directly so the block replay exercises it. The replay
+    names its interim operators explicitly to select deterministic backends available on
+    the device.
+
+    ``gemm_rows`` binds ``o_proj`` / ``ffn_gate_up`` / ``ffn_down``: ``"row"`` to their rows'
+    operators (``GEMM_ROW_OPS``; SM90 with Triton, raises elsewhere), ``"interim"`` to the interim
+    FP32-K-loop GEMM, ``"auto"`` (the default) to the rows where they run and to the interim
+    GEMM otherwise. ``device`` is the device the ops will run on (the probe needs its capability;
+    ``None`` is the current one). ``bindings(ops)`` states which one ran, per node.
     """
 
-    def __init__(self, registry: KernelRegistry | None = None) -> None:
+    def __init__(
+        self,
+        registry: KernelRegistry | None = None,
+        attention: str = "auto",
+        gemm_rows: str = "auto",
+        device: torch.device | None = None,
+    ) -> None:
+        if gemm_rows not in ("auto", "row", "interim"):
+            raise ValueError(f"gemm_rows must be 'auto', 'row' or 'interim', not {gemm_rows!r}")
+
         from rl_engine.backends.cuda.activation.swiglu import SwiGLUCudaOp
         from rl_engine.backends.cuda.attention.deterministic_attn import DeterministicAttentionOp
         from rl_engine.backends.shared.triton.gemm.det_gemm import TritonDetGemmOp
@@ -100,11 +160,38 @@ class CandidateOps:
         self.gemm = TritonDetGemmOp()
         self.qkv = registry.get_op("h3_qkv_gemm", device="cuda")
         self.attention = DeterministicAttentionOp()
+        self.attention_h3 = None
+        if attention != "interim":
+            # h3_full_attention (#553): query-chunked, bounded workspace, same #240 arithmetic
+            try:
+                from rl_engine.backends.cuda.attention.h3_full_attention import (
+                    H3FullAttentionOp,
+                    _extension,
+                )
+
+                _extension()
+                self.attention_h3 = H3FullAttentionOp()
+            except (ImportError, RuntimeError):
+                if attention == "h3_full":
+                    raise
         self.swiglu = SwiGLUCudaOp()
+        self.o_gemm = self.gate_up_gemm = self.down_gemm = None
+        if gemm_rows == "row" and not gemm_rows_supported(device):
+            raise RuntimeError("the H3 GEMM rows (#535, #554) need SM90 and Triton")
+        if gemm_rows == "row" or (gemm_rows == "auto" and gemm_rows_supported(device)):
+            for row, attr in _GEMM_ATTRS.items():
+                setattr(self, attr, _gemm_row_op(row))
+
+    def gemm_op(self, row: str):
+        """The operator bound to GEMM row ``row``, or ``None`` for the interim GEMM."""
+
+        return getattr(self, _GEMM_ATTRS[row], None)
 
     def backends(self) -> dict[str, str]:
         return {
-            name: f"{type(op).__module__}.{type(op).__name__}" for name, op in vars(self).items()
+            name: f"{type(op).__module__}.{type(op).__name__}"
+            for name, op in vars(self).items()
+            if op is not None
         }
 
 
@@ -150,7 +237,74 @@ def _cand_linear(ops: CandidateOps, x: torch.Tensor, weight: torch.Tensor) -> to
     return _InterimLinear.apply(flat, weight).view(*x.shape[:-1], weight.shape[0])
 
 
+def cand_gemm(
+    ops: CandidateOps, row: str, x: torch.Tensor, weight: torch.Tensor, parameter_id: str
+) -> torch.Tensor:
+    """GEMM row ``row`` on ``x``: its operator with the rows' logical keys, or the interim GEMM.
+
+    The row operators reduce the weight gradient over the logical ``(batch row, position)`` keys
+    in a ``canonical_backward_session`` (``gemm_session``), one parameter per ``parameter_id``.
+    """
+
+    op = ops.gemm_op(row) if hasattr(ops, "gemm_op") else None
+    if op is None:
+        return _cand_linear(ops, x, weight)
+    flat = x.reshape(-1, x.shape[-1])
+    out = op(flat, weight, logical_keys=_row_keys(x), parameter_id=parameter_id)
+    return out.view(*x.shape[:-1], weight.shape[0])
+
+
+def binds_gemm_rows(ops: Any) -> bool:
+    return hasattr(ops, "gemm_op") and any(ops.gemm_op(row) is not None for row in GEMM_ROW_OPS)
+
+
+@contextmanager
+def gemm_session(ops: Any):
+    """The canonical backward session the GEMM rows' weight gradients need.
+
+    Opened only when ``ops`` binds the rows and no session is active. One session holds one
+    forward and one backward (the rows refuse a logical row registered twice); it is validated
+    when the body completed and its backward started.
+    """
+
+    from rl_engine.ops.autograd.canonical_backward import active_session, canonical_backward_session
+
+    if not binds_gemm_rows(ops) or active_session() is not None:
+        yield
+        return
+    with canonical_backward_session() as session:
+        yield
+        if session.backward_started:
+            session.validate_complete()
+
+
+def bindings(ops: Any, nodes=None) -> dict[str, Binding]:
+    """Each node's binding as ``ops`` runs it: the GEMM rows and attention say which operator ran.
+
+    ``nodes`` defaults to the block's ``NODES`` (the refiner passes its own). Without ``ops`` the
+    static bindings are returned.
+    """
+
+    out = {}
+    for node in NODES if nodes is None else nodes:
+        binding = node.binding
+        if ops is not None and node.name in GEMM_ROWS:
+            # ops without ``gemm_op`` run the interim GEMM (``cand_gemm``), so report that
+            accessor = getattr(ops, "gemm_op", None)
+            op = accessor(GEMM_ROWS[node.name]) if accessor is not None else None
+            if op is None:
+                binding = Binding(binding.rfc_row, "interim", INTERIM_GEMM)
+        if ops is not None and node.name == "attention" and hasattr(ops, "attention_h3"):
+            if ops.attention_h3 is None:
+                binding = Binding(binding.rfc_row, "interim", INTERIM_ATTENTION)
+        out[node.name] = binding
+    return out
+
+
 def _cand_attention(ops: CandidateOps, q, k, v) -> torch.Tensor:
+    if ops.attention_h3 is not None:  # BSHD, bounded workspace
+        q, k, v = (t.contiguous() for t in (q, k, _heads(v)))
+        return ops.attention_h3(q, k, v).flatten(2, 3)
     q, k, v = (t.transpose(1, 2).contiguous() for t in (q, k, _heads(v)))
     out = ops.attention(q, k, v, causal=False)
     return out.transpose(1, 2).flatten(2, 3)
@@ -161,14 +315,16 @@ def _cand_swiglu(ops: CandidateOps, projected: torch.Tensor) -> torch.Tensor:
     return ops.swiglu(gate.contiguous(), hidden.contiguous())
 
 
-def _linear_node(name: str, source: str, weight: str, row: str, status: str) -> Node:
+def _linear_node(name: str, source: str, weight: str, row: str) -> Node:
+    """A GEMM row node; ``bindings(ops)`` reports ``interim`` when the interim GEMM ran."""
+
     return Node(
         name=name,
         inputs=(source,),
-        binding=Binding(
-            row, status, "triton _det_gemm_fp32_kernel (FP32 K loop, one BF16 rounding)"
+        binding=Binding(row, "row", GEMM_ROW_OPS[row]),
+        candidate=lambda ops, ctx, x: cand_gemm(
+            ops, row, x, _w(ctx, weight), f"{ctx.get('parameter_prefix', BLOCK)}.{weight}"
         ),
-        candidate=lambda ops, ctx, x: _cand_linear(ops, x, _w(ctx, weight)),
         provider=lambda ctx, x: prov.provider_linear(x, _w(ctx, weight)),
         golden=lambda ctx, x: gold.golden_linear(x, _w(ctx, weight)),
         provider_bitwise_isolated=False,  # tree reduction vs cuBLAS
@@ -188,19 +344,66 @@ def _row_keys(x: torch.Tensor) -> torch.Tensor:
     return torch.stack([rows, positions], dim=1)
 
 
+QKV_WEIGHTS = ("attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight")
+FUSED_QKV_CACHE = "_fused_qkv"
+
+
+def evaluation_ctx(ctx: dict[str, Any]) -> dict[str, Any]:
+    """``ctx`` for one evaluation of a graph: a shallow copy with its own fused-QKV cache.
+
+    The three projection nodes of that evaluation share one combined call; a repeated
+    evaluation of the same ``ctx`` (a repeat or determinism check), or one with other ops,
+    always recomputes and never reads an earlier evaluation's outputs.
+    """
+
+    return {**ctx, FUSED_QKV_CACHE: {}}
+
+
+def fused_qkv(
+    ctx: dict[str, Any], x: torch.Tensor, weights: tuple[torch.Tensor, ...], ops: Any
+) -> Any:
+    """``(q, k, v)`` of one combined ``h3_qkv_gemm`` call, shared by the three projection nodes.
+
+    The first node to run on ``x`` makes the call (``ops.qkv(x2d, wq, wk, wv)``, with the rows'
+    logical keys); the others read its outputs. The cache lives for one graph evaluation
+    (``evaluation_ctx``, used by ``run_graph`` / ``run_isolated``) and is keyed on the identity of
+    ``ops``, ``x`` and the three weights, so other ops, inputs or weights always recompute.
+
+    A ``ctx`` that ``evaluation_ctx`` did not make is refused: a cache added to a caller's own,
+    reused ``ctx`` would let a later evaluation read an earlier one's outputs.
+    """
+
+    key = (ops, x, *weights)
+    cache = ctx.get(FUSED_QKV_CACHE)
+    if cache is None:
+        raise ValueError("fused_qkv needs the ctx of one graph evaluation (evaluation_ctx)")
+    cached = cache.get("key")
+    if cached is None or any(a is not b for a, b in zip(cached, key, strict=True)):
+        flat = x.reshape(-1, x.shape[-1])
+        cache.update(key=key, outputs=ops.qkv(flat, *weights, logical_keys=_row_keys(x)))
+    return cache["outputs"]
+
+
 def _qkv_node(name: str, weight: str) -> Node:
-    """Q, K or V projection: the ``h3_qkv_gemm`` row (fixed-order Triton GEMM, BF16)."""
+    """Q, K or V projection: the ``h3_qkv_gemm`` row (fixed-order Triton GEMM, BF16).
+
+    The three nodes share one call of the row's combined operator, so the input gradient is the
+    fused ``[Q; K; V]`` backward (FP32 over all three, one rounding) the row promises, not three
+    separately rounded gradients added by autograd. The forward bytes are those of each
+    projection alone.
+    """
+
+    index = QKV_WEIGHTS.index(weight)
 
     def candidate(ops, ctx, x):
-        flat = x.reshape(-1, x.shape[-1])
-        return ops.qkv.project(flat, _w(ctx, weight), logical_keys=_row_keys(x)).view(
-            *x.shape[:-1], -1
-        )
+        """This node's slice of the one fused ``[Q; K; V]`` call, shaped like ``x``."""
+        weights = tuple(_w(ctx, w) for w in QKV_WEIGHTS)
+        return fused_qkv(ctx, x, weights, ops)[index].view(*x.shape[:-1], -1)
 
     return Node(
         name=name,
         inputs=("norm1",),
-        binding=Binding("h3_qkv_gemm", "row", "H3QKVGemmCudaOp.project"),
+        binding=Binding("h3_qkv_gemm", "row", "H3QKVGemmCudaOp.forward"),
         candidate=candidate,
         provider=lambda ctx, x: prov.provider_linear(x, _w(ctx, weight)),
         golden=lambda ctx, x: gold.golden_linear(x, _w(ctx, weight)),
@@ -289,16 +492,21 @@ NODES: list[Node] = [
     Node(
         name="attention",
         inputs=("rope_q", "rope_k", "v_proj"),
-        binding=Binding("h3_full_attention", "interim", "DeterministicAttentionOp(causal=False)"),
+        # ``bindings(ops)`` reports ``interim`` when H3FullAttentionOp could not be loaded
+        binding=Binding(
+            "h3_full_attention",
+            "row",
+            "rl_engine.backends.cuda.attention.h3_full_attention.H3FullAttentionOp",
+        ),
         candidate=lambda ops, ctx, q, k, v: _cand_attention(ops, q, k, v),
         provider=lambda ctx, q, k, v: prov.provider_attention(q, k, _heads(v)),
         golden=lambda ctx, q, k, v: gold.golden_attention(q, k, _heads(v)),
         provider_bitwise_isolated=False,
     ),
-    _linear_node("o_proj", "attention", "attn.to_out.0.weight", "h3_attention_o_gemm", "interim"),
+    _linear_node("o_proj", "attention", "attn.to_out.0.weight", "h3_attention_o_gemm"),
     _gate_node("residual_attn", "hidden", "o_proj", gate=2),
     _norm_modulate_node("norm2", "residual_attn", "norm2.weight", shift=3, scale=4),
-    _linear_node("ffn_gate_up", "norm2", "ff.net.0.proj.weight", "h3_ffn_gate_up_gemm", "interim"),
+    _linear_node("ffn_gate_up", "norm2", "ff.net.0.proj.weight", "h3_ffn_gate_up_gemm"),
     Node(
         name="swiglu",
         inputs=("ffn_gate_up",),
@@ -308,7 +516,7 @@ NODES: list[Node] = [
         golden=lambda ctx, x: gold.golden_swiglu(x),
         provider_bitwise_isolated=False,  # one FP32 rounding vs the eager two
     ),
-    _linear_node("ffn_down", "swiglu", "ff.net.2.weight", "h3_ffn_down_gemm", "interim"),
+    _linear_node("ffn_down", "swiglu", "ff.net.2.weight", "h3_ffn_down_gemm"),
     _gate_node("residual_mlp", "residual_attn", "ffn_down", gate=5),
 ]
 NODE_NAMES = tuple(node.name for node in NODES)
@@ -405,6 +613,7 @@ def strict_fp32_matmul():
 def run_graph(mode: str, ctx: dict[str, Any], ops: CandidateOps | None = None) -> dict[str, Any]:
     """Every node's output for one mode ("candidate", "provider" or "golden")."""
 
+    ctx = evaluation_ctx(ctx)
     values: dict[str, Any] = {"hidden": ctx["hidden"], "temb": ctx["temb"]}
     # Diagnostic hybrids only: these candidate nodes run their provider replay instead.
     provider_nodes = ctx.get("provider_nodes", ())
@@ -425,15 +634,29 @@ def run_graph(mode: str, ctx: dict[str, Any], ops: CandidateOps | None = None) -
     return values
 
 
+def _weights_device(weights: Mapping[str, torch.Tensor]) -> torch.device:
+    """The device the block's weights (and so its ops) live on."""
+
+    return next(iter(weights.values())).device
+
+
 def run_isolated(
     ctx: dict[str, Any], ops: CandidateOps, provider: dict[str, Any]
 ) -> dict[str, Any]:
-    """Each candidate node fed the provider's inputs to that node."""
+    """Each candidate node fed the provider's inputs to that node (forward only).
 
-    return {
-        node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
-        for node in NODES
-    }
+    The nodes are evaluated one by one on the provider's values, so there is no graph to run a
+    backward through. Without ``no_grad`` a weight that requires grad would make the GEMM rows ask
+    for a canonical backward session.
+    """
+
+    ctx = evaluation_ctx(ctx)
+    # as in ``run_graph``: the GEMM rows refuse TF32, which a caller may have enabled
+    with torch.no_grad(), strict_fp32_matmul():
+        return {
+            node.name: node.candidate(ops, ctx, *[provider[name] for name in node.inputs])
+            for node in NODES
+        }
 
 
 def _flat(value: Any) -> list[torch.Tensor]:
@@ -537,7 +760,7 @@ def run_block_case(
 ) -> dict[str, Any]:
     """Forward replay of block 0: per-node agreement, invariance, accuracy and first drift."""
 
-    ops = ops or CandidateOps()
+    ops = ops or CandidateOps(device=_weights_device(weights))
     ctx = make_block_context(weights, layout=layout, seed=seed, batch=1)
     ctx2 = make_block_context(weights, layout=layout, seed=seed, batch=2)
     with torch.no_grad():
@@ -557,6 +780,7 @@ def run_block_case(
         "rope_acceptance_reference": "isolated_model_boundary_reference",
         "nodes": [],
     }
+    bound = bindings(ops)
     firsts: dict[str, str | None] = {"first_drift": None, "first_isolated_drift": None}
     firsts.update({"first_repeat_drift": None, "first_batch_drift": None})
     for node in NODES:
@@ -564,9 +788,9 @@ def run_block_case(
         row0 = _batch_row(batched[name], 0, 2)
         entry: dict[str, Any] = {
             "node": name,
-            "rfc_row": node.binding.rfc_row,
-            "status": node.binding.status,
-            "backend": node.binding.backend,
+            "rfc_row": bound[name].rfc_row,
+            "status": bound[name].status,
+            "backend": bound[name].backend,
             "provider_bitwise_isolated_promised": node.provider_bitwise_isolated,
             "repeat_bitwise_equal": bitwise(repeat[name], chained[name]),
             "batch_row_bitwise_equal": bitwise(row0, chained[name]),
@@ -687,7 +911,7 @@ def _backward(
     run_ctx = {**ctx, "weights": weights, "hidden": leaves["hidden"], "temb": leaves["temb"]}
     # ``run_graph`` makes the forward strict FP32, but the backward runs after it returns: without
     # this the golden gradients use TF32 matmuls whenever the caller enabled TF32.
-    with strict_fp32_matmul():
+    with strict_fp32_matmul(), gemm_session(ops if mode == "candidate" else None):
         values = run_graph(mode, run_ctx, ops)
         for node in NODES:
             for t in _flat(values[node.name]):
@@ -723,7 +947,7 @@ def run_block_backward(
     gradients sum over the batch and are not part of the batch check.
     """
 
-    ops = ops or CandidateOps()
+    ops = ops or CandidateOps(device=_weights_device(weights))
     ctx = make_block_context(weights, layout=layout, seed=seed, batch=1)
     ctx2 = make_block_context(weights, layout=layout, seed=seed, batch=2)
     generator = torch.Generator().manual_seed(seed + 11)

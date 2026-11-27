@@ -2,9 +2,11 @@
 # Copyright (c) 2026 RL-Kernel Contributors
 
 import pytest
+import torch
 
 from rl_engine.runtime import registry as registry_module
 from rl_engine.runtime.registry import KernelRegistry, OpBackend
+from rl_engine.runtime.semantic_registry import OperatorRequirements
 
 
 def test_video_input_projection_default_and_strict_scope():
@@ -173,3 +175,46 @@ def test_sm90_linear_ops_do_not_prioritize_cuda_on_non_hopper(monkeypatch):
 
     assert OpBackend.CUDA_SM90_EMBEDDING not in registry._priority_map["cuda"]["embedding"]
     assert OpBackend.CUDA_SM90_LM_HEAD not in registry._priority_map["cuda"]["lm_head"]
+
+
+def test_h3_ode_step_semantic_catalog_covers_the_reference():
+    """The semantic catalog must expose the PyTorch reference, not only CUDA/Triton.
+
+    Without it a semantic request that names the reference, or that targets CPU,
+    fails as "not registered" even though ``OP_SPECS`` lists a ``pytorch``
+    candidate and the CPU priority map falls back to it.
+    """
+    registry = KernelRegistry()
+    backend_ids = {item.backend_id for item in registry.semantic.backend_descriptors("h3_ode_step")}
+    assert backend_ids == {
+        "rlkernel.cuda.h3_ode_step.euler_fp32.v1",
+        "rlkernel.triton.h3_ode_step.euler_fp32.v1",
+        "rlkernel.pytorch.h3_ode_step.euler_fp32.v1",
+    }
+
+    reference = registry.semantic.backend_descriptor(
+        "h3_ode_step", "rlkernel.pytorch.h3_ode_step.euler_fp32.v1"
+    )
+    assert reference.supported_devices == frozenset({"cpu"})
+    assert reference.supported_dtypes == frozenset({"float32", "float16", "bfloat16"})
+    assert (
+        reference.implementation_reference == "rl_engine.reference.flow.ode_step.NativeH3OdeStepOp"
+    )
+    assert registry._priority_map["cpu"]["h3_ode_step"] == [OpBackend.PYTORCH_H3_ODE_STEP]
+
+    session = registry.semantic.session()
+    for target, topology in (
+        ("rollout", {"world_size": 1, "tensor_parallel_size": 1, "context_parallel_size": 1}),
+        ("training", {"world_size": 1, "sharding": "unsharded"}),
+    ):
+        resolution = session.resolve(
+            semantic_op="h3_ode_step",
+            requested_backend="rlkernel.pytorch.h3_ode_step.euler_fp32.v1",
+            target=target,
+            requirements=OperatorRequirements(device="cpu", dtype="float32", topology=topology),
+        )
+        assert resolution.trace.status == "resolved"
+        instance = session.instantiate(resolution)
+        assert type(instance).__name__ == "NativeH3OdeStepOp"
+        x_next, x0 = instance(torch.zeros(4, 24), torch.ones(4, 24), 1.0, 0.5)
+        assert x_next.shape == (4, 24) and x0.shape == (4, 24)

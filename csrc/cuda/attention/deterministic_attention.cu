@@ -523,8 +523,12 @@ void check_h3_inputs(const torch::Tensor& q, const torch::Tensor& k,
   check_h3_build();
   TORCH_CHECK(q.dim() == 4 && k.dim() == 4 && v.dim() == 4,
               "H3 requires 4-D head-major Q/K/V");
-  TORCH_CHECK(q.size(1) == 56 && k.size(1) == 56 && v.size(1) == 56,
-              "H3 requires 56 MHA heads");
+  // 56 heads, or the 56 / tp heads of one tensor-parallel rank (tp = 2, 4, 8): the kernels
+  // work per head, so the arithmetic of a head is the same whichever rank owns it.
+  const int64_t heads = q.size(1);
+  TORCH_CHECK((heads == 56 || heads == 28 || heads == 14 || heads == 7)
+              && k.size(1) == heads && v.size(1) == heads,
+              "H3 requires 56 MHA heads (or 56 / tp for tp in 2, 4, 8)");
   TORCH_CHECK(q.scalar_type() == at::kBFloat16, "H3 requires BF16");
   TORCH_CHECK(q.size(0) > 0 && q.size(0) <= 65535 / 56,
               "H3 batch exceeds CUDA grid bounds");
@@ -891,7 +895,7 @@ std::vector<torch::Tensor> h3_attention_backward_accumulate(
   check_h3_inputs(q, k, v);
   TORCH_CHECK(grad_output.sizes() == q.sizes() && grad_output.device() == q.device()
               && grad_output.scalar_type() == q.scalar_type(), "invalid H3 grad_output");
-  TORCH_CHECK(P.dim() == 4 && P.size(0) == q.size(0) && P.size(1) == 56
+  TORCH_CHECK(P.dim() == 4 && P.size(0) == q.size(0) && P.size(1) == q.size(1)
               && P.size(2) == q.size(2) && P.size(3) == k.size(2)
               && P.device() == q.device() && P.scalar_type() == at::kFloat, "invalid H3 P");
   for (const auto& acc : {dK, dV}) {

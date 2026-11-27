@@ -236,7 +236,11 @@ def _musa_build_available(torch) -> bool:
         return False
     return bool(
         hasattr(torch, "musa")
-        and (torch.musa.is_available() or bool(os.environ.get("TORCH_MUSA_ARCH_LIST", "").strip()))
+        and (
+            torch.musa.is_available()
+            or bool(os.environ.get("TORCH_MUSA_ARCH_LIST", "").strip())
+            or envs.env_flag("FORCE_MUSA")
+        )
     )
 
 
@@ -301,6 +305,21 @@ _ROCM_NVCC_FLAGS_WITH_SEPARATE_VALUE = {
 }
 
 
+def _host_cxx_standard(torch_version: str | None = None) -> str:
+    """C++ standard for the host compiler: torch 2.14 headers require C++20, older ones C++17.
+
+    PyTorch picks nvcc's ``-std`` itself; only the host flags are set here. Older torch keeps
+    C++17, so its builds are unchanged.
+    """
+
+    if torch_version is None:
+        import torch
+
+        torch_version = torch.__version__
+    major, minor = (int(x) for x in torch_version.split("+")[0].split(".")[:2])
+    return "c++20" if (major, minor) >= (2, 14) else "c++17"
+
+
 def _filter_rocm_incompatible_nvcc_flags(flags: list[str]) -> list[str]:
     """Remove CUDA-only device compiler flags before BuildExtension calls hipcc."""
     filtered_flags = []
@@ -354,6 +373,7 @@ def get_extensions():
                 sources=[
                     "csrc/musa/ops.cpp",
                     "csrc/musa/fused_logp_kernel.mu",
+                    "csrc/musa/det_gemm.mu",
                 ],
                 include_dirs=[],
                 extra_compile_args={
@@ -415,11 +435,13 @@ def get_extensions():
             # CUDA IPC and the fixed-tree collective implementation are not
             # part of the ROCm extension.
             cuda_sources.append("csrc/cuda/collectives/deterministic_collective.cu")
+            cuda_sources.append("csrc/cuda/packing/packed_index_copy.cu")
             if h3_enabled:
                 cuda_sources.extend(H3_BITWISE_SOURCES)
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
+            cuda_sources.append("csrc/cuda/conditioning/conditioning_noise_mix.cu")
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         if use_fast_math:
@@ -504,7 +526,7 @@ def get_extensions():
             nvcc_flags.append("-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH")
 
         platform_define = "-DKERNEL_ALIGN_WITH_ROCM" if is_rocm else "-DKERNEL_ALIGN_WITH_CUDA"
-        cxx_flags = ["-O3", "-std=c++17", platform_define]
+        cxx_flags = ["-O3", f"-std={_host_cxx_standard()}", platform_define]
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
@@ -570,6 +592,7 @@ def get_extensions():
                     sources=[
                         "csrc/bindings/h3_ops.cpp",
                         "csrc/cuda/attention/deterministic_attention.cu",
+                        "csrc/cuda/flow/ode_step.cu",
                     ],
                     extra_compile_args={
                         "cxx": ["-O3"],

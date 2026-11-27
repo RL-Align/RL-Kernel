@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
 
+import rl_engine.integrations.orchestrators.vime.experiments.dense.run_arm as run_arm
 from rl_engine.integrations.orchestrators.vime.experiments.dense.run_arm import (
     ARMS,
     MEGATRON_ATTENTION_BACKEND,
@@ -21,6 +24,7 @@ from rl_engine.integrations.orchestrators.vime.experiments.dense.run_supplement_
 from rl_engine.integrations.orchestrators.vime.experiments.dense.validate_run import (
     RL_KERNEL_MISMATCH_SIDECAR_MARKER,
     VIME_NATIVE_LINEAR_LOGP_MARKER,
+    _validate_pd_disaggregation,
     _validate_readbacks,
     _validate_topology,
 )
@@ -36,6 +40,18 @@ def test_waiting_ray_submission_streams_and_saves_log(tmp_path: Path, capsys):
     assert result.returncode == 0
     assert "ray job output" in capsys.readouterr().out
     assert (tmp_path / "run.log").read_text(encoding="utf-8") == "ray job output\n"
+
+
+def test_ray_cli_address_overrides_stale_profile_environment(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("RAY_API_SERVER_ADDRESS", "http://127.0.0.1:8266")
+    result = _submit_ray_job(
+        [sys.executable, "-c", "import os; print(os.environ['RAY_API_SERVER_ADDRESS'])"],
+        wait=True,
+        run_dir=tmp_path,
+        ray_address="http://127.0.0.1:8272",
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "http://127.0.0.1:8272"
 
 
 def _production_operator(framework: str, target: str, module: str) -> dict:
@@ -131,6 +147,99 @@ def test_experimental_actor_topologies_are_self_consistent():
     assert topology["rollout_engines"] == 1
     assert topology["evidence_level"] == "experimental"
     assert _validate_topology(topology) == []
+
+
+def test_1p1d_layout_uses_full_decode_batch_and_distinct_roles():
+    topology = _rollout_topology(4, 1, rollout_layout="1p1d")
+    assert topology["rollout_engines"] == 2
+    assert topology["evidence_level"] == "experimental"
+    assert _validate_topology(topology) == []
+    assert _max_engine_decode_batch(1, 8, "round_robin", 2, "1p1d") == 8
+    assert _max_engine_decode_batch(1, 8, "round_robin", 2) == 4
+
+
+def test_1p1d_validation_requires_config_and_both_runtime_groups(tmp_path: Path):
+    source = Path(__file__).parents[4] / "examples/vime_qwen3_8b_tp4_cp2_200/vllm_1p1d.yaml"
+    config = tmp_path / "vllm_1p1d.yaml"
+    config.write_bytes(source.read_bytes())
+    groups = json.loads(config.read_text())["vllm"][0]["server_groups"]
+    manifest = {
+        "topology": _rollout_topology(4, 1, rollout_layout="1p1d"),
+        "rollout_routing": {
+            "layout": "1p1d",
+            "server_groups": groups,
+            "vllm_config": str(config),
+            "vllm_config_sha256": hashlib.sha256(config.read_bytes()).hexdigest(),
+        },
+        "train_command": ["train.py", "--vllm-config", str(config)],
+        "batching": {"rollout_batch_size": 1, "n_samples_per_prompt": 8},
+        "vllm_execution": {"capture_sizes": list(range(1, 9))},
+    }
+    log = "Engine group 'prefill' ready\nEngine group 'decode' ready"
+    assert _validate_pd_disaggregation(manifest, log)["passed"]
+    assert not _validate_pd_disaggregation(manifest, "Engine group 'decode' ready")["passed"]
+    manifest["vllm_execution"]["capture_sizes"] = list(range(1, 5))
+    assert not _validate_pd_disaggregation(manifest, log)["passed"]
+    manifest["vllm_execution"]["capture_sizes"] = list(range(1, 9))
+    config.write_text(
+        config.read_text().replace('"update_weights": true', '"update_weights": false')
+    )
+    assert not _validate_pd_disaggregation(manifest, log)["passed"]
+
+
+def test_1p1d_dry_run_records_vime_command_and_config(tmp_path: Path, monkeypatch):
+    root = Path(__file__).parents[4]
+    for name in ("vime", "megatron", "model", "reference"):
+        (tmp_path / name).mkdir()
+    prompt = tmp_path / "prompts.jsonl"
+    prompt.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        run_arm,
+        "_repository_state",
+        lambda path: {"revision": "test", "dirty": False, "status": [], "tracked_diff_sha256": ""},
+    )
+    monkeypatch.setattr(run_arm, "_gpu_inventory", lambda: [])
+    assert (
+        run_arm.main(
+            [
+                "--group",
+                "consistency",
+                "--num-rollout",
+                "2",
+                "--run-id",
+                "pd-test",
+                "--output-root",
+                str(tmp_path),
+                "--rl-kernel-root",
+                str(root),
+                "--vime-root",
+                str(tmp_path / "vime"),
+                "--megatron-root",
+                str(tmp_path / "megatron"),
+                "--model-root",
+                str(tmp_path / "model"),
+                "--ref-load",
+                str(tmp_path / "reference"),
+                "--prompt-data",
+                str(prompt),
+                "--python",
+                sys.executable,
+                "--ray-bin",
+                sys.executable,
+                "--pd",
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    manifest = json.loads((tmp_path / "pd-test/manifest.json").read_text())
+    config_path = str(root / "examples/vime_qwen3_8b_tp4_cp2_200/vllm_1p1d.yaml")
+    command = manifest["train_command"]
+    assert command[command.index("--vllm-config") + 1] == config_path
+    assert manifest["vllm_execution"]["capture_sizes"] == list(range(1, 9))
+    assert manifest["topology"]["evidence_level"] == "experimental"
+    log = "Engine group 'prefill' ready\nEngine group 'decode' ready"
+    assert _validate_pd_disaggregation(manifest, log)["passed"]
 
 
 def test_launcher_forces_cuda_graph_without_a_logp_provider():

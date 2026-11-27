@@ -50,7 +50,15 @@ def test_graph_is_well_formed_and_owners_are_declared():
     own = {n.name for n in hr.NODES if n.binding.rfc_row == "token_refiner_block"}
     assert own == {"residual_attn", "residual_mlp"}  # the row owns only the plain adds
     rows_with_kernels = {n.binding.rfc_row for n in hr.NODES if n.binding.status == "row"}
-    assert rows_with_kernels == {"h3_rmsnorm", "h3_qkv_gemm", "token_refiner_block"}
+    assert rows_with_kernels == {
+        "h3_rmsnorm",
+        "h3_qkv_gemm",
+        "token_refiner_block",
+        "h3_full_attention",
+        "h3_attention_o_gemm",
+        "h3_ffn_gate_up_gemm",
+        "h3_ffn_down_gemm",
+    }
 
 
 def test_refiner_has_no_adaln_and_no_rope_nodes():
@@ -94,11 +102,15 @@ def test_nodes_accuracy_repeat_batch_and_isolated(refiner_weights, block, tokens
 
 @needs_gpu
 def test_report_names_rows_status_and_backend_per_node(refiner_weights):
-    report = hr.run_refiner_case(refiner_weights, block=0, tokens=16)
+    ops = hb.CandidateOps()
+    report = hr.run_refiner_case(refiner_weights, block=0, tokens=16, ops=ops)
     assert [e["node"] for e in report["nodes"]] == list(hr.NODE_NAMES)
     by = {e["node"]: e for e in report["nodes"]}
     assert by["q_proj"]["status"] == "row" and by["q_proj"]["rfc_row"] == "h3_qkv_gemm"
-    assert by["attention"]["status"] == "interim"
+    # what CandidateOps loaded, not hb.bindings (the function under test)
+    assert by["attention"]["status"] == ("row" if ops.attention_h3 is not None else "interim")
+    for name, row in hb.GEMM_ROWS.items():
+        assert by[name]["status"] == ("row" if ops.gemm_op(row) is not None else "interim")
     assert by["residual_attn"]["rfc_row"] == "token_refiner_block"
     assert all(len(e["candidate_sha256"]) == 64 for e in report["nodes"])
 
@@ -144,8 +156,10 @@ def test_backward_against_fp32_golden(refiner_weights):
         }
         hidden = hidden0.detach().to(dtype).clone().requires_grad_()
         ctx = {"weights": weights, "prefix": f"{hr.PREFIX}.{block}", "hidden": hidden}
-        out = hr.run_graph(mode, ctx, ops)[hr.OUTPUT]
-        out.backward(grad_out.to(out.dtype))
+        # the GEMM rows' weight gradients need a canonical session (opened when they are bound)
+        with hb.gemm_session(ops if mode == "candidate" else None):
+            out = hr.run_graph(mode, ctx, ops)[hr.OUTPUT]
+            out.backward(grad_out.to(out.dtype))
         return {"hidden": hidden.grad, **{n: weights[n].grad for n in leaves}}
 
     cand = grads("candidate", torch.bfloat16)
@@ -164,6 +178,7 @@ def test_operator_trace_covers_the_refiner_paths(refiner_weights):
     ops = hb.CandidateOps()
     gen = torch.Generator("cpu").manual_seed(1)
     hidden = torch.randn(1, 17, hr.HIDDEN, generator=gen).bfloat16().cuda()
+    bound = hb.bindings(ops, hr.NODES)  # what this run binds, not the static NODES table
     trace = ot.OperatorTrace(metadata={"stage": "token_refiner"})
     with torch.no_grad():
         hr.run_refiner(
@@ -172,7 +187,7 @@ def test_operator_trace_covers_the_refiner_paths(refiner_weights):
             hidden,
             ops,
             observer_factory=lambda b: ot.block_observer(
-                trace, block_index=b, stage="token_refiner"
+                trace, block_index=b, bindings=bound, stage="token_refiner"
             ),
         )
     paths = [
@@ -182,11 +197,23 @@ def test_operator_trace_covers_the_refiner_paths(refiner_weights):
     ]
     assert [c.path for c in trace.calls] == paths
     assert trace.coverage(paths=paths) == {"wrong_count": [], "unexpected": []}
-    bound = {n.name: n.binding for n in hr.NODES}
+    # what CandidateOps loaded, derived here rather than from ``bound`` (which the observer copies)
+    expected = {n.name: (n.binding.status, n.binding.backend) for n in hr.NODES}
+    for name, row in hb.GEMM_ROWS.items():
+        if name in expected:
+            loaded = ops.gemm_op(row) is not None
+            expected[name] = (
+                ("row", hb.GEMM_ROW_OPS[row]) if loaded else ("interim", hb.INTERIM_GEMM)
+            )
+    if ops.attention_h3 is None:
+        expected["attention"] = ("interim", hb.INTERIM_ATTENTION)
+    # the rows from the fingerprint's own table, not from ``bound``
+    graph_rows = {n.path: n.row for n in fp.build_graph()}
     for call in trace.calls:
         node = call.path.rsplit(".", 1)[1]
-        assert (call.status, call.row) == (bound[node].status, bound[node].rfc_row)
-    assert trace.violations(paths=paths)  # interim nodes still present
+        assert (call.status, call.backend) == expected[node], node
+        assert call.row == graph_rows[call.path]
+    assert trace.violations(paths=paths)  # the hook does not observe fallback state
     assert (
         trace.violations(paths=paths, allowed_statuses=("row", "interim"), require_observed=False)
         == []
@@ -212,3 +239,30 @@ def test_text_path_context_projection_then_refiner(refiner_weights):
         provider = hr.run_refiner("provider", refiner_weights, h_prov)
         golden = hr.run_refiner("golden", refiner_weights, h_prov)
     assert hb.rel_err(out, golden) <= 2 * hb.rel_err(provider, golden) + 2e-3
+
+
+def test_refiner_qkv_nodes_share_one_combined_row_call():
+    """As in the block graph: one ``h3_qkv_gemm`` call for q/k/v (fused input gradient)."""
+
+    calls = []
+
+    class _Ops:
+        @staticmethod
+        def qkv(flat, wq, wk, wv, *, logical_keys):
+            """Record the keys of a fused QKV call and return the three projections."""
+            calls.append(logical_keys.shape)
+            return tuple(flat @ w.t() for w in (wq, wk, wv))
+
+    nodes = {n.name: n for n in hr.NODES}
+    prefix = "token_refiner.refiner_blocks.0"
+    names = ("attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight")
+    ctx = hb.evaluation_ctx(
+        {"prefix": prefix, "weights": {f"{prefix}.{w}": torch.randn(4, 6) for w in names}}
+    )
+    x = torch.randn(1, 3, 6)
+    outs = [nodes[n].candidate(_Ops, ctx, x) for n in ("q_proj", "k_proj", "v_proj")]
+    assert len(calls) == 1
+    for out, w in zip(outs, names):
+        assert torch.equal(
+            out, (x.reshape(3, 6) @ ctx["weights"][f"{prefix}.{w}"].t()).view(1, 3, 4)
+        )

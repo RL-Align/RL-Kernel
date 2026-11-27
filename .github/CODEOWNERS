@@ -63,6 +63,7 @@
 # CI, packaging, and build configuration.
 /.github/ @Flink-ddd @bitborne @ziying
 /.github/workflows/ @Flink-ddd @bitborne @ziying
+/.opencodereview/ @Flink-ddd @bitborne @ziying
 /.pre-commit-config.yaml @Flink-ddd
 /pyproject.toml @Flink-ddd @inaniloquentee
 /setup.py @Flink-ddd @inaniloquentee

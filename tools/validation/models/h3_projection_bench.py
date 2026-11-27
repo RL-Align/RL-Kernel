@@ -6,8 +6,8 @@
 
     python tools/validation/models/h3_projection_bench.py --out reports/h3_projection_bench.json
 
-Per row and token count: median forward and forward+backward milliseconds of the
-RL-Kernel operator and of the provider, their ratio, and the operator actually dispatched
+Per row and token count: median forward milliseconds of the RL-Kernel operator and of the
+provider (the backward is not timed), their ratio, and the operator actually dispatched
 (registry readback). Provider timings run with TF32 off.
 """
 
