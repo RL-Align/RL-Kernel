@@ -152,6 +152,17 @@ OP_SPECS = {
         },
         grad_input_names=("scores",),
     ),
+    "joint_attn_qk_gemm": OperatorSpec(
+        name="joint_attn_qk_gemm",
+        op_class="attention",
+        gold_path="rl_engine.validation.operators.operator_specs.GtestJointAttnQkGemmGoldOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.attention.joint_attn_qk_gemm.NativeJointAttnQkGemmOp",
+            "cuda": "rl_engine.backends.cuda.attention.joint_attn_qk_gemm.JointAttnQkGemmCudaOp",
+        },
+        grad_input_names=("q", "k"),
+    ),
     # GRPO decode: every G group attends over one shared K/V sequence
     # ([B, Skv, D] instead of [B, Hkv, Skv, D]). Forward-only (no backward),
     # same surface as the CUDA PrefixSharedAttentionOp.
@@ -469,6 +480,47 @@ class GtestPrefixSharedAttentionOp:
 
     def forward_fp32(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
         return self._op.forward_fp32(q, k.unsqueeze(1), v.unsqueeze(1), causal=False)
+
+
+class GtestJointAttnQkGemmGoldOp:
+    """gtest view of the joint QK GEMM gold: always evaluate the reference on CPU.
+
+    ``torch.addcmul`` -- the reference's multiply-into-add primitive -- is a
+    correctly-rounded single-rounding FP32 FMA on CPU but lowers to a separate
+    multiply and add on CUDA, so the reference is only bit-defined on CPU. The
+    gold therefore runs on CPU and its result is moved back to the candidate's
+    device, which is exactly the "independent FP32 CPU reference" issue #386
+    asks for. The device copies stay inside autograd so ``--check-grad`` works.
+    """
+
+    op_class = "attention"
+
+    def __init__(self) -> None:
+        from rl_engine.reference.attention.joint_attn_qk_gemm import NativeJointAttnQkGemmOp
+
+        self._op = NativeJointAttnQkGemmOp()
+
+    def forward_fp32(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        *,
+        scale: float | None = None,
+        query_padding_mask: torch.Tensor | None = None,
+        key_padding_mask: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        device = q.device
+        out = self._op.forward_fp32(
+            q.cpu(),
+            k.cpu(),
+            scale=scale,
+            query_padding_mask=(None if query_padding_mask is None else query_padding_mask.cpu()),
+            key_padding_mask=None if key_padding_mask is None else key_padding_mask.cpu(),
+        )
+        return out.to(device)
+
+    def __call__(self, q: torch.Tensor, k: torch.Tensor, **kwargs: Any) -> torch.Tensor:
+        return self.forward_fp32(q, k, **kwargs)
 
 
 class _LogpSM90CandidateAdapter:

@@ -52,6 +52,7 @@ def _args(**overrides):
         "det_gemm",
         "attention",
         "joint_attn_softmax",
+        "joint_attn_qk_gemm",
         "logp",
         "linear_logp",
         "batch_invariant_logp",
@@ -219,6 +220,37 @@ def test_joint_attn_softmax_operator_spec_runs_forward_and_backward():
     assert case.grad_input_names == ("scores",)
     assert case.inputs["scores"].shape == (2, 17)
     assert operator_shape_name("joint_attn_softmax", args) == "2x17"
+    assert report.passed
+
+
+def test_joint_attn_qk_gemm_operator_spec_runs_forward_and_backward_with_masks():
+    args = _args(
+        op="joint_attn_qk_gemm",
+        candidate="pytorch",
+        input_mode="random",
+        batch=2,
+        seq=9,
+        skv=13,
+        n_heads=2,
+        head_dim=32,
+        use_padding=1,
+    )
+
+    case = make_operator_case(args, torch.float32, torch.device("cpu"))
+    candidate = make_candidate(args)
+    report = run_operator_suite(
+        "joint_attn_qk_gemm",
+        candidates=[candidate],
+        cases=[case],
+        check_grad=True,
+    )
+
+    assert case.op_class == "attention"
+    assert case.grad_input_names == ("q", "k")
+    assert case.inputs["q"].shape == (2, 2, 9, 32)
+    assert case.inputs["k"].shape == (2, 2, 13, 32)
+    assert case.inputs["key_padding_mask"].shape == (2, 13)
+    assert operator_shape_name("joint_attn_qk_gemm", args) == "2x2x9x13x32"
     assert report.passed
 
 

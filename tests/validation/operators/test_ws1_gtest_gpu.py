@@ -40,6 +40,7 @@ def test_all_ws1_single_ops_are_registered():
         "det_gemm",
         "attention",
         "joint_attn_softmax",
+        "joint_attn_qk_gemm",
         "logp",
         "batch_invariant_logp",
         "embedding",
@@ -64,6 +65,11 @@ def test_all_ws1_single_ops_are_registered():
         ("pack", "pytorch"),
         pytest.param(
             "joint_attn_softmax",
+            "cuda",
+            marks=pytest.mark.cuda_only,
+        ),
+        pytest.param(
+            "joint_attn_qk_gemm",
             "cuda",
             marks=pytest.mark.cuda_only,
         ),
