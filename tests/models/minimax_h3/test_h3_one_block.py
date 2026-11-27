@@ -78,7 +78,79 @@ def test_graph_is_well_formed():
         "adaln_gate_residual",
         "h3_qkv_gemm",
         "h3_qk_rmsnorm_d128",
+        "h3_full_attention",
+        *h3_block.GEMM_ROWS.values(),
     }
+
+
+# (RFC row, status) the block declares per node, written out rather than read from ``NODES``
+DECLARED_BINDINGS = {
+    "adaln_projection": ("adaln_projection_3mod", "row"),
+    "norm1": ("h3_rmsnorm", "row"),
+    "q_proj": ("h3_qkv_gemm", "row"),
+    "k_proj": ("h3_qkv_gemm", "row"),
+    "v_proj": ("h3_qkv_gemm", "row"),
+    "q_norm": ("h3_qk_rmsnorm_d128", "row"),
+    "k_norm": ("h3_qk_rmsnorm_d128", "row"),
+    "rope_q": ("h3_mm_rope_3axis_partial", "reference"),
+    "rope_k": ("h3_mm_rope_3axis_partial", "reference"),
+    "attention": ("h3_full_attention", "row"),
+    "o_proj": ("h3_attention_o_gemm", "row"),
+    "residual_attn": ("adaln_gate_residual", "row"),
+    "norm2": ("h3_rmsnorm", "row"),
+    "ffn_gate_up": ("h3_ffn_gate_up_gemm", "row"),
+    "swiglu": ("h3_swiglu", "interim"),
+    "ffn_down": ("h3_ffn_down_gemm", "row"),
+    "residual_mlp": ("adaln_gate_residual", "row"),
+}
+
+
+class _Ops:
+    """Stand-in ops: which GEMM rows and attention operator a run bound."""
+
+    def __init__(self, gemm=True, attention=True):
+        self.attention_h3 = object() if attention else None
+        self._gemm = gemm
+
+    def gemm_op(self, row):
+        return object() if self._gemm else None
+
+
+def test_bindings_report_the_operators_that_ran():
+    static = h3_block.bindings(None)
+    assert {n: (b.rfc_row, b.status) for n, b in static.items()} == DECLARED_BINDINGS
+    for name, row in h3_block.GEMM_ROWS.items():
+        assert static[name].rfc_row == row
+        assert static[name].backend == h3_block.GEMM_ROW_OPS[row]
+    bound = h3_block.bindings(_Ops())
+    assert all(bound[n].status == "row" for n in (*h3_block.GEMM_ROWS, "attention"))
+    interim = h3_block.bindings(_Ops(gemm=False, attention=False))
+    for name in h3_block.GEMM_ROWS:
+        assert interim[name].status == "interim"
+        assert interim[name].backend == h3_block.INTERIM_GEMM
+        assert interim[name].rfc_row == h3_block.GEMM_ROWS[name]
+    assert interim["attention"].status == "interim"
+    assert interim["attention"].backend == h3_block.INTERIM_ATTENTION
+    others = set(h3_block.NODE_NAMES) - {*h3_block.GEMM_ROWS, "attention"}
+    assert all(interim[n] == static[n] for n in others)
+
+
+def test_interim_gemm_ops_open_no_session():
+    from rl_engine.ops.autograd.canonical_backward import active_session
+
+    with h3_block.gemm_session(_Ops(gemm=False)):
+        assert active_session() is None
+    with h3_block.gemm_session(_Ops()):
+        session = active_session()
+        assert session is not None
+        with h3_block.gemm_session(_Ops()):  # an open session is reused
+            assert active_session() is session
+    assert active_session() is None
+
+
+def test_gemm_rows_mode_is_checked():
+    with pytest.raises(ValueError, match="gemm_rows"):
+        h3_block.CandidateOps(gemm_rows="maybe")
 
 
 def test_partial_rope_rotates_96_of_128_channels():
@@ -224,3 +296,104 @@ def test_fused_qkv_refuses_a_ctx_that_is_not_one_evaluation():
     with pytest.raises(ValueError, match="evaluation_ctx"):
         nodes["q_proj"].candidate(_Ops, ctx, torch.randn(1, 3, 6))
     assert h3_block.FUSED_QKV_CACHE not in ctx
+
+
+def test_gemm_row_nodes_pass_logical_keys_and_a_parameter_id_per_block():
+    calls = []
+
+    class _RowOps:
+        def gemm_op(self, row):
+            def op(flat, weight, *, logical_keys, parameter_id):
+                calls.append((row, tuple(logical_keys.shape), parameter_id))
+                return flat @ weight.t()
+
+            return op
+
+    nodes = {n.name: n for n in h3_block.NODES}
+    weight = torch.randn(4, 6)
+    x = torch.randn(2, 3, 6)
+    ctx = {"weights": {f"{h3_block.BLOCK}.ff.net.2.weight": weight}}
+    out = nodes["ffn_down"].candidate(_RowOps(), ctx, x)
+    assert torch.equal(out, x @ weight.t())
+    ctx["parameter_prefix"] = "transformer_blocks.7"
+    nodes["ffn_down"].candidate(_RowOps(), ctx, x)
+    assert calls == [
+        ("h3_ffn_down_gemm", (6, 2), "transformer_blocks.0.ff.net.2.weight"),
+        ("h3_ffn_down_gemm", (6, 2), "transformer_blocks.7.ff.net.2.weight"),
+    ]
+
+
+def test_gemm_rows_need_triton_as_well_as_sm90(monkeypatch):
+    from rl_engine.backends.shared.triton.gemm import det_gemm
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (9, 0))
+    monkeypatch.setattr(det_gemm, "_TRITON_AVAILABLE", False)
+    assert not h3_block.gemm_rows_supported()  # "auto" then binds the interim GEMM
+    monkeypatch.setattr(det_gemm, "_TRITON_AVAILABLE", True)
+    assert h3_block.gemm_rows_supported()
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device=None: (10, 0))
+    assert not h3_block.gemm_rows_supported()
+    # weights on the CPU: no probe of a CUDA capability, and no row
+    monkeypatch.setattr(
+        torch.cuda, "get_device_capability", lambda device=None: pytest.fail("probed a CPU device")
+    )
+    assert not h3_block.gemm_rows_supported(torch.device("cpu"))
+
+
+needs_sm90 = pytest.mark.skipif(
+    not h3_block.gemm_rows_supported(), reason="the GEMM rows (#535, #554) need SM90 and Triton"
+)
+
+
+@needs_sm90
+def test_gemm_rows_run_their_operators_on_sm90(h3_block_weights_cuda):
+    ops = h3_block.CandidateOps(gemm_rows="row")
+    forward = h3_block.run_block_case(h3_block_weights_cuda, layout="tiny", ops=ops)
+    by = {e["node"]: e for e in forward["nodes"]}
+    for name, row in h3_block.GEMM_ROWS.items():
+        assert by[name]["status"] == "row" and by[name]["backend"] == h3_block.GEMM_ROW_OPS[row]
+    backward = h3_block.run_block_backward(h3_block_weights_cuda, layout="tiny", ops=ops)
+    for leaf in ("attn.to_out.0.weight", "ff.net.0.proj.weight", "ff.net.2.weight"):
+        assert backward["leaves"][leaf]["repeat_bitwise_equal"], leaf
+
+
+def test_ops_without_gemm_op_report_the_interim_gemm():
+    """``cand_gemm`` runs the interim GEMM for ops that have no ``gemm_op``: so must the report."""
+
+    class _NoAccessor:
+        attention_h3 = object()
+
+    bound = h3_block.bindings(_NoAccessor())
+    for name in h3_block.GEMM_ROWS:
+        assert (bound[name].status, bound[name].backend) == ("interim", h3_block.INTERIM_GEMM)
+    assert bound["attention"].status == "row"
+
+
+@pytest.mark.parametrize("module", ["h3_block", "h3_refiner"])
+def test_isolated_replay_runs_without_tf32_and_without_grad(monkeypatch, module):
+    """The GEMM rows refuse TF32, and a trainable weight outside a canonical backward session:
+    isolated replay turns both off and restores the caller's settings."""
+
+    import importlib
+    from types import SimpleNamespace
+
+    mod = importlib.import_module(f"rl_engine.validation.models.{module}")
+    seen = []
+
+    def candidate(ops, ctx, x):
+        seen.append((torch.backends.cuda.matmul.allow_tf32, torch.is_grad_enabled()))
+        return x
+
+    monkeypatch.setattr(
+        mod, "NODES", [SimpleNamespace(name="n", inputs=("x",), candidate=candidate)]
+    )
+    before = torch.backends.cuda.matmul.allow_tf32
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        assert mod.run_isolated({}, None, {"x": 1}) == {"n": 1}
+        assert seen == [(False, False)]
+        assert torch.is_grad_enabled()  # the caller's
+        assert torch.backends.cuda.matmul.allow_tf32 is True  # the caller's setting is back
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = before

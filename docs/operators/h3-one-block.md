@@ -55,20 +55,33 @@ python tools/validation/models/plot_h3_block.py report.json
 |---|---|---|
 | `adaln_projection` | `adaln_projection_3mod` | **row**: `H3AdaLNProjectionCudaOp` (registry) |
 | `norm1`, `norm2` | `h3_rmsnorm` | **row**: `H3RMSNormCudaOp.forward_modulated` (registry) |
-| `q_proj`, `k_proj`, `v_proj` | `h3_qkv_gemm` | interim: Triton FP32-accumulate GEMM, one BF16 rounding |
+| `q_proj`, `k_proj`, `v_proj` | `h3_qkv_gemm` | **row**: `H3QKVGemmCudaOp`, one fused call (registry) |
 | `q_norm`, `k_norm` | `h3_qk_rmsnorm_d128` | **row**: `H3QKRMSNormCudaOp` (registry) |
 | `rope_q`, `rope_k` | `h3_mm_rope_3axis_partial` | reference: the provider replay (no kernel exists yet) |
-| `attention` | `h3_full_attention` | interim: `DeterministicAttentionOp(causal=False)` |
-| `o_proj` | `h3_attention_o_gemm` | interim: Triton FP32-accumulate GEMM |
+| `attention` | `h3_full_attention` | **row**: `H3FullAttentionOp` (#553); interim `DeterministicAttentionOp(causal=False)` when its extension is missing |
+| `o_proj` | `h3_attention_o_gemm` | **row** on SM90: `H3AttentionOGemmOp` (#554); interim elsewhere |
 | `residual_attn`, `residual_mlp` | `adaln_gate_residual` | **row**: `H3GateResidualCudaOp` (registry) |
-| `ffn_gate_up` | `h3_ffn_gate_up_gemm` | interim: Triton FP32-accumulate GEMM |
+| `ffn_gate_up` | `h3_ffn_gate_up_gemm` | **row** on SM90: `H3FFNGateUpGemmOp` (#554); interim elsewhere |
 | `swiglu` | `h3_swiglu` | interim: `SwiGLUCudaOp` (FP32 math, one rounding) |
-| `ffn_down` | `h3_ffn_down_gemm` | interim: Triton FP32-accumulate GEMM |
+| `ffn_down` | `h3_ffn_down_gemm` | **row** on SM90: `H3FFNDownGemmOp` (#535); interim elsewhere |
+
+Each report entry states the binding that ran (`h3_block.bindings(ops)`), not the table above.
+
+The three GEMM rows' operators run on SM90 only. `CandidateOps(gemm_rows=...)` picks them:
+- `"auto"` (the default) binds them on SM90 and the interim GEMM elsewhere;
+- `"row"` binds them or raises;
+- `"interim"` keeps the interim GEMM.
+
+Bound, each call passes the rows' logical `(batch row, position)` keys and a parameter id per block
+(`transformer_blocks.<i>.<weight>`, `token_refiner.refiner_blocks.<i>.<weight>`). Weight gradients
+are reduced in a `canonical_backward_session`: the backward replay opens one per evaluation, and
+`full_model_execution` one per context. One session holds one forward and one backward, so run each
+training step in its own context.
 
 When a row lands, replacing its node's `candidate` callable is the whole integration. The node's
 report entries then become that operator's block-level evidence.
 
-The interim GEMMs use `_triton_gemm_fp32`, one fixed-order FP32 K loop with no split-K, and round
+Off SM90 the interim GEMMs use `_triton_gemm_fp32`, one fixed-order FP32 K loop with no split-K, and round
 to BF16 once. They do not use `TritonDetGemmOp.__call__`, whose K tree has BF16 nodes. Measured on
 B200:
 

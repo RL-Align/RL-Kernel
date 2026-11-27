@@ -51,6 +51,7 @@ nav:
         - operators/h3-tp-adaln-3mod.md
         - operators/h3-sp-norm-adaln.md
         - operators/h3-visual-vae-contract.md
+        - operators/h3-phase-b-full-chain.md
         - operators/h3-projections.md
   - Developer Guide:
     - contributing/README.md
