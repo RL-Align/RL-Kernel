@@ -8,6 +8,23 @@ native pipeline scheduler and multi-stream activation/gradient transport.
 from rl_engine.integrations.common.dsv4_checkpoint_partition import DSV4CheckpointPartition
 
 
+def pp2_split(total):
+    """Original layers owned by each PP stage: RLK_DSV4_PP_SPLIT="n0,n1,..." (default 3,1).
+
+    Two or more stages. The first stage must own every hash-routed layer (the first three
+    original layers).
+    """
+    import os
+
+    split = tuple(int(x) for x in os.environ.get("RLK_DSV4_PP_SPLIT", "3,1").split(","))
+    if len(split) < 2 or sum(split) != total or split[0] < 3 or min(split) < 1:
+        raise ValueError(
+            f"RLK_DSV4_PP_SPLIT={split} does not partition {total} original layers "
+            "with the three hash layers on PP0"
+        )
+    return split
+
+
 def native_checkpoint_stage(model):
     """Validate native global layer numbers and keep every hash layer on PP0."""
     cfg = model.config
@@ -23,8 +40,8 @@ def native_checkpoint_stage(model):
     if getattr(cfg, "virtual_pipeline_model_parallel_size", None) not in (None, 1):
         raise ValueError("native packed pipeline does not support virtual stages")
     pp = cfg.pipeline_model_parallel_size
-    if pp not in (1, 2) or cfg.num_layers % 2:
-        raise ValueError("native checkpoint requires whole attention/MoE pairs and PP=1 or 2")
+    if cfg.num_layers % 2:
+        raise ValueError("native checkpoint requires whole attention/MoE pairs")
     layers = list(model.decoder.layers)
     numbers = [layer.layer_number for layer in layers]
     if not numbers or len(numbers) % 2 or numbers[0] % 2 != 1:
@@ -38,9 +55,24 @@ def native_checkpoint_stage(model):
         if ids != tuple(range(total)) or not stage.pre_process or not stage.post_process:
             raise ValueError("PP1 must own the complete checkpoint and both endpoints")
     else:
-        expected = ((0, 1, 2), True, False) if stage.pre_process else ((3,), False, True)
-        if total != 4 or (ids, stage.pre_process, stage.post_process) != expected:
-            raise ValueError("four-layer PP2 requires original layers 0-2 / 3 (hash layers on PP0)")
+        split = pp2_split(total)
+        if len(split) != pp:
+            raise ValueError(f"RLK_DSV4_PP_SPLIT={split} does not match PP={pp}")
+        starts = [sum(split[:i]) for i in range(pp)]
+        if ids[0] not in starts:
+            raise ValueError(
+                f"stage layers {ids} do not start on a RLK_DSV4_PP_SPLIT={split} boundary"
+            )
+        index = starts.index(ids[0])
+        expected = (
+            tuple(range(starts[index], starts[index] + split[index])),
+            index == 0,
+            index == pp - 1,
+        )
+        if (ids, stage.pre_process, stage.post_process) != expected:
+            raise ValueError(
+                f"PP stage {index} must own original layers {expected[0]} (split {split})"
+            )
     return stage
 
 
@@ -54,23 +86,25 @@ def configure_native_pipeline(provider):
     if provider.pipeline_model_parallel_size == 1:
         return
     if (
-        provider.pipeline_model_parallel_size != 2
-        or provider.num_layers != 8
+        provider.num_layers % 2
         or provider.moe_num_hash_layers != 3
         or getattr(provider, "mtp_num_layers", 0)
         or getattr(provider, "virtual_pipeline_model_parallel_size", None) not in (None, 1)
     ):
         raise ValueError(
-            "native packed PP2 requires four original layers, three hash layers, no VPP/MTP"
+            "native packed PP requires whole original layers, three hash layers, no VPP/MTP"
         )
     from megatron.bridge.models.deepseek.deepseek_v4_bridge import (
         set_deepseek_v4_pipeline_model_parallel_layout,
     )
     from megatron.core.transformer.pipeline_parallel_layer_layout import PipelineParallelLayerLayout
 
-    set_deepseek_v4_pipeline_model_parallel_layout(provider, logical_layers_per_stage=(3, 1))
+    set_deepseek_v4_pipeline_model_parallel_layout(
+        provider, logical_layers_per_stage=pp2_split(provider.num_layers // 2)
+    )
     provider.num_layers_in_first_pipeline_stage = None
     provider.num_layers_in_last_pipeline_stage = None
     provider.pipeline_model_parallel_layout = PipelineParallelLayerLayout(
-        layout=provider.pipeline_model_parallel_layout, pipeline_model_parallel_size=2
+        layout=provider.pipeline_model_parallel_layout,
+        pipeline_model_parallel_size=provider.pipeline_model_parallel_size,
     )
