@@ -58,8 +58,10 @@ reduction definition; once that PR lands, ``num_leaves`` /
 This module is the bit-exactness gold: the trees are evaluated with explicit
 torch elementwise ops only -- no ``matmul``, no ``scaled_dot_product_attention``,
 no implicit reductions. CPU is the only bit-defining device (see the FMA probe
-below); every entry point fails closed elsewhere, and the Triton and CUDA
-backends are compared against the CPU result byte for byte.
+below). ``NativeJointAttnQkGemmOp`` (``forward``, ``forward_fp32``, its autograd
+backward) and ``joint_attn_qk_gemm_reference_backward`` fail closed elsewhere;
+the exported tree helpers are building blocks without that probe. The Triton
+and CUDA backends are compared against the CPU result byte for byte.
 """
 
 from __future__ import annotations
@@ -131,11 +133,38 @@ def fma_is_single_rounding(device: torch.device | str) -> bool:
 def require_single_rounding_fma(device: torch.device | str) -> None:
     """Fail closed when the bit-defining FMA primitive is unavailable on ``device``."""
     if not fma_is_single_rounding(device):
+        device_type = torch.device(device).type
+        hint = (
+            "Run the gold on CPU (the bit-defining device for this contract) and compare "
+            "device backends against it."
+        )
+        if device_type != "cpu":
+            hint += (
+                " If the registry selected this reference for a GPU, the device kernel is "
+                "missing: rebuild rl_engine._C with strict math (no KERNEL_ALIGN_USE_FAST_MATH "
+                "or relaxed NVCC flags) and check op.provenance['prior_rejections']."
+            )
         raise RuntimeError(
             f"{JOINT_ATTN_QK_GEMM_CONTRACT_VERSION}: torch.addcmul is not a correctly-rounded "
-            f"FP32 FMA on device type '{torch.device(device).type}', so the bit-exact fp32 gold "
-            "cannot be produced there. Run the gold on CPU (the bit-defining device for this "
-            "contract) and compare device backends against it."
+            f"FP32 FMA on device type '{device_type}', so the bit-exact fp32 gold cannot be "
+            f"produced there. {hint}"
+        )
+
+
+def require_gradual_underflow(device: torch.device | str) -> None:
+    """Fail closed when the calling CPU thread flushes FP32 subnormals to zero.
+
+    The device kernels keep subnormals, so a flushed CPU gold would differ from
+    them without an error. Flush-to-zero is per-thread state, so this runs on
+    every call rather than being cached.
+    """
+    if torch.device(device).type != "cpu":
+        return
+    minimum_normal = torch.tensor([torch.finfo(torch.float32).tiny], dtype=torch.float32)
+    if (minimum_normal * 0.5).item() == 0.0:
+        raise RuntimeError(
+            f"{JOINT_ATTN_QK_GEMM_CONTRACT_VERSION}: the CPU reference requires gradual "
+            "underflow in the calling thread; call torch.set_flush_denormal(False) first"
         )
 
 
@@ -433,6 +462,7 @@ def joint_attn_qk_gemm_reference_backward(
     Fails closed on a device whose ``addcmul`` is not a correctly-rounded FMA.
     """
     require_single_rounding_fma(q.device)
+    require_gradual_underflow(q.device)
     return joint_attn_qk_gemm_backward_with_leaves(
         q,
         k,
@@ -660,6 +690,7 @@ class NativeJointAttnQkGemmOp:
         # CPU is the bit-defining device: fail closed anywhere addcmul is not a
         # correctly-rounded FMA instead of returning different bytes.
         require_single_rounding_fma(q.device)
+        require_gradual_underflow(q.device)
         resolved = scale if scale is not None else (1.0 / math.sqrt(q.size(3)))
         return _JointAttnQkGemmTreeFunction.apply(
             q, k, resolved, query_padding_mask, key_padding_mask, output_dtype
@@ -681,6 +712,7 @@ __all__ = [
     "num_leaves",
     "plan_trace",
     "qk_scores_tree_fp32",
+    "require_gradual_underflow",
     "require_single_rounding_fma",
     "tree_from_leaf_evaluator",
     "validate_joint_attn_qk_gemm_inputs",

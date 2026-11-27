@@ -161,6 +161,28 @@ class TestFmaOracle:
         with pytest.raises(RuntimeError, match="correctly-rounded"):
             joint_attn_qk_gemm_reference_backward(q, k, torch.randn(1, 2, 3, 5))
 
+    def test_every_entry_fails_closed_under_flush_to_zero(self):
+        """The device kernels keep subnormals, so a flushed CPU gold must not run."""
+        minimum_normal = torch.tensor([torch.finfo(torch.float32).tiny])
+        was_flushing = (minimum_normal * 0.5).item() == 0.0
+        op = NativeJointAttnQkGemmOp()
+        q = torch.full((1, 1, 1, 32), 2.0**-70)
+        try:
+            if not torch.set_flush_denormal(True):
+                pytest.skip("torch.set_flush_denormal is unsupported on this CPU")
+            for entry in (op.forward, op.forward_fp32):
+                with pytest.raises(RuntimeError, match=r"set_flush_denormal\(False\)"):
+                    entry(q, q)
+            with pytest.raises(RuntimeError, match=r"set_flush_denormal\(False\)"):
+                joint_attn_qk_gemm_reference_backward(q, q, torch.ones(1, 1, 1, 1))
+        finally:
+            torch.set_flush_denormal(was_flushing)
+
+    def test_subnormal_scores_survive_gradual_underflow(self):
+        q = torch.full((1, 1, 1, 32), 2.0**-70)
+        scores = NativeJointAttnQkGemmOp().forward_fp32(q, q, scale=1.0)
+        assert float(scores.item()) == 32 * 2.0**-140
+
     def test_probe_covers_the_vector_and_outer_product_layouts(self, monkeypatch):
         """The leaves run vectorized and broadcast addcmul, not only a scalar lane."""
         monkeypatch.delitem(reference_module._fma_regime_cache, "cpu", raising=False)

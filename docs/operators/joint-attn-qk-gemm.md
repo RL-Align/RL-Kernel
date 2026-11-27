@@ -137,8 +137,10 @@ lists it as optional and it is not declared for this row.
 
 Byte equality, not tolerance. Every backend reproduces the fp32 CPU gold **byte
 for byte** in both dtypes, forward and backward, because the reduction tree is
-frozen and shared rather than left to each backend. The test suite contains no
-`allclose`, `atol`, `rtol` or ULP threshold.
+frozen and shared rather than left to each backend. The byte-equality checks use
+no `allclose`, `atol`, `rtol` or ULP threshold. One test compares dQ/dK with an
+independent fp64 oracle under a derived fp32 rounding bound, because that oracle
+does not share the tree.
 
 ## Trace metadata
 
@@ -181,7 +183,8 @@ python benchmarks/operators/attention/benchmark_joint_attn_qk_gemm.py
 
 ## Known limitations
 
-- CUDA only. ROCm, MUSA and Ascend fall back to the PyTorch reference.
+- CUDA only. ROCm, MUSA and Ascend select the PyTorch reference, which accepts
+  CPU tensors only and fails closed on device tensors.
 - Launch grids keep `gridDim.y` and `gridDim.z` at or below 65535, so the
   kernels reject `B * H > 65535`, `Sq > 65535` or `Sk > 65535` (backward), and
   `Sq > 524280` (forward) with an error.

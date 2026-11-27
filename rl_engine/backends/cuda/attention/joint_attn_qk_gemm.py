@@ -125,16 +125,7 @@ class JointAttnQkGemmCudaOp:
     backend_id = "rlkernel.cuda.attention.joint_qk_gemm.v1"
     contract_version = JOINT_ATTN_QK_GEMM_CONTRACT_VERSION
     # Static implementation trace; per-call geometry fallbacks go on last_plan.
-    provenance = {
-        "selected_backend": "cuda",
-        "reduction_order": "leaf32_midsplit_tree",
-        "accumulator_precision": "fp32",
-        "split_k": False,
-        "stream_k": False,
-        "tf32": False,
-        "contract_version": JOINT_ATTN_QK_GEMM_CONTRACT_VERSION,
-        "fallback": False,
-    }
+    provenance = {**NativeJointAttnQkGemmOp.provenance, "selected_backend": "cuda"}
 
     def __init__(self) -> None:
         if not _EXT_AVAILABLE:
@@ -197,7 +188,6 @@ class JointAttnQkGemmCudaOp:
             query_padding_mask=query_padding_mask,
             key_padding_mask=key_padding_mask,
             output_dtype=q.dtype,
-            strict_gold=False,
         )
 
     def forward_fp32(
@@ -217,7 +207,6 @@ class JointAttnQkGemmCudaOp:
             query_padding_mask=query_padding_mask,
             key_padding_mask=key_padding_mask,
             output_dtype=torch.float32,
-            strict_gold=True,
         )
 
     def _run(
@@ -229,7 +218,6 @@ class JointAttnQkGemmCudaOp:
         query_padding_mask: Optional[torch.Tensor],
         key_padding_mask: Optional[torch.Tensor],
         output_dtype: torch.dtype,
-        strict_gold: bool,
     ) -> torch.Tensor:
         validate_joint_attn_qk_gemm_inputs(
             q,
@@ -257,11 +245,15 @@ class JointAttnQkGemmCudaOp:
             reason = f"{reason}; reference evaluated on CPU to preserve gold bits"
             logger.warning(f"joint_attn_qk_gemm CUDA backend falling back to reference: {reason}")
             self._last_plan = JointAttnQkGemmPlan(
-                backend_id=self._reference_backend_id(),
+                backend_id=self._reference.backend_id,
                 fallback=True,
                 fallback_reason=reason,
             )
-            runner = self._reference.forward_fp32 if strict_gold else self._reference.forward
+            runner = (
+                self._reference.forward_fp32
+                if output_dtype == torch.float32
+                else self._reference.forward
+            )
             scores = runner(
                 q.cpu(),
                 k.cpu(),
@@ -277,11 +269,6 @@ class JointAttnQkGemmCudaOp:
         return _JointAttnQkGemmCudaFunction.apply(
             q, k, resolved, query_padding_mask, key_padding_mask, output_dtype
         )
-
-    @staticmethod
-    def _reference_backend_id() -> str:
-        """Backend id recorded when the call falls back to the PyTorch reference."""
-        return NativeJointAttnQkGemmOp.backend_id
 
 
 __all__ = ["JointAttnQkGemmCudaOp", "cuda_geometry_support"]

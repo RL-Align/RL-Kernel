@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -70,9 +71,8 @@ def timed(fn: Callable[[], object], warmup: int, iters: int) -> tuple[float, flo
         fn()
         torch.cuda.synchronize()
         samples.append((time.perf_counter() - start) * 1e3)
-    samples.sort()
     peak = torch.cuda.max_memory_allocated() / (1024**3)
-    return samples[len(samples) // 2], peak
+    return statistics.median(samples), peak
 
 
 def main() -> int:

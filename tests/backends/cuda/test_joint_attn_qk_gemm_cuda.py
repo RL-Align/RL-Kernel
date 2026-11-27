@@ -71,6 +71,15 @@ class TestCudaForward:
             gold.forward(q, k, scale=SCALE),
         )
 
+    def test_subnormal_scores_match_the_gold(self):
+        """The kernel keeps subnormals; the gold refuses to run when it would flush them."""
+        cuda_op = _cuda_op()
+        q = torch.full((1, 1, 1, 32), 2.0**-70)
+        assert bitwise_equal(
+            cuda_op.forward_fp32(q.cuda(), q.cuda(), scale=1.0).cpu(),
+            NativeJointAttnQkGemmOp().forward_fp32(q, q, scale=1.0),
+        )
+
     @pytest.mark.parametrize("batch", [2, 4, 16, 300])
     def test_batch_and_position_invariance(self, batch):
         cuda_op = _cuda_op()

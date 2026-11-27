@@ -344,8 +344,8 @@ torch::Tensor joint_attn_qk_gemm_dq_leaf_cuda(
   TORCH_CHECK(0 <= j0 && j0 < j1 && j1 <= Sk, "dq_leaf: leaf range out of bounds");
 
   auto partial = torch::empty({B, H, Sq, D}, k_contig.options());
-  if (B * H == 0 || Sq == 0 || D == 0) {
-    return partial.zero_();
+  if (partial.numel() == 0) {
+    return partial;
   }
   check_grid_yz(Sq, B * H, "dq_leaf");
   const dim3 block(kBwdThreads);
@@ -387,8 +387,8 @@ torch::Tensor joint_attn_qk_gemm_dk_leaf_cuda(
   TORCH_CHECK(0 <= i0 && i0 < i1 && i1 <= Sq, "dk_leaf: leaf range out of bounds");
 
   auto partial = torch::empty({B, H, Sk, D}, q_contig.options());
-  if (B * H == 0 || Sk == 0 || D == 0) {
-    return partial.zero_();
+  if (partial.numel() == 0) {
+    return partial;
   }
   check_grid_yz(Sk, B * H, "dk_leaf");
   const dim3 block(kBwdThreads);
