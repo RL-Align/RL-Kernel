@@ -144,7 +144,18 @@ ratios 1 / 2, Engram gate, q-RoPE without q-norm). Facts that cost time:
   vLLM main `3f86db3` in env `rlk41` (torch 2.14): vLLM keeps scheduling, caches and
   metadata; vLLM's attention layers are built on meta (caches only), `Dsv41Model` computes.
   Toy gate (`scripts/check_dsv41_vllm_gate.py`) PASS, 2026-11-27. Eager only, no prefix
-  caching. Next: the release at DP = EP on 8 x H200, then verl (`8c047f4d` imports fine).
+  caching.
+- verl GRPO on DSv4.1 (2026-11-27): the `rlkernel` engine loads DSv4.1 by architecture,
+  `dsv41/vllm_worker.py` syncs adapters, launchers take `MODEL_FAMILY=dsv41`. Mismatch 0 on
+  the toy (2 GPUs) and the release (40 layers, 8 x H200, EP 8, `GPU_UTIL=0.55`,
+  `RL_KERNEL_DSV4_PERSIST_W8=0`). 8-GPU Ray runs here go over ssh to the node
+  (`jobs/exp8.sbatch`, `jobs/dsv41_grpo.sbatch SSH=1`). An idle `sleep infinity` hold job
+  was SIGKILLed after ~30 min: submit real work instead.
+- Comparison plan (owner, 2026-11-27): native verl DSv4.1 (NeMo Automodel engine; Megatron
+  DSv4.1 support is not public; layer-cut model, it cannot fit 40 layers on 8 x H200), ours
+  DSv4.1 (40 layers, `experiments.sh D41`), then native DSv4 (BL2) and ours DSv4 (E3), 100
+  steps each, measuring the mismatch count and the runtime. verl PR 8403 (Megatron Lite,
+  bitwise) needs SM100 (MegaMoE, UMMA backward): not runnable on H200.
 
 ## This cluster (pinghsieh-rsv1)
 

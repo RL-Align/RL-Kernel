@@ -660,8 +660,25 @@ bitwise), as `scripts/check_dsv4_vllm_gate.py` for DSv4.
 - verl `8c047f4d` against vLLM main 0.34.1: its rollout and trainer modules import; of the 92
   vLLM names it imports, the 4 missing ones are guarded fallbacks or older-version paths.
 
-verl integration (base 10.1) is unchanged in shape. The actor engine additionally needs
-Engram table storage shared across ranks.
+verl integration (base 10.1) is unchanged in shape. **As built (2026-11-27):**
+
+- The `rlkernel` engine (`rl_engine/integrations/dsv4/verl_engine.py`) picks the model family
+  from the checkpoint's architecture: DSv4.1 loads through the DSv4.1 loader with the Engram
+  tables as a read-only mmap of the shards (shared by every process on the node), and each
+  packed micro-batch passes its n-gram windows. Everything else (adapters, optimizer, EP,
+  recompute, log-probs) is the DSv4 engine's.
+- Rollout worker `rl_engine/integrations/dsv41/vllm_worker.py`: adapter sync onto
+  `Dsv41Model` (`rlk_set_lora`), sleep kept at level 1, and verl's `monkey_patch_model`
+  reduced to its logits mask (its MoE weight-loader patch walks vLLM's own model).
+- Launchers: `MODEL_FAMILY=dsv41` in `scripts/verl_e2e_lora/` (env `rlk41`, eager, no
+  prefix caching); stage `D41` of `experiments.sh` is the 100-step run.
+- Toy (7 layers, 2 x H200, actor EP 2, rollout DP 2 / EP 2): mismatch 0 at 3 steps; the
+  negative control (sync off) mismatches every response token from step 2. The release
+  (40 layers, 8 x H200, actor EP 8 with recompute, rollout DP 8 / EP 8,
+  `gpu_memory_utilization` 0.55, `RL_KERNEL_DSV4_PERSIST_W8=0`): mismatch 0 at 2 steps of
+  8 x 4 prompts, response <= 256; about 52 GB of weights per GPU on each side, 130 GB in
+  use during the rollout, actor peak 59 GB; 112 s per step (generation 84 s: the eager
+  rollout decodes at about 0.33 s per step).
 
 ## 11. Memory and performance expectations
 
@@ -722,8 +739,9 @@ Progress (2026-11-25, 1 x H100; `tests/ops/{mhc,compressor,engram,topk}`,
 | 5 / training | `Dsv41Model.forward_train` (byte-equal to `forward_batch`) and the attention backward (`attention_backward.py`): no q-norm, BF16 dgrads with the MXFP8 rounding straight through, compressor backward at ratios 1 / 2, and the group handle: a KV source's attention returns a handle that the group's other layers take, so autograd sums their compressed-entry gradients into the source's compressor backward. LoRA on every target including the BF16 shared expert (`attach_lora` from DSv4). Checks: with the loss on a reuse layer only, dL/dx of the KV source matches finite differences (correlation 0.99, magnitude 0.93 to 0.98; steps below 0.2 drown in the FP8 KV rounding); every adapter gets a finite nonzero gradient |
 | 5 / recompute | `forward_train(recompute=True)`: per layer, autograd keeps the input streams and the carried pre and reruns the layer in the backward; a KV source's recompute function also returns the group handle, so the rerun backpropagates the group's summed entry gradient. Same forward bytes, gradients within the attention backward's atomics (cosine > 0.999); held activations 1116 to 136 MiB on the toy model at 400 tokens |
 | Gate | `scripts/check_dsv41_layerwise_gate.py`: rollout (staggered arrivals, chunked prefill, decode beside prefill) against the actor's packed prefill and the training forward, every layer byte-identical, LoRA rank 16. Toy model PASS; the release, all 40 layers (2026-11-26, 4 x H200, EP 4, Engram tables mapped from the shards, 2108 tokens): PASS, 0 differing tokens at every layer, final hidden and log-probs identical; loads in 20 s |
-| 8 (plugin) | vLLM rollout plugin on vLLM main `3f86db3` in `rlk41` (10.1): toy gate PASS (eager, 1 GPU, LoRA); next the release at DP = EP, CUDA graphs |
-| Not started | verl integration, layer-staged SWA (9), prefix-cache replay |
+| 8 (plugin) | vLLM rollout plugin on vLLM main `3f86db3` in `rlk41` (10.1): toy gate PASS (eager, 1 GPU, LoRA); next CUDA graphs |
+| 8 (verl) | `rlkernel` engine on DSv4.1 + adapter sync (10.1): verl GRPO mismatch 0 on the toy (2 GPUs) and the release (8 x H200, 2 steps), 2026-11-27; the 100-step run (`experiments.sh D41`) next |
+| Not started | layer-staged SWA (9), prefix-cache replay |
 
 Step 9 comes after a green gate on purpose: it changes which rows are computed and no
 kernel's arithmetic, so a failure there is easy to localize.
