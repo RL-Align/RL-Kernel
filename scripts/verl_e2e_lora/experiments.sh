@@ -11,6 +11,8 @@
 #   E3   rlkernel, BI, graphs, W7 workload, 100 steps (a 100-step cosine), checkpoint every 25.
 #   A3   E3 with the rollout's batch invariance off (run.sh ablation), A3_STEPS (default 50;
 #        30 in the recorded run, to end before the allocation).
+#   D41  DSv4.1 (MODEL_FAMILY=dsv41, the release's 40 layers), rlkernel, BI, eager rollout (no
+#        graphs yet), W41 workload, 100 steps (a cosine), checkpoint every 25, no validation.
 # W7 workload: 32 prompts x 16, prompt <= 1024, response <= 4096, AIME-2024 greedy before
 # training and every 10 steps, lr 1e-4 with 3 warmup steps and a cosine to 1e-5, and the
 # baseline launcher's PPO knobs in all runs (weight decay 0, clip 0.2 / 0.28, clip_c 10,
@@ -59,6 +61,18 @@ COS_RLK=(actor_rollout_ref.actor.optim.lr_scheduler_type=cosine
   actor_rollout_ref.actor.optim.min_lr_ratio=0.1)
 COS_MEGATRON=(actor_rollout_ref.actor.optim.lr_decay_style=cosine
   actor_rollout_ref.actor.optim.min_lr=1e-5)
+# W41: 32 prompts x 8, prompt <= 1024, response <= 2048 (the eager DSv4.1 rollout decodes at
+# about 0.33 s per step; W7's 4096 x 16 would not finish 100 steps in a 2-day allocation), W7's
+# PPO knobs and cosine, no validation.
+W41=(trainer.test_freq=-1 trainer.val_before_train=False)
+for o in "${W7[@]}"; do
+  case $o in trainer.test_freq=*|trainer.val_before_train=*|trainer.project_name=*) ;;
+    *) W41+=("$o") ;;
+  esac
+done
+w41() { ( export STEPS=$1 TRAIN_BATCH_SIZE=32 ROLLOUT_N=8 MAX_RESPONSE_LENGTH=2048 \
+  TOKENS_PER_GPU=8192 OVERLONG=512 MAX_NUM_SEQS=64 MODEL_FAMILY=dsv41 LAYERS=40 \
+  GPU_UTIL=${GPU_UTIL:-0.55}; unset MODEL_CUT; shift; "$@" ); }
 w7() { ( export STEPS=$1 TRAIN_BATCH_SIZE=32 ROLLOUT_N=16 MAX_RESPONSE_LENGTH=4096 \
   TOKENS_PER_GPU=8192 OVERLONG=1024 MAX_NUM_SEQS=64; shift; "$@" ); }
 
@@ -76,6 +90,11 @@ for s in "$@"; do
     A3) GRAPH=1 w7 "${A3_STEPS:-50}" stage A3 ablation "$WB" "${W7[@]}" "${COS_RLK[@]}" \
           trainer.experiment_name="rlkernel_nonbi_L43_graph_n16_r4096_cos_${A3_STEPS:-50}steps" \
           trainer.save_freq=25 trainer.default_local_dir="$OUT_DIR/A3_ckpt" ;;
-    *) echo "unknown stage $s (E2 BL2 E3 A3)"; exit 64 ;;
+    D41) w41 "${D41_STEPS:-100}" stage D41 rlkernel "$WB" "${W41[@]}" "${COS_RLK[@]}" \
+          trainer.project_name=dsv41_rlkernel \
+          trainer.experiment_name=rlkernel_dsv41_L40_n8_r2048_cos_100steps \
+          trainer.save_freq=25 trainer.default_local_dir="$OUT_DIR/D41_ckpt" \
+          trainer.resume_mode=auto ;;
+    *) echo "unknown stage $s (E2 BL2 E3 A3 D41)"; exit 64 ;;
   esac
 done
