@@ -102,7 +102,10 @@ def main() -> int:
         f"dtype={args.dtype} iters={args.iters}"
     )
     print(f"contract     : {cuda_op.contract_version}")
-    header = f"{'joint S':>9} {'cuda fwd ms':>12} {'peak GiB':>9} {'ref fwd ms':>12} {'speedup':>8}"
+    header = (
+        f"{'joint S':>9} {'backend':>9} {'cuda fwd ms':>12} {'peak GiB':>9} "
+        f"{'ref fwd ms':>12} {'speedup':>8}"
+    )
     if args.backward:
         header += f" {'cuda bwd ms':>12} {'bwd peak GiB':>13}"
     print(header)
@@ -115,28 +118,39 @@ def main() -> int:
         fwd_ms, fwd_peak = timed(
             lambda: cuda_op.forward(q, k, scale=scale), args.warmup, args.iters
         )
+        # A declared geometry fallback runs the CPU reference; label it so the
+        # row is never read as kernel time.
+        plan = cuda_op.last_plan
+        backend = "fallback" if plan is not None and plan.fallback else "cuda"
 
         ref_text, speedup_text = "skipped", "-"
         if seq <= args.reference_limit:
-            ref_ms, _ = timed(lambda: reference.forward(q, k, scale=scale), 1, 1)
+            # The reference is bit-defining only on CPU and fails closed elsewhere.
+            q_cpu, k_cpu = q.cpu(), k.cpu()
+            ref_ms, _ = timed(lambda: reference.forward(q_cpu, k_cpu, scale=scale), 1, 1)
             ref_text = f"{ref_ms:.2f}"
             speedup_text = f"{ref_ms / fwd_ms:.1f}x"
 
-        row = f"{seq:>9} {fwd_ms:>12.3f} {fwd_peak:>9.2f} {ref_text:>12} {speedup_text:>8}"
+        row = (
+            f"{seq:>9} {backend:>9} {fwd_ms:>12.3f} {fwd_peak:>9.2f} "
+            f"{ref_text:>12} {speedup_text:>8}"
+        )
 
         if args.backward:
             qg = q.clone().requires_grad_()
             kg = k.clone().requires_grad_()
             grad = torch.randn(args.batch, args.heads, seq, seq, dtype=dtype, device="cuda")
+            # Build the graph once so the timed region holds the backward only.
+            scores = cuda_op.forward(qg, kg, scale=scale)
 
             def run_backward() -> None:
                 qg.grad = None
                 kg.grad = None
-                cuda_op.forward(qg, kg, scale=scale).backward(grad)
+                scores.backward(grad, retain_graph=True)
 
             bwd_ms, bwd_peak = timed(run_backward, 1, max(1, args.iters // 2))
             row += f" {bwd_ms:>12.1f} {bwd_peak:>13.2f}"
-            qg = kg = grad = None  # release before the next shape
+            qg = kg = grad = scores = None  # release before the next shape
 
         print(row)
         q = k = None  # release before the next shape

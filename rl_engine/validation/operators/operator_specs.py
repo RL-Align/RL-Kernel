@@ -152,6 +152,17 @@ OP_SPECS = {
         },
         grad_input_names=("scores",),
     ),
+    "joint_attn_qk_gemm": OperatorSpec(
+        name="joint_attn_qk_gemm",
+        op_class="attention",
+        gold_path="rl_engine.validation.operators.operator_specs.GtestJointAttnQkGemmGoldOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.attention.joint_attn_qk_gemm.NativeJointAttnQkGemmOp",
+            "cuda": "rl_engine.backends.cuda.attention.joint_attn_qk_gemm.JointAttnQkGemmCudaOp",
+        },
+        grad_input_names=("q", "k"),
+    ),
     # GRPO decode: every G group attends over one shared K/V sequence
     # ([B, Skv, D] instead of [B, Hkv, Skv, D]). Forward-only (no backward),
     # same surface as the CUDA PrefixSharedAttentionOp.
@@ -489,7 +500,7 @@ class GtestJointAttnQkGemmGoldOp:
 
         self._op = NativeJointAttnQkGemmOp()
 
-    def _gold(
+    def forward_fp32(
         self,
         q: torch.Tensor,
         k: torch.Tensor,
@@ -509,13 +520,7 @@ class GtestJointAttnQkGemmGoldOp:
         return out.to(device)
 
     def __call__(self, q: torch.Tensor, k: torch.Tensor, **kwargs: Any) -> torch.Tensor:
-        return self._gold(q, k, **kwargs)
-
-    def forward(self, q: torch.Tensor, k: torch.Tensor, **kwargs: Any) -> torch.Tensor:
-        return self._gold(q, k, **kwargs)
-
-    def forward_fp32(self, q: torch.Tensor, k: torch.Tensor, **kwargs: Any) -> torch.Tensor:
-        return self._gold(q, k, **kwargs)
+        return self.forward_fp32(q, k, **kwargs)
 
 
 class _LogpSM90CandidateAdapter:
@@ -527,19 +532,6 @@ class _LogpSM90CandidateAdapter:
         logits_2d = logits.contiguous().view(-1, logits.size(-1))
         labels_1d = token_ids.contiguous().view(-1)
         return self._candidate(logits_2d, labels_1d).view(orig_shape)
-
-
-OP_SPECS["joint_attn_qk_gemm"] = OperatorSpec(
-    name="joint_attn_qk_gemm",
-    op_class="attention",
-    gold_path="rl_engine.validation.operators.operator_specs.GtestJointAttnQkGemmGoldOp",
-    gold_method="forward_fp32",
-    candidate_paths={
-        "pytorch": "rl_engine.reference.attention.joint_attn_qk_gemm.NativeJointAttnQkGemmOp",
-        "cuda": "rl_engine.backends.cuda.attention.joint_attn_qk_gemm.JointAttnQkGemmCudaOp",
-    },
-    grad_input_names=("q", "k"),
-)
 
 
 def operator_names() -> tuple[str, ...]:

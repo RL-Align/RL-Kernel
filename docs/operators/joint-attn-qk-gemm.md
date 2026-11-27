@@ -62,11 +62,15 @@ Contract version `joint-attn-qk-gemm-tree-v1`.
    `Sq`, under the same 32-wide-leaf mid-split tree. Those lengths depend on
    prompt padding, so padding invariance requires the explicit masks: valid
    positions are compacted into ascending logical order before the tree is
-   built, and padded output rows are defined as exactly zero.
+   built, and padded output rows are defined as exactly zero. The masked
+   backward therefore equals the forward's VJP only when `grad_scores` is zero
+   at padded rows and columns: `joint_attn_softmax` gives that for padded keys,
+   and the caller must zero the upstream gradient on padded query rows.
 5. **Excluded.** No Split-K, Stream-K, atomic accumulation, TF32, fast math or
-   autotuning. A build with `KERNEL_ALIGN_USE_FAST_MATH=1`,
-   or with external NVCC flags that relax FP32 math, leaves the CUDA kernel out,
-   so dispatch falls back to the reference instead of returning different bits.
+   autotuning. A build with `KERNEL_ALIGN_USE_FAST_MATH=1`, or with external
+   NVCC flags that relax FP32 math, leaves the CUDA kernel out. Dispatch then
+   selects the reference, which fails closed on a GPU instead of returning
+   different bits.
 
 The tree discipline deliberately matches `attn-out-bias-gemm-tree-v1` (issue
 \#386 row `attn_out_bias_gemm`) so the two GEMM rows share one reduction
@@ -75,8 +79,9 @@ be de-duplicated into a shared module.
 
 ### CPU is the bit-defining device
 
-`torch.addcmul` is a correctly-rounded single-rounding FP32 FMA **on CPU** but
-lowers to a separate multiply and add **on CUDA**, where it is bit-identical to
+`torch.addcmul` is a correctly-rounded single-rounding FP32 FMA **on a CPU with
+FMA kernels** (ATen's AVX2 and AVX-512 builds) but lowers to a separate multiply
+and add **on CUDA** and in ATen's `default` CPU capability, where it is bit-identical to
 `c + a * b`. The same inputs therefore produce different bits on the two
 devices. The canonical probe is `a = b = 1 + 2**-12`, `c = 2**-60`: a true FMA
 returns `0x3F801001`, a double-rounded multiply-then-add returns `0x3F801000`.
@@ -87,9 +92,11 @@ returns `0x3F801001`, a double-rounded multiply-then-add returns `0x3F801000`.
 | `c + a * b` | multiply-then-add | multiply-then-add |
 
 Consequently the fp32 gold is pinned to CPU, which is exactly the "independent
-FP32 CPU reference" the issue asks for. `forward_fp32` **fails closed** on any
-device failing the probe rather than silently returning different bytes, and the
-gtest gold adapter always evaluates the reference on CPU.
+FP32 CPU reference" the issue asks for. Every reference entry point (`forward`,
+`forward_fp32` and the backward) **fails closed** on a device that fails the
+probe in the scalar, vector or broadcast layout, rather than silently returning
+different bytes, and the gtest gold adapter always evaluates the reference on
+CPU.
 
 ## Backends and fallback
 
@@ -100,6 +107,10 @@ gtest gold adapter always evaluates the reference on CPU.
 
 Dispatch priority: `cuda` → CUDA then PyTorch; `rocm`, `musa`, `cpu`, `npu` →
 PyTorch. ROCm and Ascend kernels are open rows, left to their platform claimers.
+`get_op` records the selected backend and any rejected candidates in
+`op.provenance` (`actual_backend`, `fallback`, `prior_rejections`). A PyTorch
+selection on a GPU fails closed at call time, because the reference is
+bit-defined only on CPU.
 
 **Declared fallback.** The forward kernel covers head dims that are a
 power-of-two multiple of the 32-wide leaf, up to 1024, because the in-register
@@ -155,7 +166,10 @@ print(op.last_plan.to_dict()["forward_reduction_order"])
 ## Tests and benchmarks
 
 ```bash
-python -m pytest tests/ops/attention/test_joint_attn_qk_gemm.py -q
+python -m pytest -q tests/reference/test_joint_attn_qk_gemm.py \
+    tests/backends/cuda/test_joint_attn_qk_gemm_cuda.py \
+    tests/ops/attention/test_joint_attn_qk_gemm_full_shapes.py \
+    tests/runtime/test_joint_attn_qk_gemm_registry.py
 
 python tools/validation/operators/check_operator.py --op joint_attn_qk_gemm \
     --candidate pytorch --device cpu  --dtype fp32 --n-heads 24 --check-grad

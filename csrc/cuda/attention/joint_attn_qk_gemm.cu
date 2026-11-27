@@ -32,9 +32,6 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/extension.h>
 
-#include <cuda_bf16.h>
-#include <cuda_fp16.h>
-
 namespace {
 
 constexpr int kLeafWidth = 32;
@@ -116,10 +113,9 @@ __global__ void joint_qk_gemm_forward_kernel(
 // Backward dQ leaf: partial[b, h, i, d] = sum_{j in [j0, j1)} G[b,h,i,j] * K[b,h,j,d]
 // One thread per (d); grid (ceil(D / kBwdThreads), Sq, B * H).
 // ---------------------------------------------------------------------------
-template <typename scalar_t>
 __global__ void joint_qk_gemm_dq_leaf_kernel(
-    const float* __restrict__ G,     // [B, H, Sq, Sk] fp32
-    const scalar_t* __restrict__ K,  // [B, H, Sk, D]
+    const float* __restrict__ G,  // [B, H, Sq, Sk] fp32
+    const float* __restrict__ K,  // [B, H, Sk, D] fp32
     float* __restrict__ partial,     // [B, H, Sq, D] fp32
     int64_t H,
     int64_t Sq,
@@ -137,11 +133,11 @@ __global__ void joint_qk_gemm_dq_leaf_kernel(
   const int64_t h = bh % H;
 
   const float* __restrict__ g_row = G + (((b * H) + h) * Sq + query) * Sk;
-  const scalar_t* __restrict__ k_base = K + ((b * H) + h) * Sk * D;
+  const float* __restrict__ k_base = K + ((b * H) + h) * Sk * D;
 
   float acc = 0.0f;
   for (int64_t j = j0; j < j1; ++j) {
-    acc = __fmaf_rn(g_row[j], static_cast<float>(k_base[j * D + d]), acc);
+    acc = __fmaf_rn(g_row[j], k_base[j * D + d], acc);
   }
   partial[(((b * H) + h) * Sq + query) * D + d] = acc;
 }
@@ -150,10 +146,9 @@ __global__ void joint_qk_gemm_dq_leaf_kernel(
 // Backward dK leaf: partial[b, h, j, d] = sum_{i in [i0, i1)} G[b,h,i,j] * Q[b,h,i,d]
 // One thread per (d); grid (ceil(D / kBwdThreads), Sk, B * H).
 // ---------------------------------------------------------------------------
-template <typename scalar_t>
 __global__ void joint_qk_gemm_dk_leaf_kernel(
-    const float* __restrict__ G,     // [B, H, Sq, Sk] fp32
-    const scalar_t* __restrict__ Q,  // [B, H, Sq, D]
+    const float* __restrict__ G,  // [B, H, Sq, Sk] fp32
+    const float* __restrict__ Q,  // [B, H, Sq, D] fp32
     float* __restrict__ partial,     // [B, H, Sk, D] fp32
     int64_t H,
     int64_t Sq,
@@ -171,11 +166,11 @@ __global__ void joint_qk_gemm_dk_leaf_kernel(
   const int64_t h = bh % H;
 
   const float* __restrict__ g_base = G + ((b * H) + h) * Sq * Sk;
-  const scalar_t* __restrict__ q_base = Q + ((b * H) + h) * Sq * D;
+  const float* __restrict__ q_base = Q + ((b * H) + h) * Sq * D;
 
   float acc = 0.0f;
   for (int64_t i = i0; i < i1; ++i) {
-    acc = __fmaf_rn(g_base[i * Sk + key], static_cast<float>(q_base[i * D + d]), acc);
+    acc = __fmaf_rn(g_base[i * Sk + key], q_base[i * D + d], acc);
   }
   partial[(((b * H) + h) * Sk + key) * D + d] = acc;
 }
@@ -192,6 +187,31 @@ void check_qk_pair(const at::Tensor& q, const at::Tensor& k, const char* fn) {
   TORCH_CHECK(q.size(0) == k.size(0), fn, ": batch mismatch");
   TORCH_CHECK(q.size(1) == k.size(1), fn, ": head count mismatch (no GQA for joint attention)");
   TORCH_CHECK(q.size(3) == k.size(3), fn, ": head dim mismatch");
+}
+
+// The leaves are internal to the host tree, which always passes fp32 operands
+// shaped like the gradient. Check that here so a direct call cannot index past
+// the operand or read another device's memory.
+void check_leaf_pair(
+    const at::Tensor& grad,
+    const at::Tensor& operand,
+    int64_t grad_seq_dim,
+    const char* fn) {
+  TORCH_CHECK(grad.is_cuda() && operand.is_cuda(), fn, ": tensors must be CUDA");
+  TORCH_CHECK(grad.device() == operand.device(), fn, ": tensors must share a device");
+  TORCH_CHECK(
+      grad.scalar_type() == at::kFloat && operand.scalar_type() == at::kFloat,
+      fn,
+      ": grad and operand must be fp32");
+  TORCH_CHECK(grad.dim() == 4 && operand.dim() == 4, fn, ": expected 4-D tensors");
+  TORCH_CHECK(
+      operand.size(0) == grad.size(0) && operand.size(1) == grad.size(1),
+      fn,
+      ": operand batch and head extents must match the gradient");
+  TORCH_CHECK(
+      operand.size(2) == grad.size(grad_seq_dim),
+      fn,
+      ": operand sequence extent does not match the gradient");
 }
 
 }  // namespace
@@ -225,7 +245,7 @@ torch::Tensor joint_attn_qk_gemm_forward_cuda(
       "-wide leaf; other head dims fall back to the reference");
   const int64_t leaf_count = D / kLeafWidth;
   TORCH_CHECK(
-      leaf_count <= kMaxLeaves && (leaf_count & (leaf_count - 1)) == 0,
+      leaf_count >= 1 && leaf_count <= kMaxLeaves && (leaf_count & (leaf_count - 1)) == 0,
       "joint_attn_qk_gemm_forward: head dim ",
       D,
       " needs a power-of-two leaf count no greater than ",
@@ -235,6 +255,9 @@ torch::Tensor joint_attn_qk_gemm_forward_cuda(
 
   auto out_options = q_contig.options().dtype(fp32_out ? at::kFloat : q_contig.scalar_type());
   auto scores = torch::empty({B, H, Sq, Sk}, out_options);
+  if (B * H == 0) {
+    return scores;
+  }
 
   const int64_t grid_y = (Sq + kFwdTileQueries - 1) / kFwdTileQueries;
   check_grid_yz(grid_y, B * H, "joint_attn_qk_gemm_forward");
@@ -280,15 +303,21 @@ torch::Tensor joint_attn_qk_gemm_forward_cuda(
       TORCH_CHECK(false, "joint_attn_qk_gemm_forward: unsupported leaf count");    \
   }
 
-  AT_DISPATCH_FLOATING_TYPES_AND(
-      at::ScalarType::BFloat16, q_contig.scalar_type(), "joint_qk_gemm_forward", [&] {
+  // check_qk_pair admits fp32 and bf16 only, so only those are instantiated.
+  AT_DISPATCH_SWITCH(
+      q_contig.scalar_type(),
+      "joint_qk_gemm_forward",
+      AT_DISPATCH_CASE(at::kFloat, [&] {
+        RLK_DISPATCH_LEAVES(float);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
+      }) AT_DISPATCH_CASE(at::kBFloat16, [&] {
         if (fp32_out) {
           RLK_DISPATCH_LEAVES(float);
         } else {
           RLK_DISPATCH_LEAVES(scalar_t);
         }
         C10_CUDA_KERNEL_LAUNCH_CHECK();
-      });
+      }));
 
 #undef RLK_DISPATCH_LEAVES
 #undef RLK_LAUNCH_FWD
@@ -302,10 +331,7 @@ torch::Tensor joint_attn_qk_gemm_dq_leaf_cuda(
     torch::Tensor k,
     int64_t j0,
     int64_t j1) {
-  TORCH_CHECK(grad_scores_fp32.is_cuda() && k.is_cuda(), "dq_leaf: tensors must be CUDA");
-  TORCH_CHECK(
-      grad_scores_fp32.scalar_type() == at::kFloat, "dq_leaf: grad must already be fp32");
-  TORCH_CHECK(grad_scores_fp32.dim() == 4 && k.dim() == 4, "dq_leaf: expected 4-D tensors");
+  check_leaf_pair(grad_scores_fp32, k, 3, "dq_leaf");
   const at::cuda::OptionalCUDAGuard device_guard(at::device_of(k));
 
   auto g = grad_scores_fp32.contiguous();
@@ -315,10 +341,12 @@ torch::Tensor joint_attn_qk_gemm_dq_leaf_cuda(
   const int64_t Sq = g.size(2);
   const int64_t Sk = g.size(3);
   const int64_t D = k_contig.size(3);
-  TORCH_CHECK(k_contig.size(2) == Sk, "dq_leaf: grad key extent does not match k");
   TORCH_CHECK(0 <= j0 && j0 < j1 && j1 <= Sk, "dq_leaf: leaf range out of bounds");
 
-  auto partial = torch::empty({B, H, Sq, D}, k_contig.options().dtype(at::kFloat));
+  auto partial = torch::empty({B, H, Sq, D}, k_contig.options());
+  if (B * H == 0 || Sq == 0 || D == 0) {
+    return partial.zero_();
+  }
   check_grid_yz(Sq, B * H, "dq_leaf");
   const dim3 block(kBwdThreads);
   const dim3 grid(
@@ -326,21 +354,17 @@ torch::Tensor joint_attn_qk_gemm_dq_leaf_cuda(
       static_cast<unsigned>(Sq),
       static_cast<unsigned>(B * H));
   auto stream = at::cuda::getCurrentCUDAStream();
-
-  AT_DISPATCH_FLOATING_TYPES_AND(
-      at::ScalarType::BFloat16, k_contig.scalar_type(), "joint_qk_gemm_dq_leaf", [&] {
-        joint_qk_gemm_dq_leaf_kernel<scalar_t><<<grid, block, 0, stream>>>(
-            g.data_ptr<float>(),
-            k_contig.data_ptr<scalar_t>(),
-            partial.data_ptr<float>(),
-            H,
-            Sq,
-            Sk,
-            D,
-            j0,
-            j1);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-      });
+  joint_qk_gemm_dq_leaf_kernel<<<grid, block, 0, stream>>>(
+      g.data_ptr<float>(),
+      k_contig.data_ptr<float>(),
+      partial.data_ptr<float>(),
+      H,
+      Sq,
+      Sk,
+      D,
+      j0,
+      j1);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return partial;
 }
 
@@ -350,10 +374,7 @@ torch::Tensor joint_attn_qk_gemm_dk_leaf_cuda(
     torch::Tensor q,
     int64_t i0,
     int64_t i1) {
-  TORCH_CHECK(grad_scores_fp32.is_cuda() && q.is_cuda(), "dk_leaf: tensors must be CUDA");
-  TORCH_CHECK(
-      grad_scores_fp32.scalar_type() == at::kFloat, "dk_leaf: grad must already be fp32");
-  TORCH_CHECK(grad_scores_fp32.dim() == 4 && q.dim() == 4, "dk_leaf: expected 4-D tensors");
+  check_leaf_pair(grad_scores_fp32, q, 2, "dk_leaf");
   const at::cuda::OptionalCUDAGuard device_guard(at::device_of(q));
 
   auto g = grad_scores_fp32.contiguous();
@@ -363,10 +384,12 @@ torch::Tensor joint_attn_qk_gemm_dk_leaf_cuda(
   const int64_t Sq = g.size(2);
   const int64_t Sk = g.size(3);
   const int64_t D = q_contig.size(3);
-  TORCH_CHECK(q_contig.size(2) == Sq, "dk_leaf: grad query extent does not match q");
   TORCH_CHECK(0 <= i0 && i0 < i1 && i1 <= Sq, "dk_leaf: leaf range out of bounds");
 
-  auto partial = torch::empty({B, H, Sk, D}, q_contig.options().dtype(at::kFloat));
+  auto partial = torch::empty({B, H, Sk, D}, q_contig.options());
+  if (B * H == 0 || Sk == 0 || D == 0) {
+    return partial.zero_();
+  }
   check_grid_yz(Sk, B * H, "dk_leaf");
   const dim3 block(kBwdThreads);
   const dim3 grid(
@@ -374,20 +397,16 @@ torch::Tensor joint_attn_qk_gemm_dk_leaf_cuda(
       static_cast<unsigned>(Sk),
       static_cast<unsigned>(B * H));
   auto stream = at::cuda::getCurrentCUDAStream();
-
-  AT_DISPATCH_FLOATING_TYPES_AND(
-      at::ScalarType::BFloat16, q_contig.scalar_type(), "joint_qk_gemm_dk_leaf", [&] {
-        joint_qk_gemm_dk_leaf_kernel<scalar_t><<<grid, block, 0, stream>>>(
-            g.data_ptr<float>(),
-            q_contig.data_ptr<scalar_t>(),
-            partial.data_ptr<float>(),
-            H,
-            Sq,
-            Sk,
-            D,
-            i0,
-            i1);
-        C10_CUDA_KERNEL_LAUNCH_CHECK();
-      });
+  joint_qk_gemm_dk_leaf_kernel<<<grid, block, 0, stream>>>(
+      g.data_ptr<float>(),
+      q_contig.data_ptr<float>(),
+      partial.data_ptr<float>(),
+      H,
+      Sq,
+      Sk,
+      D,
+      i0,
+      i1);
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
   return partial;
 }

@@ -36,6 +36,7 @@ from rl_engine.reference.attention.joint_attn_qk_gemm import (
     JointAttnQkGemmPlan,
     NativeJointAttnQkGemmOp,
     joint_attn_qk_gemm_backward_with_leaves,
+    plan_trace,
     validate_joint_attn_qk_gemm_inputs,
 )
 from rl_engine.utils.logger import logger
@@ -55,6 +56,8 @@ def cuda_geometry_support(head_dim: int) -> tuple[bool, Optional[str]]:
     power-of-two leaf count, so other head dims fall back rather than silently
     using a different reduction order. Qwen-Image runs ``head_dim = 128``.
     """
+    if head_dim <= 0:
+        return False, f"head_dim={head_dim} has no leaves"
     if head_dim % LEAF_WIDTH != 0:
         return False, (
             f"head_dim={head_dim} is not a multiple of the {LEAF_WIDTH}-wide leaf; "
@@ -69,16 +72,6 @@ def cuda_geometry_support(head_dim: int) -> tuple[bool, Optional[str]]:
             "the in-register halving combine would not equal the mid-split tree"
         )
     return True, None
-
-
-def _dq_leaf_cuda(g_f: torch.Tensor, k_f: torch.Tensor, lo: int, hi: int) -> torch.Tensor:
-    """One dQ sequence leaf on the device, returned as an fp32 partial."""
-    return _C.joint_attn_qk_gemm_dq_leaf(g_f, k_f, lo, hi)
-
-
-def _dk_leaf_cuda(g_f: torch.Tensor, q_f: torch.Tensor, lo: int, hi: int) -> torch.Tensor:
-    """One dK sequence leaf on the device, returned as an fp32 partial."""
-    return _C.joint_attn_qk_gemm_dk_leaf(g_f, q_f, lo, hi)
 
 
 class _JointAttnQkGemmCudaFunction(Function):
@@ -105,15 +98,19 @@ class _JointAttnQkGemmCudaFunction(Function):
         ctx, grad_scores: torch.Tensor
     ) -> tuple[Optional[torch.Tensor], ...]:
         q, k, query_padding_mask, key_padding_mask = ctx.saved_tensors
+        # Contiguous once here: the leaf bindings need dense operands, and a
+        # strided q/k/grad would otherwise be copied again on every leaf call.
         grad_q, grad_k = joint_attn_qk_gemm_backward_with_leaves(
-            q,
-            k,
-            grad_scores,
+            q.contiguous(),
+            k.contiguous(),
+            grad_scores.contiguous(),
             scale=ctx.scale,
             query_padding_mask=query_padding_mask,
             key_padding_mask=key_padding_mask,
-            dq_leaf_fn=_dq_leaf_cuda,
-            dk_leaf_fn=_dk_leaf_cuda,
+            dq_leaf_fn=_C.joint_attn_qk_gemm_dq_leaf,
+            dk_leaf_fn=_C.joint_attn_qk_gemm_dk_leaf,
+            need_dq=ctx.needs_input_grad[0],
+            need_dk=ctx.needs_input_grad[1],
         )
         return grad_q, grad_k, None, None, None, None
 
@@ -127,6 +124,17 @@ class JointAttnQkGemmCudaOp:
 
     backend_id = "rlkernel.cuda.attention.joint_qk_gemm.v1"
     contract_version = JOINT_ATTN_QK_GEMM_CONTRACT_VERSION
+    # Static implementation trace; per-call geometry fallbacks go on last_plan.
+    provenance = {
+        "selected_backend": "cuda",
+        "reduction_order": "leaf32_midsplit_tree",
+        "accumulator_precision": "fp32",
+        "split_k": False,
+        "stream_k": False,
+        "tf32": False,
+        "contract_version": JOINT_ATTN_QK_GEMM_CONTRACT_VERSION,
+        "fallback": False,
+    }
 
     def __init__(self) -> None:
         if not _EXT_AVAILABLE:
@@ -149,6 +157,10 @@ class JointAttnQkGemmCudaOp:
     def last_plan(self) -> Optional[JointAttnQkGemmPlan]:
         """Arithmetic policy actually used by the most recent call."""
         return self._last_plan
+
+    def trace(self) -> dict[str, object]:
+        """Backend trace for the WS1 operator harness, from the most recent call."""
+        return plan_trace(self._last_plan or JointAttnQkGemmPlan(backend_id=self.backend_id))
 
     def __call__(
         self,
@@ -269,7 +281,7 @@ class JointAttnQkGemmCudaOp:
     @staticmethod
     def _reference_backend_id() -> str:
         """Backend id recorded when the call falls back to the PyTorch reference."""
-        return "rlkernel.reference.attention.joint_qk_gemm.v1"
+        return NativeJointAttnQkGemmOp.backend_id
 
 
 __all__ = ["JointAttnQkGemmCudaOp", "cuda_geometry_support"]

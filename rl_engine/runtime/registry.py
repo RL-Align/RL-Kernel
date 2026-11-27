@@ -268,6 +268,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     )
 
 
+# Operators whose get_op selection records the actual backend and any fallback.
+_DISPATCH_TRACED_OPS = frozenset({"joint_attn_softmax", "joint_attn_qk_gemm"})
+
+
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
         OperatorBackendDescriptor(
@@ -1170,7 +1174,7 @@ class KernelRegistry:
         for backend in candidates:
             op_instance = self._get_or_create_backend(backend)
             if op_instance is not None:
-                if op_type == "joint_attn_softmax":
+                if op_type in _DISPATCH_TRACED_OPS:
                     # The backend is cached; keep this dispatch trace local to
                     # the selection without changing its class-level metadata.
                     selected = copy(op_instance)
@@ -1184,7 +1188,7 @@ class KernelRegistry:
                     }
                     return selected
                 return op_instance
-            if op_type == "joint_attn_softmax":
+            if op_type in _DISPATCH_TRACED_OPS:
                 rejected.append(f"{backend.name}: backend could not be loaded or instantiated")
 
         raise RuntimeError(f"No functional backend found for {op_type} on {platform}")

@@ -44,7 +44,11 @@ human-readable contract lives in ``docs/operators/joint-attn-qk-gemm.md``):
    *do* depend on prompt padding, so padding invariance requires the explicit
    padding masks: valid positions are compacted into ascending logical order
    before the tree is built, so inserting padding cannot regroup the surviving
-   terms. ``scale`` is likewise applied once in fp32 after the tree.
+   terms. ``scale`` is likewise applied once in fp32 after the tree. The masked
+   backward reduces over valid positions only, so it equals the VJP of the
+   (unmasked) forward only when ``grad_scores`` is zero at padded rows and
+   columns; ``joint_attn_softmax`` guarantees that for padded keys, and callers
+   must zero the upstream gradient on padded query rows.
 
 The tree discipline is deliberately identical to ``attn-out-bias-gemm-tree-v1``
 (issue #386 row ``attn_out_bias_gemm``, PR #459) so the two GEMM rows share one
@@ -53,15 +57,14 @@ reduction definition; once that PR lands, ``num_leaves`` /
 
 This module is the bit-exactness gold: the trees are evaluated with explicit
 torch elementwise ops only -- no ``matmul``, no ``scaled_dot_product_attention``,
-no implicit reductions -- so it is bit-identical on every device and serves as
-the FP32 CPU reference that the Triton and CUDA backends are compared against
-byte for byte.
+no implicit reductions. CPU is the only bit-defining device (see the FMA probe
+below); every entry point fails closed elsewhere, and the Triton and CUDA
+backends are compared against the CPU result byte for byte.
 """
 
 from __future__ import annotations
 
 import math
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from typing import Callable, Optional
 
@@ -84,11 +87,12 @@ JOINT_ATTN_QK_GEMM_CONTRACT_VERSION = "joint-attn-qk-gemm-tree-v1"
 # multiply-then-add returns ``0x3F801000``.
 #
 # Consequence for this contract: **CPU is the bit-defining device for the gold.**
-# ``forward_fp32`` fails closed on any device whose ``addcmul`` is not a true
-# FMA, rather than silently returning different bytes. Device backends use
-# explicit ``fma_rn`` intrinsics and are compared byte for byte against the CPU
-# gold, which is exactly the "independent FP32 CPU reference" issue #386 asks
-# for.
+# Every reference entry point fails closed on a device whose ``addcmul`` is not
+# a true FMA in each layout the leaves use (a scalar lane, contiguous vector
+# lanes, and the broadcast outer product), rather than returning different
+# bytes. Device backends use explicit ``fma_rn`` intrinsics and are compared
+# byte for byte against the CPU gold, which is exactly the "independent FP32 CPU
+# reference" issue #386 asks for.
 _FMA_PROBE_A = float(torch.tensor(1.0 + 2.0**-12, dtype=torch.float32))
 _FMA_PROBE_C = float(torch.tensor(2.0**-60, dtype=torch.float32))
 _FMA_PROBE_SINGLE_ROUNDING_BITS = 0x3F801001
@@ -98,16 +102,28 @@ _fma_regime_cache: dict[str, bool] = {}
 def fma_is_single_rounding(device: torch.device | str) -> bool:
     """True when ``torch.addcmul`` is a correctly-rounded FP32 FMA on ``device``.
 
-    Probes the classic double-rounding counterexample. Cached per device type.
+    Probes the classic double-rounding counterexample in the scalar, vector and
+    broadcast outer-product layouts the leaf chains use, because a backend may
+    vectorize some layouts with FMA and others without. Cached per device type.
     """
     resolved = torch.device(device)
     cached = _fma_regime_cache.get(resolved.type)
     if cached is not None:
         return cached
-    a = torch.tensor([_FMA_PROBE_A], dtype=torch.float32, device=resolved)
-    c = torch.tensor([_FMA_PROBE_C], dtype=torch.float32, device=resolved)
-    observed = int(torch.addcmul(c, a, a).view(torch.int32).cpu().item()) & 0xFFFFFFFF
-    result = observed == _FMA_PROBE_SINGLE_ROUNDING_BITS
+    lanes = 67  # past one AVX-512 vector plus a scalar tail
+    a = torch.full((lanes,), _FMA_PROBE_A, dtype=torch.float32, device=resolved)
+    c = torch.full((lanes,), _FMA_PROBE_C, dtype=torch.float32, device=resolved)
+    outer_c = torch.full((lanes, lanes), _FMA_PROBE_C, dtype=torch.float32, device=resolved)
+    observed = torch.cat(
+        [
+            torch.addcmul(c[:1], a[:1], a[:1]),
+            torch.addcmul(c, a, a),
+            torch.addcmul(outer_c, a.unsqueeze(-1), a.unsqueeze(-2)).flatten(),
+        ]
+    )
+    # The expected pattern is positive, so a signed int32 view compares directly.
+    bits = observed.view(torch.int32).cpu()
+    result = bool((bits == _FMA_PROBE_SINGLE_ROUNDING_BITS).all())
     _fma_regime_cache[resolved.type] = result
     return result
 
@@ -334,7 +350,9 @@ def joint_attn_qk_gemm_backward_with_leaves(
     key_padding_mask: Optional[torch.Tensor] = None,
     dq_leaf_fn: Optional[LeafEvaluator] = None,
     dk_leaf_fn: Optional[LeafEvaluator] = None,
-) -> tuple[torch.Tensor, torch.Tensor]:
+    need_dq: bool = True,
+    need_dk: bool = True,
+) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
     """Shared host backward: padding compaction, mid-split tree, scale and cast.
 
     ``dQ = (dS @ K) * scale`` reduces over ``Sk``; ``dK = (dSᵀ @ Q) * scale``
@@ -346,6 +364,8 @@ def joint_attn_qk_gemm_backward_with_leaves(
     padding cannot regroup the surviving terms; padded output rows are defined as
     exactly zero. Without masks the reduction follows physical positions, which is
     correct but only padding-invariant if the caller keeps the layout fixed.
+    ``need_dq``/``need_dk`` skip a gradient the caller does not need and return
+    ``None`` in its place.
     """
     head_dim = q.size(-1)
     scale = scale if scale is not None else (1.0 / math.sqrt(head_dim))
@@ -354,8 +374,8 @@ def joint_attn_qk_gemm_backward_with_leaves(
     g_f = grad_scores.float()
 
     if query_padding_mask is None and key_padding_mask is None:
-        dq_sum = dq_tree_fp32(g_f, k_f, dq_leaf_fn)
-        dk_sum = dk_tree_fp32(g_f, q_f, dk_leaf_fn)
+        dq_sum = dq_tree_fp32(g_f, k_f, dq_leaf_fn) if need_dq else None
+        dk_sum = dk_tree_fp32(g_f, q_f, dk_leaf_fn) if need_dk else None
     else:
         dq_sum = torch.zeros_like(q_f)
         dk_sum = torch.zeros_like(k_f)
@@ -371,7 +391,7 @@ def joint_attn_qk_gemm_backward_with_leaves(
                 else torch.arange(q_f.size(-2), device=q_f.device)
             )
             # dQ: rows are independent, so only the j-reduction is compacted.
-            if keep_j.numel() > 0:
+            if need_dq and keep_j.numel() > 0:
                 dq_sum[b : b + 1] = dq_tree_fp32(
                     g_f[b : b + 1].index_select(-1, keep_j).contiguous(),
                     k_f[b : b + 1].index_select(-2, keep_j).contiguous(),
@@ -379,7 +399,7 @@ def joint_attn_qk_gemm_backward_with_leaves(
                 )
             # dK: columns are independent, so only the i-reduction is compacted,
             # and the result lands back on the valid key rows.
-            if keep_i.numel() > 0:
+            if need_dk and keep_i.numel() > 0:
                 dk_sum[b : b + 1] = dk_tree_fp32(
                     g_f[b : b + 1].index_select(-2, keep_i).contiguous(),
                     q_f[b : b + 1].index_select(-2, keep_i).contiguous(),
@@ -389,8 +409,12 @@ def joint_attn_qk_gemm_backward_with_leaves(
             dq_sum = torch.where(query_padding_mask[:, None, :, None], dq_sum, 0.0)
         if key_padding_mask is not None:
             dk_sum = torch.where(key_padding_mask[:, None, :, None], dk_sum, 0.0)
+        dq_sum = dq_sum if need_dq else None
+        dk_sum = dk_sum if need_dk else None
 
-    return (dq_sum * scale).to(q.dtype), (dk_sum * scale).to(k.dtype)
+    grad_q = None if dq_sum is None else (dq_sum * scale).to(q.dtype)
+    grad_k = None if dk_sum is None else (dk_sum * scale).to(k.dtype)
+    return grad_q, grad_k
 
 
 def joint_attn_qk_gemm_reference_backward(
@@ -401,8 +425,14 @@ def joint_attn_qk_gemm_reference_backward(
     scale: Optional[float] = None,
     query_padding_mask: Optional[torch.Tensor] = None,
     key_padding_mask: Optional[torch.Tensor] = None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Reference ``dQ``/``dK``: the shared host backward with the torch leaf chains."""
+    need_dq: bool = True,
+    need_dk: bool = True,
+) -> tuple[Optional[torch.Tensor], Optional[torch.Tensor]]:
+    """Reference ``dQ``/``dK``: the shared host backward with the torch leaf chains.
+
+    Fails closed on a device whose ``addcmul`` is not a correctly-rounded FMA.
+    """
+    require_single_rounding_fma(q.device)
     return joint_attn_qk_gemm_backward_with_leaves(
         q,
         k,
@@ -410,7 +440,19 @@ def joint_attn_qk_gemm_reference_backward(
         scale=scale,
         query_padding_mask=query_padding_mask,
         key_padding_mask=key_padding_mask,
+        need_dq=need_dq,
+        need_dk=need_dk,
     )
+
+
+def plan_trace(plan: JointAttnQkGemmPlan) -> dict[str, object]:
+    """The harness view of a plan: actual backend, fallback and contract."""
+    return {
+        "contract": plan.contract_version,
+        "actual_backend": plan.backend_id,
+        "fallback": plan.fallback,
+        "fallback_reason": plan.fallback_reason,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -455,6 +497,8 @@ def validate_joint_attn_qk_gemm_inputs(
             continue
         if mask.dtype != torch.bool:
             raise ValueError(f"{name} must be bool (True=valid), got {mask.dtype}")
+        if mask.device != q.device:
+            raise ValueError(f"{name} must be on {q.device} with q and k, got {mask.device}")
         if tuple(mask.shape) != (q.size(0), length):
             raise ValueError(
                 f"{name} must be [B, S] = {(q.size(0), length)}, got {tuple(mask.shape)}"
@@ -494,6 +538,8 @@ class _JointAttnQkGemmTreeFunction(torch.autograd.Function):
             scale=ctx.scale,
             query_padding_mask=query_padding_mask,
             key_padding_mask=key_padding_mask,
+            need_dq=ctx.needs_input_grad[0],
+            need_dk=ctx.needs_input_grad[1],
         )
         return grad_q, grad_k, None, None, None, None
 
@@ -513,10 +559,31 @@ class NativeJointAttnQkGemmOp:
     ``dQ``/``dK`` padding-invariant.
     """
 
+    backend_id = "rlkernel.reference.attention.joint_qk_gemm.v1"
     contract_version = JOINT_ATTN_QK_GEMM_CONTRACT_VERSION
+    # Static implementation trace; registry candidate rejections are separate.
+    provenance = {
+        "selected_backend": "pytorch_reference",
+        "reduction_order": "leaf32_midsplit_tree",
+        "accumulator_precision": "fp32",
+        "split_k": False,
+        "stream_k": False,
+        "tf32": False,
+        "contract_version": JOINT_ATTN_QK_GEMM_CONTRACT_VERSION,
+        "fallback": False,
+    }
 
     def __init__(self) -> None:
         """No state; the op is a pure function over (q, k, ...)."""
+
+    @property
+    def last_plan(self) -> JointAttnQkGemmPlan:
+        """Arithmetic policy readback; the reference has a single plan."""
+        return JointAttnQkGemmPlan(backend_id=self.backend_id)
+
+    def trace(self) -> dict[str, object]:
+        """Backend trace for the WS1 operator harness."""
+        return plan_trace(self.last_plan)
 
     def __call__(
         self,
@@ -564,21 +631,15 @@ class NativeJointAttnQkGemmOp:
         query_padding_mask: Optional[torch.Tensor] = None,
         key_padding_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """Ground truth: fp32 tree accumulation, fp32 output, autocast and TF32 off.
-
-        Fails closed on a device whose ``addcmul`` is not a correctly-rounded FMA;
-        CPU is the bit-defining device for this contract.
-        """
-        require_single_rounding_fma(q.device)
-        with _strict_fp32_math(q.device.type):
-            return self._run(
-                q,
-                k,
-                scale=scale,
-                query_padding_mask=query_padding_mask,
-                key_padding_mask=key_padding_mask,
-                output_dtype=torch.float32,
-            )
+        """Ground truth: fp32 tree accumulation, fp32 output."""
+        return self._run(
+            q,
+            k,
+            scale=scale,
+            query_padding_mask=query_padding_mask,
+            key_padding_mask=key_padding_mask,
+            output_dtype=torch.float32,
+        )
 
     @staticmethod
     def _run(
@@ -596,22 +657,13 @@ class NativeJointAttnQkGemmOp:
             query_padding_mask=query_padding_mask,
             key_padding_mask=key_padding_mask,
         )
+        # CPU is the bit-defining device: fail closed anywhere addcmul is not a
+        # correctly-rounded FMA instead of returning different bytes.
+        require_single_rounding_fma(q.device)
         resolved = scale if scale is not None else (1.0 / math.sqrt(q.size(3)))
         return _JointAttnQkGemmTreeFunction.apply(
             q, k, resolved, query_padding_mask, key_padding_mask, output_dtype
         )
-
-
-@contextmanager
-def _strict_fp32_math(device_type: str):
-    """Disable autocast and TF32 for a true fp32 path, restoring state after."""
-    prev_tf32 = torch.backends.cuda.matmul.allow_tf32
-    torch.backends.cuda.matmul.allow_tf32 = False
-    try:
-        with torch.autocast(device_type=device_type, enabled=False):
-            yield
-    finally:
-        torch.backends.cuda.matmul.allow_tf32 = prev_tf32
 
 
 __all__ = [
@@ -627,6 +679,7 @@ __all__ = [
     "finalize_scaled_output",
     "joint_attn_qk_gemm_reference_backward",
     "num_leaves",
+    "plan_trace",
     "qk_scores_tree_fp32",
     "require_single_rounding_fma",
     "tree_from_leaf_evaluator",

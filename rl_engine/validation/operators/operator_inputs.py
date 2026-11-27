@@ -74,7 +74,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}",
         "joint_attn_softmax": f"{batch}x{seq}",
         "joint_attn_qk_gemm": f"{batch}x{_arg_int(args, 'n_heads', QWENIMAGE_N_HEADS)}"
-        f"x{seq}x{_arg_int(args, 'skv', seq)}x{DEFAULT_HEAD_DIM}",
+        f"x{seq}x{_arg_int(args, 'skv', seq)}"
+        f"x{_arg_int(args, 'head_dim', DEFAULT_HEAD_DIM)}",
         "prefix_shared_attention": f"{batch}x{_arg_int(args, 'n_heads', DEFAULT_N_HEADS)}"
         f"x{seq}x{DEFAULT_HEAD_DIM}",
         "cp_attention": f"{batch}x{DEFAULT_N_HEADS}x{seq}x{DEFAULT_HEAD_DIM}xcp2",
