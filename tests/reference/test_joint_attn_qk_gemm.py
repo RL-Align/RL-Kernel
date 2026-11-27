@@ -178,6 +178,14 @@ class TestFmaOracle:
         finally:
             torch.set_flush_denormal(was_flushing)
 
+    def test_underflow_guard_ignores_the_default_device(self):
+        """The guard probes the calling CPU thread, not the default device."""
+        q = torch.full((1, 1, 1, 32), 2.0**-70)
+        with torch.device("meta"):
+            scores = NativeJointAttnQkGemmOp().forward_fp32(q, q, scale=1.0)
+        assert scores.device.type == "cpu"
+        assert float(scores.item()) == 32 * 2.0**-140
+
     def test_subnormal_scores_survive_gradual_underflow(self):
         q = torch.full((1, 1, 1, 32), 2.0**-70)
         scores = NativeJointAttnQkGemmOp().forward_fp32(q, q, scale=1.0)

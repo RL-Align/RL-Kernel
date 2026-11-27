@@ -160,7 +160,11 @@ def require_gradual_underflow(device: torch.device | str) -> None:
     """
     if torch.device(device).type != "cpu":
         return
-    minimum_normal = torch.tensor([torch.finfo(torch.float32).tiny], dtype=torch.float32)
+    # Pin the probe to CPU: under torch.set_default_device it would otherwise run
+    # on that device and miss (or break on) the calling CPU thread's mode.
+    minimum_normal = torch.tensor(
+        [torch.finfo(torch.float32).tiny], dtype=torch.float32, device="cpu"
+    )
     if (minimum_normal * 0.5).item() == 0.0:
         raise RuntimeError(
             f"{JOINT_ATTN_QK_GEMM_CONTRACT_VERSION}: the CPU reference requires gradual "

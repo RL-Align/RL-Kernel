@@ -98,6 +98,14 @@ probe in the scalar, vector or broadcast layout, rather than silently returning
 different bytes, and the gtest gold adapter always evaluates the reference on
 CPU.
 
+The CPU gold also requires gradual underflow, because the CUDA kernels keep
+subnormals. Its runtime guard checks the calling thread and fails closed when
+that thread enables `torch.set_flush_denormal(True)`. CPU validation processes
+must call `torch.set_flush_denormal(False)` before initializing PyTorch CPU
+worker threads, or run the reference single-threaded: existing worker threads
+keep their own floating-point control state, which the calling-thread guard
+cannot see.
+
 ## Backends and fallback
 
 | Backend | Path | Notes |
