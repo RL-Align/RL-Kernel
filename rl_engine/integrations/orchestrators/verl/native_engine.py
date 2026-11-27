@@ -36,8 +36,15 @@ class RLKNativeMcoreEngineConfig(McoreEngineConfig):
     rlk_weight_version: int = 0
     rlk_mhc_backend: str = "rocm"
     rlk_allow_right_padding: bool = False
+    # "batch": one canonical parameter-gradient reduction over every microbatch of the step
+    # (microbatch-partition invariant; keeps all saved rows of the step on the device).
+    # "microbatch": a canonical reduction per microbatch, accumulated by native DDP in the
+    # fixed microbatch order (deterministic; bounded memory for long-context batches).
+    rlk_canonical_scope: str = "batch"
 
     def __post_init__(self):
+        if self.rlk_canonical_scope not in ("batch", "microbatch"):
+            raise ValueError("rlk_canonical_scope must be 'batch' or 'microbatch'")
         if self.strategy != "rlk_megatron":
             raise ValueError("use the explicit rlk_megatron engine registration")
         object.__setattr__(self, "strategy", "megatron")
@@ -206,6 +213,31 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
             return super().forward_backward_batch(data, loss_function, forward_only=forward_only)
         from rl_engine.ops.autograd.canonical_backward import canonical_backward_session
 
+        if self.engine_config.rlk_canonical_scope == "microbatch":
+            # forward_step opens one session per microbatch; each autograd node keeps the
+            # session it registered with, so 1F1B interleaving needs no shared state.
+            self._rlk_microbatch_sessions = []
+            try:
+                result = super().forward_backward_batch(data, loss_function, forward_only=False)
+                sessions = self._rlk_microbatch_sessions
+            finally:
+                self._rlk_microbatch_sessions = None
+            if not sessions:
+                raise RuntimeError("microbatch canonical scope saw no microbatch")
+            uses, received = {}, {}
+            for session in sessions:
+                session.validate_complete()
+                for name, entries in session.uses.items():
+                    uses[name] = uses.get(name, 0) + len(entries)
+                    received[name] = received.get(name, 0) + session.received.get(name, 0)
+            print(
+                "RLK_AMD662_CANONICAL_BACKWARD_COMPLETED",
+                dict(scope="microbatch", microbatches=len(sessions)),
+                uses,
+                received,
+                flush=True,
+            )
+            return result
         with canonical_backward_session() as session:
             result = super().forward_backward_batch(data, loss_function, forward_only=False)
             session.validate_complete()
@@ -219,9 +251,19 @@ class RLKNativeMegatronEngine(MegatronEngineWithLMHead):
 
     def forward_step(self, batch_iter, model, logits_processor_func, postprocess_micro_batch_func):
         from verl.utils import tensordict_utils as tu
-        from rl_engine.ops.autograd.canonical_backward import active_session
+        from rl_engine.ops.autograd.canonical_backward import (
+            active_session,
+            canonical_backward_session,
+        )
 
         batch = next(batch_iter)
+        sessions = getattr(self, "_rlk_microbatch_sessions", None)
+        if sessions is not None:
+            with canonical_backward_session() as session:
+                sessions.append(session)
+                return super().forward_step(
+                    iter((batch,)), model, logits_processor_func, postprocess_micro_batch_func
+                )
         session = active_session()
         if session is not None:
             count = tu.get_non_tensor_data(batch, key="num_micro_batch", default=None)

@@ -20,6 +20,13 @@ class _Use:
     keys: torch.Tensor
     rows: torch.Tensor | None = None
     grads: torch.Tensor | None = None
+    submitted: bool = False
+
+
+def _release(entries: list[_Use]) -> None:
+    """Drop saved rows once a parameter's reduction has been emitted."""
+    for item in entries:
+        item.rows = item.grads = None
 
 
 @dataclass
@@ -74,8 +81,9 @@ class CanonicalBackwardSession:
         if entries is None or slot >= len(entries):
             raise RuntimeError(f"unregistered canonical use: {parameter_id}:{slot}")
         entry = entries[slot]
-        if entry.rows is not None:
+        if entry.submitted:
             raise RuntimeError(f"duplicate canonical submission: {parameter_id}:{slot}")
+        entry.submitted = True
         entry.rows = rows.reshape(-1, rows.shape[-1]).detach()
         entry.grads = grads.reshape(-1, grads.shape[-1]).detach()
         if entry.rows.shape[0] != entry.keys.shape[0]:
@@ -93,6 +101,7 @@ class CanonicalBackwardSession:
         all_grads = all_grads[valid]
         if all_keys.shape[0] == 0:
             raise RuntimeError(f"no active logical rows for {parameter_id}")
+        _release(entries)
         order = torch.arange(all_keys.shape[0], device=all_keys.device)
         for column in range(all_keys.shape[1] - 1, -1, -1):
             values = all_keys.index_select(0, order)[:, column]
@@ -111,8 +120,9 @@ class CanonicalBackwardSession:
         if entries is None or slot >= len(entries):
             raise RuntimeError(f"unregistered canonical use: {parameter_id}:{slot}")
         entry = entries[slot]
-        if entry.rows is not None:
+        if entry.submitted:
             raise RuntimeError(f"duplicate canonical submission: {parameter_id}:{slot}")
+        entry.submitted = True
         entry.rows = rows.reshape(rows.shape[0], -1).detach()
         if entry.rows.shape[0] != entry.keys.shape[0]:
             raise ValueError("logical key count does not match contribution rows")
@@ -124,6 +134,7 @@ class CanonicalBackwardSession:
         all_rows = torch.cat([item.rows for item in entries if item.rows is not None], dim=0)
         valid = all_keys[:, 0] >= 0
         all_keys, all_rows = all_keys[valid], all_rows[valid]
+        _release(entries)
         order = torch.arange(all_keys.shape[0], device=all_keys.device)
         for column in range(all_keys.shape[1] - 1, -1, -1):
             values = all_keys.index_select(0, order)[:, column]
