@@ -1960,12 +1960,17 @@ def install_vllm_integration(plan: IntegrationPlan) -> VllmIntegration:
 
 def register_vllm_plugin() -> None:
     """vLLM general-plugin entry point; inactive unless Vime exported a plan or
-    ``RL_KERNEL_DSV4_ROLLOUT=1`` asks for the DeepSeek-V4 rollout model."""
+    ``RL_KERNEL_DSV4_ROLLOUT=1`` / ``RL_KERNEL_DSV41_ROLLOUT=1`` asks for the DeepSeek-V4 /
+    V4.1 rollout model."""
 
     if os.getenv("RL_KERNEL_DSV4_ROLLOUT", "").strip() in {"1", "true", "True"}:
         from rl_engine.integrations.dsv4.vllm_model import register
 
         register()
+    if os.getenv("RL_KERNEL_DSV41_ROLLOUT", "").strip() in {"1", "true", "True"}:
+        from rl_engine.integrations.dsv41.vllm_model import register as register_v41
+
+        register_v41()
     if os.getenv("RL_KERNEL_VLLM_INTEGRATION", "").strip() not in {"1", "true", "True"}:
         return
     install_vllm_integration(plan_from_environment())

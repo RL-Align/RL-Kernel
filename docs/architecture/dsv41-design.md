@@ -633,6 +633,33 @@ block strides); write the cache adapters; then the model class, registered under
 `DeepseekV41ForCausalLM` by the plugin entry point; then the gate (rollout vs `Dsv41Model`,
 bitwise), as `scripts/check_dsv4_vllm_gate.py` for DSv4.
 
+**Plugin as built (2026-11-27)**, `rl_engine/integrations/dsv41/` (entry point:
+`RL_KERNEL_DSV41_ROLLOUT=1`):
+
+- `RlkDeepseekV41ForCausalLM` builds vLLM's attention layers (the Hopper class) on the meta
+  device and drops their parameters: vLLM gets the cache specs and metadata builders, and
+  allocates no weights, Engram tables or experts. `load_weights` ignores vLLM's iterator and
+  loads `Dsv41Model` from the checkpoint directory (Engram tables mapped, EP slicing).
+- vLLM main's caches as probed: SWA `[N, 32, 584]`, compressed KV and indexer K owned by the
+  KV source at `64 / ratio` entries per block, compressor ring `[N, 8, 1024]` FP32, every view
+  a slice of one page per block (stride 69696 B on the toy model). The kernels take block
+  sizes and strides (`attention.block_sizes`); the indexer decode logits use DeepGEMM's
+  paged MQA only at 64-entry blocks (layer 20) and gather otherwise.
+- The ratio-2 state: a per-step scratch state, the open group's rows moved to and from
+  vLLM's ring (`engine_caches.StepCaches`); padded slots of dummy forwards (ring slot -1)
+  are skipped.
+- Engram windows from vLLM main's `lookback_token_ids` (its `DeepseekV41ModelState`).
+- A forward without metadata (profiling, an idle DP rank) runs the tokens as one request on
+  scratch caches, so its memory and EP collectives are a real forward's.
+- vLLM main API differences from the DSv4 fork: no V1 model runner (V2 only); the V2
+  sampler's `get_top_k_top_p` takes the vocabulary size; FlashInfer autotune is turned off
+  (it walks vLLM's layer weights).
+- Gate `scripts/check_dsv41_vllm_gate.py` (toy, LoRA rank 16, 1 x H200, 2026-11-27): PASS,
+  2102 tokens over 28 continuous-batching steps, every layer and the final hidden
+  byte-identical to `Dsv41Model`'s prefill, 54 / 54 sampled log-probs bit-equal.
+- verl `8c047f4d` against vLLM main 0.34.1: its rollout and trainer modules import; of the 92
+  vLLM names it imports, the 4 missing ones are guarded fallbacks or older-version paths.
+
 verl integration (base 10.1) is unchanged in shape. The actor engine additionally needs
 Engram table storage shared across ranks.
 
@@ -695,7 +722,7 @@ Progress (2026-11-25, 1 x H100; `tests/ops/{mhc,compressor,engram,topk}`,
 | 5 / training | `Dsv41Model.forward_train` (byte-equal to `forward_batch`) and the attention backward (`attention_backward.py`): no q-norm, BF16 dgrads with the MXFP8 rounding straight through, compressor backward at ratios 1 / 2, and the group handle: a KV source's attention returns a handle that the group's other layers take, so autograd sums their compressed-entry gradients into the source's compressor backward. LoRA on every target including the BF16 shared expert (`attach_lora` from DSv4). Checks: with the loss on a reuse layer only, dL/dx of the KV source matches finite differences (correlation 0.99, magnitude 0.93 to 0.98; steps below 0.2 drown in the FP8 KV rounding); every adapter gets a finite nonzero gradient |
 | 5 / recompute | `forward_train(recompute=True)`: per layer, autograd keeps the input streams and the carried pre and reruns the layer in the backward; a KV source's recompute function also returns the group handle, so the rerun backpropagates the group's summed entry gradient. Same forward bytes, gradients within the attention backward's atomics (cosine > 0.999); held activations 1116 to 136 MiB on the toy model at 400 tokens |
 | Gate | `scripts/check_dsv41_layerwise_gate.py`: rollout (staggered arrivals, chunked prefill, decode beside prefill) against the actor's packed prefill and the training forward, every layer byte-identical, LoRA rank 16. Toy model PASS; the release, all 40 layers (2026-11-26, 4 x H200, EP 4, Engram tables mapped from the shards, 2108 tokens): PASS, 0 differing tokens at every layer, final hidden and log-probs identical; loads in 20 s |
-| In progress | vLLM rollout plugin on vLLM main `3f86db3` (10.1; env `rlk41` building) |
+| 8 (plugin) | vLLM rollout plugin on vLLM main `3f86db3` in `rlk41` (10.1): toy gate PASS (eager, 1 GPU, LoRA); next the release at DP = EP, CUDA graphs |
 | Not started | verl integration, layer-staged SWA (9), prefix-cache replay |
 
 Step 9 comes after a green gate on purpose: it changes which rows are computed and no

@@ -45,7 +45,7 @@ class EngineLayer:
     ``[blocks, kv_block, 584]`` and ``idx_k`` ``[blocks, idx_block, 132]`` (other layers of
     the group alias the source's), and at ratio 2 ``ring`` FP32
     ``[blocks, capacity, 2 * head_dim]`` with ``ring_blocks`` int64 ``[R]`` (each request's
-    ring block). Any block stride."""
+    ring block; negative: none, as a padded slot of a dummy forward). Any block stride."""
 
     swa: Tensor
     swa_table: Tensor
@@ -106,6 +106,7 @@ class StepCaches:
         table = torch.zeros(len(seq_lens), width, dtype=torch.int32)
         n = 1  # block 0: scratch for the table's unused entries
         carry_req, carry_pos, out_req, out_pos = [], [], [], []
+        has_ring = [b >= 0 for b in el.ring_blocks[: len(seq_lens)].tolist()]
         for r, (s, q) in enumerate(zip(seq_lens, query_lens)):
             start = s - q
             first = start - start % ratio  # the open group's first position
@@ -113,6 +114,8 @@ class StepCaches:
             if hi > lo:
                 table[r, lo:hi] = torch.arange(n, n + hi - lo, dtype=torch.int32)
                 n += hi - lo
+            if not has_ring[r]:
+                continue  # no ring row to read or keep (a dummy forward's padded slot)
             carry_req += [r] * (start - first)
             carry_pos += list(range(first, start))
             end = s - s % ratio

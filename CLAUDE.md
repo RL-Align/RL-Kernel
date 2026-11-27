@@ -140,8 +140,11 @@ ratios 1 / 2, Engram gate, q-RoPE without q-norm). Facts that cost time:
 - Loading the release: keep the Engram tables (94 GiB each) as a read-only shared mmap of
   the shards (a copy-on-write map fails with ENOMEM) and unmap shards after each layer (all
   shards mapped per rank hit ENOMEM too, with `ulimit -v` unlimited).
-- Next: the vLLM rollout plugin on vLLM main `3f86db3` (design doc 10.1) in env `rlk41`
-  (torch 2.14, whose ATen needs C++20: DeepGEMM's setup is patched), then verl.
+- vLLM rollout plugin (`rl_engine/integrations/dsv41/`, `RL_KERNEL_DSV41_ROLLOUT=1`) on
+  vLLM main `3f86db3` in env `rlk41` (torch 2.14): vLLM keeps scheduling, caches and
+  metadata; vLLM's attention layers are built on meta (caches only), `Dsv41Model` computes.
+  Toy gate (`scripts/check_dsv41_vllm_gate.py`) PASS, 2026-11-27. Eager only, no prefix
+  caching. Next: the release at DP = EP on 8 x H200, then verl (`8c047f4d` imports fine).
 
 ## This cluster (pinghsieh-rsv1)
 
