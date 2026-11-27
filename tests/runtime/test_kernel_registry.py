@@ -93,6 +93,7 @@ def test_sm90_linear_ops_prioritize_cuda_when_extension_symbols_exist(monkeypatc
         lm_head_sm90_forward = object()
 
     monkeypatch.setattr(registry_module.device_ctx, "device_type", "cuda")
+    monkeypatch.setattr(registry_module.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(registry_module.torch.cuda, "get_device_capability", lambda: (9, 0))
     monkeypatch.setattr(base_module, "_EXT_AVAILABLE", True)
     monkeypatch.setattr(base_module, "_C", FakeExtension())
@@ -111,6 +112,7 @@ def test_sm90_linear_ops_do_not_prioritize_cuda_on_non_hopper(monkeypatch):
         lm_head_sm90_forward = object()
 
     monkeypatch.setattr(registry_module.device_ctx, "device_type", "cuda")
+    monkeypatch.setattr(registry_module.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(registry_module.torch.cuda, "get_device_capability", lambda: (8, 0))
     monkeypatch.setattr(base_module, "_EXT_AVAILABLE", True)
     monkeypatch.setattr(base_module, "_C", FakeExtension())
@@ -119,3 +121,17 @@ def test_sm90_linear_ops_do_not_prioritize_cuda_on_non_hopper(monkeypatch):
 
     assert OpBackend.CUDA_SM90_EMBEDDING not in registry._priority_map["cuda"]["embedding"]
     assert OpBackend.CUDA_SM90_LM_HEAD not in registry._priority_map["cuda"]["lm_head"]
+
+
+def test_hardware_priority_skips_unavailable_cuda(monkeypatch):
+    calls = []
+    monkeypatch.setattr(registry_module.device_ctx, "device_type", "cuda")
+    monkeypatch.setattr(registry_module.torch.cuda, "is_available", lambda: False)
+
+    def probe():
+        calls.append("cuda")
+        return (9, 0)
+
+    monkeypatch.setattr(registry_module.torch.cuda, "get_device_capability", probe)
+    KernelRegistry()
+    assert calls == []

@@ -375,6 +375,37 @@ def test_da_physical_transpose_contract_matches_legacy_path_bitwise(shape):
     assert torch.equal(actual, expected)
 
 
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (0, 128, 128),  # empty M on the SM90-eligible N/K
+        (0, 70, 65),  # empty M on the scalar fallback
+        (5, 128, 0),  # empty N
+        (5, 0, 128),  # empty K
+    ],
+)
+def test_empty_shapes_launch_nothing_and_leave_no_pending_error(shape):
+    """An empty grid is an invalid launch whose error a later call would report."""
+    M, K, N = shape
+    a, b = _rand(M, K), _rand(K, N)
+    results = {
+        "fwd": (_C.det_gemm_fwd(a, b), (M, N)),
+        "fwd_rhs_transposed": (_C.det_gemm_fwd_rhs_transposed(a, b.t().contiguous()), (M, N)),
+        "da": (_C.det_gemm_da(_rand(M, N), b), (M, K)),
+        "db": (_C.det_gemm_db(a, _rand(M, N)), (K, N)),
+        "db_transposed": (_C.det_gemm_db_transposed(a, _rand(M, N)), (N, K)),
+    }
+    # A pending launch error would surface here (or in the next unrelated op).
+    torch.cuda.synchronize()
+    torch.ones(1, device=DEV).add_(1)
+    torch.cuda.synchronize()
+    for name, (out, expected_shape) in results.items():
+        assert tuple(out.shape) == expected_shape, name
+        assert out.dtype == torch.bfloat16, name
+        # Either empty, or an empty reduction (K=0 for fwd/da, M=0 for db): zero.
+        assert torch.equal(out, torch.zeros_like(out)), name
+
+
 @pytest.mark.parametrize("name,gemm", _BACKENDS)
 def test_forward_batch_invariance(name, gemm):
     # A row's output must not change when other rows join the batch.

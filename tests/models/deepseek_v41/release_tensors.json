@@ -1,0 +1,8376 @@
+{
+"expert_samples": {
+"layers.0.ffn.experts.0.w1.scale": [
+"F8_E8M0",
+[
+2304,
+160
+]
+],
+"layers.0.ffn.experts.0.w1.weight": [
+"I8",
+[
+2304,
+2560
+]
+],
+"layers.0.ffn.experts.0.w2.scale": [
+"F8_E8M0",
+[
+5120,
+72
+]
+],
+"layers.0.ffn.experts.0.w2.weight": [
+"I8",
+[
+5120,
+1152
+]
+],
+"layers.0.ffn.experts.0.w3.scale": [
+"F8_E8M0",
+[
+2304,
+160
+]
+],
+"layers.0.ffn.experts.0.w3.weight": [
+"I8",
+[
+2304,
+2560
+]
+],
+"layers.0.ffn.experts.383.w1.scale": [
+"F8_E8M0",
+[
+2304,
+160
+]
+],
+"layers.0.ffn.experts.383.w1.weight": [
+"I8",
+[
+2304,
+2560
+]
+],
+"layers.0.ffn.experts.383.w2.scale": [
+"F8_E8M0",
+[
+5120,
+72
+]
+],
+"layers.0.ffn.experts.383.w2.weight": [
+"I8",
+[
+5120,
+1152
+]
+],
+"layers.0.ffn.experts.383.w3.scale": [
+"F8_E8M0",
+[
+2304,
+160
+]
+],
+"layers.0.ffn.experts.383.w3.weight": [
+"I8",
+[
+2304,
+2560
+]
+],
+"layers.39.ffn.experts.0.w1.scale": [
+"F8_E8M0",
+[
+2304,
+160
+]
+],
+"layers.39.ffn.experts.0.w1.weight": [
+"I8",
+[
+2304,
+2560
+]
+],
+"layers.39.ffn.experts.0.w2.scale": [
+"F8_E8M0",
+[
+5120,
+72
+]
+],
+"layers.39.ffn.experts.0.w2.weight": [
+"I8",
+[
+5120,
+1152
+]
+],
+"layers.39.ffn.experts.0.w3.scale": [
+"F8_E8M0",
+[
+2304,
+160
+]
+],
+"layers.39.ffn.experts.0.w3.weight": [
+"I8",
+[
+2304,
+2560
+]
+],
+"layers.39.ffn.experts.383.w1.scale": [
+"F8_E8M0",
+[
+2304,
+160
+]
+],
+"layers.39.ffn.experts.383.w1.weight": [
+"I8",
+[
+2304,
+2560
+]
+],
+"layers.39.ffn.experts.383.w2.scale": [
+"F8_E8M0",
+[
+5120,
+72
+]
+],
+"layers.39.ffn.experts.383.w2.weight": [
+"I8",
+[
+5120,
+1152
+]
+],
+"layers.39.ffn.experts.383.w3.scale": [
+"F8_E8M0",
+[
+2304,
+160
+]
+],
+"layers.39.ffn.experts.383.w3.weight": [
+"I8",
+[
+2304,
+2560
+]
+]
+},
+"expert_tensors_per_layer": {
+"0": 2304,
+"1": 2304,
+"2": 2304,
+"3": 2304,
+"4": 2304,
+"5": 2304,
+"6": 2304,
+"7": 2304,
+"8": 2304,
+"9": 2304,
+"10": 2304,
+"11": 2304,
+"12": 2304,
+"13": 2304,
+"14": 2304,
+"15": 2304,
+"16": 2304,
+"17": 2304,
+"18": 2304,
+"19": 2304,
+"20": 2304,
+"21": 2304,
+"22": 2304,
+"23": 2304,
+"24": 2304,
+"25": 2304,
+"26": 2304,
+"27": 2304,
+"28": 2304,
+"29": 2304,
+"30": 2304,
+"31": 2304,
+"32": 2304,
+"33": 2304,
+"34": 2304,
+"35": 2304,
+"36": 2304,
+"37": 2304,
+"38": 2304,
+"39": 2304
+},
+"skipped": [
+"aligner.w1.bias",
+"aligner.w1.weight",
+"aligner.w2.bias",
+"aligner.w2.weight",
+"image_end",
+"image_newline",
+"image_start",
+"layers.N.ffn.gate.bias_vl",
+"mtp.N.attn.attn_sink",
+"mtp.N.attn.kv_norm.weight",
+"mtp.N.attn.q_norm.weight",
+"mtp.N.attn.wkv.scale",
+"mtp.N.attn.wkv.weight",
+"mtp.N.attn.wo_a.scale",
+"mtp.N.attn.wo_a.weight",
+"mtp.N.attn.wo_b.scale",
+"mtp.N.attn.wo_b.weight",
+"mtp.N.attn.wq_a.scale",
+"mtp.N.attn.wq_a.weight",
+"mtp.N.attn.wq_b.scale",
+"mtp.N.attn.wq_b.weight",
+"mtp.N.attn_norm.weight",
+"mtp.N.confidence_head.proj.weight",
+"mtp.N.ffn.experts.N.w1.scale",
+"mtp.N.ffn.experts.N.w1.weight",
+"mtp.N.ffn.experts.N.w2.scale",
+"mtp.N.ffn.experts.N.w2.weight",
+"mtp.N.ffn.experts.N.w3.scale",
+"mtp.N.ffn.experts.N.w3.weight",
+"mtp.N.ffn.gate.bias",
+"mtp.N.ffn.gate.bias_vl",
+"mtp.N.ffn.gate.weight",
+"mtp.N.ffn.shared_experts.w1.scale",
+"mtp.N.ffn.shared_experts.w1.weight",
+"mtp.N.ffn.shared_experts.w2.scale",
+"mtp.N.ffn.shared_experts.w2.weight",
+"mtp.N.ffn.shared_experts.w3.scale",
+"mtp.N.ffn.shared_experts.w3.weight",
+"mtp.N.ffn_norm.weight",
+"mtp.N.hc_attn_base"
+],
+"source": "deepseek-ai/DeepSeek-V4.1-Flash@314113f8 safetensors headers",
+"tensors": {
+"embed.weight": [
+"BF16",
+[
+129280,
+5120
+]
+],
+"head.weight": [
+"BF16",
+[
+129280,
+5120
+]
+],
+"layers.0.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.0.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.0.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.0.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.0.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.0.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.0.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.0.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.0.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.0.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.0.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.0.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.0.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.0.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.0.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.0.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.0.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.0.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.0.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.0.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.0.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.0.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.0.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.0.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.0.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.0.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.0.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.0.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.0.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.1.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.1.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.1.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.1.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.1.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.1.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.1.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.1.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.1.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.1.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.1.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.1.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.1.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.1.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.1.engram.embed.scale": [
+"F8_E8M0",
+[
+384006168,
+8
+]
+],
+"layers.1.engram.embed.weight": [
+"F8_E4M3",
+[
+384006168,
+256
+]
+],
+"layers.1.engram.k_weight": [
+"BF16",
+[
+4,
+5120
+]
+],
+"layers.1.engram.q_weight": [
+"BF16",
+[
+4,
+5120
+]
+],
+"layers.1.engram.wkv.scale": [
+"F8_E8M0",
+[
+800,
+192
+]
+],
+"layers.1.engram.wkv.weight": [
+"F8_E4M3",
+[
+25600,
+6144
+]
+],
+"layers.1.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.1.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.1.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.1.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.1.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.1.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.1.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.1.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.1.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.1.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.1.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.1.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.1.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.1.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.1.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.10.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.10.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.10.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.10.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.10.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.10.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.10.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.10.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.10.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.10.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.10.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.10.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.10.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.10.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.10.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.10.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.10.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.10.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.10.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.10.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.10.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.10.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.10.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.10.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.10.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.10.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.10.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.10.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.10.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.11.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.11.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.11.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.11.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.11.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.11.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.11.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.11.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.11.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.11.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.11.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.11.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.11.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.11.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.11.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.11.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.11.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.11.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.11.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.11.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.11.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.11.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.11.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.11.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.11.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.11.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.11.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.11.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.11.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.12.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.12.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.12.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.12.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.12.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.12.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.12.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.12.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.12.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.12.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.12.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.12.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.12.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.12.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.12.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.12.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.12.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.12.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.12.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.12.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.12.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.12.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.12.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.12.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.12.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.12.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.12.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.12.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.12.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.13.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.13.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.13.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.13.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.13.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.13.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.13.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.13.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.13.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.13.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.13.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.13.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.13.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.13.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.13.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.13.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.13.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.13.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.13.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.13.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.13.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.13.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.13.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.13.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.13.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.13.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.13.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.13.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.13.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.14.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.14.attn.compressor.norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.14.attn.compressor.wgate.weight": [
+"BF16",
+[
+512,
+5120
+]
+],
+"layers.14.attn.compressor.wkv.weight": [
+"BF16",
+[
+512,
+5120
+]
+],
+"layers.14.attn.indexer.k_norm.weight": [
+"BF16",
+[
+128
+]
+],
+"layers.14.attn.indexer.weights_proj.weight": [
+"BF16",
+[
+32,
+5120
+]
+],
+"layers.14.attn.indexer.wk.weight": [
+"BF16",
+[
+128,
+512
+]
+],
+"layers.14.attn.indexer.wq_b.scale": [
+"F8_E8M0",
+[
+128,
+40
+]
+],
+"layers.14.attn.indexer.wq_b.weight": [
+"F8_E4M3",
+[
+4096,
+1280
+]
+],
+"layers.14.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.14.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.14.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.14.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.14.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.14.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.14.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.14.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.14.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.14.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.14.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.14.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.14.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.14.engram.embed.scale": [
+"F8_E8M0",
+[
+384016682,
+8
+]
+],
+"layers.14.engram.embed.weight": [
+"F8_E4M3",
+[
+384016682,
+256
+]
+],
+"layers.14.engram.k_weight": [
+"BF16",
+[
+4,
+5120
+]
+],
+"layers.14.engram.q_weight": [
+"BF16",
+[
+4,
+5120
+]
+],
+"layers.14.engram.wkv.scale": [
+"F8_E8M0",
+[
+800,
+192
+]
+],
+"layers.14.engram.wkv.weight": [
+"F8_E4M3",
+[
+25600,
+6144
+]
+],
+"layers.14.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.14.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.14.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.14.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.14.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.14.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.14.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.14.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.14.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.14.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.14.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.14.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.14.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.14.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.14.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.15.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.15.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.15.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.15.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.15.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.15.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.15.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.15.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.15.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.15.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.15.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.15.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.15.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.15.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.15.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.15.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.15.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.15.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.15.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.15.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.15.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.15.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.15.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.15.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.15.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.15.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.15.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.15.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.15.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.16.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.16.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.16.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.16.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.16.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.16.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.16.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.16.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.16.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.16.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.16.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.16.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.16.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.16.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.16.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.16.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.16.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.16.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.16.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.16.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.16.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.16.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.16.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.16.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.16.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.16.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.16.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.16.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.16.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.17.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.17.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.17.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.17.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.17.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.17.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.17.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.17.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.17.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.17.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.17.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.17.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.17.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.17.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.17.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.17.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.17.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.17.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.17.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.17.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.17.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.17.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.17.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.17.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.17.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.17.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.17.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.17.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.17.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.18.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.18.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.18.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.18.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.18.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.18.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.18.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.18.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.18.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.18.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.18.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.18.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.18.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.18.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.18.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.18.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.18.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.18.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.18.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.18.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.18.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.18.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.18.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.18.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.18.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.18.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.18.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.18.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.18.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.19.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.19.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.19.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.19.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.19.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.19.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.19.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.19.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.19.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.19.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.19.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.19.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.19.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.19.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.19.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.19.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.19.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.19.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.19.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.19.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.19.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.19.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.19.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.19.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.19.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.19.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.19.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.19.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.19.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.2.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.2.attn.compressor.norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.2.attn.compressor.wgate.weight": [
+"BF16",
+[
+512,
+5120
+]
+],
+"layers.2.attn.compressor.wkv.weight": [
+"BF16",
+[
+512,
+5120
+]
+],
+"layers.2.attn.indexer.k_norm.weight": [
+"BF16",
+[
+128
+]
+],
+"layers.2.attn.indexer.weights_proj.weight": [
+"BF16",
+[
+32,
+5120
+]
+],
+"layers.2.attn.indexer.wk.weight": [
+"BF16",
+[
+128,
+512
+]
+],
+"layers.2.attn.indexer.wq_b.scale": [
+"F8_E8M0",
+[
+128,
+40
+]
+],
+"layers.2.attn.indexer.wq_b.weight": [
+"F8_E4M3",
+[
+4096,
+1280
+]
+],
+"layers.2.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.2.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.2.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.2.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.2.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.2.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.2.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.2.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.2.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.2.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.2.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.2.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.2.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.2.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.2.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.2.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.2.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.2.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.2.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.2.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.2.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.2.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.2.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.2.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.2.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.2.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.2.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.2.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.20.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.20.attn.compressor.norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.20.attn.compressor.wkv.weight": [
+"BF16",
+[
+512,
+5120
+]
+],
+"layers.20.attn.indexer.k_norm.weight": [
+"BF16",
+[
+128
+]
+],
+"layers.20.attn.indexer.weights_proj.weight": [
+"BF16",
+[
+32,
+5120
+]
+],
+"layers.20.attn.indexer.wk.weight": [
+"BF16",
+[
+128,
+512
+]
+],
+"layers.20.attn.indexer.wq_b.scale": [
+"F8_E8M0",
+[
+128,
+40
+]
+],
+"layers.20.attn.indexer.wq_b.weight": [
+"F8_E4M3",
+[
+4096,
+1280
+]
+],
+"layers.20.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.20.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.20.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.20.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.20.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.20.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.20.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.20.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.20.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.20.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.20.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.20.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.20.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.20.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.20.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.20.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.20.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.20.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.20.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.20.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.20.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.20.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.20.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.20.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.20.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.20.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.20.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.20.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.21.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.21.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.21.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.21.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.21.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.21.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.21.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.21.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.21.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.21.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.21.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.21.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.21.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.21.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.21.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.21.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.21.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.21.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.21.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.21.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.21.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.21.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.21.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.21.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.21.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.21.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.21.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.21.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.21.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.22.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.22.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.22.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.22.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.22.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.22.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.22.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.22.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.22.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.22.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.22.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.22.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.22.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.22.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.22.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.22.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.22.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.22.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.22.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.22.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.22.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.22.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.22.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.22.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.22.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.22.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.22.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.22.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.22.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.23.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.23.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.23.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.23.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.23.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.23.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.23.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.23.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.23.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.23.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.23.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.23.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.23.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.23.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.23.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.23.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.23.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.23.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.23.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.23.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.23.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.23.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.23.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.23.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.23.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.23.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.23.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.23.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.23.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.24.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.24.attn.indexer.weights_proj.weight": [
+"BF16",
+[
+32,
+5120
+]
+],
+"layers.24.attn.indexer.wq_b.scale": [
+"F8_E8M0",
+[
+128,
+40
+]
+],
+"layers.24.attn.indexer.wq_b.weight": [
+"F8_E4M3",
+[
+4096,
+1280
+]
+],
+"layers.24.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.24.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.24.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.24.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.24.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.24.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.24.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.24.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.24.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.24.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.24.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.24.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.24.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.24.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.24.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.24.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.24.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.24.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.24.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.24.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.24.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.24.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.24.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.24.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.24.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.24.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.24.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.24.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.25.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.25.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.25.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.25.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.25.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.25.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.25.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.25.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.25.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.25.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.25.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.25.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.25.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.25.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.25.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.25.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.25.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.25.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.25.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.25.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.25.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.25.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.25.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.25.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.25.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.25.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.25.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.25.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.25.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.26.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.26.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.26.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.26.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.26.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.26.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.26.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.26.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.26.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.26.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.26.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.26.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.26.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.26.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.26.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.26.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.26.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.26.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.26.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.26.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.26.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.26.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.26.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.26.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.26.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.26.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.26.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.26.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.26.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.27.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.27.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.27.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.27.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.27.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.27.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.27.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.27.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.27.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.27.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.27.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.27.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.27.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.27.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.27.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.27.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.27.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.27.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.27.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.27.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.27.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.27.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.27.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.27.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.27.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.27.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.27.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.27.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.27.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.28.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.28.attn.indexer.weights_proj.weight": [
+"BF16",
+[
+32,
+5120
+]
+],
+"layers.28.attn.indexer.wq_b.scale": [
+"F8_E8M0",
+[
+128,
+40
+]
+],
+"layers.28.attn.indexer.wq_b.weight": [
+"F8_E4M3",
+[
+4096,
+1280
+]
+],
+"layers.28.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.28.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.28.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.28.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.28.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.28.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.28.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.28.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.28.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.28.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.28.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.28.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.28.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.28.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.28.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.28.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.28.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.28.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.28.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.28.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.28.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.28.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.28.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.28.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.28.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.28.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.28.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.28.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.29.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.29.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.29.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.29.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.29.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.29.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.29.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.29.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.29.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.29.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.29.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.29.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.29.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.29.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.29.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.29.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.29.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.29.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.29.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.29.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.29.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.29.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.29.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.29.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.29.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.29.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.29.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.29.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.29.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.3.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.3.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.3.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.3.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.3.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.3.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.3.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.3.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.3.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.3.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.3.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.3.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.3.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.3.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.3.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.3.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.3.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.3.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.3.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.3.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.3.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.3.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.3.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.3.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.3.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.3.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.3.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.3.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.3.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.30.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.30.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.30.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.30.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.30.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.30.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.30.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.30.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.30.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.30.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.30.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.30.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.30.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.30.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.30.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.30.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.30.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.30.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.30.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.30.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.30.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.30.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.30.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.30.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.30.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.30.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.30.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.30.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.30.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.31.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.31.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.31.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.31.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.31.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.31.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.31.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.31.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.31.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.31.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.31.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.31.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.31.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.31.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.31.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.31.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.31.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.31.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.31.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.31.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.31.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.31.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.31.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.31.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.31.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.31.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.31.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.31.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.31.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.32.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.32.attn.indexer.weights_proj.weight": [
+"BF16",
+[
+32,
+5120
+]
+],
+"layers.32.attn.indexer.wq_b.scale": [
+"F8_E8M0",
+[
+128,
+40
+]
+],
+"layers.32.attn.indexer.wq_b.weight": [
+"F8_E4M3",
+[
+4096,
+1280
+]
+],
+"layers.32.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.32.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.32.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.32.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.32.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.32.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.32.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.32.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.32.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.32.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.32.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.32.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.32.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.32.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.32.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.32.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.32.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.32.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.32.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.32.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.32.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.32.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.32.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.32.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.32.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.32.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.32.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.32.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.33.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.33.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.33.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.33.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.33.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.33.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.33.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.33.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.33.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.33.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.33.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.33.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.33.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.33.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.33.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.33.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.33.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.33.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.33.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.33.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.33.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.33.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.33.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.33.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.33.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.33.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.33.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.33.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.33.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.34.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.34.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.34.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.34.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.34.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.34.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.34.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.34.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.34.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.34.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.34.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.34.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.34.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.34.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.34.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.34.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.34.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.34.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.34.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.34.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.34.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.34.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.34.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.34.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.34.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.34.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.34.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.34.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.34.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.35.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.35.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.35.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.35.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.35.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.35.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.35.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.35.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.35.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.35.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.35.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.35.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.35.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.35.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.35.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.35.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.35.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.35.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.35.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.35.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.35.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.35.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.35.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.35.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.35.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.35.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.35.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.35.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.35.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.36.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.36.attn.indexer.weights_proj.weight": [
+"BF16",
+[
+32,
+5120
+]
+],
+"layers.36.attn.indexer.wq_b.scale": [
+"F8_E8M0",
+[
+128,
+40
+]
+],
+"layers.36.attn.indexer.wq_b.weight": [
+"F8_E4M3",
+[
+4096,
+1280
+]
+],
+"layers.36.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.36.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.36.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.36.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.36.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.36.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.36.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.36.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.36.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.36.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.36.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.36.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.36.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.36.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.36.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.36.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.36.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.36.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.36.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.36.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.36.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.36.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.36.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.36.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.36.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.36.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.36.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.36.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.37.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.37.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.37.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.37.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.37.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.37.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.37.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.37.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.37.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.37.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.37.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.37.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.37.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.37.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.37.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.37.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.37.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.37.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.37.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.37.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.37.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.37.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.37.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.37.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.37.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.37.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.37.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.37.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.37.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.38.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.38.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.38.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.38.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.38.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.38.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.38.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.38.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.38.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.38.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.38.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.38.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.38.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.38.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.38.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.38.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.38.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.38.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.38.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.38.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.38.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.38.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.38.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.38.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.38.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.38.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.38.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.38.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.38.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.39.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.39.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.39.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.39.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.39.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.39.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.39.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.39.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.39.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.39.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.39.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.39.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.39.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.39.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.39.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.39.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.39.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.39.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.39.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.39.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.39.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.39.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.39.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.39.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.39.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.39.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.39.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.39.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.39.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.4.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.4.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.4.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.4.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.4.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.4.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.4.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.4.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.4.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.4.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.4.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.4.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.4.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.4.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.4.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.4.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.4.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.4.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.4.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.4.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.4.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.4.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.4.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.4.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.4.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.4.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.4.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.4.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.4.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.5.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.5.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.5.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.5.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.5.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.5.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.5.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.5.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.5.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.5.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.5.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.5.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.5.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.5.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.5.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.5.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.5.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.5.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.5.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.5.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.5.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.5.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.5.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.5.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.5.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.5.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.5.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.5.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.5.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.6.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.6.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.6.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.6.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.6.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.6.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.6.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.6.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.6.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.6.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.6.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.6.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.6.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.6.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.6.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.6.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.6.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.6.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.6.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.6.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.6.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.6.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.6.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.6.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.6.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.6.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.6.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.6.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.6.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.7.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.7.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.7.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.7.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.7.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.7.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.7.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.7.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.7.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.7.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.7.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.7.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.7.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.7.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.7.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.7.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.7.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.7.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.7.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.7.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.7.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.7.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.7.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.7.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.7.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.7.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.7.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.7.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.7.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.8.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.8.attn.compressor.norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.8.attn.compressor.wgate.weight": [
+"BF16",
+[
+512,
+5120
+]
+],
+"layers.8.attn.compressor.wkv.weight": [
+"BF16",
+[
+512,
+5120
+]
+],
+"layers.8.attn.indexer.k_norm.weight": [
+"BF16",
+[
+128
+]
+],
+"layers.8.attn.indexer.weights_proj.weight": [
+"BF16",
+[
+32,
+5120
+]
+],
+"layers.8.attn.indexer.wk.weight": [
+"BF16",
+[
+128,
+512
+]
+],
+"layers.8.attn.indexer.wq_b.scale": [
+"F8_E8M0",
+[
+128,
+40
+]
+],
+"layers.8.attn.indexer.wq_b.weight": [
+"F8_E4M3",
+[
+4096,
+1280
+]
+],
+"layers.8.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.8.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.8.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.8.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.8.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.8.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.8.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.8.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.8.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.8.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.8.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.8.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.8.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.8.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.8.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.8.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.8.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.8.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.8.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.8.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.8.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.8.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.8.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.8.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.8.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.8.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.8.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.8.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.9.attn.attn_sink": [
+"F32",
+[
+64
+]
+],
+"layers.9.attn.kv_norm.weight": [
+"BF16",
+[
+512
+]
+],
+"layers.9.attn.q_norm.weight": [
+"BF16",
+[
+1280
+]
+],
+"layers.9.attn.wkv.scale": [
+"F8_E8M0",
+[
+16,
+160
+]
+],
+"layers.9.attn.wkv.weight": [
+"F8_E4M3",
+[
+512,
+5120
+]
+],
+"layers.9.attn.wo_a.scale": [
+"F8_E8M0",
+[
+256,
+128
+]
+],
+"layers.9.attn.wo_a.weight": [
+"F8_E4M3",
+[
+8192,
+4096
+]
+],
+"layers.9.attn.wo_b.scale": [
+"F8_E8M0",
+[
+160,
+256
+]
+],
+"layers.9.attn.wo_b.weight": [
+"F8_E4M3",
+[
+5120,
+8192
+]
+],
+"layers.9.attn.wq_a.scale": [
+"F8_E8M0",
+[
+40,
+160
+]
+],
+"layers.9.attn.wq_a.weight": [
+"F8_E4M3",
+[
+1280,
+5120
+]
+],
+"layers.9.attn.wq_b.scale": [
+"F8_E8M0",
+[
+1024,
+40
+]
+],
+"layers.9.attn.wq_b.weight": [
+"F8_E4M3",
+[
+32768,
+1280
+]
+],
+"layers.9.attn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.9.ffn.gate.bias": [
+"F32",
+[
+384
+]
+],
+"layers.9.ffn.gate.weight": [
+"BF16",
+[
+384,
+5120
+]
+],
+"layers.9.ffn.shared_experts.w1.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.9.ffn.shared_experts.w1.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.9.ffn.shared_experts.w2.scale": [
+"F8_E8M0",
+[
+160,
+72
+]
+],
+"layers.9.ffn.shared_experts.w2.weight": [
+"F8_E4M3",
+[
+5120,
+2304
+]
+],
+"layers.9.ffn.shared_experts.w3.scale": [
+"F8_E8M0",
+[
+72,
+160
+]
+],
+"layers.9.ffn.shared_experts.w3.weight": [
+"F8_E4M3",
+[
+2304,
+5120
+]
+],
+"layers.9.ffn_norm.weight": [
+"BF16",
+[
+5120
+]
+],
+"layers.9.hc_attn_base": [
+"F32",
+[
+24
+]
+],
+"layers.9.hc_attn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.9.hc_attn_scale": [
+"F32",
+[
+3
+]
+],
+"layers.9.hc_ffn_base": [
+"F32",
+[
+24
+]
+],
+"layers.9.hc_ffn_fn": [
+"F32",
+[
+24,
+20480
+]
+],
+"layers.9.hc_ffn_scale": [
+"F32",
+[
+3
+]
+],
+"norm.weight": [
+"BF16",
+[
+5120
+]
+]
+}
+}

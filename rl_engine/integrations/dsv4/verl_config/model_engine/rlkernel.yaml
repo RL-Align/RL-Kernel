@@ -1,0 +1,3 @@
+# @package _global_
+# RL-Kernel DSv4 engine (rl_engine/integrations/dsv4/verl_engine.py)
+model_engine: rlkernel

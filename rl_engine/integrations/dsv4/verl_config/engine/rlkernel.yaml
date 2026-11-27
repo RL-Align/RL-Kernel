@@ -1,0 +1,44 @@
+# Engine config of the rlkernel backend (RlkEngineConfig)
+_target_: rl_engine.integrations.dsv4.verl_engine.RlkEngineConfig
+
+# Strategy (backend) name
+strategy: rlkernel
+
+# Offload is not supported
+param_offload: False
+
+optimizer_offload: False
+
+# Forward only (reference policy)
+forward_only: False
+
+# LoRA rank and alpha (keep model.lora_rank at 0: it would turn on vLLM's own LoRA)
+lora_rank: 0
+
+lora_alpha: 16
+
+# Which LoRA adapters to create
+lora_attention: True
+
+lora_moe: True
+
+lora_shared_expert: True
+
+# Seed of the adapters' initialization
+lora_seed: 42
+
+# Rows per FP32 logits chunk for the entropy metric
+entropy_chunk_rows: 1024
+
+# Ranks per expert-parallel group (a divisor of the world size; 1 = every rank holds every
+# routed expert). Attention stays data parallel.
+expert_parallel_size: 1
+
+# Per-layer activation recompute in training forwards: one [T, 4, H] tensor per layer
+# instead of its activations, one more forward per layer in the backward. Same bytes.
+activation_recompute: False
+
+seed: 42
+
+# Longest sequence the model serves (RoPE tables)
+max_model_len: 65536
