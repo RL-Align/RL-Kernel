@@ -64,6 +64,7 @@ def test_rocm_build_excludes_cuda_ipc_collective_and_driver(monkeypatch) -> None
     assert "csrc/cuda/collectives/deterministic_collective.cu" not in extension["sources"]
     assert "csrc/cuda/attention/joint_attn_softmax.cu" not in extension["sources"]
     assert "csrc/rocm/collectives/deterministic_collective.hip" in extension["sources"]
+    assert "csrc/cuda/attention/joint_attn_qk_gemm.cu" not in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_CUDA" not in extension["extra_compile_args"]["cxx"]
     assert "-lcuda" not in extension["extra_link_args"]
@@ -77,6 +78,8 @@ def test_cuda_build_keeps_existing_ipc_collective(monkeypatch) -> None:
     assert "-DKERNEL_ALIGN_WITH_CUDA" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" in extension["extra_compile_args"]["cxx"]
     assert "-DKERNEL_ALIGN_WITH_ROCM" not in extension["extra_compile_args"]["cxx"]
+    assert "csrc/cuda/attention/joint_attn_qk_gemm.cu" in extension["sources"]
+    assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_QK_GEMM" in extension["extra_compile_args"]["cxx"]
     assert ("-lcuda" in extension["extra_link_args"]) == (os.name != "nt")
 
 
@@ -85,6 +88,8 @@ def test_fast_math_build_excludes_bit_reference_softmax(monkeypatch) -> None:
 
     assert "csrc/cuda/attention/joint_attn_softmax.cu" not in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" not in extension["extra_compile_args"]["cxx"]
+    assert "csrc/cuda/attention/joint_attn_qk_gemm.cu" not in extension["sources"]
+    assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_QK_GEMM" not in extension["extra_compile_args"]["cxx"]
 
 
 @pytest.mark.parametrize("variable", ["NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS"])
@@ -98,6 +103,8 @@ def test_external_fast_math_flags_exclude_bit_reference_softmax(monkeypatch, var
 
     assert "csrc/cuda/attention/joint_attn_softmax.cu" not in extension["sources"]
     assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX" not in extension["extra_compile_args"]["cxx"]
+    assert "csrc/cuda/attention/joint_attn_qk_gemm.cu" not in extension["sources"]
+    assert "-DKERNEL_ALIGN_WITH_JOINT_ATTN_QK_GEMM" not in extension["extra_compile_args"]["cxx"]
 
 
 @pytest.mark.parametrize(

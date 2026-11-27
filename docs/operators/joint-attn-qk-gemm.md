@@ -64,7 +64,9 @@ Contract version `joint-attn-qk-gemm-tree-v1`.
    positions are compacted into ascending logical order before the tree is
    built, and padded output rows are defined as exactly zero.
 5. **Excluded.** No Split-K, Stream-K, atomic accumulation, TF32, fast math or
-   autotuning.
+   autotuning. A build with `KERNEL_ALIGN_USE_FAST_MATH=1`,
+   or with external NVCC flags that relax FP32 math, leaves the CUDA kernel out,
+   so dispatch falls back to the reference instead of returning different bits.
 
 The tree discipline deliberately matches `attn-out-bias-gemm-tree-v1` (issue
 \#386 row `attn_out_bias_gemm`) so the two GEMM rows share one reduction
@@ -166,6 +168,9 @@ python benchmarks/operators/attention/benchmark_joint_attn_qk_gemm.py
 ## Known limitations
 
 - CUDA only. ROCm, MUSA and Ascend fall back to the PyTorch reference.
+- Launch grids keep `gridDim.y` and `gridDim.z` at or below 65535, so the
+  kernels reject `B * H > 65535`, `Sq > 65535` or `Sk > 65535` (backward), and
+  `Sq > 524280` (forward) with an error.
 - Head dims outside a power-of-two leaf count use the declared CPU fallback.
 - The backward materialises the full `[B, H, Sq, Sk]` score gradient, which is
   inherent to the unfused WS1 decomposition; the `joint_attention_fused` row

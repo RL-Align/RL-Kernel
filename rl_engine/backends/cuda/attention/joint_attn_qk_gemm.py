@@ -138,7 +138,8 @@ class JointAttnQkGemmCudaOp:
         if missing:
             raise RuntimeError(
                 f"joint_attn_qk_gemm CUDA kernel is unavailable: _C is missing {missing}. "
-                "Rebuild the native extension."
+                "Builds with fast math or relaxed external NVCC math flags leave it out; "
+                "rebuild with strict math."
             )
         self._reference = NativeJointAttnQkGemmOp()
         self._last_plan: Optional[JointAttnQkGemmPlan] = None

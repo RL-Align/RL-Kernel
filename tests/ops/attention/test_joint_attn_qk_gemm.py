@@ -727,3 +727,34 @@ class TestRegistryDispatch:
         assert spec.grad_input_names == ("q", "k")
         assert set(spec.candidate_paths) == {"pytorch", "cuda"}
         assert spec.gold_method == "forward_fp32"
+
+
+@requires_cuda
+class TestLaunchLimits:
+    """Grid extents past the CUDA gridDim.y/z limit raise instead of launching."""
+
+    def test_forward_rejects_batch_head_product_past_grid_limit(self):
+        _cuda_op()
+        from rl_engine.backends.extension import _C
+
+        q = torch.zeros(1, 65536, 1, 32, dtype=torch.bfloat16, device="cuda")
+        with pytest.raises(RuntimeError, match="exceeds the CUDA limit"):
+            _C.joint_attn_qk_gemm_forward(q, q, 1.0, False)
+
+    def test_dq_leaf_rejects_query_extent_past_grid_limit(self):
+        _cuda_op()
+        from rl_engine.backends.extension import _C
+
+        grad = torch.zeros(1, 1, 65536, 1, dtype=torch.float32, device="cuda")
+        k = torch.zeros(1, 1, 1, 32, dtype=torch.bfloat16, device="cuda")
+        with pytest.raises(RuntimeError, match="exceeds the CUDA limit"):
+            _C.joint_attn_qk_gemm_dq_leaf(grad, k, 0, 1)
+
+    def test_dk_leaf_rejects_key_extent_past_grid_limit(self):
+        _cuda_op()
+        from rl_engine.backends.extension import _C
+
+        grad = torch.zeros(1, 1, 1, 65536, dtype=torch.float32, device="cuda")
+        q = torch.zeros(1, 1, 1, 32, dtype=torch.bfloat16, device="cuda")
+        with pytest.raises(RuntimeError, match="exceeds the CUDA limit"):
+            _C.joint_attn_qk_gemm_dk_leaf(grad, q, 0, 1)

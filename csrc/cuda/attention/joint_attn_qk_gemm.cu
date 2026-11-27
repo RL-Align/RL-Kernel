@@ -28,6 +28,7 @@
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/extension.h>
 
@@ -41,6 +42,20 @@ constexpr int kMaxLeaves = 32;  // head dims up to kLeafWidth * kMaxLeaves = 102
 constexpr int kFwdTileKeys = 32;
 constexpr int kFwdTileQueries = 8;
 constexpr int kBwdThreads = 128;
+constexpr int64_t kMaxGridYZ = 65535;  // CUDA limit on gridDim.y and gridDim.z
+
+void check_grid_yz(int64_t y, int64_t z, const char* fn) {
+  TORCH_CHECK(
+      y <= kMaxGridYZ && z <= kMaxGridYZ,
+      fn,
+      ": launch grid (y=",
+      y,
+      ", z=",
+      z,
+      ") exceeds the CUDA limit of ",
+      kMaxGridYZ,
+      " for gridDim.y and gridDim.z; shorten the sequence or split the batch");
+}
 
 // ---------------------------------------------------------------------------
 // Forward: one thread per score element, full D tree in registers.
@@ -221,10 +236,12 @@ torch::Tensor joint_attn_qk_gemm_forward_cuda(
   auto out_options = q_contig.options().dtype(fp32_out ? at::kFloat : q_contig.scalar_type());
   auto scores = torch::empty({B, H, Sq, Sk}, out_options);
 
+  const int64_t grid_y = (Sq + kFwdTileQueries - 1) / kFwdTileQueries;
+  check_grid_yz(grid_y, B * H, "joint_attn_qk_gemm_forward");
   const dim3 block(kFwdTileKeys, kFwdTileQueries);
   const dim3 grid(
       static_cast<unsigned>((Sk + kFwdTileKeys - 1) / kFwdTileKeys),
-      static_cast<unsigned>((Sq + kFwdTileQueries - 1) / kFwdTileQueries),
+      static_cast<unsigned>(grid_y),
       static_cast<unsigned>(B * H));
   auto stream = at::cuda::getCurrentCUDAStream();
   const float scale_f = static_cast<float>(scale);
@@ -270,6 +287,7 @@ torch::Tensor joint_attn_qk_gemm_forward_cuda(
         } else {
           RLK_DISPATCH_LEAVES(scalar_t);
         }
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
 
 #undef RLK_DISPATCH_LEAVES
@@ -301,6 +319,7 @@ torch::Tensor joint_attn_qk_gemm_dq_leaf_cuda(
   TORCH_CHECK(0 <= j0 && j0 < j1 && j1 <= Sk, "dq_leaf: leaf range out of bounds");
 
   auto partial = torch::empty({B, H, Sq, D}, k_contig.options().dtype(at::kFloat));
+  check_grid_yz(Sq, B * H, "dq_leaf");
   const dim3 block(kBwdThreads);
   const dim3 grid(
       static_cast<unsigned>((D + kBwdThreads - 1) / kBwdThreads),
@@ -320,6 +339,7 @@ torch::Tensor joint_attn_qk_gemm_dq_leaf_cuda(
             D,
             j0,
             j1);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
   return partial;
 }
@@ -347,6 +367,7 @@ torch::Tensor joint_attn_qk_gemm_dk_leaf_cuda(
   TORCH_CHECK(0 <= i0 && i0 < i1 && i1 <= Sq, "dk_leaf: leaf range out of bounds");
 
   auto partial = torch::empty({B, H, Sk, D}, q_contig.options().dtype(at::kFloat));
+  check_grid_yz(Sk, B * H, "dk_leaf");
   const dim3 block(kBwdThreads);
   const dim3 grid(
       static_cast<unsigned>((D + kBwdThreads - 1) / kBwdThreads),
@@ -366,6 +387,7 @@ torch::Tensor joint_attn_qk_gemm_dk_leaf_cuda(
             D,
             i0,
             i1);
+        C10_CUDA_KERNEL_LAUNCH_CHECK();
       });
   return partial;
 }

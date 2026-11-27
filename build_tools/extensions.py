@@ -300,8 +300,8 @@ def get_extensions():
             warnings.warn(
                 f"External NVCC flags relax FP32 math or cannot be checked "
                 f"({relaxed_reason}); the joint-attention softmax CUDA "
-                "bit reference is left out of this build and dispatch falls back to "
-                "another backend.",
+                "bit reference and the joint QK GEMM CUDA kernel are left out of this "
+                "build and dispatch falls back to another backend.",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -313,10 +313,10 @@ def get_extensions():
             "csrc/cuda/norm/rmsnorm.cu",
             "csrc/cuda/activation/activation.cu",
             "csrc/cuda/attention/deterministic_attention.cu",
-            "csrc/cuda/attention/joint_attn_qk_gemm.cu",
         ]
         adaln_cuda_enabled = not is_rocm and not envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH)
         joint_attn_softmax_enabled = False
+        joint_attn_qk_gemm_enabled = False
         if is_rocm:
             # ROCm-tuned WS2 vocab-parallel logprob kernels; the shared
             # deterministic_logp_kernel.cu keeps the SM90-tuned CUDA path.
@@ -340,12 +340,15 @@ def get_extensions():
                     "csrc/cuda/model_specific/qwenimage/latent_pack_unpack.cu",
                 ]
             )
-            # The issue #386 CUDA bit reference must never inherit fast-math.
+            # The issue #386 CUDA bit references must never inherit fast-math.
             # When fast-math is requested for other kernels, leave these
             # symbols out so registry fallback remains explicit and truthful.
             joint_attn_softmax_enabled = not use_fast_math and not relaxed_math_env
             if joint_attn_softmax_enabled:
                 cuda_sources.append("csrc/cuda/attention/joint_attn_softmax.cu")
+            joint_attn_qk_gemm_enabled = not use_fast_math and not relaxed_math_env
+            if joint_attn_qk_gemm_enabled:
+                cuda_sources.append("csrc/cuda/attention/joint_attn_qk_gemm.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.
             cuda_sources.append("csrc/cuda/attention/prefix_shared_attention.cu")
@@ -438,6 +441,8 @@ def get_extensions():
             cxx_flags.append("-DRLK_ADALN_CUDA_ENABLED")
         if joint_attn_softmax_enabled:
             cxx_flags.append("-DKERNEL_ALIGN_WITH_JOINT_ATTN_SOFTMAX")
+        if joint_attn_qk_gemm_enabled:
+            cxx_flags.append("-DKERNEL_ALIGN_WITH_JOINT_ATTN_QK_GEMM")
         extra_link_args = list(torch_rpath)
         if os.name != "nt" and not is_rocm:
             # CUDA IPC metadata queries use the driver API (cuPointerGetAttribute).
