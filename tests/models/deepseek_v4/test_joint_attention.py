@@ -257,9 +257,18 @@ def test_explicit_long_context_budget_keeps_original_workspace_guard(queries):
         replace(contract, max_queries=32768)
 
 
-@pytest.mark.parametrize("budget", [0, -1, True, 1.5, (4 << 30) + 1])
+@pytest.mark.parametrize("budget", [0, -1, True, 1.5, (32 << 30) + 1])
 def test_native_sparse_rejects_unbounded_or_invalid_budget_before_gpu_init(budget):
     from rl_engine.backends.rocm.attention.native_sparse import NativeSparseAttention
 
     with pytest.raises(ValueError, match="budget"):
         NativeSparseAttention(max_workspace_bytes=budget)
+
+
+def test_backward_workspace_for_full_long_context_sequence():
+    # prompt <= 1024 plus response <= 7168 gives at most 8,192 queries per sequence.
+    from rl_engine.backends.rocm.attention.joint_backward import AiterJointBackwardBackend
+
+    need = AiterJointBackwardBackend.workspace_bytes(8192, 64, 512, 640, 8192 + 8192 // 4)
+    assert 4 << 30 < need <= 16 << 30
+    assert AiterJointBackwardBackend.workspace_bytes(3072, 64, 512, 640, 3072 + 768) > 4 << 30

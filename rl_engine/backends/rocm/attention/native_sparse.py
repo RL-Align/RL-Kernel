@@ -56,8 +56,10 @@ class NativeSparseAttention:
     """One operator profile for actual native/vLLM sparse attention operands."""
 
     def __init__(self, *, max_workspace_bytes=1 << 30):
-        if type(max_workspace_bytes) is not int or not 0 < max_workspace_bytes <= 4 << 30:
-            raise ValueError("native sparse workspace budget must be in (0, 4 GiB]")
+        # Training backward needs ~1.6 MB per query at 64x512 with 640 selected
+        # keys (13.2 GB at 8,192 queries); the bound only rejects misconfiguration.
+        if type(max_workspace_bytes) is not int or not 0 < max_workspace_bytes <= 32 << 30:
+            raise ValueError("native sparse workspace budget must be in (0, 32 GiB]")
         self.max_workspace_bytes = max_workspace_bytes
         import aiter
 
