@@ -314,10 +314,9 @@ def get_extensions():
         relaxed_math_env = relaxed_reason is not None
         if relaxed_math_env:
             warnings.warn(
-                f"External NVCC flags relax FP32 math or cannot be checked "
-                f"({relaxed_reason}); the joint-attention softmax CUDA bit reference "
-                "and attn-out bias GEMM are left out of this build and dispatch falls back to "
-                "another backend.",
+                f"External NVCC flags relax FP32 math or cannot be checked ({relaxed_reason}). "
+                "Disabling the joint-attention softmax CUDA bit reference, attn-out bias GEMM, "
+                "and txt-in RMSNorm linear native bindings.",
                 RuntimeWarning,
                 stacklevel=2,
             )
@@ -360,6 +359,7 @@ def get_extensions():
             # symbols out so registry fallback remains explicit and truthful.
             if strict_cuda_math:
                 cuda_sources.append("csrc/cuda/gemm/attn_out_bias_gemm.cu")
+                cuda_sources.append("csrc/cuda/norm/txt_in_rmsnorm_linear.cu")
                 cuda_sources.append("csrc/cuda/attention/joint_attn_softmax.cu")
             # This source contains NVIDIA PTX (cp.async, ldmatrix, and mma.sync).
             # The ROCm dispatcher falls back to PyTorch SDPA for this operator.

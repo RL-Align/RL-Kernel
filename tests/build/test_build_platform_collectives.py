@@ -125,6 +125,7 @@ def test_attn_out_bindings_follow_build_config(monkeypatch, hip, fast_math, nvcc
             monkeypatch, hip=hip, fast_math=fast_math, nvcc_env=nvcc_env
         )
     assert ("csrc/cuda/gemm/attn_out_bias_gemm.cu" in extension["sources"]) == expected
+    assert ("csrc/cuda/norm/txt_in_rmsnorm_linear.cu" in extension["sources"]) == expected
     compiler = shutil.which("c++")
     if compiler is None:
         pytest.skip("C++ preprocessor unavailable")
@@ -142,6 +143,10 @@ def test_attn_out_bindings_follow_build_config(monkeypatch, hip, fast_math, nvcc
         "attn_out_bias_gemm_cuda_forward",
         "attn_out_tree_gemm_cuda",
         "attn_out_dw_left_fold_cuda",
+        "txt_in_row_tree_reduce_cuda",
+        "txt_in_norm_stats_cuda",
+        "txt_in_dx_cuda",
+        "txt_in_dgamma_fold_cuda",
     ):
         assert (symbol in result.stdout) == expected
 

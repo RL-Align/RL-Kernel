@@ -219,6 +219,16 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     CUDA_ATTN_OUT_BIAS_GEMM = (
         "rl_engine.backends.cuda.gemm.attn_out_bias_gemm.CudaAttnOutBiasGemmOp"
     )
+    # Qwen-Image txt_in RMSNorm->Linear (frozen contract txt-in-rmsnorm-linear-v1)
+    PYTORCH_TXT_IN_RMSNORM_LINEAR = (
+        "rl_engine.reference.norm.txt_in_rmsnorm_linear.NativeTxtInRMSNormLinearOp"
+    )
+    TRITON_TXT_IN_RMSNORM_LINEAR = (
+        "rl_engine.backends.shared.triton.norm.txt_in_rmsnorm_linear.TritonTxtInRMSNormLinearOp"
+    )
+    CUDA_TXT_IN_RMSNORM_LINEAR = (
+        "rl_engine.backends.cuda.norm.txt_in_rmsnorm_linear.CudaTxtInRMSNormLinearOp"
+    )
     PYTORCH_NATIVE_ROPE = "rl_engine.kernels.ops.pytorch.rotary_embedding.rope.NativeRoPEOp"
     TRITON_ROPE = "rl_engine.kernels.ops.triton.rotary_embedding.rope.TritonRoPEOp"
     CUDA_ROPE_SM90 = "rl_engine.kernels.ops.cuda.rotary_embedding.rope.RoPESM90Op"
@@ -268,6 +278,12 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     PYTORCH_NATIVE_EMBEDDING = "rl_engine.kernels.ops.pytorch.linear.embedding.NativeEmbeddingOp"
     CUDA_SM90_LM_HEAD = "rl_engine.kernels.ops.cuda.linear.lm_head.SM90LMHeadOp"
     CUDA_SM90_EMBEDDING = "rl_engine.kernels.ops.cuda.linear.embedding.SM90EmbeddingOp"
+
+
+_CUDA_OP_CPU_REFERENCES = {
+    "attn_out_bias_gemm": OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM,
+    "txt_in_rmsnorm_linear": OpBackend.PYTORCH_TXT_IN_RMSNORM_LINEAR,
+}
 
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
@@ -663,6 +679,11 @@ class KernelRegistry:
                     OpBackend.TRITON_ATTN_OUT_BIAS_GEMM,
                     OpBackend.CUDA_ATTN_OUT_BIAS_GEMM,
                     OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM,
+                ],
+                "txt_in_rmsnorm_linear": [
+                    OpBackend.TRITON_TXT_IN_RMSNORM_LINEAR,
+                    OpBackend.CUDA_TXT_IN_RMSNORM_LINEAR,
+                    OpBackend.PYTORCH_TXT_IN_RMSNORM_LINEAR,
                 ],
                 "batch_invariant_logp": [
                     OpBackend.TRITON_BATCH_INVARIANT_LOGP,
@@ -1165,21 +1186,22 @@ class KernelRegistry:
 
         platform = self._platform_for_device(device)
         platform_ops = self._priority_map.get(platform, {})
-        if op_type == "attn_out_bias_gemm":
+        cpu_reference = _CUDA_OP_CPU_REFERENCES.get(op_type)
+        if cpu_reference is not None:
             requested = torch.device(device).type if device is not None else platform
             if platform == "cpu" and requested == "cpu":
                 # The CPU gold is callable directly without exporting it to NPU's inherited map.
-                candidates = [OpBackend.PYTORCH_ATTN_OUT_BIAS_GEMM]
+                candidates = [cpu_reference]
             elif platform == "cuda":
                 candidates = platform_ops.get(op_type, [])
             else:
                 raise RuntimeError(
-                    "attn_out_bias_gemm requires NVIDIA CUDA or a CPU reference: "
+                    f"{op_type} requires NVIDIA CUDA or a CPU reference: "
                     f"{requested} ({platform})"
                 )
         else:
             candidates = platform_ops.get(op_type, [OpBackend.PYTORCH_NATIVE])
-        trace_selection = op_type in {"joint_attn_softmax", "attn_out_bias_gemm"}
+        trace_selection = cpu_reference is not None or op_type == "joint_attn_softmax"
         rejected: list[str] = []
 
         for backend in candidates:
