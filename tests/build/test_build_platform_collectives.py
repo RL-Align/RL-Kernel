@@ -43,7 +43,7 @@ def _load_extension_config(
         monkeypatch.setattr(torch.musa, "is_available", lambda: False)
     monkeypatch.delenv("KERNEL_ALIGN_FORCE_SM90", raising=False)
     monkeypatch.delenv("KERNEL_ALIGN_DET_GEMM_SM90", raising=False)
-    for name in ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS"):
+    for name in ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS", "TORCH_NVCC_FLAGS", "PYTORCH_NVCC"):
         monkeypatch.delenv(name, raising=False)
     for name, value in (nvcc_env or {}).items():
         monkeypatch.setenv(name, value)
@@ -99,12 +99,26 @@ def test_fast_math_build_excludes_bit_reference_softmax(monkeypatch) -> None:
         (None, False, {}, True),
         (None, True, {}, False),
         (None, False, {"NVCC_APPEND_FLAGS": "--ftz=true"}, False),
+        (None, False, {"PYTORCH_NVCC": 'ccache "/opt/CUDA Toolkit/bin/nvcc" --ftz=true'}, False),
+        (None, False, {"PYTORCH_NVCC": "/opt/cuda/bin/nvcc --use_fast_math"}, False),
+        (None, False, {"PYTORCH_NVCC": 'ccache "/opt/CUDA Toolkit/bin/nvcc" --ftz=false'}, True),
+        (None, False, {"PYTORCH_NVCC": "env NVCC_APPEND_FLAGS=--ftz=true nvcc"}, False),
+        (None, False, {"PYTORCH_NVCC": 'NVCC_PREPEND_FLAGS="-O2 --ftz true" nvcc'}, False),
+        (None, False, {"PYTORCH_NVCC": 'env NVCC_APPEND_FLAGS="$EXTRA_NVCC_FLAGS" nvcc'}, False),
+        (
+            None,
+            False,
+            {"PYTORCH_NVCC": 'env NVCC_APPEND_FLAGS="-O2 --ftz=false" ccache "/opt/CUDA Kit/nvcc"'},
+            True,
+        ),
         ("test", False, {}, False),
     ],
 )
 def test_attn_out_bindings_follow_build_config(monkeypatch, hip, fast_math, nvcc_env, expected):
     warning = (
-        pytest.warns(RuntimeWarning, match="attn-out bias GEMM") if nvcc_env else nullcontext()
+        pytest.warns(RuntimeWarning, match="attn-out bias GEMM")
+        if nvcc_env and not expected
+        else nullcontext()
     )
     with warning:
         extension = _load_extension_config(

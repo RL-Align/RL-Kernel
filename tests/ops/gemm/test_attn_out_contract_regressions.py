@@ -60,6 +60,38 @@ def test_bias_is_added_before_bf16_output_cast(backend):
     assert_bits(op(x, weight, bias=bias), expected)
 
 
+def test_frozen_inference_bias_allows_input_gradient(backend):
+    _, op, device, _ = backend
+    x = torch.tensor([[2.0]], device=device, requires_grad=True)
+    weight = x.new_tensor([[3.0]])
+    with torch.inference_mode():
+        bias = x.new_tensor([4.0])
+
+    output = op(x, weight, bias=bias)
+    assert_bits(output, x.new_tensor([[10.0]]))
+    (dx,) = torch.autograd.grad(output, x, grad_outputs=x.new_tensor([[-2.0]]))
+    assert_bits(dx, x.new_tensor([[-6.0]]))
+
+
+@pytest.mark.parametrize("train_bias", [False, True])
+def test_bias_update_after_forward_preserves_gradients(backend, train_bias):
+    _, op, device, _ = backend
+    x = torch.tensor([[2.0], [-1.0]], device=device, dtype=torch.bfloat16, requires_grad=True)
+    weight = x.new_tensor([[3.0]])
+    bias = x.new_tensor([4.0], requires_grad=train_bias)
+    output = op(x, weight, bias=bias)
+    with torch.no_grad():
+        bias.add_(8.0)
+
+    assert_bits(output, x.new_tensor([[10.0], [1.0]]))
+    output.backward(x.new_tensor([[2.0], [-1.0]]))
+    assert_bits(x.grad, x.new_tensor([[6.0], [-3.0]]))
+    if train_bias:
+        assert_bits(bias.grad, x.new_tensor([1.0]))
+    else:
+        assert bias.grad is None
+
+
 @pytest.mark.parametrize(
     "invalid",
     [
@@ -155,6 +187,12 @@ def test_only_requested_gradients_are_computed(backend, dtype, needs_grad, rows)
         ]
         out.backward(upstream.to(device))
         assert [spy.call_count for spy in spies] == [int(needs) for needs in needs_grad]
+        if name in ("triton", "cuda") and needs_grad[2]:
+            bias_upstream = spies[2].call_args.args[0]
+            assert bias_upstream.dtype == torch.float32
+            for spy in spies[:2]:
+                if spy.called:
+                    assert spy.call_args.args[0] is bias_upstream
 
     for actual, expected, needs in zip(inputs, gold_inputs, needs_grad, strict=True):
         if needs:

@@ -15,11 +15,8 @@ from setuptools.command.build_py import build_py as _BuildPy
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-_EXTERNAL_NVCC_FLAG_VARS = (
-    "NVCC_PREPEND_FLAGS",
-    "NVCC_APPEND_FLAGS",
-    "TORCH_NVCC_FLAGS",
-)
+_NVCC_ENV_FLAG_VARS = ("NVCC_PREPEND_FLAGS", "NVCC_APPEND_FLAGS")
+_EXTERNAL_NVCC_FLAG_VARS = (*_NVCC_ENV_FLAG_VARS, "TORCH_NVCC_FLAGS", "PYTORCH_NVCC")
 _RELAXED_MATH_VALUE_FLAGS = {
     "ftz": {"true", "1"},
     "prec-div": {"false", "0"},
@@ -80,15 +77,34 @@ def _tokens_relax_math(tokens: list[str]) -> str | None:
     return None
 
 
+def _nvcc_command_relaxation(command: str) -> str | None:
+    """Check direct compiler arguments and flags set in the compiler's environment."""
+
+    tokens = shlex.split(command)
+    for token in tokens:
+        name, sep, value = token.partition("=")
+        if not sep or name not in _NVCC_ENV_FLAG_VARS:
+            continue
+        if "$" in value or "`" in value:
+            return f"{name} with an expansion that cannot be checked"
+        relaxed = _tokens_relax_math(_nvcc_flag_tokens(value))
+        if relaxed is not None:
+            return f"{name} containing {relaxed}"
+    return _tokens_relax_math(tokens)
+
+
 def _relaxed_math_reason() -> str | None:
     """Describe external NVCC math flags; fail closed when they cannot be checked."""
 
     for name in _EXTERNAL_NVCC_FLAG_VARS:
         try:
-            tokens = _nvcc_flag_tokens(os.environ.get(name, ""))
+            value = os.environ.get(name, "")
+            if name == "PYTORCH_NVCC":
+                relaxed = _nvcc_command_relaxation(value)
+            else:
+                relaxed = _tokens_relax_math(_nvcc_flag_tokens(value))
         except ValueError as exc:
             return f"{name} cannot be parsed ({exc})"
-        relaxed = _tokens_relax_math(tokens)
         if relaxed is not None:
             return f"{name} contains {relaxed}"
     return None

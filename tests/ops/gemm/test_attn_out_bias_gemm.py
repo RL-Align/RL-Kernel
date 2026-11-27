@@ -382,6 +382,13 @@ class TestRealDimShapeSweep:
     _DIM = 3072
     _TIERS = [1, 2, 7, 20, 300, 4096, 6032, 6889]
 
+    def _make_tier_inputs(self, dtype, rows):
+        gen = torch.Generator().manual_seed(rows * 7 + (1 if dtype == torch.float32 else 0))
+        x = torch.randn(rows, self._DIM, generator=gen).to(dtype).cuda()
+        w = torch.randn(self._DIM, self._DIM, generator=gen).to(dtype).cuda()
+        b = torch.randn(self._DIM, generator=gen).to(dtype).cuda()
+        return x, w, b
+
     @requires_cuda_ext
     @requires_triton_cuda
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
@@ -391,17 +398,20 @@ class TestRealDimShapeSweep:
 
         cuda_op = CudaAttnOutBiasGemmOp()
         triton_op = TritonAttnOutBiasGemmOp()
-        gen = torch.Generator().manual_seed(rows * 7 + (1 if dtype == torch.float32 else 0))
-        x = torch.randn(rows, self._DIM, generator=gen).to(dtype).cuda()
-        w = torch.randn(self._DIM, self._DIM, generator=gen).to(dtype).cuda()
-        b = torch.randn(self._DIM, generator=gen).to(dtype).cuda()
+        x, w, b = self._make_tier_inputs(dtype, rows)
         out_cuda = cuda_op(x, w, bias=b).cpu()
         out_triton = triton_op(x, w, bias=b).cpu()
         assert_bitwise_equal(out_cuda, out_triton, f"tier S={rows} {dtype}")
-        # row-slice invariance at the real dim, on the product (triton) path
-        if rows >= 2:
-            head = triton_op(x[:1], w, bias=b).cpu()
-            assert_bitwise_equal(head, out_triton[:1], f"tier slice S={rows}")
+
+    @requires_triton_cuda
+    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+    @pytest.mark.parametrize("rows", _TIERS[1:])
+    def test_triton_row_slice_invariance(self, dtype, rows):
+        triton_op = TritonAttnOutBiasGemmOp()
+        x, w, b = self._make_tier_inputs(dtype, rows)
+        full = triton_op(x, w, bias=b).cpu()
+        head = triton_op(x[:1], w, bias=b).cpu()
+        assert_bitwise_equal(head, full[:1], f"tier slice S={rows}")
 
     @requires_cuda_ext
     @pytest.mark.parametrize("rows", [1, 7, 300])
@@ -458,6 +468,13 @@ class TestBiasNoneEdge:
         gold = op.forward_fp32(x, w).to(dtype)
         assert_bitwise_equal(out, gold, "reference bias=None")
 
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+    def test_backend_bias_none_vs_reference(self, dtype, gpu_op):
+        x, w, _ = _make_inputs(6, _DIM, dtype)
+        expected = NativeAttnOutBiasGemmOp()(x, w)
+        actual = gpu_op(x.cuda(), w.cuda()).cpu()
+        assert_bitwise_equal(actual, expected, f"{gpu_op.backend_id} bias=None vs reference")
+
     @pytest.mark.skipif(
         not torch.cuda.is_available() or _HAS_TRITON_OP is False or _HAS_CUDA_OP is False,
         reason="bias=None backend check needs CUDA with both device backends",
@@ -466,35 +483,21 @@ class TestBiasNoneEdge:
     def test_backends_bias_none_bitwise(self, dtype):
         from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
 
-        reference = NativeAttnOutBiasGemmOp()
         x, w, _ = _make_inputs(6, _DIM, dtype)
-        out_cpu = reference(x, w)
         out_tri = TritonAttnOutBiasGemmOp()(x.cuda(), w.cuda()).cpu()
         out_cuda = CudaAttnOutBiasGemmOp()(x.cuda(), w.cuda()).cpu()
-        assert_bitwise_equal(out_tri, out_cpu, "triton bias=None vs reference")
-        assert_bitwise_equal(out_cuda, out_cpu, "cuda bias=None vs reference")
-        # the two device backends share the FMA discipline: bitwise in both dtypes
         assert_bitwise_equal(out_cuda, out_tri, f"bias=None cross-backend {dtype}")
 
-    @pytest.mark.skipif(
-        not torch.cuda.is_available() or _HAS_TRITON_OP is False or _HAS_CUDA_OP is False,
-        reason="bias=None backward needs CUDA with both device backends",
-    )
     @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-    def test_backward_bias_none_grads(self, dtype):
-        from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
-
+    def test_backward_bias_none_grads(self, dtype, gpu_op):
         g = torch.randn(4, _DIM, generator=torch.Generator().manual_seed(21)).to(dtype)
-        for op, device in ((TritonAttnOutBiasGemmOp(), "cuda"), (CudaAttnOutBiasGemmOp(), "cuda")):
-            x, w, _ = _make_inputs(4, _DIM, dtype)
-            xd = x.to(device).requires_grad_(True)
-            wd = w.to(device).requires_grad_(True)
-            out = op(xd, wd)
-            out.backward(g.to(device))
-            assert xd.grad is not None and wd.grad is not None
-            assert torch.isfinite(xd.grad.float()).all() and torch.isfinite(wd.grad.float()).all()
-            assert wd.grad is not None
-            del xd, wd
+        x, w, _ = _make_inputs(4, _DIM, dtype)
+        xd = x.cuda().requires_grad_(True)
+        wd = w.cuda().requires_grad_(True)
+        out = gpu_op(xd, wd)
+        out.backward(g.cuda())
+        assert xd.grad is not None and wd.grad is not None
+        assert torch.isfinite(xd.grad.float()).all() and torch.isfinite(wd.grad.float()).all()
 
 
 @pytest.fixture(
@@ -533,21 +536,16 @@ class TestBackendEdges:
         assert_bitwise_equal(first, second, f"{gpu_op.backend_id} repeat {dtype}")
 
 
-@pytest.mark.skipif(
-    not torch.cuda.is_available() or _HAS_TRITON_OP is False or _HAS_CUDA_OP is False,
-    reason="non-contiguous gradient regression needs CUDA with both device backends",
-)
 class TestReviewRegressions:
     """Regressions requested by the PR #459 review."""
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-    def test_expanded_upstream_gradient_backward(self, dtype):
+    def test_expanded_upstream_gradient_backward(self, dtype, gpu_op):
         # out.sum().backward() hands the op an EXPANDED (non-contiguous) grad:
         # `torch.ones` broadcast to the output shape. The host side must
         # materialise it before the C++ contiguity checks (review comment on
         # the CUDA backward path).
         reference = NativeAttnOutBiasGemmOp()
-        backends = (TritonAttnOutBiasGemmOp(), CudaAttnOutBiasGemmOp())
         x, w, b = _make_inputs(5, _DIM, dtype)
         g = torch.randn(5, _DIM, generator=torch.Generator().manual_seed(31)).to(dtype)
 
@@ -566,13 +564,12 @@ class TestReviewRegressions:
             return [t.grad.cpu() for t in (xd, wd, bd)]
 
         ref_sum = grads_sum(reference, "cpu")
-        for backend in backends:
-            outs = grads_sum(backend, "cuda")
-            for got, ref, name in zip(outs, ref_sum, ("dx", "dW", "db")):
-                assert_bitwise_equal(got, ref, f"sum-grad {name} {type(backend).__name__}")
-            # sanity: a random dY must of course differ from the all-ones dY
-            outs_g = grads_with_g(backend, "cuda")
-            assert not torch.equal(outs_g[0], outs[0])
+        outs = grads_sum(gpu_op, "cuda")
+        for got, ref, name in zip(outs, ref_sum, ("dx", "dW", "db")):
+            assert_bitwise_equal(got, ref, f"sum-grad {name} {gpu_op.backend_id}")
+        # A random upstream gradient must differ from the expanded all-ones gradient.
+        outs_g = grads_with_g(gpu_op, "cuda")
+        assert not torch.equal(outs_g[0], outs[0])
 
     def test_reference_is_fma_not_separate(self):
         # Two-element reduction where separate mul+add and fused FMA differ:
@@ -598,80 +595,48 @@ class TestReviewRegressions:
         assert out.item() != 0.0, "reference computed the SEPARATE result"
         assert out.item() == fused, "reference FMA emulation is not correctly rounded"
 
-    @pytest.mark.parametrize("backend", ["triton", "cuda"])
-    def test_rejects_bias_on_wrong_device(self, backend):
-        if backend == "triton":
-            op = TritonAttnOutBiasGemmOp()
-        else:
-            from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
-
-            op = CudaAttnOutBiasGemmOp()
+    def test_rejects_bias_on_wrong_device(self, gpu_op):
         x, w, b = _make_inputs(2, _DIM, torch.bfloat16)
         with pytest.raises(ValueError):
-            op(x.cuda(), w.cuda(), bias=b)  # bias stays on CPU
+            gpu_op(x.cuda(), w.cuda(), bias=b)  # bias stays on CPU
 
 
-@pytest.mark.skipif(
-    not torch.cuda.is_available() or _HAS_TRITON_OP is False or _HAS_CUDA_OP is False,
-    reason="edge shapes need CUDA with both device backends",
-)
 class TestEdgeShapes:
     """Robustness edges: zero rows and odd (short-tail-leaf) dims on device."""
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-    @pytest.mark.parametrize("backend", ["triton", "cuda"])
-    def test_zero_rows(self, dtype, backend):
-        if backend == "triton":
-            op = TritonAttnOutBiasGemmOp()
-        else:
-            from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
-
-            op = CudaAttnOutBiasGemmOp()
+    def test_zero_rows(self, dtype, gpu_op):
         x = torch.zeros(0, _DIM).to(dtype).cuda()
         w = torch.randn(_DIM, _DIM).to(dtype).cuda()
         b = torch.randn(_DIM).to(dtype).cuda()
-        out = op(x, w, bias=b)
+        out = gpu_op(x, w, bias=b)
         assert out.shape == (0, _DIM)
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-    @pytest.mark.parametrize("backend", ["triton", "cuda"])
-    def test_zero_rows_backward(self, dtype, backend):
+    def test_zero_rows_backward(self, dtype, gpu_op):
         # Empty batch: dx is empty and the parameter folds over zero terms
         # are exact zeros -- defined behaviour, identical on every backend.
-        if backend == "triton":
-            op = TritonAttnOutBiasGemmOp()
-        else:
-            from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
-
-            op = CudaAttnOutBiasGemmOp()
         x = torch.zeros(0, _DIM, dtype=dtype, device="cuda").requires_grad_(True)
         w = torch.randn(_DIM, _DIM, dtype=dtype, device="cuda").requires_grad_(True)
         b = torch.randn(_DIM, dtype=dtype, device="cuda").requires_grad_(True)
-        out = op(x, w, bias=b)
+        out = gpu_op(x, w, bias=b)
         out.backward(torch.zeros_like(out))
         assert x.grad is not None and x.grad.numel() == 0
         assert torch.count_nonzero(w.grad).item() == 0
         assert torch.count_nonzero(b.grad).item() == 0
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-    @pytest.mark.parametrize("backend", ["triton", "cuda"])
-    def test_odd_dim_bitwise_vs_reference(self, dtype, backend):
+    def test_odd_dim_bitwise_vs_reference(self, dtype, gpu_op):
         # R=33 exercises a short tail leaf (one 32-wide + one 1-wide) on the
         # device kernels; must stay bitwise vs the same-tree reference.
         reference = NativeAttnOutBiasGemmOp()
-        if backend == "triton":
-            op = TritonAttnOutBiasGemmOp()
-        else:
-            from rl_engine.backends.cuda.gemm.attn_out_bias_gemm import CudaAttnOutBiasGemmOp
-
-            op = CudaAttnOutBiasGemmOp()
         gen = torch.Generator().manual_seed(41)
         x = torch.randn(3, 33, generator=gen).to(dtype)
         w = torch.randn(5, 33, generator=gen).to(dtype)
         b = torch.randn(5, generator=gen).to(dtype)
         out_cpu = reference(x, w, bias=b)
-        out_gpu = op(x.cuda(), w.cuda(), bias=b.cuda()).cpu()
-        assert_bitwise_equal(out_gpu, out_cpu, f"odd-dim {backend} {dtype}")
+        out_gpu = gpu_op(x.cuda(), w.cuda(), bias=b.cuda()).cpu()
+        assert_bitwise_equal(out_gpu, out_cpu, f"odd-dim {gpu_op.backend_id} {dtype}")
 
 
 # ---------------------------------------------------------------------------
@@ -767,16 +732,18 @@ class TestFmaPrimitive:
         assert struct.unpack("<I", struct.pack("<f", refuted))[0] == 0x3F801000
 
     def test_fma_full_chain_matches_fmaf(self):
-        # Full leaf-chain regression: a 2^-60 seed from the first FMA must be
-        # carried exactly through the second FMA (no intermediate rounding).
+        # The first product moves the second FMA just above its FP32 midpoint.
+        first = _f32(2.0**-30)
         a = _f32(1.0 + 2**-12)
-        seed = _LIBM.fmaf(_f32(2.0**-30), _f32(2.0**-30), 0.0)
+        row = torch.tensor([[first, a]], dtype=torch.float32)
+        got = tree_gemm_fp32(row, row)
+
+        seed = _LIBM.fmaf(first, first, 0.0)
         assert struct.unpack("<I", struct.pack("<f", seed))[0] == 0x21800000  # 2^-60
-        acc = torch.tensor([seed], dtype=torch.float32)
-        got = _fma_fp32(acc, torch.tensor([a]), torch.tensor([a])).item()
         expect = _LIBM.fmaf(a, a, seed)
-        assert _f32(got) == _f32(expect)
-        assert struct.unpack("<I", struct.pack("<f", expect))[0] == 0x3F801001
+        expected_bits = struct.unpack("<I", struct.pack("<f", expect))[0]
+        assert expected_bits == 0x3F801001
+        assert got.view(torch.int32).item() == expected_bits
 
     def test_fma_passes_double_rounding_counterexample(self):
         # separate mul+add gives exactly 0.0; a true FMA leaves a residual.
@@ -804,30 +771,29 @@ class TestFmaPrimitive:
         "device", ["cpu"] + (["cuda"] if torch.version.cuda and torch.cuda.is_available() else [])
     )
     def test_fma_matches_fmaf_oracle_adversarial(self, device):
-        # construct exact a*b + c landing on fp32 midpoints (the double-
-        # rounding danger band)
-        gen = torch.Generator().manual_seed(43)
-        n = 2048
-        A = torch.randn(n, generator=gen)
-        B = torch.randn(n, generator=gen)
+        # For odd u and v up to 511, (1 + u/4096) * (1 + v/4096) lies
+        # in [1, 2) and is an odd multiple of 2**-24: an exact FP32 midpoint.
+        rng = np.random.default_rng(43)
         rows = []
-        for i in range(n):
-            a, b = A[i].item(), B[i].item()
-            p = a * b
-            e = int(np.floor(np.log2(abs(p)))) if p != 0 else 0
-            mid = (2 * int(torch.randint(1, 1 << 20, (1,), generator=gen)) + 1) * 2.0 ** (e - 24)
-            c = _f32(mid - p)
-            if c == 0.0 and mid - p != 0:
-                continue
-            rows.append((a, b, c))
-        acc = torch.tensor([r[2] for r in rows], dtype=torch.float32)
-        r = _fma_fp32(
-            acc.to(device),
-            torch.tensor([r[0] for r in rows]).to(device),
-            torch.tensor([r[1] for r in rows]).to(device),
-        ).cpu()
-        for i, (a, b, c) in enumerate(rows):
-            assert _f32(_LIBM.fmaf(a, b, c)) == r[i].item(), (a, b, c)
+        for left, right in rng.integers(0, 256, size=(256, 2)).tolist():
+            exponent = int(rng.integers(-60, 61))
+            a = (1 + (2 * left + 1) / 4096) * 2.0**exponent
+            b = 1 + (2 * right + 1) / 4096
+            tail = 2.0 ** (exponent - 60)
+            for sign in (-1, 1):
+                rows.extend(((sign * a, b, -tail), (sign * a, b, tail)))
+
+        a, b, c = torch.tensor(rows, dtype=torch.float32).unbind(dim=1)
+        expected_bits = torch.tensor([_LIBM.fmaf(*row) for row in rows], dtype=torch.float32).view(
+            torch.int32
+        )
+        # FP64 addition loses either tail. Exactly one of each pair must
+        # disagree with the single-rounding oracle after narrowing to FP32.
+        via_fp64 = (a.double() * b.double() + c.double()).float()
+        assert (via_fp64.view(torch.int32) != expected_bits).sum().item() == len(rows) // 2
+
+        actual = _fma_fp32(c.to(device), a.to(device), b.to(device)).cpu()
+        assert torch.equal(actual.view(torch.int32), expected_bits)
 
 
 @_requires_fmaf
@@ -854,6 +820,9 @@ class TestIndependentSpecBitwise:
         if torch.cuda.is_available() and _HAS_TRITON_OP:
             out = TritonAttnOutBiasGemmOp()(x.cuda(), w.cuda(), bias=b.cuda()).cpu()
             assert_bitwise_equal(out, spec, "triton vs spec")
+        if torch.cuda.is_available() and _HAS_CUDA_OP:
+            out = CudaAttnOutBiasGemmOp()(x.cuda(), w.cuda(), bias=b.cuda()).cpu()
+            assert_bitwise_equal(out, spec, "cuda vs spec")
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
     def test_backward_vs_independent_spec(self, dtype):

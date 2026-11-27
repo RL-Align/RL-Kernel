@@ -248,7 +248,7 @@ class _AttnOutBiasGemmTritonFunction(torch.autograd.Function):
         x2d = x.reshape(-1, x.size(-1))
         tree_sum = triton_tree_gemm(x2d.float(), weight.float())
         out = finalize_tree_output(tree_sum, None if bias is None else bias.float(), x.dtype)
-        ctx.save_for_backward(x2d, weight, bias)
+        ctx.save_for_backward(x2d, weight)
         ctx.lead_shape = x.shape[:-1]
         return out.reshape(*ctx.lead_shape, weight.size(0))
 
@@ -259,7 +259,7 @@ class _AttnOutBiasGemmTritonFunction(torch.autograd.Function):
         from rl_engine.ops.autograd.backward_runtime import record_backward
         from rl_engine.ops.autograd.vjp_fp32 import row_local_bias_fp32
 
-        x2d, weight, bias = ctx.saved_tensors
+        x2d, weight = ctx.saved_tensors
         g_f = grad_output.reshape(-1, grad_output.size(-1)).float()
         grad_x = None
         grad_w = None
@@ -269,8 +269,8 @@ class _AttnOutBiasGemmTritonFunction(torch.autograd.Function):
         if ctx.needs_input_grad[1]:
             grad_w = triton_dw_left_fold(g_f, x2d.float()).to(weight.dtype)
         grad_b: Optional[torch.Tensor] = None
-        if bias is not None and ctx.needs_input_grad[2]:
-            grad_b = row_local_bias_fp32(grad_output).to(bias.dtype)
+        if ctx.needs_input_grad[2]:
+            grad_b = row_local_bias_fp32(g_f).to(x2d.dtype)
         record_backward(
             "attn_out_bias_gemm",
             kernel_id=ATTN_OUT_BIAS_GEMM_CONTRACT_VERSION,
