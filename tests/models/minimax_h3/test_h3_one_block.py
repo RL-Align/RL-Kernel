@@ -19,6 +19,7 @@ the graph's structure.
 from __future__ import annotations
 
 import hashlib
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -55,6 +56,28 @@ BACKWARD_FACTOR, BACKWARD_FLOOR = 1.5, 5e-3
 # versions (max excess +4.15 ulp) and 34 single-node candidate/provider swaps (max +5.15 ulp);
 # reports in reports/experiments/h3-one-block-b200/ulp-sweep-torch*.json.
 BACKWARD_BF16_EXCESS_ULPS = 6.0
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_block_bitwise_checks_preserve_storage_and_report_first_packed_position(dtype):
+    # The input is strided. Copies keep its NaN payload, while -0 differs by a single bit.
+    base = torch.zeros(1, 3, 2, 4, dtype=dtype)[..., ::2]
+    base[:, 0, 0, 0] = torch.nan
+    late, early = base.clone(), base.clone()
+    assert h3_block.bitwise(base, early)
+    assert h3_block.first_differing_row(base, early) is None
+    late[:, 2, 0, 0], early[:, 1, 0, 0] = -0.0, -0.0
+    assert not h3_block.bitwise(base, late)
+    assert h3_block.first_differing_row((base, base), (late, early)) == 1
+    assert not h3_block.bitwise(base, base.half())
+    assert h3_block.first_differing_row(base, base.half()) == -1
+
+
+def test_block_errors_propagate_nan_from_later_tensors():
+    clean = torch.ones(2)
+    bad = (clean, torch.full_like(clean, torch.nan))
+    assert math.isnan(h3_block.max_abs(bad, (clean, clean)))
+    assert math.isnan(h3_block.rel_err(bad, (clean, clean)))
 
 
 @pytest.mark.parametrize("layout", sorted(PINNED_LAYOUTS))
@@ -281,7 +304,7 @@ def test_qkv_nodes_share_one_combined_row_call():
     x = torch.randn(1, 3, 6)
     outs = [nodes[n].candidate(_Ops, ctx, x) for n in ("q_proj", "k_proj", "v_proj")]
     assert len(calls) == 1 and calls[0] == (3, 2)
-    for out, w in zip(outs, h3_block.QKV_WEIGHTS):
+    for out, w in zip(outs, h3_block.QKV_WEIGHTS, strict=True):
         assert torch.equal(
             out, (x.reshape(3, 6) @ weights[f"{h3_block.BLOCK}.{w}"].t()).view(1, 3, 4)
         )

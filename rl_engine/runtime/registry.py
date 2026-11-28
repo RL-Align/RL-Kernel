@@ -329,6 +329,8 @@ def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
                 "layout": "BSHD",
                 "head_dim": 128,
                 "rotary_dim": 96,
+                # Callers supply FP32 tables. H3 rounds the loaded coefficients and
+                # each product to the activation dtype before the final FP32 add.
                 "table_dtype": "float32",
                 "forward_rounding": "activation_dtype_tables_products_output",
                 "backward_rounding": "forward_coefficients_fp32_math_final_cast",

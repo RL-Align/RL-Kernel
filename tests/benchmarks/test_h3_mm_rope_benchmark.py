@@ -3,6 +3,8 @@
 
 """Check benchmark shapes and graph lifetimes without importing Triton on CPU."""
 
+import json
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -24,6 +26,13 @@ def test_case_plan_uses_real_packed_lengths():
         assert all(case["shape"][1] == len(positions) for case in plan if case["layout"] == layout)
 
 
+def test_repeated_filters_select_each_benchmark_case_once():
+    args = bench.parse_args(
+        ["--layouts", "tiny", "tiny", "--heads", "14", "14", "--dtypes", "bf16", "bf16"]
+    )
+    assert [case["case_id"] for case in bench.case_plan(args)] == ["bf16:tiny:1x264x14x128"]
+
+
 @pytest.mark.parametrize("mode", bench.MODES)
 def test_timed_call_replays_without_accumulating_grad_or_retaining_fresh_graphs(mode):
     x = torch.randn(1, 3, 1, 128)
@@ -37,12 +46,29 @@ def test_timed_call_replays_without_accumulating_grad_or_retaining_fresh_graphs(
         assert x.grad is None
 
 
-def test_accuracy_gate_rejects_wrong_candidate():
+@pytest.mark.parametrize("optimize", [0, 1], ids=["normal", "python-O"])
+def test_bitwise_gate_rejects_one_ulp_difference(optimize):
+    """A one-ULP change at 1.0 passes the FP32 tolerance but must fail bytewise parity."""
+    source = Path(bench.__file__)
+    namespace = {"__name__": bench.__name__, "__file__": str(source)}
+    # Compile the benchmark itself with the same assert-removal flag as python -O.
+    exec(compile(source.read_text(), str(source), "exec", optimize=optimize), namespace)
+
     x = torch.ones(1, 2, 1, 128)
     tables = torch.ones(2, 96), torch.zeros(2, 96)
-    operators = {"native": bench.NativeH3MMRoPEOp(), "triton": lambda x, c, s: x * 2}
-    with pytest.raises(AssertionError):
-        bench.check_case(operators, x, *tables, torch.ones_like(x))
+    operators = {
+        "native": bench.NativeH3MMRoPEOp(),
+        "triton": lambda x, c, s: x + torch.finfo(x.dtype).eps,
+    }
+    with pytest.raises(AssertionError, match=r"bitwise mismatch against Native forward.*\[0, 2\)"):
+        namespace["check_case"](operators, x, *tables, torch.ones_like(x))
+
+
+def test_bitwise_gate_rejects_wrong_dtype_even_when_all_bytes_match():
+    x = torch.zeros(1, 1, 1, 128, dtype=torch.bfloat16)
+    operators = {"native": bench.NativeH3MMRoPEOp(), "triton": lambda x, c, s: x.half()}
+    with pytest.raises(AssertionError, match="bitwise mismatch against Native forward"):
+        bench.check_case(operators, x, torch.ones(1, 96), torch.zeros(1, 96), torch.zeros_like(x))
 
 
 def test_check_case_uses_full_candidate_and_chunked_native():
@@ -90,6 +116,37 @@ def test_model_boundary_acceptance_keeps_unrounded_outlier_diagnostic(tmp_path):
         ),
     )
     assert "not an acceptance gate" in (tmp_path / "report.md").read_text()
+
+
+@pytest.mark.parametrize(
+    "bad_value", [float("nan"), float("inf"), float("-inf")], ids=["nan", "posinf", "neginf"]
+)
+def test_nonfinite_diagnostic_survives_later_finite_chunks(monkeypatch, tmp_path, bad_value):
+    """Inject one non-finite reference value in the middle of three token slices."""
+    monkeypatch.setattr(bench, "_VALIDATION_CHUNK_TOKENS", 1)
+    monkeypatch.setattr(
+        bench.NativeH3MMRoPEOp,
+        "forward_unrounded_fp32",
+        lambda self, x, cos, sin: torch.where(x < 0, bad_value, x),
+    )
+    x = torch.ones(1, 3, 1, 128)
+    x[0, 1, 0, 0] = -1
+    op = bench.NativeH3MMRoPEOp()
+    checks = bench.check_case(
+        {"triton": op, "native": op}, x, torch.ones(3, 96), torch.zeros(3, 96), torch.ones_like(x)
+    )
+    case = dict(dtype="fp32", shape=list(x.shape), **checks)
+    report = dict(environment={}, complete=True, results=[], failures=[], validation=[case])
+    bench.write_report(tmp_path, report)
+
+    saved = json.loads((tmp_path / "results.json").read_text())["validation"][0]
+    assert saved["acceptance"]["passed"]
+    forward = saved["unrounded_math_diagnostic"]["forward"]
+    assert forward["elements"] == x.numel() and forward["outside_tolerance"] == 1
+    assert forward["max_abs_error"] is None and forward["max_error_over_tolerance"] is None
+    assert forward["examples"][0]["index"] == [0, 1, 0, 0]
+    assert forward["examples"][0]["reference"] == str(bad_value)
+    assert "| 1 / 384 | non-finite | non-finite |" in (tmp_path / "report.md").read_text()
 
 
 def test_independent_model_boundary_gate_rejects_shared_wrong_backward():

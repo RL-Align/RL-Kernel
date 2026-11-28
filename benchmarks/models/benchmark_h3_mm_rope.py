@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import platform
 import statistics
 from functools import partial
@@ -59,7 +60,7 @@ def parse_args(argv=None):
 def case_plan(args):
     """Enumerate one Q or K tensor per case, with full or head-sharded geometry."""
     cases = []
-    for layout in args.layouts:
+    for layout in dict.fromkeys(args.layouts):
         config = LAYOUTS[layout]
         length = (
             config["num_text_tokens"]
@@ -68,8 +69,8 @@ def case_plan(args):
             * (config["latent_height"] // 2)
             * (config["latent_width"] // 2)
         )
-        for heads in args.heads:
-            for dtype in args.dtypes:
+        for heads in dict.fromkeys(args.heads):
+            for dtype in dict.fromkeys(args.dtypes):
                 shape = [1, length, heads, 128]
                 shape_label = "x".join(map(str, shape))
                 case_id = f"{dtype}:{layout}:{shape_label}"
@@ -83,6 +84,12 @@ def _evaluate(op, x, cos, sin, upstream):
     return output.detach(), torch.autograd.grad(output, leaf, upstream)[0]
 
 
+def _outlier_value(tensor):
+    """Preserve NaN and signed infinities in examples as valid JSON strings."""
+    value = float(tensor)
+    return value if math.isfinite(value) else str(value)
+
+
 def _record_error(summary, actual, reference, tolerance, token_offset):
     """Accumulate full-domain diagnostics, including global outlier coordinates."""
     error = (actual.float() - reference).abs()
@@ -90,10 +97,16 @@ def _record_error(summary, actual, reference, tolerance, token_offset):
     violations = (error > limit) | ~torch.isfinite(error)
     summary["elements"] += error.numel()
     summary["outside_tolerance"] += int(violations.sum())
-    summary["max_abs_error"] = max(summary["max_abs_error"], float(error.max()))
-    summary["max_error_over_tolerance"] = max(
-        summary["max_error_over_tolerance"], float((error / limit).max())
-    )
+    # A single non-finite slice makes the full-domain maximum non-finite.
+    # Keep it null in the report even if all subsequent slices have finite errors.
+    for key, chunk_max in (
+        ("max_abs_error", float(error.max())),
+        ("max_error_over_tolerance", float((error / limit).max())),
+    ):
+        if not math.isfinite(chunk_max):
+            summary[key] = None
+        elif summary[key] is not None:
+            summary[key] = max(summary[key], chunk_max)
     if len(summary["examples"]) < 8:
         for index in violations.nonzero()[: 8 - len(summary["examples"])].tolist():
             local = tuple(index)
@@ -101,10 +114,10 @@ def _record_error(summary, actual, reference, tolerance, token_offset):
             summary["examples"].append(
                 dict(
                     index=index,
-                    actual=float(actual[local]),
-                    reference=float(reference[local]),
-                    abs_error=float(error[local]),
-                    allowed_error=float(limit[local]),
+                    actual=_outlier_value(actual[local]),
+                    reference=_outlier_value(reference[local]),
+                    abs_error=_outlier_value(error[local]),
+                    allowed_error=_outlier_value(limit[local]),
                 )
             )
 
@@ -144,14 +157,19 @@ def check_case(operators, x, cos, sin, upstream):
         actual, grad = triton_output[:, tokens], triton_grad[:, tokens]
         expected, d_expected = _evaluate(operators["native"], view, c, s, dy)
         provider_y, provider_dx = _evaluate(provider_apply_rotary, view, c, s, dy)
-        for result, reference in (
-            (actual, expected),
-            (grad, d_expected),
-            (actual, provider_y),
+        for name, result, reference in (
+            ("Native forward", actual, expected),
+            ("Native input gradient", grad, d_expected),
+            ("original H3 forward", actual, provider_y),
         ):
-            assert torch.equal(
+            # BF16 and FP16 can have identical bytes but represent different outputs.
+            if result.dtype != reference.dtype or not torch.equal(
                 result.contiguous().view(torch.uint8), reference.contiguous().view(torch.uint8)
-            )  # noqa: E501
+            ):
+                raise AssertionError(
+                    f"Triton bitwise mismatch against {name} "
+                    f"for tokens [{start}, {start + view.shape[1]})"
+                )
         golden, d_golden = _evaluate(
             acceptance_fn,
             view.float(),
@@ -244,10 +262,14 @@ def measure(calls, warmup, repeat):
     return results
 
 
+def _format_error_max(value, spec):
+    return "non-finite" if value is None else format(value, spec)
+
+
 def write_report(folder, report):
     """Checkpoint JSON and readable tables after each completed shape."""
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "results.json").write_text(json.dumps(report, indent=2) + "\n")
+    (folder / "results.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     lines = [
         "# H3 partial MM-RoPE benchmark",
         "",
@@ -304,7 +326,8 @@ def write_report(folder, report):
             lines.append(
                 f"| {case['dtype']} {'x'.join(map(str, case['shape']))} | {direction} | "
                 f"{metric['outside_tolerance']} / {metric['elements']} | "
-                f"{metric['max_abs_error']:.8g} | {metric['max_error_over_tolerance']:.5g} |"
+                f"{_format_error_max(metric['max_abs_error'], '.8g')} | "
+                f"{_format_error_max(metric['max_error_over_tolerance'], '.5g')} |"
             )
     (folder / "report.md").write_text("\n".join(lines) + "\n")
 

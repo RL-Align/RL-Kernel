@@ -33,6 +33,7 @@ in reverse graph order.
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -52,6 +53,7 @@ HEADS = 56
 HEAD_DIM = 128
 BLOCK = "transformer_blocks.0"
 NUM_TIMESTEPS = 2
+_INT_BY_ELEMENT_SIZE = {1: torch.int8, 2: torch.int16, 4: torch.int32, 8: torch.int64}
 
 
 @dataclass(frozen=True)
@@ -673,30 +675,47 @@ def _batch_row(value: Any, row: int, batch: int) -> Any:
     return tuple(_batch_row(v, row, batch) for v in value)
 
 
+def _element_bits(tensor: torch.Tensor) -> torch.Tensor:
+    """View each real H3 activation or gradient as a same-width integer without copying."""
+    return tensor.view(_INT_BY_ELEMENT_SIZE[tensor.element_size()])
+
+
 def bitwise(lhs: Any, rhs: Any) -> bool:
-    return all(torch.equal(a, b) for a, b in zip(_flat(lhs), _flat(rhs), strict=True))
-
-
-def max_abs(lhs: Any, rhs: Any) -> float:
-    return max(
-        float((a.float() - b.float()).abs().max()) if a.numel() else 0.0
+    return all(
+        a.dtype == b.dtype and torch.equal(_element_bits(a), _element_bits(b))
         for a, b in zip(_flat(lhs), _flat(rhs), strict=True)
     )
 
 
-def first_differing_row(lhs: Any, rhs: Any) -> int | None:
-    """First packed row (sequence position) where two node outputs differ, or None."""
-
+def max_abs(lhs: Any, rhs: Any) -> float:
+    maximum = 0.0
     for a, b in zip(_flat(lhs), _flat(rhs), strict=True):
+        if a.numel():
+            error = float((a.float() - b.float()).abs().max())
+            if math.isnan(error):
+                return error
+            maximum = max(maximum, error)
+    return maximum
+
+
+def first_differing_row(lhs: Any, rhs: Any) -> int | None:
+    """Earliest differing packed position, or -1 for a table or metadata mismatch."""
+
+    first_row = None
+    for a, b in zip(_flat(lhs), _flat(rhs), strict=True):
+        if a.shape != b.shape or a.dtype != b.dtype:
+            return -1
+        a, b = _element_bits(a), _element_bits(b)
         if a.dim() < 3:
             if not torch.equal(a, b):
                 return -1  # a table row, not a sequence position
             continue
-        diff = (a != b).reshape(a.shape[0], a.shape[1], -1).any(dim=-1).any(dim=0)
+        diff = (a != b).flatten(start_dim=2).any(dim=-1).any(dim=0)
         rows = diff.nonzero()
         if rows.numel():
-            return int(rows[0])
-    return None
+            row = int(rows[0, 0])
+            first_row = row if first_row is None else min(first_row, row)
+    return first_row
 
 
 def rel_err(value: Any, golden: Any) -> float:
@@ -705,7 +724,10 @@ def rel_err(value: Any, golden: Any) -> float:
     num = den = 0.0
     for a, g in zip(_flat(value), _flat(golden), strict=True):
         g32 = g.float()
-        num = max(num, float((a.float() - g32).abs().max()))
+        error = float((a.float() - g32).abs().max())
+        if not math.isfinite(error):
+            return error
+        num = max(num, error)
         den = max(den, float(g32.abs().max()))
     return num / max(den, 1e-30)
 
@@ -885,9 +907,14 @@ def permutation_probe(
         out = run_graph("candidate", permuted, ops)[OUTPUT]
     expected = base_output[:, perm]
     return {
-        "bitwise_equal_after_permutation": bool(torch.equal(out, expected)),
+        "bitwise_equal_after_permutation": bitwise(out, expected),
         "max_abs": max_abs(out, expected),
-        "differing_rows": int((out != expected).reshape(out.shape[1], -1).any(dim=-1).sum()),
+        "differing_rows": int(
+            (_element_bits(out) != _element_bits(expected))
+            .reshape(out.shape[1], -1)
+            .any(dim=-1)
+            .sum()
+        ),
     }
 
 
@@ -979,15 +1006,15 @@ def run_block_backward(
     }
     for name in (*PARAM_LEAVES, "hidden", "temb"):
         report["leaves"][name] = {
-            "repeat_bitwise_equal": bool(torch.equal(first[name], second[name])),
+            "repeat_bitwise_equal": bitwise(first[name], second[name]),
             "candidate_rel_err_vs_golden": rel_err(first[name], golden[name]),
             "provider_rel_err_vs_golden": rel_err(provider[name], golden[name]),
             "storage_dtype": str(first[name].dtype).removeprefix("torch."),
             "candidate_ulps_vs_golden": ulp_err(first[name], golden[name]),
             "provider_ulps_vs_golden": ulp_err(provider[name], golden[name]),
         }
-    report["leaves"]["hidden"]["batch_row_bitwise_equal"] = bool(
-        torch.equal(batched["hidden"][:1], first["hidden"])
+    report["leaves"]["hidden"]["batch_row_bitwise_equal"] = bitwise(
+        batched["hidden"][:1], first["hidden"]
     )
     first_repeat = first_batch = None
     for node in reversed(NODES):

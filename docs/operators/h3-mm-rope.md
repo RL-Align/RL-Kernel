@@ -62,6 +62,9 @@ arithmetic, including BF16 cast points. The original expression is
 2. Compute each rotation product, rounding it to x's dtype.
 3. Add/subtract the two products and round the output to x's dtype.
 
+In the registry descriptor, `table_dtype` names the caller's FP32 tensors.
+`forward_rounding` describes the casts applied to their values, the products and the output.
+
 Training, `no_grad`, and inference use the same Triton rotation for both layouts. FP fusion is
 disabled so multiplying and adding cannot become a single FMA with different rounding.
 For BF16, the kernel performs arithmetic in FP32 registers but explicitly casts
@@ -179,15 +182,16 @@ current run report for fresh hardware, test counts, block attribution and remain
 qualification. CI or single-operator acceptance does not establish full-model,
 ROCm or distributed acceptance.
 
-## Benchmark and figures
+## Benchmark
 
 ```bash
 python -m benchmarks.models.benchmark_h3_mm_rope --dry-run
 python -m benchmarks.models.benchmark_h3_mm_rope \
   --warmup 10 --repeat 40 --output-dir reports/h3-mm-rope
-python tools/benchmarking/plot_h3_mm_rope.py \
-  reports/h3-mm-rope/results.json --out reports/h3-mm-rope/figures
 ```
+
+The benchmark writes latency and accuracy tables to `report.md` and raw measurements
+to `results.json` in the output directory.
 
 The 16-case plan covers `[1, S, H, 128]`, packed `S=264/925/3160/73426`,
 `H=14/56`, BF16/FP32, each representing one Q or K tensor. It measures forward,
@@ -199,12 +203,16 @@ Triton runs forward and backward once on the full shape for validation. Each
 reference processes up to 1024 tokens at a time and checks the corresponding
 slices of the Triton output and input gradient.
 Every shape must first pass provider-forward bitwise parity, Native/Triton
-forward/backward bitwise parity and independent model-boundary accuracy. A failed
+forward/backward bitwise parity and independent model-boundary accuracy. The
+bitwise checks compare dtype and storage bits and also run under `python -O`. A failed
 acceptance case is not timed, leaves `complete=false` and yields nonzero exit.
 The JSON field `unrounded_math_diagnostic` names `forward_unrounded_fp32` as its
 reference and sets `is_acceptance_gate=false`. It records element counts, values
 outside tolerance, maximum error, maximum error/limit and up to eight global
 outlier coordinates for forward, candidate backward and provider backward.
+If any token slice has a non-finite maximum, the corresponding full-case maximum
+is `null` in JSON and `non-finite` in Markdown. Examples preserve the value as
+`"nan"`, `"inf"` or `"-inf"`.
 Timing can proceed after the accuracy and bitwise checks pass, even when this
 diagnostic reports outliers.
 
@@ -218,10 +226,3 @@ medians, standard deviations and incremental peak allocation (excluding inputs
 and prebuilt graphs). In v3 reports, each result carries a `case_id`, such as
 `bf16:long:1x73426x56x128`. Look up that ID in `backends` for the registry
 resolution and the operator instance used for that case.
-
-The plotting script renders all measured shapes, separately for BF16/FP32 and
-F/B/F+B, with latency in milliseconds, baseline/Triton speedup, and incremental
-peak allocation in MiB. All vertical axes are linear. The long layout has its
-own latency and memory panels so the shorter layouts stay readable. Latency whiskers are P10/P90
-sample dispersion, not confidence intervals. Raw measurements, source hashes,
-logs and figures are PR evidence attachments rather than committed data.

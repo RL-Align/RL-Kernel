@@ -268,23 +268,27 @@ def test_semantic_entry_reports_arithmetic_and_rejects_unsupported_profiles():
         requested_backend="rlkernel.h3_mm_rope.triton",
         target="training",
     )
-    resolution = session.resolve(
-        **request,
-        requirements=OperatorRequirements(
-            device="cuda",
-            dtype="bfloat16",
-            topology={"world_size": 1, "tensor_parallel_size": 1, "context_parallel_size": 1},
-        ),
-    )
+    topology = {"world_size": 1, "tensor_parallel_size": 1, "context_parallel_size": 1}
+    supported = dict(device="cuda", dtype="bfloat16", topology=topology)
+    resolution = session.resolve(**request, requirements=OperatorRequirements(**supported))
     assert resolution.trace.concrete_backend == "rlkernel.h3_mm_rope.triton"
-    assert resolution.descriptor.determinism_or_alignment_properties["fp_fusion"] is False
-    for requirement in (
-        OperatorRequirements(device="cuda", dtype="float16"),
-        OperatorRequirements(device="rocm", dtype="bfloat16"),
-        OperatorRequirements(device="cuda", dtype="bfloat16", topology={"world_size": 2}),
+    arithmetic = resolution.descriptor.determinism_or_alignment_properties
+    assert arithmetic["table_dtype"] == "float32"
+    assert arithmetic["forward_rounding"] == "activation_dtype_tables_products_output"
+    assert arithmetic["fp_fusion"] is False
+    # Vary one capability per request so an incomplete topology cannot mask a bad registration.
+    for capability, change in (
+        ("dtype", {"dtype": "float16"}),
+        ("device", {"device": "rocm"}),
+        ("topology", {"topology": topology | {"world_size": 2}}),
+        ("topology", {"topology": topology | {"tensor_parallel_size": 2}}),
+        ("topology", {"topology": topology | {"context_parallel_size": 2}}),
     ):
-        with pytest.raises(OperatorResolutionError):
-            session.resolve(**request, requirements=requirement)
+        with pytest.raises(OperatorResolutionError) as exc:
+            session.resolve(**request, requirements=OperatorRequirements(**(supported | change)))
+        assert [d.capability for d in exc.value.trace.capability_decisions if not d.passed] == [
+            capability
+        ]
     if torch.cuda.is_available() and torch.version.hip is None:
         op = session.instantiate(resolution)
         provenance = session.instance_provenance(resolution, op)
