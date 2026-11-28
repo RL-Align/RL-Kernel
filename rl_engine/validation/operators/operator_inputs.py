@@ -30,6 +30,8 @@ def make_operator_inputs(
     device: torch.device,
 ) -> dict[str, Any]:
     builders = {
+        "latent_normalize": _make_latent_normalize_inputs,
+        "latent_denormalize": _make_latent_normalize_inputs,
         "adaln_modulation": _make_adaln_modulation_inputs,
         "qwenimage_adaln_mod_projection": _make_qwenimage_projection_inputs,
         "qwenimage_final_adaln_out": _make_qwenimage_final_inputs,
@@ -65,6 +67,8 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
     batch, seq = _batch_seq(args)
     vocab = _arg_int(args, "vocab", DEFAULT_VOCAB)
     names = {
+        "latent_normalize": f"{batch}x16x1x{seq}",
+        "latent_denormalize": f"{batch}x16x1x{seq}",
         "adaln_modulation": f"{batch}x{seq}x{_normalized_dim(args)}",
         "qwenimage_adaln_mod_projection": f"{batch}x3072x18432",
         "qwenimage_final_adaln_out": f"{batch}x{seq}x3072",
@@ -107,6 +111,15 @@ def _make_adaln_modulation_inputs(
         "x": _floating_tensor((batch, seq, hidden), args, dtype, device, offset=0),
         "modulation": _floating_tensor((batch, 3 * hidden), args, dtype, device, offset=1),
         "eps": _arg_float(args, "eps", DEFAULT_RMS_EPS),
+    }
+
+
+def _make_latent_normalize_inputs(args, dtype, device):
+    batch, seq = _batch_seq(args)
+    return {
+        "x": _floating_tensor((batch, 16, 1, seq), args, dtype, device, offset=0),
+        "mean": _floating_tensor((16,), args, torch.float32, device, offset=1),
+        "std_inv": (_floating_tensor((16,), args, torch.float32, device, offset=2).abs() + 0.5),
     }
 
 

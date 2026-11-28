@@ -19,6 +19,7 @@ Every operator page should include:
 ## Current Pages
 
 - [SiLU / SwiGLU Activation](activation.md)
+- [Qwen-Image Latent Normalization](latent-normalize.md)
 - [Standard Attention](attention.md)
 - [Qwen-Image Joint-Attention Softmax](joint-attn-softmax.md)
 - [Fused LogP](fused-logp.md)

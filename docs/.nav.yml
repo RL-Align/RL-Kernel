@@ -20,6 +20,7 @@ nav:
       - operators/qwenimage-final-adaln-out.md
       - operators/qwenimage-sp.md
       - operators/activation.md
+      - operators/latent-normalize.md
       - operators/adaln-modulation.md
       - operators/attention.md
       - operators/joint-attn-softmax.md
