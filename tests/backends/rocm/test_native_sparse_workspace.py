@@ -18,6 +18,7 @@ from rl_engine.contracts.operators.joint_attention import (
 
 
 def test_explicit_sparse_budget_keeps_default_and_validation(monkeypatch):
+    monkeypatch.delenv("RLK_NATIVE_SPARSE_MAX_WORKSPACE_BYTES", raising=False)
     monkeypatch.delenv("RLK_NATIVE_SPARSE_WORKSPACE_BYTES", raising=False)
     assert sparse_workspace_budget() == 1 << 30
     monkeypatch.setenv("RLK_NATIVE_SPARSE_WORKSPACE_BYTES", str(16 << 30))
@@ -28,6 +29,17 @@ def test_explicit_sparse_budget_keeps_default_and_validation(monkeypatch):
             sparse_workspace_budget(value)
     for value in ("invalid", "0", "-1"):
         monkeypatch.setenv("RLK_NATIVE_SPARSE_WORKSPACE_BYTES", value)
+        with pytest.raises(ValueError):
+            sparse_workspace_budget()
+
+
+def test_primary_sparse_budget_takes_precedence_over_legacy_alias(monkeypatch):
+    monkeypatch.setenv("RLK_NATIVE_SPARSE_WORKSPACE_BYTES", str(2 << 30))
+    monkeypatch.setenv("RLK_NATIVE_SPARSE_MAX_WORKSPACE_BYTES", str(16 << 30))
+    assert sparse_workspace_budget() == 16 << 30
+    assert sparse_workspace_budget(4 << 30) == 4 << 30
+    for invalid in ("invalid", "", "0", "-1"):
+        monkeypatch.setenv("RLK_NATIVE_SPARSE_MAX_WORKSPACE_BYTES", invalid)
         with pytest.raises(ValueError):
             sparse_workspace_budget()
 

@@ -12,17 +12,19 @@ from rl_engine.contracts.operators.joint_attention import JointAttentionContract
 
 
 def sparse_workspace_budget(value=None):
-    """An explicit resident-workspace limit; the default remains one GiB."""
+    """Checked resident-workspace limit, with the legacy environment name as fallback."""
     if value is None:
-        raw = os.environ.get("RLK_NATIVE_SPARSE_WORKSPACE_BYTES")
+        name = "RLK_NATIVE_SPARSE_MAX_WORKSPACE_BYTES"
+        raw = os.environ.get(name)
+        if raw is None:
+            name = "RLK_NATIVE_SPARSE_WORKSPACE_BYTES"
+            raw = os.environ.get(name)
         try:
             value = (1 << 30) if raw is None else int(raw)
         except ValueError as error:
-            raise ValueError(
-                "RLK_NATIVE_SPARSE_WORKSPACE_BYTES must be a positive integer"
-            ) from error
+            raise ValueError(f"{name} must be a positive integer") from error
     if type(value) is not int or value <= 0:
-        raise ValueError("native sparse workspace budget must be a positive integer")
+        raise ValueError("positive native sparse workspace budget required (integer bytes)")
     return value
 
 
@@ -93,7 +95,7 @@ class NativeSparseAttention:
                 __file__,
                 self.forward_backend.provenance,
                 self.backward_backend.provenance,
-                dict(max_workspace_bytes=self.max_workspace_bytes),
+                {"max_workspace_bytes": self.max_workspace_bytes},
                 flush=True,
             )
             self.executed = True

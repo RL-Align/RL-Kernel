@@ -23,9 +23,15 @@ def _vjp(DY, W, WS, DX, M, N: tl.constexpr, K: tl.constexpr):
     for start in range(triton.cdiv(N, 32)):
         n = start * 32 + nn
         dy = tl.load(
-            DY + m[:, None] * N + n[None, :], (m[:, None] < M) & (n[None, :] < N), other=0
+            DY + m[:, None] * N + n[None, :],
+            (m[:, None] < M) & (n[None, :] < N),
+            other=0,
         ).to(tl.bfloat16)
-        w = tl.load(W + n[:, None] * K + k[None, :], (n[:, None] < N) & (k[None, :] < K), other=0)
+        w = tl.load(
+            W + n[:, None] * K + k[None, :],
+            (n[:, None] < N) & (k[None, :] < K),
+            other=0,
+        )
         sw = _e8m0_scale(
             tl.load(
                 WS + (n[:, None] // 128) * triton.cdiv(K, 128) + k[None, :] // 128,
@@ -36,17 +42,52 @@ def _vjp(DY, W, WS, DX, M, N: tl.constexpr, K: tl.constexpr):
         weights = (_decode_e4m3(w) * sw).to(tl.bfloat16)
         acc = tl.dot(dy, weights, acc)
     tl.store(
-        DX + m[:, None] * K + k[None, :], acc.to(tl.bfloat16), (m[:, None] < M) & (k[None, :] < K)
+        DX + m[:, None] * K + k[None, :],
+        acc.to(tl.bfloat16),
+        (m[:, None] < M) & (k[None, :] < K),
     )
+
+
+def original_block_fp8_gemm(q, activation_scale, codes, scales):
+    """One declared CK no-split contract for actual prequantized operands."""
+    from aiter.ops.gemm_op_a8w8 import gemm_a8w8_blockscale_ck
+
+    from rl_engine.backends.rocm.gemm.shared_down_fp8 import KERNEL
+
+    dtype = fp8_dtype(q.device)
+    if q.ndim != 2 or q.dtype != dtype or not q.is_contiguous():
+        raise ValueError("expected contiguous original FP8 activation codes")
+    m, k = q.shape
+    if (
+        codes.ndim != 2
+        or codes.shape[1] != k
+        or codes.dtype != torch.uint8
+        or scales.dtype != torch.uint8
+        or tuple(scales.shape)
+        != (triton.cdiv(codes.shape[0], 128), triton.cdiv(k, 128))
+        or activation_scale.shape != (m, k // 128)
+        or activation_scale.dtype != torch.float32
+        or k % 128
+    ):
+        raise ValueError("invalid original block128 FP8 projection operands")
+    weight_scale = scales.view(torch.float8_e8m0fnu).float()
+    if dtype == torch.float8_e4m3fnuz:
+        weight = torch.where(codes == 128, 0, codes).to(torch.uint8).view(dtype)
+        weight_scale = weight_scale * 2.0
+    else:
+        weight = codes.view(dtype)
+    y = torch.empty((m, codes.shape[0]), device=q.device, dtype=torch.bfloat16)
+    with torch.cuda.device(q.device):
+        gemm_a8w8_blockscale_ck(
+            q, weight, activation_scale, weight_scale, y, splitK=0, kernelName=KERNEL
+        )
+    return y
 
 
 class _Projection(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, codes, scales, activation_codes=None, activation_scales=None):
         from aiter import QuantType, get_hip_quant
-        from aiter.ops.gemm_op_a8w8 import gemm_a8w8_blockscale_ck
-
-        from rl_engine.backends.rocm.gemm.shared_down_fp8 import KERNEL
 
         shape = x.shape
         x = x.reshape(-1, shape[-1]).contiguous()
@@ -64,21 +105,12 @@ class _Projection(torch.autograd.Function):
             q, activation_scale = activation_codes, activation_scales
             if q.shape != x.shape or q.dtype != dtype:
                 raise ValueError("invalid prequantized QNorm codes")
-            if activation_scale.shape != (m, k // 128) or activation_scale.dtype != torch.float32:
+            if (
+                activation_scale.shape != (m, k // 128)
+                or activation_scale.dtype != torch.float32
+            ):
                 raise ValueError("invalid prequantized QNorm scales")
-        weight_scale = scales.view(torch.float8_e8m0fnu).float()
-        if dtype == torch.float8_e4m3fnuz:
-            fnuz_codes = torch.where(codes == 128, 0, codes).to(torch.uint8)
-            weight = fnuz_codes.view(dtype)
-            weight_scale = weight_scale * 2.0
-        else:
-            # gfx950 consumes the original OCP bytes with their original scale.
-            weight = codes.view(dtype)
-        y = torch.empty((m, n), device=x.device, dtype=torch.bfloat16)
-        with torch.cuda.device(x.device):
-            gemm_a8w8_blockscale_ck(
-                q, weight, activation_scale, weight_scale, y, splitK=0, kernelName=KERNEL
-            )
+        y = original_block_fp8_gemm(q, activation_scale, codes, scales)
         ctx.save_for_backward(codes, scales)
         ctx.input_shape = shape
         return y.reshape(*shape[:-1], n)
@@ -93,7 +125,9 @@ class _Projection(torch.autograd.Function):
             _vjp[(triton.cdiv(dy.shape[0], 16), triton.cdiv(k, 32))](
                 dy, w, s, dx, dy.shape[0], n, k, enable_fp_fusion=False
             )
-        return (dx.reshape(ctx.input_shape), None, None) + (None,) * (len(ctx.needs_input_grad) - 3)
+        return (dx.reshape(ctx.input_shape), None, None) + (None,) * (
+            len(ctx.needs_input_grad) - 3
+        )
 
 
 class CheckpointFP8Linear(torch.nn.Module):
@@ -148,5 +182,6 @@ class CheckpointFP8Group(torch.nn.Module):
 
     def forward(self, x):
         return torch.stack(
-            [linear(x[..., g, :])[0] for g, linear in enumerate(self.projections)], dim=-2
+            [linear(x[..., g, :])[0] for g, linear in enumerate(self.projections)],
+            dim=-2,
         )
