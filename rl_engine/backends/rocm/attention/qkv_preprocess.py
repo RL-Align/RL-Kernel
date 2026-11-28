@@ -84,7 +84,7 @@ class _QKV(torch.autograd.Function):
 
 
 class DSV4QKVPreprocess(torch.nn.Module):
-    profile = "dsv4-vllm-qnorm-rope-fp8dsmla-gfx942-v1"
+    profile = "dsv4-vllm-qnorm-rope-fp8dsmla-v1"
 
     def __init__(self, config, compression_ratio):
         super().__init__()
@@ -106,8 +106,6 @@ class DSV4QKVPreprocess(torch.nn.Module):
             )
         self.register_buffer("cos_sin_cache", rope.cos_sin_cache, persistent=False)
         self.epsilon = config.rms_norm_eps
-        arch = torch.cuda.get_device_properties(self.cos_sin_cache.device).gcnArchName.split(":")[0]
-        self.profile = f"dsv4-vllm-qnorm-rope-fp8dsmla-{arch}-v1"
 
     def _apply(self, fn, recurse=True):
         # Native Float16Module casts floating model buffers to BF16. Rotary
@@ -124,6 +122,10 @@ class DSV4QKVPreprocess(torch.nn.Module):
             self.cos_sin_cache = self.cos_sin_cache.to(query.device)
         out = _QKV.apply(query, kv, positions, self.cos_sin_cache, self.epsilon)
         if not hasattr(self, "_executed"):
+            # vLLM can reuse a CPU RoPE cache. Resolve the architecture from
+            # the actual query device only after the fused codec has run.
+            arch = torch.cuda.get_device_properties(query.device).gcnArchName.split(":")[0]
+            self.profile = f"dsv4-vllm-qnorm-rope-fp8dsmla-{arch}-v1"
             print(
                 "RLK_QKV_PREPROCESS_EXECUTED",
                 __file__,
