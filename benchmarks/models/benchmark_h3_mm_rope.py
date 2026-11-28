@@ -36,6 +36,7 @@ LAYOUTS = {
 }
 DTYPES = {"bf16": torch.bfloat16, "fp32": torch.float32}
 MODES = ("forward", "backward", "forward_backward")
+_VALIDATION_CHUNK_TOKENS = 1024
 
 
 def parse_args(argv=None):
@@ -69,7 +70,10 @@ def case_plan(args):
         )
         for heads in args.heads:
             for dtype in args.dtypes:
-                cases.append(dict(layout=layout, dtype=dtype, shape=[1, length, heads, 128]))
+                shape = [1, length, heads, 128]
+                shape_label = "x".join(map(str, shape))
+                case_id = f"{dtype}:{layout}:{shape_label}"
+                cases.append(dict(case_id=case_id, layout=layout, dtype=dtype, shape=shape))
     return cases
 
 
@@ -106,11 +110,11 @@ def _record_error(summary, actual, reference, tolerance, token_offset):
 
 
 def check_case(operators, x, cos, sin, upstream):
-    """Gate on model boundaries; separately report unrounded FP32 mathematical error.
+    """Check H3's model rounding boundaries and report unrounded FP32 error separately.
 
-    Validate in token chunks to bound temporary memory on small GPUs. The subsequent
-    full-shape check compares both candidate outputs/gradients with the Native path.
-    No tolerance is inferred from the benchmark results.
+    Run Triton on the benchmark shape to exercise its actual grid and offsets. RoPE acts
+    independently on each token, so each reference can check a slice of that output and
+    input gradient using only the corresponding tokens and position-table rows.
     """
     contract = load_contract()
     diagnostics = {
@@ -132,15 +136,18 @@ def check_case(operators, x, cos, sin, upstream):
     reference_op = NativeH3MMRoPEOp()
     # Evaluate the reference gradient on an FP32 leaf while keeping the model's storage dtype.
     acceptance_fn = partial(reference_op.forward_fp32, storage_dtype=x.dtype)
-    for start in range(0, x.shape[1], 1024):
-        view, dy = x[:, start : start + 1024], upstream[:, start : start + 1024]
-        c, s = cos[start : start + 1024], sin[start : start + 1024]
-        actual, grad = _evaluate(operators["triton"], view, c, s, dy)
+    triton_output, triton_grad = _evaluate(operators["triton"], x, cos, sin, upstream)
+    for start in range(0, x.shape[1], _VALIDATION_CHUNK_TOKENS):
+        tokens = slice(start, start + _VALIDATION_CHUNK_TOKENS)
+        view, dy = x[:, tokens], upstream[:, tokens]
+        c, s = cos[tokens], sin[tokens]
+        actual, grad = triton_output[:, tokens], triton_grad[:, tokens]
         expected, d_expected = _evaluate(operators["native"], view, c, s, dy)
+        provider_y, provider_dx = _evaluate(provider_apply_rotary, view, c, s, dy)
         for result, reference in (
             (actual, expected),
             (grad, d_expected),
-            (actual, provider_apply_rotary(view, c, s)),
+            (actual, provider_y),
         ):
             assert torch.equal(
                 result.contiguous().view(torch.uint8), reference.contiguous().view(torch.uint8)
@@ -171,7 +178,6 @@ def check_case(operators, x, cos, sin, upstream):
         math_y, math_dx = _evaluate(
             reference_op.forward_unrounded_fp32, view.float(), c, s, dy.float()
         )
-        _, provider_dx = _evaluate(provider_apply_rotary, view, c, s, dy)
         for name, judgment, result, reference in (
             ("forward", "forward_accuracy", actual, math_y),
             ("backward", "gradient_accuracy", grad, math_dx),
@@ -182,10 +188,6 @@ def check_case(operators, x, cos, sin, upstream):
             )
             diagnostics[name].update(atol=tolerance.atol, rtol=tolerance.rtol)
             _record_error(diagnostics[name], result, reference, tolerance, start)
-    actual, grad = _evaluate(operators["triton"], x, cos, sin, upstream)
-    expected, d_expected = _evaluate(operators["native"], x, cos, sin, upstream)
-    for result, reference in ((actual, expected), (grad, d_expected)):
-        assert torch.equal(result.view(torch.uint8), reference.view(torch.uint8))
     return dict(acceptance=acceptance, unrounded_math_diagnostic=diagnostics)
 
 
@@ -324,7 +326,7 @@ def main(argv=None):
     torch.set_num_threads(1)
     session = KernelRegistry().semantic.session()
     report = dict(
-        schema_version=2,
+        schema_version=3,
         complete=False,
         acceptance_reference="forward_fp32",
         mathematical_reference="forward_unrounded_fp32",
@@ -361,7 +363,7 @@ def main(argv=None):
             ),
         )
         candidate = session.instantiate(resolution)
-        report["backends"][case["dtype"]] = dict(
+        report["backends"][case["case_id"]] = dict(
             resolution=resolution.to_dict(),
             instance=session.instance_provenance(resolution, candidate).to_dict(),
         )

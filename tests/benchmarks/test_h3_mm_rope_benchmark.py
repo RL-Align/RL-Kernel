@@ -3,6 +3,8 @@
 
 """Check benchmark shapes and graph lifetimes without importing Triton on CPU."""
 
+from unittest.mock import Mock
+
 import pytest
 import torch
 
@@ -12,6 +14,9 @@ from benchmarks.models import benchmark_h3_mm_rope as bench
 def test_case_plan_uses_real_packed_lengths():
     plan = bench.case_plan(bench.parse_args([]))
     assert len(plan) == 16
+    case_ids = {case["case_id"] for case in plan}
+    assert len(case_ids) == len(plan)
+    assert "bf16:long:1x73426x56x128" in case_ids
     assert {case["shape"][1] for case in plan} == {264, 925, 3160, 73426}
     assert {case["shape"][2] for case in plan} == {14, 56}
     for layout, config in bench.LAYOUTS.items():
@@ -38,6 +43,24 @@ def test_accuracy_gate_rejects_wrong_candidate():
     operators = {"native": bench.NativeH3MMRoPEOp(), "triton": lambda x, c, s: x * 2}
     with pytest.raises(AssertionError):
         bench.check_case(operators, x, *tables, torch.ones_like(x))
+
+
+def test_check_case_uses_full_candidate_and_chunked_native():
+    """The last token exercises a second reference slice in both directions."""
+    length = 1025
+    x = torch.ones(1, length, 1, 128)
+    upstream = torch.ones_like(x)
+    cos, sin = torch.ones(length, 96), torch.zeros(length, 96)
+    x[:, -1], upstream[:, -1], cos[-1] = 2, 3, -1
+    native = Mock(wraps=bench.NativeH3MMRoPEOp())
+    candidate = Mock(wraps=bench.NativeH3MMRoPEOp())
+
+    checks = bench.check_case({"native": native, "triton": candidate}, x, cos, sin, upstream)
+
+    assert [call.args[0].shape[1] for call in candidate.call_args_list] == [length]
+    assert [call.args[0].shape[1] for call in native.call_args_list] == [1024, 1]
+    for direction in ("forward", "backward", "provider_backward"):
+        assert checks["unrounded_math_diagnostic"][direction]["elements"] == x.numel()
 
 
 def test_model_boundary_acceptance_keeps_unrounded_outlier_diagnostic(tmp_path):

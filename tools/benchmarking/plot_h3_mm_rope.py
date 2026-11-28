@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Plot all H3 RoPE benchmark cases from schema-v2 results.json (requires matplotlib).
+"""Plot H3 RoPE benchmark cases from v2 or v3 results.json (requires matplotlib).
 
 Usage: python tools/benchmarking/plot_h3_mm_rope.py results.json --out figures
 Writes latency, baseline speedup and incremental peak-allocation PNG/SVG figures.
@@ -29,8 +29,8 @@ MODES = {"forward": "Forward", "backward": "Backward", "forward_backward": "Forw
 
 def plot(report: dict, output: Path) -> None:
     """Render the complete measured case plan, with explicit units and baseline."""
-    if report.get("schema_version") != 2 or not report["complete"]:
-        raise ValueError("requires a complete schema-v2 benchmark with model-boundary acceptance")
+    if report.get("schema_version") not in (2, 3) or not report["complete"]:
+        raise ValueError("requires a complete v2 or v3 benchmark with model-boundary acceptance")
     rows = {(r["dtype"], tuple(r["shape"]), r["mode"]): r for r in report["results"]}
     output.mkdir(parents=True, exist_ok=True)
     plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False})

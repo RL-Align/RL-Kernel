@@ -195,6 +195,9 @@ backward and forward+backward for the original eager H3 provider, Native and
 Triton. Original BF16 autograd rounds backward products earlier; Native and Triton
 use the declared FP32 intermediate backward. Both baselines are reported explicitly.
 
+Triton runs forward and backward once on the full shape for validation. Each
+reference processes up to 1024 tokens at a time and checks the corresponding
+slices of the Triton output and input gradient.
 Every shape must first pass provider-forward bitwise parity, Native/Triton
 forward/backward bitwise parity and independent model-boundary accuracy. A failed
 acceptance case is not timed, leaves `complete=false` and yields nonzero exit.
@@ -212,7 +215,9 @@ reuses a prebuilt graph; forward+backward builds a fresh graph each call. CPU
 intra-op threads are one and provider order alternates. Events include host
 execution gaps, so small eager cases can be noisy. JSON retains all samples,
 medians, standard deviations and incremental peak allocation (excluding inputs
-and prebuilt graphs).
+and prebuilt graphs). In v3 reports, each result carries a `case_id`, such as
+`bf16:long:1x73426x56x128`. Look up that ID in `backends` for the registry
+resolution and the operator instance used for that case.
 
 The plotting script renders all measured shapes, separately for BF16/FP32 and
 F/B/F+B, with latency in milliseconds, baseline/Triton speedup, and incremental
