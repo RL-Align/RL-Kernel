@@ -58,9 +58,8 @@ against a different graph.
 
 ## Today's One-Block Result
 
-On block 0 (tiny layout, H100) the trace reports 17 calls and 9 non-`row` nodes: 7
-`interim` (O, gate-up and down GEMMs, QK norm, attention, SwiGLU, ...) and 2 `reference`
-(RoPE of Q and K). That list is exactly the work the unclaimed and claimed rows still owe;
+On block 0 (tiny layout) the trace reports 17 calls and 7 non-`row` nodes: 5 `interim`
+(O, gate-up and down GEMMs, attention, SwiGLU) and 2 `reference` (RoPE of Q and K). That list is exactly the work the unclaimed and claimed rows still owe;
 `h3_operator_trace.py verify --block 0` exits non-zero until it is empty. The block hook
 only sees node names, so every call also reports its accumulator, split policy and fallback
 state as not observed; `--allow row interim reference --allow-unobserved` checks the

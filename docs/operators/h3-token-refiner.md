@@ -14,7 +14,8 @@ residual_attn -> norm2 -> gate_up -> swiglu -> down -> residual_mlp
 
 The row owns the two residual adds (`residual_attn`, `residual_mlp`, FP32 add of the
 BF16 operands rounded once to BF16) and the graph itself; every other node is bound to
-the operator that already exists for it: `h3_rmsnorm`, `h3_qkv_gemm` (Q/K/V, from the
+the operator that already exists for it: `h3_rmsnorm`, `h3_qk_rmsnorm_d128` (the
+[per-head norms](h3-qk-rmsnorm-d128.md)), `h3_qkv_gemm` (Q/K/V, from the
 [projection rows](h3-projection-rows.md)), attention (`H3FullAttentionOp`, #553), the
 O/gate_up/down GEMM rows (#554, #535; SM90 only, the interim GEMM elsewhere) and the still-`interim`
 SwiGLU, which is replaced when its row lands, without changing the graph.
@@ -58,7 +59,7 @@ The block needs Triton: the interim GEMM and the GEMM rows' backends are Triton 
 
 A refiner trace is not yet strict-clean, for two separate reasons:
 
-- **Interim bindings.** SwiGLU and the QK norm are `interim` until their rows land. So are the
+- **Interim bindings.** SwiGLU is `interim` until its row lands. So are the
   O/gate_up/down GEMMs off SM90, and attention where the `H3FullAttentionOp` extension cannot be
   loaded (it then runs the interim `DeterministicAttentionOp`).
 - **Unobserved fields, on every node.** `block_observer` only learns each node's name, so it

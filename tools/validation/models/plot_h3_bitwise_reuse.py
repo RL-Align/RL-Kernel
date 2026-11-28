@@ -43,6 +43,8 @@ def _text(frac: float | None) -> str:
         return "—"
     if frac == 0:
         return "0"
+    if frac < 0.0001:  # a few elements: 0.00% would read as bitwise equal
+        return "<0.01%"
     return f"{frac:.1%}" if frac >= 0.001 else f"{frac:.2%}"
 
 

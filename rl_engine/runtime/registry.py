@@ -295,6 +295,10 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     )
     PYTORCH_H3_RMSNORM = "rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp"
     CUDA_H3_RMSNORM = "rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm.H3RMSNormCudaOp"
+    PYTORCH_H3_QK_RMSNORM = "rl_engine.reference.minimax_h3.qk_rmsnorm.NativeH3QKRMSNormOp"
+    CUDA_H3_QK_RMSNORM = (
+        "rl_engine.backends.cuda.model_specific.minimax_h3.qk_rmsnorm.H3QKRMSNormCudaOp"
+    )
     PYTORCH_H3_GATE_RESIDUAL = "rl_engine.reference.minimax_h3.gate_residual.NativeH3GateResidualOp"
     CUDA_H3_GATE_RESIDUAL = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.gate_residual.H3GateResidualCudaOp"
@@ -1091,6 +1095,10 @@ class KernelRegistry:
                     OpBackend.PYTORCH_H3_ADALN_ROW_GATHER,
                 ],
                 "h3_rmsnorm": [OpBackend.CUDA_H3_RMSNORM, OpBackend.PYTORCH_H3_RMSNORM],
+                "h3_qk_rmsnorm_d128": [
+                    OpBackend.CUDA_H3_QK_RMSNORM,
+                    OpBackend.PYTORCH_H3_QK_RMSNORM,
+                ],
                 "adaln_gate_residual": [
                     OpBackend.CUDA_H3_GATE_RESIDUAL,
                     OpBackend.PYTORCH_H3_GATE_RESIDUAL,
@@ -1152,6 +1160,7 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "h3_qk_rmsnorm_d128": [OpBackend.PYTORCH_H3_QK_RMSNORM],
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [
@@ -1220,6 +1229,7 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "h3_qk_rmsnorm_d128": [OpBackend.PYTORCH_H3_QK_RMSNORM],
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
@@ -1262,6 +1272,7 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "h3_qk_rmsnorm_d128": [OpBackend.PYTORCH_H3_QK_RMSNORM],
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],

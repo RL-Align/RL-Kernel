@@ -77,6 +77,7 @@ def test_graph_is_well_formed():
         "h3_rmsnorm",
         "adaln_gate_residual",
         "h3_qkv_gemm",
+        "h3_qk_rmsnorm_d128",
         "h3_full_attention",
         *h3_block.GEMM_ROWS.values(),
     }
@@ -89,8 +90,8 @@ DECLARED_BINDINGS = {
     "q_proj": ("h3_qkv_gemm", "row"),
     "k_proj": ("h3_qkv_gemm", "row"),
     "v_proj": ("h3_qkv_gemm", "row"),
-    "q_norm": ("h3_qk_rmsnorm_d128", "interim"),
-    "k_norm": ("h3_qk_rmsnorm_d128", "interim"),
+    "q_norm": ("h3_qk_rmsnorm_d128", "row"),
+    "k_norm": ("h3_qk_rmsnorm_d128", "row"),
     "rope_q": ("h3_mm_rope_3axis_partial", "reference"),
     "rope_k": ("h3_mm_rope_3axis_partial", "reference"),
     "attention": ("h3_full_attention", "row"),

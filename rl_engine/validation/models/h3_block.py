@@ -151,6 +151,7 @@ class CandidateOps:
         registry = registry or KernelRegistry()
         self.projection = registry.get_op("adaln_projection_3mod", device="cuda")
         self.norm = registry.get_op("h3_rmsnorm", device="cuda")
+        self.qk_norm = registry.get_op("h3_qk_rmsnorm_d128", device="cuda")
         self.gate = registry.get_op("adaln_gate_residual", device="cuda")
         self.gemm = TritonDetGemmOp()
         self.qkv = registry.get_op("h3_qkv_gemm", device="cuda")
@@ -428,10 +429,8 @@ def _head_norm_node(name: str, source: str, weight: str) -> Node:
     return Node(
         name=name,
         inputs=(source,),
-        # The row is someone else's; until it lands, this stack's plain H3 RMSNorm
-        # (bitwise equal to nn.RMSNorm at any width) runs on the 128-wide heads.
-        binding=Binding("h3_qk_rmsnorm_d128", "interim", "H3RMSNormCudaOp.forward"),
-        candidate=lambda ops, ctx, x: ops.norm(_heads(x), _w(ctx, weight)),
+        binding=Binding("h3_qk_rmsnorm_d128", "row", "H3QKRMSNormCudaOp.forward"),
+        candidate=lambda ops, ctx, x: ops.qk_norm(_heads(x), _w(ctx, weight)),
         provider=lambda ctx, x: prov.provider_head_rmsnorm(_heads(x), _w(ctx, weight)),
         golden=lambda ctx, x: gold.golden_rmsnorm(_heads(x), _w(ctx, weight)),
         provider_bitwise_isolated=True,

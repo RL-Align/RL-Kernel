@@ -44,10 +44,10 @@ those two modules to `video_input_projection_fp32` / `video_output_projection_fp
 
 - No FP32 full-model golden (132 GB of weights); agreement is against the provider and its
   kernel-choice spread. Per-block FP32 golden evidence is in the one-block and refiner rows.
-- SwiGLU and QK norm are still `interim` bindings, and RoPE is `reference` (see the operator
-  trace). The O/gate_up/down GEMM rows (#535, #554) are bound on SM90 only and are `interim`
-  elsewhere; attention is `H3FullAttentionOp` (#553) when its extension is present. Each trace
-  reports the binding that ran. `time_proj` uses the provider in this harness.
+- SwiGLU is still an `interim` binding, and RoPE is `reference` (see the operator trace). The
+  O/gate_up/down GEMM rows (#535, #554) are bound on SM90 only and are `interim` elsewhere;
+  attention is `H3FullAttentionOp` (#553) when its extension is present. Each trace reports the
+  binding that ran. `time_proj` uses the provider in this harness.
 - Parameter-gradient fingerprints are GPU-side position-weighted checksums, not SHA-256.
 - Sampler is the deterministic Euler ODE; the stochastic `cps` transition is a separate row.
 

@@ -52,6 +52,7 @@ def test_graph_is_well_formed_and_owners_are_declared():
     rows_with_kernels = {n.binding.rfc_row for n in hr.NODES if n.binding.status == "row"}
     assert rows_with_kernels == {
         "h3_rmsnorm",
+        "h3_qk_rmsnorm_d128",
         "h3_qkv_gemm",
         "token_refiner_block",
         "h3_full_attention",

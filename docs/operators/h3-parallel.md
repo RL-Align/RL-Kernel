@@ -255,8 +255,9 @@ this is the time of a whole `block_case(..., backward=False)` call, not of the k
 
 ## Limits
 
-- Attention, SwiGLU and QK norm inside the block are the repo's interim operators; the parallel
-  rows only require them to be row/head independent, which the bitwise results confirm.
+- Attention and SwiGLU inside the block are the repo's interim operators and the QK norm is
+  `h3_qk_rmsnorm_d128`; the parallel rows only require them to be row/head independent, which the
+  bitwise results confirm.
 - Pipeline parallelism is out of scope (`ws2_pipeline_parallel` is not part of this change).
 - dW under CP is the unsharded token sweep (exact gather of every CP rank's rows, then the same
   fixed-order GEMM), also in the TP x CP block, whose weight-gradient shards are compared with the

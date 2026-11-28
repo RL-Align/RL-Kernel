@@ -320,8 +320,8 @@ def run_tp_block_rows(
     def heads(t):
         return t.view(1, rows, local_heads, HEAD_DIM)
 
-    q = ops.norm(heads(q), w("attn.norm_q.weight"))
-    k = ops.norm(heads(k), w("attn.norm_k.weight"))
+    q = ops.qk_norm(heads(q), w("attn.norm_q.weight"))
+    k = ops.qk_norm(heads(k), w("attn.norm_k.weight"))
     from rl_engine.validation.models import h3_provider as prov
 
     q, k = prov.provider_apply_rotary(q, cos, sin), prov.provider_apply_rotary(k, cos, sin)

@@ -20,10 +20,10 @@ On one B200, at S = 264, 925 and 3160:
 - **Accuracy.** The block output is exactly as close to the FP32 golden as diffusers' (relative
   error 5.2e-3 / 7.9e-3 / 9.0e-3).
 
-Five of the 17 nodes are bound to this stack's three row operators (AdaLN projection, modulated
-RMSNorm for `norm1` / `norm2`, gate residual for the two residual nodes). The other twelve use **interim**
-deterministic operators until their own rows land, or the provider replay where no kernel exists
-yet (see Bindings). The block-level promises above hold with whatever a node is bound to. Speed
+Ten of the 17 nodes are bound to their row operators (AdaLN projection, modulated RMSNorm for
+`norm1` / `norm2`, the three Q/K/V projections, the per-head RMSNorm of Q and K, gate residual for
+the two residual nodes). The other seven use **interim** deterministic operators until their own
+rows land, or the provider replay where no kernel exists yet (see Bindings). The block-level promises above hold with whatever a node is bound to. Speed
 and the exact rounding of interim nodes belong to those operators, not to this row.
 
 ## Entry Point
@@ -56,7 +56,7 @@ python tools/validation/models/plot_h3_block.py report.json
 | `adaln_projection` | `adaln_projection_3mod` | **row**: `H3AdaLNProjectionCudaOp` (registry) |
 | `norm1`, `norm2` | `h3_rmsnorm` | **row**: `H3RMSNormCudaOp.forward_modulated` (registry) |
 | `q_proj`, `k_proj`, `v_proj` | `h3_qkv_gemm` | **row**: `H3QKVGemmCudaOp`, one fused call (registry) |
-| `q_norm`, `k_norm` | `h3_qk_rmsnorm_d128` | interim: `H3RMSNormCudaOp.forward` on the 128-wide heads |
+| `q_norm`, `k_norm` | `h3_qk_rmsnorm_d128` | **row**: `H3QKRMSNormCudaOp` (registry) |
 | `rope_q`, `rope_k` | `h3_mm_rope_3axis_partial` | reference: the provider replay (no kernel exists yet) |
 | `attention` | `h3_full_attention` | **row**: `H3FullAttentionOp` (#553); interim `DeterministicAttentionOp(causal=False)` when its extension is missing |
 | `o_proj` | `h3_attention_o_gemm` | **row** on SM90: `H3AttentionOGemmOp` (#554); interim elsewhere |

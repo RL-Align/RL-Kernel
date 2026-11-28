@@ -422,6 +422,19 @@ OP_SPECS = {
         },
         grad_input_names=("x", "weight"),
     ),
+    "h3_qk_rmsnorm_d128": OperatorSpec(
+        name="h3_qk_rmsnorm_d128",
+        op_class="reduction",
+        gold_path="rl_engine.reference.minimax_h3.qk_rmsnorm.NativeH3QKRMSNormOp",
+        gold_method="forward_fp32",
+        candidate_paths={
+            "pytorch": "rl_engine.reference.minimax_h3.qk_rmsnorm.NativeH3QKRMSNormOp",
+            "cuda": (
+                "rl_engine.backends.cuda.model_specific.minimax_h3.qk_rmsnorm.H3QKRMSNormCudaOp"
+            ),
+        },
+        grad_input_names=("x", "weight"),
+    ),
     "adaln_gate_residual": OperatorSpec(
         name="adaln_gate_residual",
         op_class="reduction",  # forward is elementwise; the gate VJP sums positions

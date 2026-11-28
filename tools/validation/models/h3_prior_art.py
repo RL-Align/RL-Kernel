@@ -64,6 +64,7 @@ OPS = {
     "adaln_projection": "rl_engine.backends.cuda.model_specific.minimax_h3.adaln_projection",
     "adaln_row_gather": "rl_engine.backends.cuda.model_specific.minimax_h3.adaln_row_gather",
     "norm_modulate": "rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm",
+    "qk_norm": "rl_engine.backends.cuda.model_specific.minimax_h3.qk_rmsnorm",
     "gate_residual": "rl_engine.backends.cuda.model_specific.minimax_h3.gate_residual",
     "final_adaln_out": "rl_engine.backends.cuda.model_specific.minimax_h3.final_adaln_out",
 }
@@ -697,6 +698,133 @@ def candidates(op: str, mode: str) -> list[dict[str, Any]]:
             ("liger_rlk_gather", liger_rlk_gather),
             ("sglang", sglang),
             ("rl_kernel", ours),
+        ]
+
+    elif op == "qk_norm":
+        # RFC #420 h3_qk_rmsnorm_d128: per-head Q/K RMSNorm, 56 heads of 128, BF16, eps 1e-5
+
+        heads, dim = 56, 128
+        qk_bi = ((64, 257, 1025), 4097, (1, 7, 257, 1025, 4097))
+        qk_perf = (257, 925, 4097)
+
+        def make(s, n):
+            return {
+                "x": _rn(s, 20, n, heads, dim, dtype=torch.bfloat16, scale=2.0),
+                "w": (0.5 + torch.rand(dim, device=DEV, generator=_gen(1, 21))).bfloat16(),
+            }
+
+        def ref(x, w):
+            return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + EPS) * w
+
+        base = {
+            "make": make,
+            "rows": {"x": 0},
+            "grads": ["x", "w"],
+            "ref": ref,
+            "bi_sizes": qk_bi,
+            "perf_sizes": qk_perf,
+        }
+
+        def diffusers():
+            # nn.RMSNorm(128, eps=1e-5) is F.rms_norm: what the provider's norm_q / norm_k run
+            return {
+                **base,
+                "source": "diffusers nn.RMSNorm(128) (F.rms_norm)",
+                "fn": lambda x, w: F.rms_norm(x, (dim,), w, EPS),
+            }
+
+        def rl_kernel():
+            from rl_engine.backends.cuda.model_specific.minimax_h3.qk_rmsnorm import (
+                H3QKRMSNormCudaOp,
+            )
+
+            op_ = H3QKRMSNormCudaOp()
+            return {
+                **base,
+                "source": "rl-kernel H3QKRMSNormCudaOp",
+                "fn": lambda x, w: op_(x, w),
+            }
+
+        def rl_kernel_generic_cuda():
+            from rl_engine.backends.cuda.norm.rmsnorm import RMSNormCudaOp
+
+            op_ = RMSNormCudaOp()
+            return {
+                **base,
+                "source": "rl-kernel generic RMSNormCudaOp (the Qwen QK-norm operator)",
+                "fn": lambda x, w: op_(x.contiguous(), w, eps=EPS),
+            }
+
+        def rl_kernel_generic_triton():
+            from rl_engine.backends.shared.triton.norm.rmsnorm import RMSNormTritonOp
+
+            op_ = RMSNormTritonOp()
+            return {
+                **base,
+                "source": "rl-kernel generic RMSNormTritonOp",
+                "fn": lambda x, w: op_(x.contiguous(), w, eps=EPS),
+            }
+
+        def te_norm():
+            import transformer_engine.pytorch as te
+
+            mod = te.RMSNorm(dim, eps=EPS, params_dtype=torch.bfloat16, device=DEV)
+
+            def fn(x, w):
+                # TE's backward reads its own parameter (see norm_modulate); dweight not checked
+                with torch.no_grad():
+                    mod.weight.copy_(w)
+                return mod(x)
+
+            return {
+                **base,
+                "grads": ["x"],
+                "source": f"TE {_version('transformer_engine')} RMSNorm",
+                "fn": fn,
+            }
+
+        def liger():
+            from liger_kernel.ops.rms_norm import LigerRMSNormFunction
+
+            version = _version("liger-kernel")
+            return {
+                **base,
+                "source": f"Liger {version} RMSNorm",
+                "fn": lambda x, w: LigerRMSNormFunction.apply(
+                    x.reshape(-1, dim), w, EPS, 0.0, "llama", False
+                ).view(x.shape),
+            }
+
+        def sglang_qknorm():
+            from sglang.kernels.ops.layernorm.norm import (
+                can_use_fused_inplace_qknorm,
+                fused_inplace_qknorm,
+            )
+
+            if not can_use_fused_inplace_qknorm(dim, torch.bfloat16):
+                raise RuntimeError("SGLang's fused QK norm kernel did not load")
+
+            def fn(x, w):
+                # the kernel norms q and k in place in one call: both are copies of x
+                q = x.reshape(1, -1, dim).clone()
+                fused_inplace_qknorm(q, q.clone(), w, w, EPS)
+                return q.view(x.shape)
+
+            return {
+                **base,
+                "grads": [],
+                "source": f"SGLang {_version('sglang')} fused_inplace_qknorm (q + k, forward only)",
+                "fn": fn,
+            }
+
+        found = [
+            ("diffusers", diffusers),
+            ("rl_kernel_generic_cuda", rl_kernel_generic_cuda),
+            ("rl_kernel_generic_triton", rl_kernel_generic_triton),
+            ("transformer_engine", te_norm),
+            ("liger", liger),
+            ("sglang_qknorm", sglang_qknorm),
+            ("rl_kernel", rl_kernel),
         ]
 
     elif op == "gate_residual":

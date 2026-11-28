@@ -20,6 +20,7 @@ H3_FREQ_DIM = 256
 H3_TIME_HIDDEN = 5376
 H3_TIME_EMBED = 2688
 H3_HIDDEN = 5376
+H3_QK_HEADS, H3_QK_HEAD_DIM = 56, 128  # the 5376-wide query and key as heads
 
 
 def make_operator_inputs(
@@ -59,6 +60,7 @@ def make_operator_inputs(
         "adaln_projection_3mod": _make_adaln_projection_3mod_inputs,
         "adaln_row_gather": _make_adaln_row_gather_inputs,
         "h3_rmsnorm": _make_h3_rmsnorm_inputs,
+        "h3_qk_rmsnorm_d128": _make_h3_qk_rmsnorm_inputs,
         "adaln_gate_residual": _make_adaln_gate_residual_inputs,
         "final_adaln_out": _make_final_adaln_out_inputs,
         "h3_ode_step": _make_h3_ode_step_inputs,
@@ -110,6 +112,7 @@ def operator_shape_name(op_name: str, args: argparse.Namespace) -> str:
         "adaln_row_gather": f"{3 * _h3_num_timesteps(args)}x{6 * _h3_hidden(args)}"
         f"->{batch * seq}",
         "h3_rmsnorm": f"{batch}x{seq}x{_h3_hidden(args)}",
+        "h3_qk_rmsnorm_d128": f"{batch}x{seq}x{H3_QK_HEADS}x{H3_QK_HEAD_DIM}",
         "adaln_gate_residual": f"{batch}x{seq}x{_h3_hidden(args)}",
         "final_adaln_out": f"{batch}x{seq}x{_h3_hidden(args)}",
         # batch = packed-row count, seq = latent channel width (24 video / 32 audio)
@@ -608,6 +611,18 @@ def _make_h3_rmsnorm_inputs(
     weight = _floating_tensor((hidden,), args, torch.float32, device, 1).abs() + 0.5
     return {
         "x": _floating_tensor((batch, seq, hidden), args, dtype, device, 0),
+        "weight": weight.to(dtype),
+        "eps": 1e-5,
+    }
+
+
+def _make_h3_qk_rmsnorm_inputs(
+    args: argparse.Namespace, dtype: torch.dtype, device: torch.device
+) -> dict[str, Any]:
+    batch, seq = _batch_seq(args)
+    weight = _floating_tensor((H3_QK_HEAD_DIM,), args, torch.float32, device, 1).abs() + 0.5
+    return {
+        "x": _floating_tensor((batch, seq, H3_QK_HEADS, H3_QK_HEAD_DIM), args, dtype, device, 0),
         "weight": weight.to(dtype),
         "eps": 1e-5,
     }

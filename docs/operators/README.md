@@ -40,6 +40,7 @@ Every operator page should include:
 - [MiniMax-H3 AdaLN Projection](h3-adaln-projection.md)
 - [MiniMax-H3 AdaLN Row Gather](h3-adaln-row-gather.md)
 - [MiniMax-H3 RMSNorm and AdaLN Modulation](h3-rmsnorm.md)
+- [MiniMax-H3 Per-Head Q/K RMSNorm](h3-qk-rmsnorm-d128.md)
 - [MiniMax-H3 AdaLN Gated Residual](h3-adaln-gate-residual.md)
 - [MiniMax-H3 Final AdaLN Output](h3-final-adaln-out.md)
 - [MiniMax-H3 Euler Step](h3-ode-step.md)
