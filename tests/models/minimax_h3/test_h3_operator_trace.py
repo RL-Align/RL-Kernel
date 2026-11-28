@@ -320,6 +320,8 @@ def _bindings_the_ops_loaded(h3_block, ops):
     """Each node's binding, derived from the ops (not from ``h3_block.bindings``)."""
 
     out = {node.name: node.binding for node in h3_block.NODES}
+    for name in ("rope_q", "rope_k"):
+        out[name] = h3_block.Binding(out[name].rfc_row, "row", type(ops.rope).__name__)
     for name, row in h3_block.GEMM_ROWS.items():
         if ops.gemm_op(row) is None:
             out[name] = h3_block.Binding(out[name].rfc_row, "interim", h3_block.INTERIM_GEMM)

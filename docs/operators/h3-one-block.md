@@ -22,7 +22,7 @@ at S = 264, 925 and 3160:
   error 5.2e-3 / 7.9e-3 / 9.0e-3).
 
 The current graph uses the AdaLN projection, modulated RMSNorm, gate residual, fused QKV,
-and Triton partial MM-RoPE operators. Attention and the three GEMM projections use their
+and registered partial MM-RoPE operators. Attention and the three GEMM projections use their
 row operators where supported. The bindings table below gives the conditions for each.
 An earlier A6000 run with Triton MM-RoPE passed the isolated RoPE forward checks and the
 block backward test. The block forward tests in that run reported RMSNorm differences.
@@ -58,7 +58,7 @@ python tools/validation/models/plot_h3_block.py report.json
 | `norm1`, `norm2` | `h3_rmsnorm` | **row**: `H3RMSNormCudaOp.forward_modulated` (registry) |
 | `q_proj`, `k_proj`, `v_proj` | `h3_qkv_gemm` | **row**: `H3QKVGemmCudaOp`, one fused call (registry) |
 | `q_norm`, `k_norm` | `h3_qk_rmsnorm_d128` | interim: `H3RMSNormCudaOp.forward` on the 128-wide heads |
-| `rope_q`, `rope_k` | `h3_mm_rope_3axis_partial` | **row**: `TritonH3MMRoPEOp` (explicit candidate; full-block qualification pending) |
+| `rope_q`, `rope_k` | `h3_mm_rope_3axis_partial` | **row**, resolved by the registry. Both nodes report `TritonH3MMRoPEOp` on validated CUDA runs or `NativeH3MMRoPEOp` on fallback. |
 | `attention` | `h3_full_attention` | **row**: `H3FullAttentionOp` (#553); interim `DeterministicAttentionOp(causal=False)` when its extension is missing |
 | `o_proj` | `h3_attention_o_gemm` | **row** on SM90: `H3AttentionOGemmOp` (#554); interim elsewhere |
 | `residual_attn`, `residual_mlp` | `adaln_gate_residual` | **row**: `H3GateResidualCudaOp` (registry) |

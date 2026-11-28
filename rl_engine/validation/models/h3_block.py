@@ -127,8 +127,8 @@ def _gemm_row_op(row: str):
 class CandidateOps:
     """The operators bound to the block's nodes, resolved once per run.
 
-    The registry resolves the norm, gate, AdaLN-projection and QKV operators. Both MM-RoPE
-    nodes use the Triton candidate directly so the block replay exercises it. The replay
+    The registry resolves the norm, gate, AdaLN-projection, QKV and MM-RoPE operators.
+    Both RoPE nodes use the same instance resolved for the execution device. The replay
     names its interim operators explicitly to select deterministic backends available on
     the device.
 
@@ -152,13 +152,12 @@ class CandidateOps:
         from rl_engine.backends.cuda.activation.swiglu import SwiGLUCudaOp
         from rl_engine.backends.cuda.attention.deterministic_attn import DeterministicAttentionOp
         from rl_engine.backends.shared.triton.gemm.det_gemm import TritonDetGemmOp
-        from rl_engine.backends.shared.triton.rope.h3_mm_rope import TritonH3MMRoPEOp
 
         registry = registry or KernelRegistry()
         self.projection = registry.get_op("adaln_projection_3mod", device="cuda")
         self.norm = registry.get_op("h3_rmsnorm", device="cuda")
         self.gate = registry.get_op("adaln_gate_residual", device="cuda")
-        self.rope = TritonH3MMRoPEOp()
+        self.rope = registry.get_op("h3_mm_rope_3axis_partial", device=device or "cuda")
         self.gemm = TritonDetGemmOp()
         self.qkv = registry.get_op("h3_qkv_gemm", device="cuda")
         self.attention = DeterministicAttentionOp()
@@ -281,7 +280,7 @@ def gemm_session(ops: Any):
 
 
 def bindings(ops: Any, nodes=None) -> dict[str, Binding]:
-    """Each node's binding as ``ops`` runs it: the GEMM rows and attention say which operator ran.
+    """Report the backend that ran for RoPE, the GEMM rows and attention.
 
     ``nodes`` defaults to the block's ``NODES`` (the refiner passes its own). Without ``ops`` the
     static bindings are returned.
@@ -290,6 +289,11 @@ def bindings(ops: Any, nodes=None) -> dict[str, Binding]:
     out = {}
     for node in NODES if nodes is None else nodes:
         binding = node.binding
+        if ops is not None and node.name in ("rope_q", "rope_k"):
+            # The registry can select Native for both nodes. Record its name in fallback runs.
+            rope = getattr(ops, "rope", None)
+            if rope is not None:
+                binding = Binding(binding.rfc_row, binding.status, type(rope).__name__)
         if ops is not None and node.name in GEMM_ROWS:
             # ops without ``gemm_op`` run the interim GEMM (``cand_gemm``), so report that
             accessor = getattr(ops, "gemm_op", None)

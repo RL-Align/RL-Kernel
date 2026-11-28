@@ -165,7 +165,10 @@ The checker calls `NativeH3MMRoPEOp.forward_fp32` for both dtypes. Case names us
 the standard operator, dtype and shape format. The checker generates synthetic
 three-axis positions. The benchmark and block replay use packed FL2VA positions.
 
-The [H3 block replay](h3-one-block.md) binds Triton to `rope_q` and `rope_k`.
+The [H3 block replay](h3-one-block.md) resolves RoPE once through the registry for
+both `rope_q` and `rope_k`. Each node records the selected backend. On the validated
+CUDA configuration this is `TritonH3MMRoPEOp`. A Native fallback is reported as
+`NativeH3MMRoPEOp`.
 It adds an isolated model-boundary accuracy result for those nodes on the provider's
 actual inputs. The summary records the first failing node in
 `first_rope_acceptance_failure`, or `null` when both pass. Its full-block mathematical

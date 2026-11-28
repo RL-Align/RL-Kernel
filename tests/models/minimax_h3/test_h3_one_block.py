@@ -126,6 +126,21 @@ def test_rope_nodes_call_the_candidate_operator():
         assert tensor is x and cosine is cos and sine is sin
 
 
+def test_rope_replay_reports_the_registry_fallback(monkeypatch, require_h3_kernels):
+    """Exercise ROCm dispatch metadata without launching any AMD kernels."""
+    pytest.importorskip("triton")
+    from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp
+
+    registry = h3_block.KernelRegistry()
+    monkeypatch.setattr(torch.version, "hip", "simulated")
+    ops = h3_block.CandidateOps(
+        registry, device=torch.device("cuda:0"), attention="interim", gemm_rows="interim"
+    )
+    assert isinstance(ops.rope, NativeH3MMRoPEOp)
+    bound = h3_block.bindings(ops)
+    assert bound["rope_q"].backend == bound["rope_k"].backend == "NativeH3MMRoPEOp"
+
+
 # (RFC row, status) the block declares per node, written out rather than read from ``NODES``
 DECLARED_BINDINGS = {
     "adaln_projection": ("adaln_projection_3mod", "row"),
