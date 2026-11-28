@@ -52,7 +52,7 @@ def h3_kernels_built() -> bool:
     return bool(_EXT_AVAILABLE and hasattr(_C, "h3_timestep_sinusoid_forward"))
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def require_h3_kernels() -> None:
     if not h3_kernels_built():
         pytest.skip("rl_engine._C has no H3 kernels (not built, or a fast-math build)")

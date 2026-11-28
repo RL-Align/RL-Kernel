@@ -7,12 +7,14 @@ Both supported dtypes (BF16 and FP32) also cover layout/batch/sequence invarianc
 FP16 is rejected rather than exempted from the project's accuracy thresholds.
 """
 
+from functools import partial
+
 import pytest
 import torch
 
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.reference.minimax_h3.block import golden_apply_rotary
-from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp, model_boundary_reference
+from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp
 from rl_engine.validation.models.h3_cases import H3_BLOCK_LAYOUTS, h3_fl2va_layout
 from rl_engine.validation.models.h3_provider import provider_apply_rotary, provider_rope
 
@@ -63,7 +65,7 @@ def _gradient_reference(x, cos, sin, upstream):
     """Differentiate the FP32 rotation with forward-quantized coefficients.
 
     Autograd derives the transpose independently of the operators' handwritten
-    backward. The separate accuracy test keeps the original FP32 coefficients.
+    backward. The unrounded diagnostic uses the original FP32 coefficients.
     """
     _, gradient = _forward_backward(
         golden_apply_rotary,
@@ -94,6 +96,30 @@ def test_forward_provider_parity_and_backward_contract(
     _assert_bits(grad, _gradient_reference(x, cos, sin, upstream))
     _assert_bits(actual[..., 96:], x[..., 96:])
     _assert_bits(grad[..., 96:], upstream[..., 96:])
+
+
+@pytest.mark.parametrize("view", ["x", "cos", "sin", "broadcast_grad_y"])
+def test_mixed_layouts_preserve_rotation_and_gradient(implementation, view):
+    """A single strided operand must use its own layout in the relevant direction."""
+    op, device = implementation
+    generator = torch.Generator().manual_seed(656)
+    shape = (2, 3, 2, 128)
+    x = torch.randn(shape, generator=generator).to(device=device, dtype=torch.bfloat16)
+    grad_y = torch.randn(shape, generator=generator).to(device=device, dtype=torch.bfloat16)
+    cos = torch.randn(3, 96, generator=generator).to(device)
+    sin = torch.randn(3, 96, generator=generator).to(device)
+    if view == "x":
+        x = _strided(x)
+    elif view == "cos":
+        cos = _strided(cos)
+    elif view == "sin":
+        sin = _strided(sin)
+    else:
+        # Forward is contiguous, but all upstream rows share the first row's storage.
+        grad_y = grad_y[:1, :1, :1].expand_as(x)
+    actual, grad = _forward_backward(op, x, cos, sin, grad_y)
+    _assert_bits(actual, provider_apply_rotary(x, cos, sin))
+    _assert_bits(grad, _gradient_reference(x, cos, sin, grad_y))
 
 
 @pytest.mark.parametrize(
@@ -253,6 +279,23 @@ def test_backward_rounds_once_using_forward_coefficients(implementation):
     assert not torch.equal(expected_grad, unquantized_grad.to(x.dtype))
 
 
+def test_backward_is_first_order_only(implementation):
+    """Both providers must reject a second backward through the input gradient."""
+    op, device = implementation
+    x = torch.zeros(1, 8, 2, 128, device=device, requires_grad=True)
+    cos = torch.ones(8, 96, device=device)
+    sin = torch.zeros_like(cos)
+    grad_y = torch.ones_like(x, requires_grad=True)
+    (grad_x,) = torch.autograd.grad(op(x, cos, sin), x, grad_y, create_graph=True)
+
+    # With identity rotation, the first backward passes the upstream gradient through.
+    _assert_bits(grad_x, grad_y)
+    # The direct grad_y term keeps this expression differentiable even if a
+    # provider accidentally detaches grad_x and drops the RoPE contribution.
+    with pytest.raises(RuntimeError, match="once_differentiable"):
+        (grad_x + grad_y).sum().backward()
+
+
 def test_rejects_fp16(implementation):
     op, device = implementation
     x = torch.ones((1, 1, 1, 128), device=device, dtype=torch.float16)
@@ -263,7 +306,7 @@ def test_rejects_fp16(implementation):
 
 @pytest.mark.parametrize("dtype", DTYPES)
 @pytest.mark.parametrize("seed", [420, 0, 1])
-def test_accuracy_against_model_boundary_reference(implementation, positions, dtype, seed):
+def test_accuracy_against_forward_fp32(implementation, positions, dtype, seed):
     """The hard accuracy gate retains the model's declared storage boundaries."""
     op, device = implementation
     generator = torch.Generator().manual_seed(seed)
@@ -272,7 +315,7 @@ def test_accuracy_against_model_boundary_reference(implementation, positions, dt
     cos, sin = provider_rope(positions.to(device))
     actual, grad = _forward_backward(op, x, cos, sin, upstream)
     expected, expected_grad = _forward_backward(
-        lambda x, c, s: model_boundary_reference(x, c, s, storage_dtype=dtype),
+        partial(NativeH3MMRoPEOp().forward_fp32, storage_dtype=dtype),
         x.float(),
         cos,
         sin,
@@ -323,7 +366,7 @@ def test_captured_bf16_pairs_preserve_model_and_backward(implementation, capture
     _assert_bits(grad, _gradient_reference(x, cos, sin, upstream))
     assert actual[0, :, 0, 0].tolist() == [-0.125, 0.328125]
     expected, expected_grad = _forward_backward(
-        lambda x, c, s: model_boundary_reference(x, c, s, storage_dtype=torch.bfloat16),
+        partial(NativeH3MMRoPEOp().forward_fp32, storage_dtype=x.dtype),
         x.float(),
         cos,
         sin,
@@ -344,11 +387,11 @@ def test_captured_bf16_pairs_preserve_model_and_backward(implementation, capture
 
 
 def test_captured_bf16_pairs_unrounded_math_diagnostic(implementation, captured_rounding_case):
-    """Pin the unresolved mathematical gap; this diagnostic is not acceptance."""
+    """Check that the unrounded FP32 diagnostic reports both saved BF16 outliers."""
     op, _ = implementation
     x, cos, sin, _ = captured_rounding_case
     actual = op(x, cos, sin)
-    reference = NativeH3MMRoPEOp().forward_fp32(x, cos, sin)
+    reference = NativeH3MMRoPEOp().forward_unrounded_fp32(x, cos, sin)
     tolerance = resolve_tolerance(
         load_contract(), judgment="forward_accuracy", op_class="elementwise", dtype=x.dtype
     )
@@ -371,26 +414,31 @@ def test_references_have_independent_forward_and_vjp(dtype):
     x = torch.randn(1, 3, 2, 128, generator=generator).to(dtype).float().requires_grad_()
     c, s = (torch.randn(3, 96, generator=generator) for _ in range(2))
     dy = torch.randn(x.shape, generator=generator)
-    y = model_boundary_reference(x, c, s, storage_dtype=dtype)
+    dy[..., 96] = -0.0  # A passthrough channel must preserve the upstream sign bit.
+    y = NativeH3MMRoPEOp().forward_fp32(x, c, s, storage_dtype=dtype)
     dx = torch.autograd.grad(y, x, dy)[0]
-    cq, sq = (v.to(dtype).float()[None, :, None, :] for v in (c, s))
+
+    model_cos, model_sin = (v.to(dtype).float() for v in (c, s))
+    fp32_rotation = golden_apply_rotary(x, model_cos, model_sin)
+    expected_dx = torch.autograd.grad(fp32_rotation, x, dy)[0]
+    _assert_bits(dx[..., :96], expected_dx[..., :96])
+    _assert_bits(dx[..., 96:], dy[..., 96:])
+
+    if dtype == torch.float32:
+        _assert_bits(y, fp32_rotation)
+        return
+
+    cq, sq = model_cos[None, :, None, :], model_sin[None, :, None, :]
     rotated = torch.cat((-x[..., 48:96], x[..., :48]), dim=-1)
-    if dtype == torch.bfloat16:
-        direct = (x[..., :96].double() * cq.double()).to(dtype).float()
-        cross = (rotated.double() * sq.double()).to(dtype).float()
-        _assert_bits(y[..., :96], direct + cross)
-    else:
-        _assert_bits(y, golden_apply_rotary(x, c, s))
-    d0 = dy[..., :48] * cq[..., :48] + dy[..., 48:96] * sq[..., 48:96]
-    d1 = dy[..., 48:96] * cq[..., 48:96] - dy[..., :48] * sq[..., :48]
-    _assert_bits(dx, torch.cat((d0, d1, dy[..., 96:]), dim=-1))
-    if dtype == torch.bfloat16:
-        assert not torch.equal(dx, dx.bfloat16().float())
-        # A plain .to(BF16).float() chain must not replace the identity storage VJP.
-        ordinary = (x[..., :96] * cq).bfloat16().float()
-        ordinary = ordinary + (rotated * sq).bfloat16().float()
-        ordinary_dx = torch.autograd.grad(ordinary, x, dy[..., :96])[0]
-        assert not torch.equal(dx[..., :96], ordinary_dx[..., :96])
+    direct = (x[..., :96].double() * cq.double()).to(dtype).float()
+    cross = (rotated.double() * sq.double()).to(dtype).float()
+    _assert_bits(y[..., :96], direct + cross)
+    assert not torch.equal(dx, dx.bfloat16().float())
+    # Differentiating ordinary BF16 casts would round each incoming product gradient.
+    ordinary = (x[..., :96] * cq).bfloat16().float()
+    ordinary = ordinary + (rotated * sq).bfloat16().float()
+    ordinary_dx = torch.autograd.grad(ordinary, x, dy[..., :96])[0]
+    assert not torch.equal(dx[..., :96], ordinary_dx[..., :96])
 
 
 @pytest.mark.parametrize("scale", [1, 2, 4])
@@ -403,9 +451,10 @@ def test_model_boundaries_on_broader_cancellation_samples(scale):
     # Half normal, half correlated near-cancellation samples. Avoid division near zero.
     x[:, 2048:, :, :48] = (phase[2048:].sin() * scale)[None, :, None, :]
     x[:, 2048:, :, 48:96] = (phase[2048:].cos() * scale)[None, :, None, :]
-    reference = model_boundary_reference(x, c, s, storage_dtype=x.dtype)
+    op = NativeH3MMRoPEOp()
+    reference = op.forward_fp32(x, c, s)
     _assert_bits(reference.bfloat16(), provider_apply_rotary(x, c, s))
-    mathematical = NativeH3MMRoPEOp().forward_fp32(x, c, s)
+    mathematical = op.forward_unrounded_fp32(x, c, s)
     _assert_bits(mathematical, golden_apply_rotary(x.float(), c, s))
 
 

@@ -87,6 +87,8 @@ Its backward uses the same quantized coefficients with FP32 products and additio
 only the final input gradient. The standalone operator uses a model-boundary acceptance
 reference and separately reports unrounded FP32 mathematical error. Block reports add
 `isolated_model_boundary_accuracy` for both RoPE nodes on actual provider inputs.
+The summary field `first_rope_acceptance_failure` names the first failing node
+(`rope_q` or `rope_k`) and is `null` when both pass.
 The block also compares the provider and candidate against the full-block mathematical
 golden. The report labels the two comparisons with `golden_role` and `rope_acceptance_reference`.
 

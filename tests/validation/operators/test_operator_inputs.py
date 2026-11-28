@@ -188,8 +188,8 @@ def test_cp_attention_operator_spec_registers_backward_grad_inputs():
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-def test_h3_mm_rope_checker_labels_model_boundary_reference(dtype):
-    from rl_engine.reference.rope.h3_mm_rope import model_boundary_reference
+def test_h3_mm_rope_checker_uses_forward_fp32(dtype):
+    from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp
 
     args = _args(op="h3_mm_rope_3axis_partial", candidate="pytorch", n_heads=14)
     case = make_operator_case(args, dtype, torch.device("cpu"))
@@ -204,9 +204,8 @@ def test_h3_mm_rope_checker_labels_model_boundary_reference(dtype):
 
     output = case.gold_fn(**case.inputs)
     assert output.dtype == torch.float32
-    assert case.name.endswith("-model-boundary-reference")
-    assert case.gold_fn.__name__ == "forward_model_reference"
-    assert torch.equal(output, model_boundary_reference(x, cos, sin, storage_dtype=dtype))
+    assert case.name == f"h3_mm_rope_3axis_partial-{dtype}-1x2x14x128"
+    assert case.gold_fn.__func__ is NativeH3MMRoPEOp.forward_fp32
     assert torch.equal(output.to(dtype), candidate.fn(**case.inputs))
     report = run_operator_suite(args.op, candidates=[candidate], cases=[case], check_grad=True)
     assert report.passed, report.to_dict()

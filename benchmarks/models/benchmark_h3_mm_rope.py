@@ -20,7 +20,7 @@ from pathlib import Path
 import torch
 
 from rl_engine.contracts.numerical import load_contract, resolve_tolerance
-from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp, model_boundary_reference
+from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp
 from rl_engine.validation.models.h3_cases import H3_BLOCK_LAYOUTS, h3_fl2va_layout
 from rl_engine.validation.models.h3_provider import provider_apply_rotary, provider_rope
 
@@ -114,7 +114,7 @@ def check_case(operators, x, cos, sin, upstream):
     """
     contract = load_contract()
     diagnostics = {
-        "reference": "original_fp32_coefficients_and_unrounded_fp32_math",
+        "reference": "forward_unrounded_fp32",
         "is_acceptance_gate": False,
         "forward": {},
         "backward": {},
@@ -128,9 +128,10 @@ def check_case(operators, x, cos, sin, upstream):
             max_error_over_tolerance=0.0,
             examples=[],
         )
-    acceptance = dict(reference="model_boundary_reference", passed=True)
+    acceptance = dict(reference="forward_fp32", passed=True)
     reference_op = NativeH3MMRoPEOp()
-    acceptance_fn = partial(model_boundary_reference, storage_dtype=x.dtype)
+    # Evaluate the reference gradient on an FP32 leaf while keeping the model's storage dtype.
+    acceptance_fn = partial(reference_op.forward_fp32, storage_dtype=x.dtype)
     for start in range(0, x.shape[1], 1024):
         view, dy = x[:, start : start + 1024], upstream[:, start : start + 1024]
         c, s = cos[start : start + 1024], sin[start : start + 1024]
@@ -164,10 +165,12 @@ def check_case(operators, x, cos, sin, upstream):
                 )
             except AssertionError as error:
                 raise AssertionError(
-                    f"model_boundary_reference {judgment}, "
+                    f"forward_fp32 {judgment}, "
                     f"tokens [{start}, {start + view.shape[1]}): {error}"
                 ) from error
-        math_y, math_dx = _evaluate(reference_op.forward_fp32, view.float(), c, s, dy.float())
+        math_y, math_dx = _evaluate(
+            reference_op.forward_unrounded_fp32, view.float(), c, s, dy.float()
+        )
         _, provider_dx = _evaluate(provider_apply_rotary, view, c, s, dy)
         for name, judgment, result, reference in (
             ("forward", "forward_accuracy", actual, math_y),
@@ -323,8 +326,8 @@ def main(argv=None):
     report = dict(
         schema_version=2,
         complete=False,
-        acceptance_reference="model_boundary_reference",
-        mathematical_reference="forward_fp32 (diagnostic only, not a timing gate)",
+        acceptance_reference="forward_fp32",
+        mathematical_reference="forward_unrounded_fp32",
         case_plan=plan,
         warmup=args.warmup,
         repeat=args.repeat,

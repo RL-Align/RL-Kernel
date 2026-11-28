@@ -49,8 +49,9 @@ def test_model_boundary_acceptance_keeps_unrounded_outlier_diagnostic(tmp_path):
     op = bench.NativeH3MMRoPEOp()
     assert torch.equal(op(x, cos, sin), bench.provider_apply_rotary(x, cos, sin))
     result = bench.check_case({"native": op, "triton": op}, x, cos, sin, torch.ones_like(x))
-    assert result["acceptance"] == dict(reference="model_boundary_reference", passed=True)
+    assert result["acceptance"] == dict(reference="forward_fp32", passed=True)
     diagnostic = result["unrounded_math_diagnostic"]
+    assert diagnostic["reference"] == "forward_unrounded_fp32"
     assert diagnostic["is_acceptance_gate"] is False
     assert diagnostic["forward"]["outside_tolerance"] == 1
     assert diagnostic["forward"]["max_error_over_tolerance"] > 1
@@ -83,5 +84,5 @@ def test_independent_model_boundary_gate_rejects_shared_wrong_backward():
     x = torch.ones(1, 2, 1, 128)
     tables = torch.ones(2, 96), torch.zeros(2, 96)
     wrong = lambda x, c, s: WrongBackward.apply(x)  # noqa: E731
-    with pytest.raises(AssertionError, match="model_boundary_reference gradient_accuracy"):
+    with pytest.raises(AssertionError, match="forward_fp32 gradient_accuracy"):
         bench.check_case({"native": wrong, "triton": wrong}, x, *tables, torch.ones_like(x))

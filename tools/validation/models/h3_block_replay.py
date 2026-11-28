@@ -65,6 +65,7 @@ def main() -> None:
         print(
             f"{layout} S={case['seq_len']}: first_drift={case['first_drift']} "
             f"first_isolated_drift={case['first_isolated_drift']} "
+            f"first_rope_acceptance_failure={case['first_rope_acceptance_failure']} "
             f"repeat_drift={case['first_repeat_drift']} batch_drift={case['first_batch_drift']} "
             f"out err cand {case['output']['candidate_rel_err_vs_golden']:.2e} "
             f"prov {case['output']['provider_rel_err_vs_golden']:.2e}"

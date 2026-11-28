@@ -185,7 +185,7 @@ def test_partial_rope_rotates_96_of_128_channels():
         assert not torch.equal(out[..., :96].float(), x[..., :96].float())
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def ops(require_h3_kernels):
     """Check optional extensions before constructing any candidate backend."""
     return h3_block.CandidateOps()
@@ -203,7 +203,8 @@ def test_stack_rows_dispatch_to_cuda(require_h3_kernels, ops):
 @pytest.mark.parametrize("layout", ["tiny", "small"])
 def test_block_forward(h3_block_weights_cuda, ops, layout):
     report = h3_block.run_block_case(h3_block_weights_cuda, layout=layout, ops=ops)
-    assert report["rope_acceptance_reference"] == "isolated_model_boundary_reference"
+    assert report["rope_acceptance_reference"] == "forward_fp32"
+    assert report["first_rope_acceptance_failure"] is None
     for entry in report["nodes"]:
         if entry["node"] in ("rope_q", "rope_k"):
             assert entry["isolated_model_boundary_accuracy"]["passed"], entry
@@ -224,6 +225,24 @@ def test_block_forward(h3_block_weights_cuda, ops, layout):
     assert out["candidate_rel_err_vs_golden"] <= (
         FORWARD_FACTOR * out["provider_rel_err_vs_golden"] + FORWARD_FLOOR
     )
+
+
+@needs_gpu
+def test_block_report_names_the_failing_rope_node(h3_block_weights_cuda, ops, monkeypatch):
+    """One bad K element must reach the report summary even when Q still passes."""
+    run_isolated = h3_block.run_isolated
+
+    def corrupt_one_key(ctx, ops, provider):
+        isolated = run_isolated(ctx, ops, provider)
+        isolated["rope_k"][0, 0, 0, 0] = torch.nan
+        return isolated
+
+    monkeypatch.setattr(h3_block, "run_isolated", corrupt_one_key)
+    report = h3_block.run_block_case(h3_block_weights_cuda, layout="tiny", ops=ops)
+    assert report["first_rope_acceptance_failure"] == "rope_k"
+    nodes = {entry["node"]: entry for entry in report["nodes"]}
+    assert nodes["rope_q"]["isolated_model_boundary_accuracy"]["passed"]
+    assert nodes["rope_k"]["isolated_model_boundary_accuracy"]["outside_tolerance"] == 1
 
 
 @needs_gpu

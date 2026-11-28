@@ -32,14 +32,19 @@ def plot(report: dict, output: Path) -> None:
     if report.get("schema_version") != 2 or not report["complete"]:
         raise ValueError("requires a complete schema-v2 benchmark with model-boundary acceptance")
     rows = {(r["dtype"], tuple(r["shape"]), r["mode"]): r for r in report["results"]}
-    shapes = sorted({tuple(case["shape"]) for case in report["case_plan"]})
-    labels = [f"{s[1]:,}\n{s[2]} heads" for s in shapes]
-    xs = np.arange(len(shapes))
     output.mkdir(parents=True, exist_ok=True)
     plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False})
     for metric in ("latency", "speedup", "memory"):
-        fig, axes = plt.subplots(2, 3, figsize=(17, 9))
-        for row, dtype in enumerate(("bf16", "fp32")):
+        # Give long sequences their own linear axis so short-call latencies remain legible.
+        panels = {}
+        for case in report["case_plan"]:
+            long_layout = metric != "speedup" and case["layout"] == "long"
+            panels.setdefault((case["dtype"], long_layout), []).append(tuple(case["shape"]))
+        fig, axes = plt.subplots(len(panels), 3, figsize=(17, 4 * len(panels) + 1), squeeze=False)
+        for row, ((dtype, _), shapes) in enumerate(sorted(panels.items())):
+            shapes = sorted(shapes)
+            labels = [f"{s[1]:,}\n{s[2]} heads" for s in shapes]
+            xs = np.arange(len(shapes))
             for column, (mode, mode_label) in enumerate(MODES.items()):
                 ax = axes[row, column]
                 cases = [rows[dtype, shape, mode] for shape in shapes]
@@ -87,15 +92,13 @@ def plot(report: dict, output: Path) -> None:
                 ax.set_xticks(xs, labels, fontsize=8)
                 ax.set_xlabel("Packed sequence length S / head count H (B=1, D=128)")
                 ax.grid(axis="y", alpha=0.2)
+                ax.set_ylim(bottom=0)
                 if metric == "latency":
-                    ax.set_yscale("log")
-                    ax.set_ylabel("Latency (ms, log scale)")
+                    ax.set_ylabel("Latency (ms)")
                 elif metric == "memory":
-                    ax.set_yscale("log")
-                    ax.set_ylabel("Incremental peak allocation (MiB, log scale)")
+                    ax.set_ylabel("Incremental peak allocation (MiB)")
                 else:
                     ax.axhline(1, color="#137F78", linestyle="--", linewidth=1)
-                    ax.set_ylim(bottom=0)
                     ax.set_ylabel("Baseline latency / Triton latency (×)")
         handles, legend_labels = axes[0, 0].get_legend_handles_labels()
         fig.legend(

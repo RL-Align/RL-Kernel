@@ -14,10 +14,17 @@ The same tables can be reused for Q and K.
 | `cos`, `sin` | `[S, 96]` | FP32 constants on x's device; no gradients; strided views accepted |
 | Output, input gradient | `[B, S, H, 128]` | x's dtype; contiguous; last 32 channels pass through unchanged |
 
-H3 uses 56 heads; head shards can use fewer. Sequence length and tensor strides are
-runtime metadata. Triton specializes head count and channel geometry, and launches
-with grid `(S, H, B)` so real packed sequences longer than 65,535 tokens do not occupy
-CUDA's limited grid-y axis. Batch and head counts must fit the device's grid-y/z limits.
+H3 uses 56 heads, and head shards can use fewer. Every head has 128 channels.
+The kernel processes its 48 rotary pairs in a 64-lane vector and masks the last
+16 lanes. The remaining 32 channels pass through directly.
+
+Each direction launches one kernel with grid `(S, H, B)`, putting long sequences
+on the first axis. If the input and both tables are contiguous, `layout=None`
+lets the kernel reuse the output row offset. For views, the launcher passes the
+element strides of the input, cosine table and sine table in one runtime tuple.
+Older Triton versions take the same strides as individual arguments. Backward
+uses the actual layout of `grad_y`, including broadcast strides. Head and batch
+counts must fit the device's grid-y and grid-z limits, respectively.
 
 ```python
 from rl_engine.backends.shared.triton.rope.h3_mm_rope import TritonH3MMRoPEOp
@@ -28,10 +35,12 @@ q_rotated = op(q, cos, sin)
 ```
 
 `NativeH3MMRoPEOp` in `rl_engine.reference.rope.h3_mm_rope` provides the matching
-PyTorch implementation on CPU or GPU. The direct Triton entry accepts PyTorch's
-`cuda` device type (also used by ROCm), uses the input device/current stream, and
-has no automatic fallback. NVIDIA CUDA is the platform tested here; ROCm remains
-unqualified. FP16 is not supported in this version.
+PyTorch implementation on CPU or GPU. The direct Triton entry accepts tensor
+device types `cuda`, `hip`, `xpu` and `musa` with the corresponding PyTorch and
+Triton backends installed. Forward and backward launch Triton directly on the
+tensor's device and current stream. PyTorch on ROCm normally reports `cuda`.
+Hardware validation for H3 in this PR covers NVIDIA CUDA. The supported
+activation dtypes are BF16 and FP32.
 
 The legacy registry name is `h3_mm_rope_3axis_partial`: CUDA prefers Triton and
 can fall back to Native; the other platform maps expose Native. For strict H3
@@ -51,7 +60,7 @@ arithmetic, including BF16 cast points. The original expression is
 2. Compute each rotation product, rounding it to x's dtype.
 3. Add/subtract the two products and round the output to x's dtype.
 
-Training, `no_grad`, and inference use the same Triton forward kernel. FP fusion is
+Training, `no_grad`, and inference use the same Triton rotation for both layouts. FP fusion is
 disabled so multiplying and adding cannot become a single FMA with different rounding.
 For BF16, the kernel performs arithmetic in FP32 registers but explicitly casts
 each product to BF16 and back before addition. Loading into FP32 alone would not
@@ -71,55 +80,58 @@ This follows the usual autograd treatment of floating-point casts, while avoidin
 the eager BF16 backward's extra product rounding. The PyTorch reference therefore
 has an explicit backward too. The table halves are read separately, and the last
 32 gradient channels pass through bit-for-bit. There are no atomics or reductions
-across tokens, heads or batches. Only first-order gradients for x are part of the contract.
+across tokens, heads or batches. Both Native and Triton mark their backward
+with `@once_differentiable`. A second backward through RoPE raises an error.
+In a sum with another differentiable term, a call to `torch.autograd.grad`
+targeting a specific input can follow just the other term and return its
+contribution. Both operators support only first-order gradients for `x`.
 
 ## Two references and acceptance
 
-The production forward/backward arithmetic above is unchanged. This PR proposes
-an explicit **model-boundary acceptance reference** for RoPE, following the
-separation used in H3 [#487](https://github.com/RL-Align/RL-Kernel/pull/487) and
+The accuracy check compares the operator with an independent PyTorch rotation
+that reproduces H3's intermediate rounding. A second comparison measures how
+much that rounding changes the result relative to an all-FP32 rotation. Both
+comparisons use the project's elementwise tolerances. See the
+[H3 RoPE review](https://github.com/RL-Align/RL-Kernel/pull/656#issuecomment-7069638929) and
+the earlier H3 references in [#487](https://github.com/RL-Align/RL-Kernel/pull/487) and
 [#489](https://github.com/RL-Align/RL-Kernel/pull/489#discussion_r4395799781).
-Those precedents do not constitute maintainer approval of this RoPE contract.
-The reference choice remains a review item in this Draft PR.
 
 | Reference | Coefficients | Products / sum | Role |
 |---|---|---|---|
-| `model_boundary_reference` / `forward_model_reference` | FP32 table converted to activation dtype, promoted exactly to FP32 | FP32 multiply, product stored in activation dtype and promoted; FP32 sum/output | Hard operator accuracy gate using unchanged elementwise tolerances |
-| `forward_fp32` | Original FP32 tables | FP32 multiply and sum, no model storage boundaries | Mathematical error diagnostic; **not** the timing/acceptance gate |
+| `forward_fp32` | Round each coefficient to the activation dtype, then promote to FP32 | Round each FP32 product to the activation dtype, then sum in FP32 | Determines whether operator accuracy passes |
+| `forward_unrounded_fp32` | Use the original FP32 tables | Multiply and sum in FP32 | Reports mathematical error |
 
-The acceptance reference is an independent PyTorch expression. It does not call
-Native's custom backward or Triton. Each product storage node has an explicit
-identity VJP; PyTorch differentiates the rotation expression. This keeps gradient
-products and sums FP32 with forward-quantized coefficients. Ordinary `.to()`
-autograd can introduce extra gradient casts, so the storage-node VJP is explicit.
-The final output stays FP32, allowing the candidate's final cast to be checked.
-Tests and benchmark use FP32 leaves with an explicit `storage_dtype` to retain
-unrounded reference gradients. The unified checker uses BF16 leaves for BF16
-cases, so its leaf gradients round once; the standalone tests additionally check
-the unrounded FP32 gradients.
+The accuracy checker runs the reference in PyTorch eager mode. Its `forward` rounds
+each product to `storage_dtype` and adds them in FP32. Calling `backward()` or
+`torch.autograd.grad` applies the transpose rotation with the saved coefficients in
+FP32 and passes the last 32 gradient channels through directly. Tests check the
+rotating channels against an independent PyTorch rotation with the same coefficients.
+`forward_fp32` takes its storage dtype from `x.dtype` by default. The unified
+checker passes BF16 inputs for BF16 cases, so their leaf gradients round once.
+The standalone tests and benchmark also check the gradient before that final
+cast. They pass an FP32 leaf and specify the original activation dtype via
+`storage_dtype` so the forward still rounds at the model's boundaries.
 
 FP32 is used **before** each storage boundary, preserving the model operation
 order. Substituting FP64 arithmetic before a BF16 midpoint can select a different
 stored value, as demonstrated in H3 [#485](https://github.com/RL-Align/RL-Kernel/pull/485).
 No project tolerances, dtype support or other operators' precision contracts change.
 
-### Known mathematical error remains
+### Two BF16 outputs that exceed the unrounded FP32 tolerance
 
-The exact two BF16 inputs captured at `[1, 73426, 14, 128]`, seed 656, remain in
-pytest. They now pass model-boundary acceptance and still explicitly assert the
-following unrounded FP32 discrepancy; there is no xfail or tolerance change:
+Pytest replays the two BF16 inputs captured at `[1, 73426, 14, 128]`, seed 656.
+It checks that both outputs match H3 and that both differences from
+`forward_unrounded_fp32` exceed the existing tolerance.
 
 | Token / head / channel | Model = Native = Triton | Unrounded FP32 | Absolute error | Allowed error |
 |---|---:|---:|---:|---:|
 | 36201 / 13 / 38 | -0.125000 | -0.101508379 | 0.023491621 | 0.021624133 |
 | 48538 / 3 / 11 | 0.328125 | 0.302912712 | 0.025212288 | 0.024846602 |
 
-These errors come from coefficient/product BF16 rounding near cancellation.
-RoPE has no cross-token reduction: a longer sequence exposes more input values,
-not accumulated error along the sequence. The mathematical gap has **not** been
-fixed. Passing the model-boundary gate cannot be described as passing the
-unrounded FP32 tolerance. Broader normal and cancellation samples at scales 1/2/4
-also check the reference, without narrowing the operator input domain.
+In each pair the two products nearly cancel, making the BF16 rounding of the
+coefficients and products visible in their difference. Each token rotates
+independently. A longer sequence samples more input pairs. Tests also cover
+normal and near-cancelling inputs at scales 1, 2 and 4.
 
 ## Validation
 
@@ -144,13 +156,15 @@ python tools/validation/operators/check_operator.py \
 ```
 
 Use `--candidate pytorch --device cpu` for Native and `--dtype fp32` for FP32.
-The checker gold method is `forward_model_reference`; case names in text/JSON
-include `model-boundary-reference`. Its input generator uses synthetic three-axis
-positions; the benchmark and block replay use packed FL2VA positions.
+The checker calls `NativeH3MMRoPEOp.forward_fp32` for both dtypes. Case names use
+the standard operator, dtype and shape format. The checker generates synthetic
+three-axis positions. The benchmark and block replay use packed FL2VA positions.
 
 The [H3 block replay](h3-one-block.md) binds Triton to `rope_q` and `rope_k`.
 It adds an isolated model-boundary accuracy result for those nodes on the provider's
-actual inputs. Its full-block mathematical golden remains unchanged, including
+actual inputs. The summary records the first failing node in
+`first_rope_acceptance_failure`, or `null` when both pass. Its full-block mathematical
+golden includes
 unrounded RoPE, so historical block-error comparisons remain meaningful. Existing
 block tests still enforce their comparative error bounds; they are distinct from
 the operator's elementwise acceptance gate.
@@ -182,13 +196,12 @@ use the declared FP32 intermediate backward. Both baselines are reported explici
 Every shape must first pass provider-forward bitwise parity, Native/Triton
 forward/backward bitwise parity and independent model-boundary accuracy. A failed
 acceptance case is not timed, leaves `complete=false` and yields nonzero exit.
-Separately, the full-domain unrounded FP32 diagnostic retains element counts,
-values outside the unchanged tolerance, max error, max error/limit and up to eight
-global outlier coordinates for forward, candidate backward and provider backward.
-`is_acceptance_gate=false` labels this diagnostic in JSON. Nonzero counts do not
-prevent timing after model-boundary acceptance; `complete=true` means that plan
-completed under this declared gate, not that pure FP32 accuracy or full-model
-acceptance passed.
+The JSON field `unrounded_math_diagnostic` names `forward_unrounded_fp32` as its
+reference and sets `is_acceptance_gate=false`. It records element counts, values
+outside tolerance, maximum error, maximum error/limit and up to eight global
+outlier coordinates for forward, candidate backward and provider backward.
+Timing can proceed after the accuracy and bitwise checks pass, even when this
+diagnostic reports outliers.
 
 Timing uses eager public wrappers, 10 warmups and 40 accelerator-event samples,
 without `torch.compile` or CUDA Graph timing. Allocation and autograd dispatch are
@@ -200,7 +213,8 @@ medians, standard deviations and incremental peak allocation (excluding inputs
 and prebuilt graphs).
 
 The plotting script renders all measured shapes, separately for BF16/FP32 and
-F/B/F+B, with latency in milliseconds on a log axis, baseline/Triton speedup, and
-incremental peak allocation in MiB on a log axis. Latency whiskers are P10/P90
+F/B/F+B, with latency in milliseconds, baseline/Triton speedup, and incremental
+peak allocation in MiB. All vertical axes are linear. The long layout has its
+own latency and memory panels so the shorter layouts stay readable. Latency whiskers are P10/P90
 sample dispersion, not confidence intervals. Raw measurements, source hashes,
 logs and figures are PR evidence attachments rather than committed data.
