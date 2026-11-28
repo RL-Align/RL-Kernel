@@ -3,9 +3,39 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import torch
+
+
+def _split(name):
+    """Original layers per pipeline stage, e.g. "3,1" (the four-layer default)."""
+    value = os.environ.get(name) or os.environ.get("RLK_DSV4_PP_SPLIT", "3,1")
+    return [int(x) for x in value.split(",")]
+
+
+def actor_split():
+    return _split("RLK_DSV4_PP_SPLIT")
+
+
+def rollout_split():
+    """The rollout may use its own split (RLK_ROLLOUT_PP_SPLIT); default: the actor's."""
+    return _split("RLK_ROLLOUT_PP_SPLIT")
+
+
+def scope_text(total_steps):
+    actor, rollout = actor_split(), rollout_split()
+    if (actor, rollout, total_steps) == ([3, 1], [3, 1], 3):
+        return (
+            "four-GPU, four-layer actor PP2/DP1 and rollout PP2/DP1; "
+            "three continuous native verl GRPO/PPO updates."
+        )
+    return (
+        f"{len(actor) + len(rollout)}-GPU, {sum(actor)}-layer actor PP{len(actor)}/DP1 "
+        f"(layers {actor}) and rollout PP{len(rollout)}/DP1 (layers {rollout}); "
+        f"{total_steps} continuous native verl GRPO/PPO updates."
+    )
 
 
 def worker_key(record):
@@ -56,7 +86,7 @@ def verify_stress(root, repeats, pids):
             checked = strict_response_parity(left, right, torch.ones_like(left))
             assert row == checked and row["expected_tokens"] == len(case["response_ids"])
             count += row["compared_tokens"]
-        assert len(raw["stages"]) == 2
+        assert len(raw["stages"]) == len(rollout_split())
         for stage in raw["stages"]:
             assert (
                 stage["weight_version"] == 3 and worker_key(stage) == pids[stage["pipeline_stage"]]
@@ -77,11 +107,11 @@ def verify_stress(root, repeats, pids):
     assert count == summary["expected_tokens"] == summary["compared_tokens"] > 0
     expected = json.loads((root / "sync-v3-raw.json").read_text())["manifest"]
     actors = json.loads((root / "stress-v3-actor-readback.json").read_text())
-    assert len(actors) == 2 and all(
+    assert len(actors) == len(actor_split()) and all(
         actor["weight_version"] == 3 and actor["manifest"] == expected for actor in actors
     )
     acks = json.loads((root / "stress-v3-rollout-readback.json").read_text())
-    assert len(acks) == 2
+    assert len(acks) == len(rollout_split())
     covered = set()
     for ack in acks:
         assert ack["weight_version"] == 3 and worker_key(ack) == pids[ack["pipeline_stage"]]
@@ -120,7 +150,8 @@ def verify(root, inventory):
     pids = None
     previous_actor = {}
     identities = {
-        i: json.loads((root / f"actor-rank-{i}-identity.json").read_text()) for i in (0, 1)
+        i: json.loads((root / f"actor-rank-{i}-identity.json").read_text())
+        for i in range(len(actor_split()))
     }
     orders = [
         ("A",),
@@ -138,14 +169,15 @@ def verify(root, inventory):
         ("A", "C"),
         ("C", "A"),
     ]
-    for version in range(4):
+    total_steps = int(os.environ.get("RLK_TOTAL_STEPS", "3"))
+    for version in range(total_steps + 1):
         sync = json.loads((root / f"sync-v{version}.json").read_text())
         rawsync = json.loads((root / f"sync-v{version}-raw.json").read_text())
         assert sync["weight_version"] == rawsync["stages"][0]["weight_version"] == version
         pids = validate_stage_acks(sync["stages"], rawsync["manifest"], version, pids)
+        split = rollout_split()
         assert {s["pipeline_stage"]: s["original_layer_ids"] for s in sync["stages"]} == {
-            0: [0, 1, 2],
-            1: [3],
+            i: list(range(sum(split[:i]), sum(split[: i + 1]))) for i in range(len(split))
         }
         router_bias = [key for key in rawsync["manifest"] if key.endswith(".ffn.gate.bias")]
         assert set(router_bias) == {key for key in original_state if key.endswith(".ffn.gate.bias")}
@@ -209,7 +241,7 @@ def verify(root, inventory):
             for tokens, case in zip(actor["tokens"], cases, strict=True):
                 seq = case["prompt_ids"] + case["response_ids"]
                 assert tokens[: len(seq)] == seq and all(t == 0 for t in tokens[len(seq) :])
-            assert len(raw["stages"]) == 2
+            assert len(raw["stages"]) == len(rollout_split())
             for stage in raw["stages"]:
                 assert (
                     stage["weight_version"] == version
@@ -273,7 +305,8 @@ def verify(root, inventory):
                 scores["old_log_probs"], scores["rollout_log_probs"], scores["response_mask"]
             )
             ranks = []
-            for rank in (0, 1):
+            actor_stages = len(actor_split())
+            for rank in range(actor_stages):
                 actor = json.loads((root / f"actor-rank-{rank}-v{version}.json").read_text())
                 assert actor["rank"] == rank and actor["weight_version"] == version
                 assert (
@@ -302,7 +335,7 @@ def verify(root, inventory):
                 loss_calls = json.loads(
                     (root / f"native-loss-rank{rank}-v{version}.json").read_text()
                 )
-                if rank == 1:
+                if rank == actor_stages - 1:
                     assert len(loss_calls) == 4 and all(
                         c["finite"]
                         and c["requires_grad"]
@@ -313,12 +346,17 @@ def verify(root, inventory):
                     assert loss_calls == []
                 previous_actor[rank] = actor["optimizer_after"]
                 ranks.append(actor)
-            for send, recv in [
-                ("forward_send", "forward_recv"),
-                ("backward_recv", "backward_send"),
+            for boundary, (send, recv) in [
+                (b, pair)
+                for b in range(actor_stages - 1)
+                for pair in (("forward_send", "forward_recv"), ("backward_recv", "backward_send"))
             ]:
-                left = [r for r in ranks[0]["pipeline_transfers"] if r["direction"] == send]
-                right = [r for r in ranks[1]["pipeline_transfers"] if r["direction"] == recv]
+                left = [
+                    r for r in ranks[boundary]["pipeline_transfers"] if r["direction"] == send
+                ]
+                right = [
+                    r for r in ranks[boundary + 1]["pipeline_transfers"] if r["direction"] == recv
+                ]
                 assert left and right and len(left) == len(right) == 4
                 assert all(r["finite"] for r in left + right)
                 assert [r["sha256"] for r in sorted(left, key=lambda r: r["microbatch"])] == [
@@ -329,7 +367,7 @@ def verify(root, inventory):
             metrics = json.loads((root / f"metrics-step{version}.json").read_text())
             assert metrics["global_steps"] == version and metrics["includes_audit"]
     parity = [json.loads(line) for line in (root / "parity.jsonl").read_text().splitlines()]
-    assert len(parity) == 7 and all(
+    assert len(parity) == 2 * total_steps + 1 and all(
         r["expected_tokens"] == r["compared_tokens"] > 0 and r["mismatch_count"] == 0
         for r in parity
     )
@@ -356,7 +394,7 @@ def verify(root, inventory):
                 pre["plan"], observed["actor"], observed["rollout"], pre["nodes"]
             )
             # Verify placement against actual execution evidence, not just a sidecar.
-            for rank in (0, 1):
+            for rank in range(len(actor_split())):
                 identity = identities[rank]
                 placed = next(r for r in placement["actor"] if r["rank"] == rank)
                 assert identity["source_identity"]["node_id"] == placed["node_id"]
@@ -374,9 +412,7 @@ def verify(root, inventory):
         status="PASS",
         placement=placement,
         scope=(
-            ("Explicit multi-node four-GPU, " if placement else "Single-node four-GPU, ")
-            + "four-layer actor PP2/DP1 and rollout PP2/DP1; "
-            "three continuous native verl GRPO/PPO updates."
+            ("Explicit multi-node " if placement else "Single-node ") + scope_text(total_steps)
         ),
         versions=versions,
         dp_gradient_reduction=False,
