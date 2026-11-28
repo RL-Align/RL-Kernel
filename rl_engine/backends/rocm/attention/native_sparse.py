@@ -11,6 +11,23 @@ from rl_engine.backends.rocm.attention.joint_backward import AiterJointBackwardB
 from rl_engine.contracts.operators.joint_attention import JointAttentionContract
 
 
+def sparse_workspace_budget(value=None):
+    """Checked resident-workspace limit, with the legacy environment name as fallback."""
+    if value is None:
+        name = "RLK_NATIVE_SPARSE_MAX_WORKSPACE_BYTES"
+        raw = os.environ.get(name)
+        if raw is None:
+            name = "RLK_NATIVE_SPARSE_WORKSPACE_BYTES"
+            raw = os.environ.get(name)
+        try:
+            value = (1 << 30) if raw is None else int(raw)
+        except ValueError as error:
+            raise ValueError(f"{name} must be a positive integer") from error
+    if type(value) is not int or value <= 0:
+        raise ValueError("positive native sparse workspace budget required (integer bytes)")
+    return value
+
+
 class _Sparse(torch.autograd.Function):
     @staticmethod
     def forward(ctx, q, kv, sink, indices, scale, operator):
@@ -57,19 +74,12 @@ class NativeSparseAttention:
     """One operator profile for actual native/vLLM sparse attention operands."""
 
     def __init__(self, *, max_workspace_bytes=None):
-        if max_workspace_bytes is None:
-            max_workspace_bytes = int(
-                os.environ.get("RLK_NATIVE_SPARSE_MAX_WORKSPACE_BYTES", 1 << 30)
-            )
-        if type(max_workspace_bytes) is not int or max_workspace_bytes <= 0:
-            raise ValueError("positive native sparse workspace budget required")
-        self.max_workspace_bytes = max_workspace_bytes
+        self.max_workspace_bytes = sparse_workspace_budget(max_workspace_bytes)
         import aiter
 
         root = Path(aiter.__file__).parent
         self.forward_backend = AiterJointAttentionBackend(
-            kernel_source=root
-            / "ops/triton/_triton_kernels/attention/sparse_mla_dsv4_train.py"
+            kernel_source=root / "ops/triton/_triton_kernels/attention/sparse_mla_dsv4_train.py"
         )
         self.backward_backend = AiterJointBackwardBackend(
             self.forward_backend,
