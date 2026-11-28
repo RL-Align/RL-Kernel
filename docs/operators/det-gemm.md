@@ -34,6 +34,52 @@ Registry dispatch for `det_gemm` includes only the deterministic backends
 (CUDA → Triton on CUDA/ROCm, Ascend on NPU). The PyTorch op must be called
 explicitly.
 
+### Strict fixed-leaf tree
+
+Muse-Glimmer dense projections use the `fixed_leaf_tree` mode for `Y`, `dX`,
+and `dW`. Each GEMM partitions its reduction axis into consecutive 32-term
+leaves starting at index zero. The last leaf can be shorter. Each leaf starts
+from FP32 `+0` and visits its terms in ascending index order, using one scalar
+FP32 FMA with a single rounding per term. The leaf result rounds to BF16
+round-to-nearest-even (RNE). Only the valid terms of a short leaf participate,
+preserving a computed `-0` that a padded `+0` FMA could erase.
+
+Each range of `n` leaves splits after `n // 2` leaves. The parent adds its two
+BF16 children in FP32 and rounds to BF16 RNE. Every merge, including the root,
+rounds this way, so the output is BF16 even for a single-leaf tree. The weight
+gradient uses the token axis as its reduction and returns a contiguous
+`[N,K]` tensor.
+
+- **Entry points** accept `fixed_leaf_tree=True` in CUDA
+  `_C.det_gemm_fwd`, `_C.det_gemm_fwd_rhs_transposed`, and
+  `_C.det_gemm_db_transposed`, and in Triton's `_triton_tree_gemm`. The
+  ops-level `rl_engine.ops.gemm.fixed_leaf_linear(a, weight, backend=...)`
+  selects this mode for BF16 `[M,K]` activations and native `[N,K]` weights,
+  including both gradients through autograd.
+- **Projection geometry** has tiled kernels on CUDA and NVIDIA Triton for
+  reduction lengths 256, 4096, 6656, and 19968. CUDA output tiling requires
+  `N % 64 == 0`, with `N` the number of output columns. For the
+  RHS-transposed entry, this tiling starts at `M >= 16`. A vectorized path
+  handles thinner batches for reduction lengths 4096, 6656, and 19968 with
+  16-byte-aligned input pointers. Triton masks partial tiles and can use a
+  dedicated one-row kernel when both operands have unit reduction stride.
+  General scalar fixed-leaf kernels cover other reduction lengths and
+  geometries that miss the specialized paths.
+- **Weight-gradient geometry** uses a CUDA small-token kernel for `0 < M < 32`.
+  For `M >= 32`, CUDA tiling requires `K % 64 == 0` and `N % 32 == 0` in
+  the native `[N,K]` weight layout, subject to launch and shared-memory limits.
+  Both backends have a specialized 96-token schedule and support short final
+  leaves for other token counts.
+
+CUDA rejects strict mode in fast-math builds. Build with
+`KERNEL_ALIGN_USE_FAST_MATH=0`. The strict CUDA and Triton paths guarantee
+bitwise-identical `Y`, `dX`, and `dW` on the qualified NVIDIA shapes. They
+exclude tensor-core MMA because PTX leaves the BF16 `mma` accumulation order
+and rounding unspecified. In the Muse-Glimmer K/V projection at
+`M=96, K=6656, N=256`, the original CUDA MMA path differed from scalar Triton
+by one BF16 ULP in 4 of 24,576 output words.
+[NVIDIA PTX ISA](https://docs.nvidia.com/cuda/archive/13.0.0/parallel-thread-execution/index.html#warp-level-matrix-instructions-mma)
+
 ### Ascend NPU backend
 
 `DetGemmAscendOp` implements the same strict contract on the NPU through

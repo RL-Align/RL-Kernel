@@ -8,35 +8,44 @@ The PyTorch path (torch.matmul) is intentionally NOT tested here: it is the
 non-deterministic reference baseline and would fail batch-invariance by design.
 """
 
+import re
+import shutil
+import subprocess
+
 import pytest
 import torch
 
 from rl_engine.backends.cuda.gemm import deterministic_gemm
 from rl_engine.backends.extension import _C
 from rl_engine.contracts.numerical import load_contract
+from rl_engine.reference.gemm.det_gemm import DetGemmTreeReferenceOp, _index_order_fma_leaf
 
 try:
     import triton
-
+except ModuleNotFoundError as exc:
+    if exc.name != "triton":
+        raise
+    _HAS_TRITON = False
+else:
     from rl_engine.backends.shared.triton.gemm import deterministic_gemm_triton
+    from rl_engine.backends.shared.triton.gemm import det_gemm as triton_det_gemm
     from rl_engine.backends.shared.triton.gemm.det_gemm import (
         _DEFAULT_TREE_LEAF_CONFIG,
         _GFX942_QWEN_FORWARD_LEAF_CONFIGS,
         _GFX942_QWEN_TP_SHARD_FORWARD_LEAF_CONFIGS,
         _GFX942_QWEN_TP_SHARD_WGRAD_LEAF_CONFIGS,
         _GFX942_QWEN_WGRAD_LEAF_CONFIGS,
+        _build_tree_plan,
         _copy_tree_root_kernel,
         _det_gemm_tree_leaf_kernel,
         _det_gemm_tree_reduce_kernel,
-        _det_gemm_tree_reduce_to_output_kernel,
+        _det_gemm_tree_reduce_to_output_rocm_kernel,
         _device_tree_plan,
         _gfx942_qwen_tree_leaf_config,
         _triton_tree_gemm,
     )
 
     _HAS_TRITON = True
-except ImportError:
-    _HAS_TRITON = False
 
 torch.backends.cuda.matmul.allow_tf32 = False
 DEV = "cuda"
@@ -50,15 +59,16 @@ IS_GFX942 = (
     and str(getattr(torch.cuda.get_device_properties(0), "gcnArchName", "")).startswith("gfx942")
 )
 
-pytestmark = pytest.mark.skipif(
-    not HAS_SUPPORTED_GPU,
-    reason="det_gemm requires a ROCm GPU or CUDA SM80+",
-)
-
 # ROCm acceptance intentionally depends only on the Triton implementation.
 _BACKENDS = [] if IS_ROCM else [("cuda", deterministic_gemm)]
 if _HAS_TRITON:
     _BACKENDS.append(("triton", deterministic_gemm_triton))
+
+
+@pytest.fixture(autouse=True)
+def _require_supported_gpu(request):
+    if not HAS_SUPPORTED_GPU and request.node.get_closest_marker("unit") is None:
+        pytest.skip("det_gemm requires a ROCm GPU or CUDA SM80+")
 
 
 def _rand(*shape):
@@ -154,18 +164,51 @@ _K_TREE_LEAF = 32
 
 
 def _k_tree_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Canonical FP32-leaf/BF16-node midpoint tree used by Triton."""
+    """Legacy element-midpoint tree with index-order FP32 FMA leaves."""
 
     a = a.detach().contiguous()
     b = b.detach().contiguous()
 
     def reduce_range(lo: int, hi: int) -> torch.Tensor:
         if hi - lo <= _K_TREE_LEAF:
-            return (a[:, lo:hi].float() @ b[lo:hi, :].float()).to(torch.bfloat16)
+            return _index_order_fma_leaf(a[:, lo:hi], b[lo:hi, :])
         midpoint = lo + (hi - lo) // 2
         return reduce_range(lo, midpoint) + reduce_range(midpoint, hi)
 
     return reduce_range(0, a.size(1))
+
+
+@pytest.mark.unit
+def test_fixed_leaf_reference_preserves_negative_zero_on_underflow():
+    a = torch.zeros((1, 33), dtype=torch.bfloat16, device="cpu")
+    a[0, [31, 32]] = -(2**-100)
+    b = torch.full((33, 1), 2**-100, dtype=torch.bfloat16, device="cpu")
+
+    # Rounding the product first gives -0, which becomes +0 when added to +0.
+    zero = torch.zeros_like(a[:, :1])
+    separate = zero.float() + a[:, -1:].float() * b[-1:].float()
+    _assert_same_raw_bytes(separate.bfloat16(), zero)
+    result = DetGemmTreeReferenceOp()(a, b)
+    _assert_same_raw_bytes(result, torch.full_like(result, -0.0))
+
+
+@pytest.mark.unit
+def test_fixed_leaf_reference_accumulates_in_index_order():
+    a = torch.ones((2, 32), dtype=torch.bfloat16, device="cpu", requires_grad=True)
+    b = torch.zeros((32, 1), dtype=torch.bfloat16, device="cpu")
+    b[0, 0], b[8, 0], b[16, 0] = 2**24, 1, -(2**24)
+    b.requires_grad_()
+
+    # Fix one BLAS-style grouping so the witness is independent of the CPU's
+    # BLAS implementation. Indices 0 and 16 cancel before index 8 adds 1.
+    left, right = a.detach().float(), b.detach().float()
+    split_dot = left[:, ::16] @ right[::16] + left[:, 8::16] @ right[8::16]
+    result = DetGemmTreeReferenceOp()(a, b)
+    _assert_same_raw_bytes(split_dot.bfloat16(), torch.ones_like(result))
+    _assert_same_raw_bytes(result, torch.zeros_like(result))
+    da, db = torch.autograd.grad(result.sum(), (a, b))
+    torch.testing.assert_close(da, b.detach().T.expand_as(a), atol=0, rtol=0)
+    torch.testing.assert_close(db, torch.full_like(b, 2.0), atol=0, rtol=0)
 
 
 def _balanced_tree_sum(parts: list[torch.Tensor]) -> torch.Tensor:
@@ -362,6 +405,191 @@ def test_transposed_db_is_bitwise_and_canonical_contiguous(shape):
     assert torch.equal(actual, expected)
 
 
+@pytest.mark.unit
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+@pytest.mark.parametrize("k", (1, 65, 96, 256, 4096, 6656, 19968))
+def test_fixed_leaf_host_plan(k):
+    plan = _build_tree_plan(k, fixed_leaf_tree=True)
+    starts = tuple(range(0, k, 32))
+    assert plan.leaf_starts == starts
+    assert plan.leaf_lengths == tuple(min(32, k - start) for start in starts)
+    # Track intervals of leaf indices. Each midpoint splits the leaf count
+    # with the smaller half on the left, even when K ends in a partial leaf.
+    spans = {node: (i, i + 1) for i, node in enumerate(plan.leaf_nodes)}
+    for level in plan.reduction_levels:
+        for left, right, parent in level:
+            lo, mid = spans.pop(left)
+            right_lo, hi = spans.pop(right)
+            assert mid == right_lo == lo + (hi - lo) // 2
+            spans[parent] = (lo, hi)
+    assert spans == {plan.root: (0, len(starts))}
+    assert plan.node_count == 2 * len(starts) - 1
+
+
+_MMA_INSTRUCTION = re.compile(r"\b(?:HMMA|HGMMA|IMMA|DMMA|BMMA|QMMA)\b|\b(?:mma|wmma|wgmma)\.")
+_PTX_FMA = r"\bfma\.rn\.f32\b"
+# For merge-only kernels, LLVM can fold FP32 add followed by BF16 RNE into a
+# BF16 add on SM90+ or fma.rn.bf16(x2) with 1.0 on SM80.
+_PTX_ADD = r"\b(?:add(?:\.rn)?\.(?:f32|bf16(?:x2)?)|fma\.rn\.bf16(?:x2)?)\b"
+
+
+def _assert_scalar_gemm_ir(name, assembly, scalar_instruction):
+    mma = _MMA_INSTRUCTION.search(assembly)
+    assert mma is None, f"{name} contains tensor-core instruction {mma[0]}"
+    assert re.search(scalar_instruction, assembly), f"{name} lacks {scalar_instruction}"
+
+
+@pytest.mark.cuda_only
+def test_fixed_leaf_cuda_compiled_ir():
+    cuobjdump = shutil.which("cuobjdump")
+    if cuobjdump is None:
+        pytest.skip("cuobjdump is unavailable")
+
+    formats = (
+        ("-sass", r"^\s*Function\s*:\s*(\w+)", r"\bFFMA\b", r"\bFADD\b"),
+        ("-ptx", r"^\s*(?:\.visible\s+)?\.entry\s+(\w+)", _PTX_FMA, _PTX_ADD),
+    )
+    families = (
+        "det_gemm_fixed_tiles",
+        "det_gemm_fixed_tile_roots",
+        "det_gemm_fixed_projection",
+        "det_gemm_fixed_wgrad",
+        "det_gemm_db_small_k",
+        "det_gemm_naive",
+    )
+    # Itanium mangling prefixes each function name with its length. The
+    # anonymous namespace and any template arguments vary between symbols.
+    symbols = re.compile(r"\d+(" + "|".join(families) + r")(?=[IE])")
+    for flag, header, fma, add in formats:
+        dump = subprocess.run([cuobjdump, flag, _C.__file__], capture_output=True, text=True)
+        sections = re.split(header, dump.stdout, flags=re.MULTILINE)
+        seen = set()
+        if dump.returncode:
+            continue
+        for symbol, assembly in zip(sections[1::2], sections[2::2], strict=True):
+            match = symbols.search(symbol)
+            if match is None:
+                continue
+            family = match[1]
+            # det_gemm_naive<output_t, TRANSPOSE_OUTPUT, FIXED_LEAVES>.
+            if family == "det_gemm_naive" and not re.match(
+                r"I13__nv_bfloat16Lb[01]ELb1EE", symbol[match.end() :]
+            ):
+                continue
+            _assert_scalar_gemm_ir(symbol, assembly, add if family.endswith("_roots") else fma)
+            seen.add(family)
+        if seen:
+            assert seen == set(families), f"{flag} missing fixed kernels: {set(families) - seen}"
+            break
+    else:
+        pytest.fail(f"No fixed GEMM kernels found in {_C.__file__}: {dump.stderr}")
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+def test_fixed_leaf_triton_compiled_ir():
+    # Launch independently of the model tests so the cache contains decode,
+    # tiled projection and root, weight gradient, and the strict generic leaf.
+    a, weight = _rand(32, 4096), _rand(64, 4096)
+    _triton_tree_gemm(a[:1], weight.T, fixed_leaf_tree=True)
+    _triton_tree_gemm(a, weight.T, fixed_leaf_tree=True)
+    _triton_tree_gemm(_rand(64, 79), _rand(79, 64), transpose_output=True, fixed_leaf_tree=True)
+    _triton_tree_gemm(_rand(2, 79), _rand(79, 4), fixed_leaf_tree=True)
+
+    kernels = (
+        (triton_det_gemm._fixed_decode_kernel, _PTX_FMA),
+        (triton_det_gemm._fixed_projection_leaves_kernel, _PTX_FMA),
+        (triton_det_gemm._fixed_projection_root_kernel, _PTX_ADD),
+        (triton_det_gemm._fixed_wgrad_kernel, _PTX_FMA),
+        (triton_det_gemm._det_gemm_kernel, _PTX_FMA),
+    )
+    for kernel, instruction in kernels:
+        cache = kernel.device_caches[a.device.index][0]
+        variants = list(cache.values())
+        if kernel is triton_det_gemm._det_gemm_kernel:
+            fixed_leaves = (kernel.arg_names.index("FIXED_LEAVES"),)
+            variants = [v for v in variants if v.src.constants.get(fixed_leaves)]
+        assert variants, f"{kernel.__name__} has no compiled fixed-leaf variants"
+        for compiled in variants:
+            _assert_scalar_gemm_ir(kernel.__name__, compiled.asm["ptx"], instruction)
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+def test_fixed_projection_specializations_are_independent_of_batch_size(monkeypatch):
+    # Force both row and column chunks, including short final chunks, with
+    # a smaller output than the full Muse-Glimmer FFN.
+    monkeypatch.setattr(triton_det_gemm, "_MAX_TREE_WORKSPACE_ELEMENTS", 1 << 20)
+    a, weight = _rand(512, 6656), _rand(448, 6656)
+    expected = _C.det_gemm_fwd_rhs_transposed(a, weight, fixed_leaf_tree=True)
+    device = a.device.index
+    kernels = (
+        triton_det_gemm._fixed_projection_leaves_kernel,
+        triton_det_gemm._fixed_projection_root_kernel,
+    )
+
+    counts = []
+    for m in (32, 33, 5, 17, 47, 64, 100, 128, 200, 333, 512):
+        actual = _triton_tree_gemm(a[:m], weight.T, fixed_leaf_tree=True)
+        _assert_same_raw_bytes(actual, expected[:m])
+        counts.append(tuple(len(kernel.device_caches[device][0]) for kernel in kernels))
+
+    assert counts[2:] == [counts[1]] * (len(counts) - 2)
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+@pytest.mark.parametrize("tokens", [96, 130])
+def test_fixed_weight_gradient_partial_tile_with_offset_inputs(tokens):
+    # The extension also accepts projections whose last 64-row dW tile is half full.
+    options = dict(device="cuda", dtype=torch.bfloat16)
+    gen = torch.Generator(device="cuda").manual_seed(501)
+    inputs, outputs = 128, 96
+    x = torch.randn(tokens * inputs + 1, generator=gen, **options)[1:].view(tokens, inputs)
+    dy = torch.randn(tokens * outputs + 1, generator=gen, **options)[1:].view(tokens, outputs)
+    expected = DetGemmTreeReferenceOp()(x.T.cpu(), dy.cpu()).T.contiguous()
+    for a, grad in ((x, dy), (x.clone(), dy.clone())):
+        actual = _C.det_gemm_db_transposed(a, grad, fixed_leaf_tree=True)
+        _assert_same_raw_bytes(actual.cpu(), expected)
+        triton = _triton_tree_gemm(
+            a.T, grad, transpose_output=True, preserve_a_strides=True, fixed_leaf_tree=True
+        )
+        _assert_same_raw_bytes(triton.cpu(), expected)
+
+
+@pytest.mark.cuda_only
+@pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
+@pytest.mark.parametrize("tokens", [5, 35, 257, 16385, 524289])
+def test_fixed_weight_gradient_preserves_signed_zero_and_special_values(tokens):
+    # Exercise a short leaf in both Triton schedules and the CUDA shared
+    # memory opt-in at 513 leaves. The largest case also covers Triton's
+    # bounded per-CTA root reduction. The views have offsets and strides.
+    options = dict(device="cuda", dtype=torch.bfloat16)
+    x = torch.zeros((tokens, 129), **options)[:, 1::2]
+    dy = torch.zeros((tokens, 65), **options)[:, 1::2]
+    dy[:, 0] = 2**-100
+    x[31::32, 0] = -(2**-100)
+    x[-1, 0] = -(2**-100)
+    # Each leaf ends in a negative FP32 underflow. An extra +0 FMA would
+    # erase its sign, and one +0 leaf would erase the final root's sign.
+    x[0, 1:4] = torch.tensor([float("inf"), -float("inf"), float("nan")], **options)
+    if tokens > 64:
+        right_start = ((tokens + 31) // 32 // 2) * 32
+        x[0, 4], x[right_start, 4], x[-1, 4] = 256, 1, -256
+
+    cuda = _C.det_gemm_db_transposed(x, dy, fixed_leaf_tree=True)
+    triton = _triton_tree_gemm(
+        x.T, dy, transpose_output=True, preserve_a_strides=True, fixed_leaf_tree=True
+    )
+    _assert_same_raw_bytes(triton, cuda)
+    assert cuda[0, 0].view(torch.int16).item() == -32768
+    assert cuda[0, 1].item() == float("inf")
+    assert cuda[0, 2].item() == -float("inf")
+    assert torch.isnan(cuda[0, 3]).item()
+    if tokens > 64:
+        assert cuda[0, 4].item() == 2**-100
+
+
 @pytest.mark.parametrize("shape", [(128, 128, 128), (31, 70, 65)])
 def test_da_physical_transpose_contract_matches_legacy_path_bitwise(shape):
     torch.manual_seed(22)
@@ -490,6 +718,65 @@ def test_target_shapes_invariance(name, gemm, shape):
     ), f"{name}: batch-invariance broken at shape {shape}"
 
 
+@pytest.mark.cuda_only
+def test_cuda_scalar_tree_handles_deep_k():
+    """K=14336 used to overflow the 1 KB device stack of the recursive tree."""
+    torch.manual_seed(11)
+    # N=65 fails the SM90 N%BN == 0 gate, so the scalar tree runs on every
+    # build; the SM90 path deliberately uses 32-wide leaves and is only
+    # compared against itself by the batch-invariance suites.
+    M, K, N = 1, 14336, 65
+    a = _rand(M, K)
+    b = _rand(K, N)
+    out = deterministic_gemm(a, b)
+    torch.cuda.synchronize()
+    assert torch.isfinite(out).all()
+    thresholds = load_contract()["accuracy"]["default"]["reduction"]["bfloat16"]
+    torch.testing.assert_close(out, _k_tree_gemm(a, b), **thresholds)
+
+
+@pytest.mark.cuda_only
+def test_cuda_scalar_tree_handles_vocab_sized_k():
+    """K=262144 (Gemma 4 vocab) is the deepest tree any model reaches."""
+    torch.manual_seed(12)
+    M, K, N = 64, 262144, 8
+    b = _rand(K, N)
+    row = _rand(1, K)
+    big = _rand(M, K)
+    big[0] = row[0]
+    out = deterministic_gemm(row, b)
+    big_out = deterministic_gemm(big, b)
+    torch.cuda.synchronize()
+    assert torch.equal(out[0], big_out[0])
+    # The invariance check alone would accept a traversal error shared by both
+    # calls; compare against the canonical midpoint tree as well.
+    thresholds = load_contract()["accuracy"]["default"]["reduction"]["bfloat16"]
+    torch.testing.assert_close(out, _k_tree_gemm(row, b), **thresholds)
+
+
+@pytest.mark.cuda_only
+def test_cuda_scalar_tree_uses_64bit_operand_index():
+    """M*K above INT_MAX used to wrap the linear operand index."""
+    M, K, N = 65537, 32800, 1  # 65537 * 32800 = 2_149_613_600 > 2**31 - 1
+    required = M * K * torch.bfloat16.itemsize + 512 * 2**20
+    free, _ = torch.cuda.mem_get_info()
+    if free < required:
+        pytest.skip(f"needs {required / 2**30:.1f} GiB free for an operand with M*K > 2**31")
+    torch.manual_seed(13)
+    a = _rand(M, K)
+    b = _rand(K, N)
+    out = deterministic_gemm(a, b)
+    torch.cuda.synchronize()
+    assert torch.isfinite(out).all()
+    # Compare against the canonical midpoint tree, not an exact FP64 dot
+    # product: at K=32800 the kernel's BF16 rounding at every internal node is
+    # part of the contract, and an FP64 reference would fail it spuriously. A
+    # wrapped linear index reads the wrong operand rows and still fails here.
+    expected = _k_tree_gemm(a[-1:], b)
+    thresholds = load_contract()["accuracy"]["default"]["reduction"]["bfloat16"]
+    torch.testing.assert_close(out[-1:], expected, **thresholds)
+
+
 @pytest.mark.skipif(not _HAS_TRITON, reason="Triton is unavailable")
 def test_triton_ragged_tiles_mask_all_axes():
     """Non-multiple M/N/K tiles must not read or write past tensor bounds."""
@@ -574,7 +861,7 @@ def test_triton_final_tree_level_direct_output_matches_legacy_copy_raw_bytes():
     )
 
     actual = torch.empty_like(expected)
-    _det_gemm_tree_reduce_to_output_kernel[(triton.cdiv(actual.numel(), block),)](
+    _det_gemm_tree_reduce_to_output_rocm_kernel[(triton.cdiv(actual.numel(), block),)](
         workspace,
         actual,
         lower,

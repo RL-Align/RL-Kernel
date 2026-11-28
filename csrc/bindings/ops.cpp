@@ -238,11 +238,11 @@ void deterministic_collective_rocm_ipc_all_gather_input(
 
 // Batch-Invariant Deterministic GEMM Declarations
 bool det_gemm_sm90_compiled();
-torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b);
-torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt);
+torch::Tensor det_gemm_fwd(torch::Tensor a, torch::Tensor b, bool fixed_leaf_tree);
+torch::Tensor det_gemm_fwd_rhs_transposed(torch::Tensor a, torch::Tensor bt, bool fixed_leaf_tree);
 torch::Tensor det_gemm_da(torch::Tensor dc, torch::Tensor b);
 torch::Tensor det_gemm_db(torch::Tensor a, torch::Tensor dc);
-torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc);
+torch::Tensor det_gemm_db_transposed(torch::Tensor a, torch::Tensor dc, bool fixed_leaf_tree);
 // SiLU / SwiGLU Declarations (elementwise activation, general CUDA)
 torch::Tensor silu_forward_cuda(torch::Tensor x);
 torch::Tensor silu_backward_cuda(torch::Tensor dy, torch::Tensor x);
@@ -706,17 +706,20 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     // registry Batch-Invariant Deterministic GEMM
     m.def("det_gemm_sm90_compiled", &det_gemm_sm90_compiled,
           "Whether the extension contains the SM90 deterministic GEMM implementation");
-    m.def("det_gemm_fwd", &det_gemm_fwd, "Batch-invariant deterministic GEMM forward (C=A@B)");
+    m.def("det_gemm_fwd", &det_gemm_fwd, "Batch-invariant deterministic GEMM forward (C=A@B)",
+          py::arg("a"), py::arg("b"), py::arg("fixed_leaf_tree") = false);
     m.def(
         "det_gemm_fwd_rhs_transposed",
         &det_gemm_fwd_rhs_transposed,
-        "Batch-invariant deterministic GEMM with physical Bt[N,K] (C=A@Bt^T)");
+        "Batch-invariant deterministic GEMM with physical Bt[N,K] (C=A@Bt^T)",
+        py::arg("a"), py::arg("bt"), py::arg("fixed_leaf_tree") = false);
     m.def("det_gemm_da", &det_gemm_da, "Batch-invariant deterministic GEMM backward dA (dC@B^T)");
     m.def("det_gemm_db", &det_gemm_db, "Batch-invariant deterministic GEMM backward dB (A^T@dC)");
     m.def(
         "det_gemm_db_transposed",
         &det_gemm_db_transposed,
-        "Batch-invariant deterministic GEMM backward in canonical [N,K] layout");
+        "Batch-invariant deterministic GEMM backward in canonical [N,K] layout",
+        py::arg("a"), py::arg("dc"), py::arg("fixed_leaf_tree") = false);
     // registry RMSNorm
     m.def("rmsnorm_forward", &rmsnorm_forward, "Batch-invariant RMSNorm forward CUDA");
     m.def("rmsnorm_backward_dx", &rmsnorm_backward_dx, "Batch-invariant RMSNorm backward dx CUDA");

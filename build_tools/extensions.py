@@ -242,7 +242,7 @@ def get_extensions():
 
         nvcc_flags = ["-O3", "-Xfatbin", "-compress-all"]
         if envs.env_flag(envs.KERNEL_ALIGN_USE_FAST_MATH):
-            nvcc_flags.append("--use_fast_math")
+            nvcc_flags.extend(["--use_fast_math", "-DRL_KERNEL_USE_FAST_MATH"])
         if not is_rocm:
             cc_major, cc_minor = torch.cuda.get_device_capability()
             enable_sm90 = os.environ.get("KERNEL_ALIGN_FORCE_SM90") == "1"
