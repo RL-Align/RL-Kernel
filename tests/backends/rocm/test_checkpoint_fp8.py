@@ -40,17 +40,59 @@ def test_original_projection_forward_input_gradient_and_bytes():
         x.detach(),
         quant_dtype=(
             torch.float8_e4m3fnuz
-            if torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0] == "gfx942"
+            if torch.cuda.get_device_properties(x.device).gcnArchName.split(":")[0]
+            == "gfx942"
             else torch.float8_e4m3fn
         ),
         transpose_scale=False,
     )
     a = (q.cpu().float().reshape(2, 32, 128) * scales.cpu()[..., None]).reshape(2, 4096)
-    w = weight.float() * scale.float().repeat_interleave(128, 0).repeat_interleave(128, 1)
+    w = weight.float() * scale.float().repeat_interleave(128, 0).repeat_interleave(
+        128, 1
+    )
     torch.testing.assert_close(actual.cpu().float(), a @ w.t(), atol=0.003, rtol=0.01)
     grad = torch.randn_like(actual)
     actual.backward(grad)
     torch.testing.assert_close(
-        x.grad.cpu().float(), grad.cpu().float() @ w.bfloat16().float(), atol=0.003, rtol=0.01
+        x.grad.cpu().float(),
+        grad.cpu().float() @ w.bfloat16().float(),
+        atol=0.003,
+        rtol=0.01,
     )
     assert torch.isfinite(x.grad).all() and bool(x.grad.count_nonzero())
+
+
+def test_preserved_long_q_projection_matches_actor_across_batch_rows():
+    """Original failed R1: 3899 real prompt/response rows, not synthetic input."""
+    directory = os.getenv("RLK_DSV4_CHECKPOINT")
+    trace_directory = os.getenv("RLK_DSV4_LONG_Q_TRACES")
+    if not directory or not trace_directory:
+        pytest.skip("set checkpoint and preserved long-Q trace paths")
+    import json
+    from safetensors import safe_open
+    from examples.operators.dsv4_4l.trace_store import load_capture
+    from rl_engine.backends.rocm.gemm.checkpoint_fp8 import original_block_fp8_gemm
+
+    def capture(role, name):
+        path = Path(trace_directory) / f"{role}-rank-0-failure-math-R1-b1"
+        entry = next(
+            e
+            for e in json.loads((path / "manifest.json").read_text())
+            if e["name"] == name
+        )
+        return load_capture(path / entry["file"])
+
+    q, scale = capture("rollout", "layer.0.attn.method._wq_b_proj.input")["args"]
+    expected = capture("actor", "layer.0.attn.linear_q_up_proj.output")[0][:, 0]
+    with safe_open(
+        str(next(Path(directory).glob("*.safetensors"))), framework="pt"
+    ) as source:
+        codes = source.get_tensor("layers.0.attn.wq_b.weight").view(torch.uint8).cuda()
+        scales = source.get_tensor("layers.0.attn.wq_b.scale").view(torch.uint8).cuda()
+    q, scale = q.cuda(), scale.cuda()
+    assert q.shape == (3899, 1024)
+    for rows in [1, 16, 1607, 3899]:
+        actual = original_block_fp8_gemm(q[:rows], scale[:rows], codes, scales).cpu()
+        assert torch.equal(
+            actual.view(torch.uint8), expected[:rows].contiguous().view(torch.uint8)
+        )

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Original sparse operands with the existing fixed AITER forward and CSR VJP."""
 
+import os
 from pathlib import Path
 
 import torch
@@ -24,6 +25,7 @@ class _Sparse(torch.autograd.Function):
             indices.shape[1],
             scale=scale,
             graph=False,
+            max_workspace_bytes=operator.max_workspace_bytes,
         )
         out = torch.empty_like(q)
         lse = torch.empty(q.shape[:2], device=q.device, dtype=torch.float32)
@@ -43,7 +45,7 @@ class _Sparse(torch.autograd.Function):
             d=q.shape[2],
             selected=indices.shape[1],
             n_kv=kv.shape[0],
-            max_bytes=1 << 30,
+            max_bytes=ctx.operator.max_workspace_bytes,
         )
         backend.backward_into(
             q, kv, out, dy.contiguous(), indices, lse, sink, ptr, data, ws, ctx.scale
@@ -54,12 +56,20 @@ class _Sparse(torch.autograd.Function):
 class NativeSparseAttention:
     """One operator profile for actual native/vLLM sparse attention operands."""
 
-    def __init__(self):
+    def __init__(self, *, max_workspace_bytes=None):
+        if max_workspace_bytes is None:
+            max_workspace_bytes = int(
+                os.environ.get("RLK_NATIVE_SPARSE_MAX_WORKSPACE_BYTES", 1 << 30)
+            )
+        if type(max_workspace_bytes) is not int or max_workspace_bytes <= 0:
+            raise ValueError("positive native sparse workspace budget required")
+        self.max_workspace_bytes = max_workspace_bytes
         import aiter
 
         root = Path(aiter.__file__).parent
         self.forward_backend = AiterJointAttentionBackend(
-            kernel_source=root / "ops/triton/_triton_kernels/attention/sparse_mla_dsv4_train.py"
+            kernel_source=root
+            / "ops/triton/_triton_kernels/attention/sparse_mla_dsv4_train.py"
         )
         self.backward_backend = AiterJointBackwardBackend(
             self.forward_backend,
@@ -75,6 +85,7 @@ class NativeSparseAttention:
                 __file__,
                 self.forward_backend.provenance,
                 self.backward_backend.provenance,
+                {"max_workspace_bytes": self.max_workspace_bytes},
                 flush=True,
             )
             self.executed = True
