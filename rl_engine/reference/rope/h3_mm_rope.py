@@ -1,23 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 RL-Kernel Contributors
 
-"""Pure PyTorch reference for MiniMax-H3 partial MM-RoPE.
-
-The caller supplies FP32 ``[S, 96]`` cosine/sine tables for the packed tokens'
-three-axis positions. Channels ``i`` and ``i + 48`` rotate together; channels
-96:128 pass through unchanged. Tables are cast to the activation dtype before
-rotation, and each eager multiplication/addition rounds in that dtype.
-
-The explicit backward keeps products and their sum in FP32 and casts only the
-final input gradient. Its coefficients have the same quantization as forward.
-Position tables are constants; this reference does not import another RoPE
-operator or a GPU backend.
-"""
+"""Pure PyTorch MiniMax-H3 rotate-half for channels 0:96 of each 128-channel head."""
 
 from __future__ import annotations
 
 import torch
 from torch import Tensor
+from torch.autograd.function import once_differentiable
 
 _HEAD_DIM = 128
 _ROTARY_DIM = 96
@@ -55,107 +45,88 @@ def _validate_inputs(x: Tensor, cos: Tensor, sin: Tensor) -> None:
             )
 
 
-class _ModelStorage(torch.autograd.Function):
-    """Store a forward value in the model dtype, with an FP32 identity VJP.
-
-    An ordinary ``value.to(dtype).float()`` also casts its incoming gradient to
-    dtype. That would introduce product-gradient rounding absent from this
-    operator's declared backward. Only this storage node has a custom VJP;
-    PyTorch independently differentiates the rotation's multiplies and add.
-    """
-
-    @staticmethod
-    def forward(ctx, value: Tensor, dtype: torch.dtype) -> Tensor:
-        return value.to(dtype).float()
-
-    @staticmethod
-    def backward(ctx, gradient: Tensor):
-        return gradient, None
-
-
-def model_boundary_reference(
-    x: Tensor, cos: Tensor, sin: Tensor, *, storage_dtype: torch.dtype
-) -> Tensor:
-    """FP32 acceptance reference retaining H3 coefficient and product storage.
-
-    ``storage_dtype`` is explicit so FP32 leaves can represent BF16 activations
-    without rounding reference gradients at the leaf. Inputs must already be
-    representable in that dtype. Products are computed in FP32 *before* storage,
-    matching the model's operation order, rather than rounding FP64 products.
-    The final sum/output stays FP32: its conversion is tested against the
-    unchanged elementwise tolerance. Storage has an identity VJP; gradients
-    retain the forward-quantized coefficients and FP32 intermediate arithmetic.
-    This is not the unrounded mathematical reference (``forward_fp32``).
-    """
-    _validate_inputs(x, cos, sin)
+def _resolve_storage_dtype(x_dtype: torch.dtype, storage_dtype: torch.dtype | None) -> torch.dtype:
+    """Use the activation dtype for intermediate rounding unless an override is supplied."""
+    if storage_dtype is None:
+        return x_dtype
     if storage_dtype not in _SUPPORTED_DTYPES:
         raise TypeError(f"storage_dtype must be in {_SUPPORTED_DTYPES}, got {storage_dtype}.")
-    with torch.autocast(device_type=x.device.type, enabled=False):
-        values = x.float()
-        c = cos.to(storage_dtype).float()[None, :, None, :]
-        s = sin.to(storage_dtype).float()[None, :, None, :]
-        rotary = values[..., :_ROTARY_DIM]
-        first, second = rotary.chunk(2, dim=-1)
-        rotated = torch.cat((-second, first), dim=-1)
-        direct = _ModelStorage.apply(rotary * c, storage_dtype)
-        cross = _ModelStorage.apply(rotated * s, storage_dtype)
-        return torch.cat((direct + cross, values[..., _ROTARY_DIM:]), dim=-1)
+    return storage_dtype
 
 
 class _H3MMRoPENativeFunction(torch.autograd.Function):
-    """Preserve H3 forward rounding and use FP32 intermediate input gradients.
-
-    Eager autograd would round each BF16 product gradient before adding its
-    contributions. The explicit backward avoids that extra rounding while
-    retaining the coefficients used by forward. Only x has a gradient.
-    """
+    """Compute in FP32 and round each forward product and the output to the activation dtype."""
 
     @staticmethod
     def forward(ctx, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
         ctx.save_for_backward(cos, sin)
-        # Broadcast each token's position coefficients across batch and heads.
-        cos = cos.to(x.dtype)[None, :, None, :]
-        sin = sin.to(x.dtype)[None, :, None, :]
-        x_rotary = x[..., :_ROTARY_DIM]
-        x_tail = x[..., _ROTARY_DIM:]
-
-        # Rotate-half pairs channels 0:48 with 48:96, not adjacent channels.
-        x_first, x_second = x_rotary.chunk(2, dim=-1)
-        rotated = torch.cat((-x_second, x_first), dim=-1)
-        y_rotary = x_rotary * cos + rotated * sin
-        return torch.cat((y_rotary, x_tail), dim=-1).contiguous()
+        # Round each token's coefficients to the model dtype before using them in FP32.
+        cos = cos.to(x.dtype).to(torch.float32)[None, :, None, :]
+        sin = sin.to(x.dtype).to(torch.float32)[None, :, None, :]
+        rotary = x[..., :_ROTARY_DIM].to(torch.float32)
+        tail = x[..., _ROTARY_DIM:]
+        first, second = rotary.chunk(2, dim=-1)
+        rotated = torch.cat((-second, first), dim=-1)
+        # H3 rounds the two products independently before their FP32 sum.
+        direct = (rotary * cos).to(x.dtype).to(torch.float32)
+        cross = (rotated * sin).to(x.dtype).to(torch.float32)
+        y_rotary = (direct + cross).to(x.dtype)
+        return torch.cat((y_rotary, tail), dim=-1).contiguous()
 
     @staticmethod
+    @once_differentiable
     def backward(ctx, grad_y: Tensor):
         cos, sin = ctx.saved_tensors
-        # Match forward's coefficient quantization, then do gradient math in FP32.
-        cos = cos.to(grad_y.dtype).float()[None, :, None, :]
-        sin = sin.to(grad_y.dtype).float()[None, :, None, :]
-        cos_first, cos_second = cos.chunk(2, dim=-1)
-        sin_first, sin_second = sin.chunk(2, dim=-1)
-        grad_first, grad_second = grad_y[..., :_ROTARY_DIM].float().chunk(2, dim=-1)
-
-        # Transpose rotation: the cross terms use the opposite output's sine.
-        grad_x_first = grad_first * cos_first + grad_second * sin_second
-        grad_x_second = grad_second * cos_second - grad_first * sin_first
-        grad_rotary = torch.cat((grad_x_first, grad_x_second), dim=-1).to(grad_y.dtype)
-        grad_x = torch.cat((grad_rotary, grad_y[..., _ROTARY_DIM:]), dim=-1)
+        # Use the same quantized coefficients as forward, then do the gradient math in FP32.
+        cos = cos.to(grad_y.dtype).to(torch.float32)[None, :, None, :]
+        sin = sin.to(grad_y.dtype).to(torch.float32)[None, :, None, :]
+        grad = grad_y[..., :_ROTARY_DIM].to(torch.float32)
+        direct_first, direct_second = (grad * cos).chunk(2, dim=-1)
+        cross_first, cross_second = (grad * sin).chunk(2, dim=-1)
+        # Each sine term contributes to the other input half, with the sign from forward.
+        grad_rotary = torch.cat((direct_first + cross_second, direct_second - cross_first), dim=-1)
+        grad_x = torch.cat((grad_rotary.to(grad_y.dtype), grad_y[..., _ROTARY_DIM:]), dim=-1)
         return grad_x, None, None
 
 
+class _H3MMRoPEReferenceFunction(torch.autograd.Function):
+    """Apply H3's forward product rounding and compute its input gradients in FP32."""
+
+    @staticmethod
+    def forward(ctx, x: Tensor, cos: Tensor, sin: Tensor, storage_dtype: torch.dtype) -> Tensor:
+        ctx.input_dtype = x.dtype
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            cos = cos.to(storage_dtype).to(torch.float32)[None, :, None, :]
+            sin = sin.to(storage_dtype).to(torch.float32)[None, :, None, :]
+            ctx.save_for_backward(cos, sin)
+
+            values = x.to(torch.float32)
+            rotary, tail = values[..., :_ROTARY_DIM], values[..., _ROTARY_DIM:]
+            first, second = rotary.chunk(2, dim=-1)
+            rotated = torch.cat((-second, first), dim=-1)
+            # H3 stores each product in the activation dtype. The reference adds them in FP32.
+            direct = (rotary * cos).to(storage_dtype).to(torch.float32)
+            cross = (rotated * sin).to(storage_dtype).to(torch.float32)
+            return torch.cat((direct + cross, tail), dim=-1)
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_y: Tensor):
+        cos, sin = ctx.saved_tensors
+        grad = grad_y[..., :_ROTARY_DIM]
+        # The transpose sends each sine contribution back to the opposite input half.
+        first, second = (grad * sin).chunk(2, dim=-1)
+        grad_rotary = grad * cos + torch.cat((second, -first), dim=-1)
+        grad_x = torch.cat((grad_rotary, grad_y[..., _ROTARY_DIM:]), dim=-1)
+        # A promoted FP32 input exposes the gradient before the model's final BF16 cast.
+        return grad_x.to(ctx.input_dtype), None, None, None
+
+
 class NativeH3MMRoPEOp:
-    """Rotate the leading 96 channels of an H3 Q or K tensor using eager PyTorch.
+    """Rotate channels ``i`` and ``i + 48`` in a BF16/FP32 ``[B, S, H, 128]`` Q or K.
 
-    Args:
-        x: BF16/FP32 activation of shape ``[B, S, H, 128]``.
-        cos: Constant FP32 ``[S, 96]`` table on the same device as ``x``.
-        sin: Constant FP32 ``[S, 96]`` table on the same device as ``x``.
-
-    Tables are shared across the batch and heads. Output is contiguous, with
-    x's shape and dtype; channels 96:128 are copied without arithmetic. Forward
-    preserves H3's table/product rounding. The explicit backward uses FP32
-    products and addition with forward-quantized coefficients, then rounds to
-    x's dtype. First-order input gradients are supported; FP16 is not supported.
+    The FP32 ``[S, 96]`` tables are shared across heads and batches. The last 32 channels
+    pass through to the contiguous output. Only ``x`` has a first-order gradient.
     """
 
     op_class = "elementwise"
@@ -164,28 +135,23 @@ class NativeH3MMRoPEOp:
         return self.forward(x, cos, sin)
 
     def forward(self, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
-        """Apply H3's forward rounding with the explicit FP32 backward."""
+        """Apply the H3 rotation with the model's forward rounding."""
         _validate_inputs(x, cos, sin)
         return _H3MMRoPENativeFunction.apply(x, cos, sin)
 
-    def forward_model_reference(self, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
-        """Acceptance reference with declared model storage and independent VJP."""
-        return model_boundary_reference(x, cos, sin, storage_dtype=x.dtype)
+    def forward_fp32(
+        self, x: Tensor, cos: Tensor, sin: Tensor, *, storage_dtype: torch.dtype | None = None
+    ) -> Tensor:
+        """Check H3's storage rounding with an FP32 output.
 
-    def forward_fp32(self, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
-        """Mathematical diagnostic with original FP32 tables and FP32 math.
-
-        This deliberately omits the model's BF16 coefficient/product rounding.
-        This is a diagnostic, not the model-boundary acceptance gate. Autograd
-        independently differentiates the expression; no candidate backward is
-        reused. Its name and original arithmetic are retained deliberately.
+        For an FP32 input promoted from BF16, pass ``storage_dtype=torch.bfloat16``
+        to reproduce the model's forward casts while keeping the input gradient in FP32.
         """
         _validate_inputs(x, cos, sin)
-        # No matmul/TF32 path is used; disable an enclosing autocast context too.
-        with torch.autocast(device_type=x.device.type, enabled=False):
-            x = x.float()
-            first, second = x[..., :_ROTARY_DIM].chunk(2, dim=-1)
-            rotated = torch.cat((-second, first), dim=-1)
-            result = x[..., :_ROTARY_DIM] * cos[None, :, None, :]
-            result = result + rotated * sin[None, :, None, :]
-            return torch.cat((result, x[..., _ROTARY_DIM:]), dim=-1)
+        storage_dtype = _resolve_storage_dtype(x.dtype, storage_dtype)
+        return _H3MMRoPEReferenceFunction.apply(x, cos, sin, storage_dtype)
+
+    def forward_unrounded_fp32(self, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
+        """Measure the rotation with the original FP32 coefficients and FP32 products."""
+        _validate_inputs(x, cos, sin)
+        return _H3MMRoPEReferenceFunction.apply(x, cos, sin, torch.float32)
