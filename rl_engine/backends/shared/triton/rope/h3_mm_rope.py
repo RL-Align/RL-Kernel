@@ -79,8 +79,9 @@ def _h3_mm_rope_fwd_with_strides(
     HALF: tl.constexpr = _ROTARY_DIM // 2
     dtype: tl.constexpr = x_ptr.dtype.element_ty
 
-    # 48 pairs occupy 64 lanes; padded lanes do not load or store any channels.
-    pairs = tl.arange(0, _BLOCK_PAIRS)
+    # 48 pairs occupy 64 lanes. Widen before multiplying by a view's channel
+    # stride: even an int32 stride can put a valid channel beyond 2**31 elements.
+    pairs = tl.arange(0, _BLOCK_PAIRS).to(tl.int64)
     valid = pairs < HALF
     # cos[token, col] is at element offset token * cos_stride_row + col * cos_stride_col.
     # The 96 columns correspond to the rotated channels. sin uses its own strides.
@@ -106,7 +107,7 @@ def _h3_mm_rope_fwd_with_strides(
     tl.store(y_ptr + y_start + pairs + HALF, y_second.to(dtype), valid)
 
     # The unrotated tail passes through without arithmetic or dtype conversion.
-    tail = _ROTARY_DIM + tl.arange(0, _HEAD_DIM - _ROTARY_DIM)
+    tail = _ROTARY_DIM + tl.arange(0, _HEAD_DIM - _ROTARY_DIM).to(tl.int64)
     passthrough = tl.load(x_ptr + x_start + tail * x_stride_channel)
     tl.store(y_ptr + y_start + tail, passthrough)
 
@@ -156,7 +157,8 @@ def _h3_mm_rope_bwd_with_strides(
     HALF: tl.constexpr = _ROTARY_DIM // 2
     dtype: tl.constexpr = grad_y_ptr.dtype.element_ty
 
-    pairs = tl.arange(0, _BLOCK_PAIRS)
+    # grad_y can have its own large channel stride, independently of forward's x.
+    pairs = tl.arange(0, _BLOCK_PAIRS).to(tl.int64)
     valid = pairs < HALF
     # fmt: off
     grad_y_first = tl.load(grad_y_ptr + grad_y_start + pairs * grad_y_stride_channel, valid, other=0).to(tl.float32)  # noqa: E501
@@ -179,7 +181,7 @@ def _h3_mm_rope_bwd_with_strides(
     tl.store(grad_x_ptr + grad_x_start + pairs, grad_x_first.to(dtype), valid)
     tl.store(grad_x_ptr + grad_x_start + pairs + HALF, grad_x_second.to(dtype), valid)
 
-    tail = _ROTARY_DIM + tl.arange(0, _HEAD_DIM - _ROTARY_DIM)
+    tail = _ROTARY_DIM + tl.arange(0, _HEAD_DIM - _ROTARY_DIM).to(tl.int64)
     grad_tail = tl.load(grad_y_ptr + grad_y_start + tail * grad_y_stride_channel)
     tl.store(grad_x_ptr + grad_x_start + tail, grad_tail)
 

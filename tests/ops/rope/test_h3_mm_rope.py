@@ -122,6 +122,42 @@ def test_mixed_layouts_preserve_rotation_and_gradient(implementation, view):
     _assert_bits(grad, _gradient_reference(x, cos, sin, grad_y))
 
 
+@needs_gpu
+def test_triton_channel_offsets_above_int32():
+    """Check the last rotated channel and the passthrough tail with 64-bit offsets."""
+    from rl_engine.backends.shared.triton.rope.h3_mm_rope import TritonH3MMRoPEOp
+
+    # Channel 95 is the first whose element offset exceeds signed int32. The
+    # guard keeps a wrapped address inside the allocation, so a regression
+    # reads a known zero and fails the value check without poisoning the GPU.
+    guard = 1 << 31
+    channel_stride = (guard - 1) // 95 + 1
+    storage_size = guard + 127 * channel_stride + 4
+    if torch.cuda.mem_get_info()[0] < storage_size * 4 + (512 << 20):
+        pytest.skip("large-stride FP32 views and their guard require 20 GiB of free memory")
+    storage = torch.empty(storage_size, dtype=torch.float32, device="cuda")
+    offsets = torch.arange(128, device="cuda", dtype=torch.int64) * channel_stride
+    wrapped = offsets.to(torch.int32).to(torch.int64)
+    storage[guard + wrapped[:, None] + torch.arange(4, device="cuda")] = 0
+
+    # Four adjacent values per channel let x, grad_y, cos and sin share one
+    # backing allocation. Keep the dense originals as the independent oracle.
+    values = torch.randn((128, 4), generator=torch.Generator().manual_seed(656)).cuda()
+    channels = storage.as_strided((128, 4), (channel_stride, 1), storage_offset=guard)
+    channels.copy_(values)
+    x, grad_y, cos, sin = channels.T
+    shape = (1, 1, 1, 128)
+    actual, grad = _forward_backward(
+        TritonH3MMRoPEOp(), x.view(shape), cos[None, :96], sin[None, :96], grad_y.view(shape)
+    )
+    x, grad_y, cos, sin = values.T.contiguous()
+    expected, expected_grad = _forward_backward(
+        NativeH3MMRoPEOp(), x.view(shape), cos[None, :96], sin[None, :96], grad_y.view(shape)
+    )
+    _assert_bits(actual, expected)
+    _assert_bits(grad, expected_grad)
+
+
 @pytest.mark.parametrize(
     "invalid,exception,message",
     [

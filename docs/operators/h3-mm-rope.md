@@ -22,6 +22,8 @@ Each direction launches one kernel with grid `(S, H, B)`, putting long sequences
 on the first axis. If the input and both tables are contiguous, `layout=None`
 lets the kernel reuse the output row offset. For views, the launcher passes the
 element strides of the input, cosine table and sine table in one runtime tuple.
+Channel indices are widened to 64 bits before multiplication so a view can
+address elements more than `2**31 - 1` positions from the start of its row.
 Older Triton versions take the same strides as individual arguments. Backward
 uses the actual layout of `grad_y`, including broadcast strides. Head and batch
 counts must fit the device's grid-y and grid-z limits, respectively.
