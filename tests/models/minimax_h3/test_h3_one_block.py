@@ -19,6 +19,8 @@ the graph's structure.
 from __future__ import annotations
 
 import hashlib
+import math
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -56,6 +58,28 @@ BACKWARD_FACTOR, BACKWARD_FLOOR = 1.5, 5e-3
 BACKWARD_BF16_EXCESS_ULPS = 6.0
 
 
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_block_bitwise_checks_preserve_storage_and_report_first_packed_position(dtype):
+    # The input is strided. Copies keep its NaN payload, while -0 differs by a single bit.
+    base = torch.zeros(1, 3, 2, 4, dtype=dtype)[..., ::2]
+    base[:, 0, 0, 0] = torch.nan
+    late, early = base.clone(), base.clone()
+    assert h3_block.bitwise(base, early)
+    assert h3_block.first_differing_row(base, early) is None
+    late[:, 2, 0, 0], early[:, 1, 0, 0] = -0.0, -0.0
+    assert not h3_block.bitwise(base, late)
+    assert h3_block.first_differing_row((base, base), (late, early)) == 1
+    assert not h3_block.bitwise(base, base.half())
+    assert h3_block.first_differing_row(base, base.half()) == -1
+
+
+def test_block_errors_propagate_nan_from_later_tensors():
+    clean = torch.ones(2)
+    bad = (clean, torch.full_like(clean, torch.nan))
+    assert math.isnan(h3_block.max_abs(bad, (clean, clean)))
+    assert math.isnan(h3_block.rel_err(bad, (clean, clean)))
+
+
 @pytest.mark.parametrize("layout", sorted(PINNED_LAYOUTS))
 def test_layout_matches_pinned_pipeline(layout):
     packed = h3_fl2va_layout(**H3_BLOCK_LAYOUTS[layout], device="cpu")
@@ -77,9 +101,44 @@ def test_graph_is_well_formed():
         "h3_rmsnorm",
         "adaln_gate_residual",
         "h3_qkv_gemm",
+        "h3_mm_rope_3axis_partial",
         "h3_full_attention",
         *h3_block.GEMM_ROWS.values(),
     }
+
+
+def test_rope_nodes_call_the_candidate_operator():
+    """A missing candidate call must not pass as trivially equal provider replay."""
+    x = torch.ones(1, 2, 1, 128)
+    cos, sin = torch.ones(2, 96), torch.zeros(2, 96)
+    output = torch.empty_like(x)
+    calls = []
+
+    def rope(tensor, cosine, sine):
+        calls.append((tensor, cosine, sine))
+        return output
+
+    for node in h3_block.NODES:
+        if node.name in ("rope_q", "rope_k"):
+            assert node.candidate(SimpleNamespace(rope=rope), {"rope": (cos, sin)}, x) is output
+    assert len(calls) == 2
+    for tensor, cosine, sine in calls:
+        assert tensor is x and cosine is cos and sine is sin
+
+
+def test_rope_replay_reports_the_registry_fallback(monkeypatch, require_h3_kernels):
+    """Exercise ROCm dispatch metadata without launching any AMD kernels."""
+    pytest.importorskip("triton")
+    from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp
+
+    registry = h3_block.KernelRegistry()
+    monkeypatch.setattr(torch.version, "hip", "simulated")
+    ops = h3_block.CandidateOps(
+        registry, device=torch.device("cuda:0"), attention="interim", gemm_rows="interim"
+    )
+    assert isinstance(ops.rope, NativeH3MMRoPEOp)
+    bound = h3_block.bindings(ops)
+    assert bound["rope_q"].backend == bound["rope_k"].backend == "NativeH3MMRoPEOp"
 
 
 # (RFC row, status) the block declares per node, written out rather than read from ``NODES``
@@ -91,8 +150,8 @@ DECLARED_BINDINGS = {
     "v_proj": ("h3_qkv_gemm", "row"),
     "q_norm": ("h3_qk_rmsnorm_d128", "interim"),
     "k_norm": ("h3_qk_rmsnorm_d128", "interim"),
-    "rope_q": ("h3_mm_rope_3axis_partial", "reference"),
-    "rope_k": ("h3_mm_rope_3axis_partial", "reference"),
+    "rope_q": ("h3_mm_rope_3axis_partial", "row"),
+    "rope_k": ("h3_mm_rope_3axis_partial", "row"),
     "attention": ("h3_full_attention", "row"),
     "o_proj": ("h3_attention_o_gemm", "row"),
     "residual_attn": ("adaln_gate_residual", "row"),
@@ -165,7 +224,8 @@ def test_partial_rope_rotates_96_of_128_channels():
 
 
 @pytest.fixture(scope="module")
-def ops():
+def ops(require_h3_kernels):
+    """Check optional extensions before constructing any candidate backend."""
     return h3_block.CandidateOps()
 
 
@@ -174,12 +234,18 @@ def test_stack_rows_dispatch_to_cuda(require_h3_kernels, ops):
     backends = ops.backends()
     for name in ("projection", "norm", "gate"):
         assert backends[name].endswith("CudaOp"), backends
+    assert backends["rope"].endswith("TritonH3MMRoPEOp"), backends
 
 
 @needs_gpu
 @pytest.mark.parametrize("layout", ["tiny", "small"])
 def test_block_forward(h3_block_weights_cuda, ops, layout):
     report = h3_block.run_block_case(h3_block_weights_cuda, layout=layout, ops=ops)
+    assert report["rope_acceptance_reference"] == "forward_fp32"
+    assert report["first_rope_acceptance_failure"] is None
+    for entry in report["nodes"]:
+        if entry["node"] in ("rope_q", "rope_k"):
+            assert entry["isolated_model_boundary_accuracy"]["passed"], entry
     nodes = {node.name: node for node in h3_block.NODES}
     for entry in report["nodes"]:
         name = entry["node"]
@@ -197,6 +263,24 @@ def test_block_forward(h3_block_weights_cuda, ops, layout):
     assert out["candidate_rel_err_vs_golden"] <= (
         FORWARD_FACTOR * out["provider_rel_err_vs_golden"] + FORWARD_FLOOR
     )
+
+
+@needs_gpu
+def test_block_report_names_the_failing_rope_node(h3_block_weights_cuda, ops, monkeypatch):
+    """One bad K element must reach the report summary even when Q still passes."""
+    run_isolated = h3_block.run_isolated
+
+    def corrupt_one_key(ctx, ops, provider):
+        isolated = run_isolated(ctx, ops, provider)
+        isolated["rope_k"][0, 0, 0, 0] = torch.nan
+        return isolated
+
+    monkeypatch.setattr(h3_block, "run_isolated", corrupt_one_key)
+    report = h3_block.run_block_case(h3_block_weights_cuda, layout="tiny", ops=ops)
+    assert report["first_rope_acceptance_failure"] == "rope_k"
+    nodes = {entry["node"]: entry for entry in report["nodes"]}
+    assert nodes["rope_q"]["isolated_model_boundary_accuracy"]["passed"]
+    assert nodes["rope_k"]["isolated_model_boundary_accuracy"]["outside_tolerance"] == 1
 
 
 @needs_gpu
@@ -235,7 +319,7 @@ def test_qkv_nodes_share_one_combined_row_call():
     x = torch.randn(1, 3, 6)
     outs = [nodes[n].candidate(_Ops, ctx, x) for n in ("q_proj", "k_proj", "v_proj")]
     assert len(calls) == 1 and calls[0] == (3, 2)
-    for out, w in zip(outs, h3_block.QKV_WEIGHTS):
+    for out, w in zip(outs, h3_block.QKV_WEIGHTS, strict=True):
         assert torch.equal(
             out, (x.reshape(3, 6) @ weights[f"{h3_block.BLOCK}.{w}"].t()).view(1, 3, 4)
         )

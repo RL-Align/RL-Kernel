@@ -8,6 +8,7 @@ import argparse
 import pytest
 import torch
 
+from rl_engine.validation.operators.op_checks import run_operator_suite
 from rl_engine.validation.operators.operator_inputs import make_operator_inputs, operator_shape_name
 from rl_engine.validation.operators.operator_specs import (
     make_candidate,
@@ -184,6 +185,42 @@ def test_cp_attention_operator_spec_registers_backward_grad_inputs():
     assert case.op_class == "attention"
     assert case.grad_input_names == ("q", "k", "v")
     assert candidate.name == "pytorch-cp_attention"
+
+
+@pytest.mark.parametrize(
+    ("dtype", "expected_sum"), [(torch.bfloat16, 389 / 512), (torch.float32, 1549 / 2048)]
+)
+def test_h3_mm_rope_checker_uses_forward_fp32(dtype, expected_sum):
+    from rl_engine.validation.models.h3_provider import provider_apply_rotary
+
+    args = _args(op="h3_mm_rope_3axis_partial", candidate="pytorch", n_heads=14)
+    case = make_operator_case(args, dtype, torch.device("cpu"))
+    candidate = make_candidate(args)
+    x, cos, sin = (case.inputs[name] for name in ("x", "cos", "sin"))
+    assert x.shape == (1, 2, 14, 128) and x.dtype == dtype
+    assert cos.shape == sin.shape == (2, 96)
+    assert cos.dtype == sin.dtype == torch.float32
+    assert not cos.requires_grad and not sin.requires_grad
+    assert case.grad_input_names == ("x",)
+    assert operator_shape_name(args.op, args) == "1x2x14x128"
+
+    # In BF16 the direct product rounds to 388/512. Adding 1/512 in FP32
+    # distinguishes the reference's pre-store sum from the provider's stored output.
+    x[0, 0, 0, 0], x[0, 0, 0, 48] = 1.5, -1.0
+    cos[0, 0], sin[0, 0] = 515 / 1024, 1 / 512
+    output = case.gold_fn(**case.inputs)
+    assert output.dtype == torch.float32
+    assert case.name == f"h3_mm_rope_3axis_partial-{dtype}-1x2x14x128"
+    assert output[0, 0, 0, 0].item() == expected_sum
+    provider = provider_apply_rotary(x, cos, sin)
+    assert torch.equal(output.to(dtype), provider)
+    assert torch.equal(candidate.fn(**case.inputs), provider)
+    report = run_operator_suite(args.op, candidates=[candidate], cases=[case], check_grad=True)
+    assert report.passed, report.to_dict()
+    assert {entry.judgment for entry in report.candidates[0].cases[0].outputs} == {
+        "forward_accuracy",
+        "gradient_accuracy",
+    }
 
 
 def test_constant_linear_logp_inputs_match_operator_contract():

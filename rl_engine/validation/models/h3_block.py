@@ -33,6 +33,7 @@ in reverse graph order.
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -40,7 +41,9 @@ from typing import Any, Callable, Mapping
 
 import torch
 
+from rl_engine.contracts.numerical import load_contract, resolve_tolerance
 from rl_engine.reference.minimax_h3 import block as gold
+from rl_engine.reference.rope.h3_mm_rope import NativeH3MMRoPEOp
 from rl_engine.runtime.registry import KernelRegistry
 from rl_engine.validation.models import h3_provider as prov
 from rl_engine.validation.models.h3_cases import H3_BLOCK_LAYOUTS, h3_fl2va_layout, h3_timesteps
@@ -50,6 +53,7 @@ HEADS = 56
 HEAD_DIM = 128
 BLOCK = "transformer_blocks.0"
 NUM_TIMESTEPS = 2
+_INT_BY_ELEMENT_SIZE = {1: torch.int8, 2: torch.int16, 4: torch.int32, 8: torch.int64}
 
 
 @dataclass(frozen=True)
@@ -123,10 +127,10 @@ def _gemm_row_op(row: str):
 class CandidateOps:
     """The operators bound to the block's nodes, resolved once per run.
 
-    The norm, gate, AdaLN-projection and QKV rows are resolved through the registry, so the
-    report records what dispatch actually returned; the interim operators are named directly
-    because their registry entries (``det_gemm``, ``attention``, ``swiglu``) prefer backends
-    that are not available or not deterministic on every GPU this replay runs on.
+    The registry resolves the norm, gate, AdaLN-projection, QKV and MM-RoPE operators.
+    Both RoPE nodes use the same instance resolved for the execution device. The replay
+    names its interim operators explicitly to select deterministic backends available on
+    the device.
 
     ``gemm_rows`` binds ``o_proj`` / ``ffn_gate_up`` / ``ffn_down``: ``"row"`` to their rows'
     operators (``GEMM_ROW_OPS``; SM90 with Triton, raises elsewhere), ``"interim"`` to the interim
@@ -142,16 +146,18 @@ class CandidateOps:
         gemm_rows: str = "auto",
         device: torch.device | None = None,
     ) -> None:
+        if gemm_rows not in ("auto", "row", "interim"):
+            raise ValueError(f"gemm_rows must be 'auto', 'row' or 'interim', not {gemm_rows!r}")
+
         from rl_engine.backends.cuda.activation.swiglu import SwiGLUCudaOp
         from rl_engine.backends.cuda.attention.deterministic_attn import DeterministicAttentionOp
         from rl_engine.backends.shared.triton.gemm.det_gemm import TritonDetGemmOp
 
-        if gemm_rows not in ("auto", "row", "interim"):
-            raise ValueError(f"gemm_rows must be 'auto', 'row' or 'interim', not {gemm_rows!r}")
         registry = registry or KernelRegistry()
         self.projection = registry.get_op("adaln_projection_3mod", device="cuda")
         self.norm = registry.get_op("h3_rmsnorm", device="cuda")
         self.gate = registry.get_op("adaln_gate_residual", device="cuda")
+        self.rope = registry.get_op("h3_mm_rope_3axis_partial", device=device or "cuda")
         self.gemm = TritonDetGemmOp()
         self.qkv = registry.get_op("h3_qkv_gemm", device="cuda")
         self.attention = DeterministicAttentionOp()
@@ -274,7 +280,7 @@ def gemm_session(ops: Any):
 
 
 def bindings(ops: Any, nodes=None) -> dict[str, Binding]:
-    """Each node's binding as ``ops`` runs it: the GEMM rows and attention say which operator ran.
+    """Report the backend that ran for RoPE, the GEMM rows and attention.
 
     ``nodes`` defaults to the block's ``NODES`` (the refiner passes its own). Without ``ops`` the
     static bindings are returned.
@@ -283,6 +289,11 @@ def bindings(ops: Any, nodes=None) -> dict[str, Binding]:
     out = {}
     for node in NODES if nodes is None else nodes:
         binding = node.binding
+        if ops is not None and node.name in ("rope_q", "rope_k"):
+            # The registry can select Native for both nodes. Record its name in fallback runs.
+            rope = getattr(ops, "rope", None)
+            if rope is not None:
+                binding = Binding(binding.rfc_row, binding.status, type(rope).__name__)
         if ops is not None and node.name in GEMM_ROWS:
             # ops without ``gemm_op`` run the interim GEMM (``cand_gemm``), so report that
             accessor = getattr(ops, "gemm_op", None)
@@ -442,8 +453,8 @@ def _rope_node(name: str, source: str) -> Node:
     return Node(
         name=name,
         inputs=(source,),
-        binding=Binding("h3_mm_rope_3axis_partial", "reference", "provider_apply_rotary"),
-        candidate=lambda ops, ctx, x: prov.provider_apply_rotary(x, *ctx["rope"]),
+        binding=Binding("h3_mm_rope_3axis_partial", "row", "TritonH3MMRoPEOp"),
+        candidate=lambda ops, ctx, x: ops.rope(x, *ctx["rope"]),
         provider=lambda ctx, x: prov.provider_apply_rotary(x, *ctx["rope"]),
         golden=lambda ctx, x: gold.golden_apply_rotary(x, *ctx["rope_fp32"]),
         provider_bitwise_isolated=True,
@@ -668,30 +679,47 @@ def _batch_row(value: Any, row: int, batch: int) -> Any:
     return tuple(_batch_row(v, row, batch) for v in value)
 
 
+def _element_bits(tensor: torch.Tensor) -> torch.Tensor:
+    """View each real H3 activation or gradient as a same-width integer without copying."""
+    return tensor.view(_INT_BY_ELEMENT_SIZE[tensor.element_size()])
+
+
 def bitwise(lhs: Any, rhs: Any) -> bool:
-    return all(torch.equal(a, b) for a, b in zip(_flat(lhs), _flat(rhs), strict=True))
-
-
-def max_abs(lhs: Any, rhs: Any) -> float:
-    return max(
-        float((a.float() - b.float()).abs().max()) if a.numel() else 0.0
+    return all(
+        a.dtype == b.dtype and torch.equal(_element_bits(a), _element_bits(b))
         for a, b in zip(_flat(lhs), _flat(rhs), strict=True)
     )
 
 
-def first_differing_row(lhs: Any, rhs: Any) -> int | None:
-    """First packed row (sequence position) where two node outputs differ, or None."""
-
+def max_abs(lhs: Any, rhs: Any) -> float:
+    maximum = 0.0
     for a, b in zip(_flat(lhs), _flat(rhs), strict=True):
+        if a.numel():
+            error = float((a.float() - b.float()).abs().max())
+            if math.isnan(error):
+                return error
+            maximum = max(maximum, error)
+    return maximum
+
+
+def first_differing_row(lhs: Any, rhs: Any) -> int | None:
+    """Earliest differing packed position, or -1 for a table or metadata mismatch."""
+
+    first_row = None
+    for a, b in zip(_flat(lhs), _flat(rhs), strict=True):
+        if a.shape != b.shape or a.dtype != b.dtype:
+            return -1
+        a, b = _element_bits(a), _element_bits(b)
         if a.dim() < 3:
             if not torch.equal(a, b):
                 return -1  # a table row, not a sequence position
             continue
-        diff = (a != b).reshape(a.shape[0], a.shape[1], -1).any(dim=-1).any(dim=0)
+        diff = (a != b).flatten(start_dim=2).any(dim=-1).any(dim=0)
         rows = diff.nonzero()
         if rows.numel():
-            return int(rows[0])
-    return None
+            row = int(rows[0, 0])
+            first_row = row if first_row is None else min(first_row, row)
+    return first_row
 
 
 def rel_err(value: Any, golden: Any) -> float:
@@ -700,7 +728,10 @@ def rel_err(value: Any, golden: Any) -> float:
     num = den = 0.0
     for a, g in zip(_flat(value), _flat(golden), strict=True):
         g32 = g.float()
-        num = max(num, float((a.float() - g32).abs().max()))
+        error = float((a.float() - g32).abs().max())
+        if not math.isfinite(error):
+            return error
+        num = max(num, error)
         den = max(den, float(g32.abs().max()))
     return num / max(den, 1e-30)
 
@@ -771,11 +802,19 @@ def run_block_case(
         "seq_len": ctx["seq_len"],
         "seed": seed,
         "backends": ops.backends(),
+        "golden_role": "block_mathematical_error_reference",
+        "rope_acceptance_reference": "forward_fp32",
         "nodes": [],
     }
     bound = bindings(ops)
-    firsts: dict[str, str | None] = {"first_drift": None, "first_isolated_drift": None}
-    firsts.update({"first_repeat_drift": None, "first_batch_drift": None})
+    rope_reference = NativeH3MMRoPEOp()
+    firsts: dict[str, str | None] = {
+        "first_drift": None,
+        "first_isolated_drift": None,
+        "first_repeat_drift": None,
+        "first_batch_drift": None,
+        "first_rope_acceptance_failure": None,
+    }
     for node in NODES:
         name = node.name
         row0 = _batch_row(batched[name], 0, 2)
@@ -806,6 +845,25 @@ def run_block_case(
             "first_repeat_drift": entry["repeat_bitwise_equal"],
             "first_batch_drift": entry["batch_row_bitwise_equal"],
         }
+        if name in ("rope_q", "rope_k"):
+            # The provider input's dtype selects the coefficient and product rounding for H3.
+            x = provider[node.inputs[0]]
+            reference = rope_reference.forward_fp32(x, *ctx["rope"])
+            tolerance = resolve_tolerance(
+                load_contract(), judgment="forward_accuracy", op_class="elementwise", dtype=x.dtype
+            )
+            error = (isolated[name].float() - reference).abs()
+            outside = error > tolerance.atol + tolerance.rtol * reference.abs()
+            outside = outside | ~torch.isfinite(error)
+            outside_count = int(outside.sum())
+            entry["isolated_model_boundary_accuracy"] = {
+                "passed": outside_count == 0,
+                "outside_tolerance": outside_count,
+                "max_abs_error": float(error.max()),
+                "atol": tolerance.atol,
+                "rtol": tolerance.rtol,
+            }
+            checks["first_rope_acceptance_failure"] = outside_count == 0
         for key, ok in checks.items():
             if firsts[key] is None and not ok:
                 firsts[key] = name
@@ -853,9 +911,14 @@ def permutation_probe(
         out = run_graph("candidate", permuted, ops)[OUTPUT]
     expected = base_output[:, perm]
     return {
-        "bitwise_equal_after_permutation": bool(torch.equal(out, expected)),
+        "bitwise_equal_after_permutation": bitwise(out, expected),
         "max_abs": max_abs(out, expected),
-        "differing_rows": int((out != expected).reshape(out.shape[1], -1).any(dim=-1).sum()),
+        "differing_rows": int(
+            (_element_bits(out) != _element_bits(expected))
+            .reshape(out.shape[1], -1)
+            .any(dim=-1)
+            .sum()
+        ),
     }
 
 
@@ -947,15 +1010,15 @@ def run_block_backward(
     }
     for name in (*PARAM_LEAVES, "hidden", "temb"):
         report["leaves"][name] = {
-            "repeat_bitwise_equal": bool(torch.equal(first[name], second[name])),
+            "repeat_bitwise_equal": bitwise(first[name], second[name]),
             "candidate_rel_err_vs_golden": rel_err(first[name], golden[name]),
             "provider_rel_err_vs_golden": rel_err(provider[name], golden[name]),
             "storage_dtype": str(first[name].dtype).removeprefix("torch."),
             "candidate_ulps_vs_golden": ulp_err(first[name], golden[name]),
             "provider_ulps_vs_golden": ulp_err(provider[name], golden[name]),
         }
-    report["leaves"]["hidden"]["batch_row_bitwise_equal"] = bool(
-        torch.equal(batched["hidden"][:1], first["hidden"])
+    report["leaves"]["hidden"]["batch_row_bitwise_equal"] = bitwise(
+        batched["hidden"][:1], first["hidden"]
     )
     first_repeat = first_batch = None
     for node in reversed(NODES):

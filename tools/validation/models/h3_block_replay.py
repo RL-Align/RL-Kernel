@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import torch  # noqa: E402
 
+from rl_engine.models.minimax_h3.full_chain import finite  # noqa: E402
 from rl_engine.validation.models import h3_block, h3_chain  # noqa: E402
 from rl_engine.validation.models.h3_cases import H3_BLOCK_LAYOUTS  # noqa: E402
 from rl_engine.validation.models.h3_weights import (  # noqa: E402
@@ -65,6 +66,7 @@ def main() -> None:
         print(
             f"{layout} S={case['seq_len']}: first_drift={case['first_drift']} "
             f"first_isolated_drift={case['first_isolated_drift']} "
+            f"first_rope_acceptance_failure={case['first_rope_acceptance_failure']} "
             f"repeat_drift={case['first_repeat_drift']} batch_drift={case['first_batch_drift']} "
             f"out err cand {case['output']['candidate_rel_err_vs_golden']:.2e} "
             f"prov {case['output']['provider_rel_err_vs_golden']:.2e}"
@@ -107,7 +109,9 @@ def main() -> None:
     }
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(evidence, indent=2) + "\n")
+        # A failing numerical comparison can produce NaN. Preserve the failure
+        # counters and encode its non-finite metrics as JSON null for readers.
+        args.out.write_text(json.dumps(finite(evidence), indent=2, allow_nan=False) + "\n")
         print(f"wrote {args.out}")
 
 

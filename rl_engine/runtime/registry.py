@@ -295,6 +295,8 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
     )
     PYTORCH_H3_RMSNORM = "rl_engine.reference.minimax_h3.rmsnorm.NativeH3RMSNormOp"
     CUDA_H3_RMSNORM = "rl_engine.backends.cuda.model_specific.minimax_h3.rmsnorm.H3RMSNormCudaOp"
+    PYTORCH_H3_MM_ROPE = "rl_engine.reference.rope.h3_mm_rope.NativeH3MMRoPEOp"
+    TRITON_H3_MM_ROPE = "rl_engine.backends.shared.triton.rope.h3_mm_rope.TritonH3MMRoPEOp"
     PYTORCH_H3_GATE_RESIDUAL = "rl_engine.reference.minimax_h3.gate_residual.NativeH3GateResidualOp"
     CUDA_H3_GATE_RESIDUAL = (
         "rl_engine.backends.cuda.model_specific.minimax_h3.gate_residual.H3GateResidualCudaOp"
@@ -309,6 +311,37 @@ class OpBackend(Enum, metaclass=_KernelEnumMeta):
 
 def _default_semantic_descriptors() -> tuple[OperatorBackendDescriptor, ...]:
     return (
+        OperatorBackendDescriptor(
+            semantic_op="h3_mm_rope_3axis_partial",
+            backend_id="rlkernel.h3_mm_rope.triton",
+            supported_targets=frozenset({"rollout", "training"}),
+            supported_devices=frozenset({"cuda"}),
+            supported_dtypes=frozenset({"bfloat16", "float32"}),
+            supported_topologies={
+                "world_size": (1,),
+                "tensor_parallel_size": (1,),
+                "context_parallel_size": (1,),
+            },
+            determinism_or_alignment_properties={
+                "deterministic": True,
+                "batch_invariant": True,
+                "strict_observable": True,
+                "layout": "BSHD",
+                "head_dim": 128,
+                "rotary_dim": 96,
+                # Callers supply FP32 tables. H3 rounds the loaded coefficients and
+                # each product to the activation dtype before the final FP32 add.
+                "table_dtype": "float32",
+                "forward_rounding": "activation_dtype_tables_products_output",
+                "backward_rounding": "forward_coefficients_fp32_math_final_cast",
+                "fp_fusion": False,
+                "reduction": "none",
+            },
+            lifecycle=OperatorLifecycle.ENGINE_CONSTRUCTION,
+            implementation_class_or_factory=OpBackend.TRITON_H3_MM_ROPE.value,
+            fallback_policy=OperatorFallbackPolicy.ERROR,
+            version_or_build_fingerprint="h3-partial-rope-model-forward-fp32-vjp-v1",
+        ),
         OperatorBackendDescriptor(
             semantic_op="h3_ffn_gate_up_gemm",
             backend_id="rlkernel.h3_ffn_gate_up_gemm.triton.fp32_tiles.v1",
@@ -1091,6 +1124,10 @@ class KernelRegistry:
                     OpBackend.PYTORCH_H3_ADALN_ROW_GATHER,
                 ],
                 "h3_rmsnorm": [OpBackend.CUDA_H3_RMSNORM, OpBackend.PYTORCH_H3_RMSNORM],
+                "h3_mm_rope_3axis_partial": [
+                    OpBackend.TRITON_H3_MM_ROPE,
+                    OpBackend.PYTORCH_H3_MM_ROPE,
+                ],
                 "adaln_gate_residual": [
                     OpBackend.CUDA_H3_GATE_RESIDUAL,
                     OpBackend.PYTORCH_H3_GATE_RESIDUAL,
@@ -1152,6 +1189,8 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                # ROCm uses the reference until this Triton path is qualified there.
+                "h3_mm_rope_3axis_partial": [OpBackend.PYTORCH_H3_MM_ROPE],
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [
@@ -1220,6 +1259,7 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "h3_mm_rope_3axis_partial": [OpBackend.PYTORCH_H3_MM_ROPE],
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
@@ -1262,6 +1302,7 @@ class KernelRegistry:
                 "adaln_projection_3mod": [OpBackend.PYTORCH_H3_ADALN_PROJECTION],
                 "adaln_row_gather": [OpBackend.PYTORCH_H3_ADALN_ROW_GATHER],
                 "h3_rmsnorm": [OpBackend.PYTORCH_H3_RMSNORM],
+                "h3_mm_rope_3axis_partial": [OpBackend.PYTORCH_H3_MM_ROPE],
                 "adaln_gate_residual": [OpBackend.PYTORCH_H3_GATE_RESIDUAL],
                 "final_adaln_out": [OpBackend.PYTORCH_H3_FINAL_ADALN_OUT],
                 "final_logit_softcap": [OpBackend.PYTORCH_NATIVE_FINAL_LOGIT_SOFTCAP],
