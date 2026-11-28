@@ -3,6 +3,9 @@
 
 import torch
 
+C128_PROFILE = "dsv4-c128-native-single-pass-prefill-decode-gfx942-v1"
+PINNED_C128_PROFILE = "dsv4-c128-native-pinned-two-stage-splits16-gfx942-v1"
+
 
 def _functional(kv, score, ape, weight, cache, ratio, eps):
     t, b, width = kv.shape
@@ -13,7 +16,11 @@ def _functional(kv, score, ape, weight, cache, ratio, eps):
     if ratio == 4:
         previous = torch.cat((torch.zeros_like(values[:1, :, :, :dim]), values[:-1, :, :, :dim]), 0)
         old_scores = torch.cat(
-            (torch.full_like(scores[:1, :, :, :dim], -float("inf")), scores[:-1, :, :, :dim]), 0
+            (
+                torch.full_like(scores[:1, :, :, :dim], -float("inf")),
+                scores[:-1, :, :, :dim],
+            ),
+            0,
         )
         values = torch.cat((previous, values[:, :, :, dim:]), 1)
         scores = torch.cat((old_scores, scores[:, :, :, dim:]), 1)
@@ -28,13 +35,17 @@ def _functional(kv, score, ape, weight, cache, ratio, eps):
     return torch.cat((normalized[..., :448], rotated), -1)
 
 
-def _forward(kv, score, ape, weight, cache, ratio, eps):
-    from vllm.models.deepseek_v4.common.ops.cache_utils import dequantize_and_gather_k_cache
+def _forward(kv, score, ape, weight, cache, ratio, eps, c128_profile=C128_PROFILE):
+    from vllm.models.deepseek_v4.common.ops.cache_utils import (
+        dequantize_and_gather_k_cache,
+    )
     from vllm.models.deepseek_v4.common.ops.fused_compress_quant_cache import (
         compress_norm_rope_store_triton,
         compress_norm_rope_store_two_stage_triton,
     )
-    from vllm.models.deepseek_v4.common.ops.save_partial_states import _SAVE_PARTIAL_STATES_KERNEL
+    from vllm.models.deepseek_v4.common.ops.save_partial_states import (
+        _SAVE_PARTIAL_STATES_KERNEL,
+    )
     from vllm.models.deepseek_v4.compressor import CompressorMetadata
 
     t, b, width = kv.shape
@@ -78,9 +89,14 @@ def _forward(kv, score, ape, weight, cache, ratio, eps):
         compress_ratio=ratio,
         pdl_kwargs={},
     )
-    extra = {}
+    # Keep the single-pass native profile and the seven-layer pinned two-stage
+    # profile explicit: their FP32 reduction schedules are not interchangeable.
     function = compress_norm_rope_store_triton
-    if ratio == 128:
+    extra = {}
+    if ratio == 128 and c128_profile == PINNED_C128_PROFILE:
+        from .compressor_schedule import pin_c128_compressor_schedule
+
+        pin_c128_compressor_schedule()
         function = compress_norm_rope_store_two_stage_triton
         extra = dict(
             num_decode_tokens=0,
@@ -119,8 +135,8 @@ def _forward(kv, score, ape, weight, cache, ratio, eps):
 
 class _Compress(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, kv, score, ape, weight, cache, ratio, eps):
-        out = _forward(kv, score, ape, weight, cache, ratio, eps)
+    def forward(ctx, kv, score, ape, weight, cache, ratio, eps, c128_profile):
+        out = _forward(kv, score, ape, weight, cache, ratio, eps, c128_profile)
         ctx.save_for_backward(kv, score, ape, weight, cache)
         ctx.ratio, ctx.eps = ratio, eps
         return out
@@ -132,10 +148,12 @@ class _Compress(torch.autograd.Function):
             operands = [x.detach().requires_grad_(True) for x in (kv, score, ape, weight)]
             result = _functional(*operands, cache, ctx.ratio, ctx.eps)
             gradients = torch.autograd.grad(result, operands, dy.float())
-        return *gradients, None, None, None
+        return *gradients, None, None, None, None
 
 
-def compressed_kv(kv, score, ape, weight, cache, ratio, eps=1e-6):
+def compressed_kv(kv, score, ape, weight, cache, ratio, eps=1e-6, *, c128_profile=C128_PROFILE):
     if ratio not in (4, 128) or kv.shape[0] < ratio:
         raise ValueError("main compressor codec requires at least one original C4/C128 group")
-    return _Compress.apply(kv, score, ape, weight, cache, ratio, eps)
+    if c128_profile not in (C128_PROFILE, PINNED_C128_PROFILE):
+        raise ValueError("unsupported native C128 compressor profile")
+    return _Compress.apply(kv, score, ape, weight, cache, ratio, eps, c128_profile)

@@ -2,11 +2,19 @@
 """Explicit eager sharded DSV4 vocabulary-head and raw-score worker boundaries."""
 
 import inspect
+from functools import wraps
 
 import torch
 
+from rl_engine.backends.rocm.gemm.det_gemm import prepare_det_gemm_linear_weight
 from rl_engine.backends.shared.triton.embedding.lm_head import TritonLMHeadOp
 from rl_engine.backends.shared.triton.logprob.logp import TritonLogpOp
+
+from .runtime import (
+    _invalidate_lm_head_weight_cache,
+    _refresh_lm_head_weight_cache,
+    _validated_lm_head_weight_cache,
+)
 
 # Stateless ops: construct once, not per call.
 _LM_HEAD_OP = TritonLMHeadOp()
@@ -32,12 +40,33 @@ def bind_output_head(wrapper, worker):
     processor = wrapper.logits_processor
     if getattr(processor, "scale", 1.0) != 1.0 or getattr(processor, "soft_cap", None) is not None:
         raise ValueError("raw RLK DSV4 head does not support scaled or soft-capped logits")
+    # Reuse the existing non-persistent, stable-storage inference cache. Both
+    # standalone and verl actor updates invoke this wrapper's load_weights;
+    # invalidate before the loader because .data writes do not bump _version.
+    _refresh_lm_head_weight_cache(wrapper.lm_head, prepare_det_gemm_linear_weight)
+    original_load_weights = wrapper.load_weights
+
+    @wraps(original_load_weights)
+    def load_weights(*args, **kwargs):
+        _invalidate_lm_head_weight_cache(wrapper.lm_head.weight)
+        loaded = original_load_weights(*args, **kwargs)
+        _refresh_lm_head_weight_cache(wrapper.lm_head, prepare_det_gemm_linear_weight)
+        _validated_lm_head_weight_cache(wrapper.lm_head)
+        return loaded
+
+    wrapper.load_weights = load_weights
     wrapper._rlk_output_worker = worker
     executed = [False]
 
     def compute_logits(hidden_states):
         with worker.request(worker.version):
-            local = _LM_HEAD_OP.forward_fp32(hidden_states, wrapper.lm_head.weight)
+            if torch.is_grad_enabled() and (
+                hidden_states.requires_grad or wrapper.lm_head.weight.requires_grad
+            ):
+                local = _LM_HEAD_OP.forward_fp32(hidden_states, wrapper.lm_head.weight)
+            else:
+                weight_t = _validated_lm_head_weight_cache(wrapper.lm_head)
+                local = _LM_HEAD_OP.forward_fp32_prepared(hidden_states, weight_t)
             result = processor._gather_logits(local) if tp > 1 else local
             if result is None:
                 return None  # Native gather only returns scores on its sampling rank.

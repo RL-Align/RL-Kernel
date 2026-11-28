@@ -36,6 +36,7 @@ jobs:
             tests/integrations/common/test_native_pipeline_export.py \
             tests/integrations/common/test_pipeline_rollout_sync.py \
             tests/integrations/common/test_pipeline_rollout_config.py \
+            tests/integrations/engines/rollout/vllm/test_dsv4_output_head_cache.py \
             tests/integrations/common/test_native_megatron_mhc.py \
             tests/backends/rocm/test_qnorm_vjp_on_cpu.py \
             tests/examples/test_dsv4_step_evidence.py \

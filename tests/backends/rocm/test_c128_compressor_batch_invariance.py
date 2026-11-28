@@ -52,7 +52,10 @@ def test_patch_logic_cpu(monkeypatch):
     assert mod._launch_two_stage_sparse_attn_compressor() == 16
     with pytest.raises(RuntimeError):
         mod._pick_compress_num_splits(10, 4, 512)
-    assert other.compress_norm_rope_store_two_stage_triton is mod.compress_norm_rope_store_two_stage_triton
+    assert (
+        other.compress_norm_rope_store_two_stage_triton
+        is mod.compress_norm_rope_store_two_stage_triton
+    )
     scratch = torch.empty(8, 512)
     mod.compress_norm_rope_store_two_stage_triton(
         num_actual=8, head_dim=512, num_decode_tokens=5, compress_scratch=scratch
@@ -109,9 +112,9 @@ def _inputs(t, b, seed=0):
 
 
 def _actor(kv, score, ape, weight, cache):
-    from rl_engine.backends.rocm.attention.native_compressor import _forward
+    from rl_engine.backends.rocm.attention.native_compressor import PINNED_C128_PROFILE, _forward
 
-    return _forward(kv, score, ape, weight, cache, 128, 1e-6)
+    return _forward(kv, score, ape, weight, cache, 128, 1e-6, PINNED_C128_PROFILE)
 
 
 @gpu

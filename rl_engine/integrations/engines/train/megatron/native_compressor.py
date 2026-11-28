@@ -4,7 +4,7 @@
 import types
 
 from rl_engine.backends.rocm.attention.compressor_schedule import pin_c128_compressor_schedule
-from rl_engine.backends.rocm.attention.native_compressor import compressed_kv
+from rl_engine.backends.rocm.attention.native_compressor import PINNED_C128_PROFILE, compressed_kv
 
 
 def bind_native_compressor(compressor, preprocess):
@@ -25,6 +25,7 @@ def bind_native_compressor(compressor, preprocess):
             preprocess.cos_sin_cache,
             self.compress_ratio,
             self.config.layernorm_epsilon,
+            c128_profile=PINNED_C128_PROFILE,
         )
         if not getattr(self, "_rlk_compressed_executed", False):
             print(
@@ -32,6 +33,7 @@ def bind_native_compressor(compressor, preprocess):
                 __file__,
                 "pinned vLLM compress/norm/RoPE/OCP FP8 cache writer",
                 self.compress_ratio,
+                PINNED_C128_PROFILE if self.compress_ratio == 128 else "native-single-pass-C4",
                 tuple(result.shape),
                 flush=True,
             )
