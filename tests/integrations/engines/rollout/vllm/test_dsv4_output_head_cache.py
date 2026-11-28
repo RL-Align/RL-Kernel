@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """DSV4 cache lifecycle on CPU; exact original-kernel comparisons on ROCm."""
 
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 import torch
@@ -17,6 +18,11 @@ class _Wrapper(torch.nn.Module):
         super().__init__()
         self.lm_head = torch.nn.Linear(weight.shape[1], weight.shape[0], bias=False)
         self.lm_head.weight = torch.nn.Parameter(weight)
+        self.lm_head.tp_size = 1
+        self.lm_head.org_vocab_size = weight.shape[0]
+        self.lm_head.shard_indices = SimpleNamespace(
+            num_added_elements=0, num_elements_padded=weight.shape[0]
+        )
         self.config = SimpleNamespace(vocab_size=weight.shape[0])
         self.logits_processor = SimpleNamespace(scale=1.0, soft_cap=None)
         self.fail_load = False
@@ -31,6 +37,15 @@ class _Wrapper(torch.nn.Module):
         if self.fail_load:
             raise RuntimeError("injected loader failure")
         return {"lm_head.weight"}
+
+
+@pytest.fixture(autouse=True)
+def native_tp_group(monkeypatch):
+    """Only the group-size query is simulated; no vLLM installation is needed on CPU."""
+    distributed = ModuleType("vllm.distributed")
+    distributed.get_tensor_model_parallel_world_size = lambda: 1
+    monkeypatch.setitem(sys.modules, "vllm.distributed", distributed)
+    return distributed
 
 
 def _worker():
@@ -155,6 +170,39 @@ def test_prepared_api_rejects_gradient_requests_and_invalid_layout(cpu_projectio
         op.forward_fp32_prepared(hidden, prepared)
     with torch.no_grad(), pytest.raises(ValueError, match="contiguous"):
         op.forward_fp32_prepared(hidden, torch.ones(10, 4, dtype=torch.bfloat16).t())
+
+
+@pytest.mark.parametrize("tp", [2, 4, 8])
+def test_tp_gather_keeps_cache_and_trims_only_vocab_padding(cpu_projection, native_tp_group, tp):
+    native_tp_group.get_tensor_model_parallel_world_size = lambda: tp
+    wrapper = _Wrapper(torch.arange(40, dtype=torch.bfloat16).reshape(10, 4) / 16)
+    wrapper.lm_head.tp_size = tp
+    wrapper.config.vocab_size = wrapper.lm_head.org_vocab_size = 10 * tp - 3
+    gathered = []
+
+    def gather(local):
+        gathered.append(local)
+        return torch.cat([local + rank for rank in range(tp)], dim=-1)
+
+    wrapper.logits_processor._gather_logits = gather
+    outputs.bind_output_head(wrapper, _worker())
+    with torch.inference_mode():
+        result = wrapper.compute_logits(torch.ones(2, 4, dtype=torch.bfloat16))
+    expected = torch.cat([gathered[0] + rank for rank in range(tp)], dim=-1)
+    assert torch.equal(_bits(result), _bits(expected[..., : 10 * tp - 3]))
+    assert result.dtype == torch.float32 and result.is_contiguous()
+    assert len(cpu_projection[0]) == 1
+
+
+def test_non_sampling_tp_rank_preserves_none_result(cpu_projection, native_tp_group):
+    native_tp_group.get_tensor_model_parallel_world_size = lambda: 2
+    wrapper = _Wrapper(torch.ones(10, 4, dtype=torch.bfloat16))
+    wrapper.lm_head.tp_size = 2
+    wrapper.config.vocab_size = wrapper.lm_head.org_vocab_size = 20
+    wrapper.logits_processor._gather_logits = lambda local: None
+    outputs.bind_output_head(wrapper, _worker())
+    with torch.inference_mode():
+        assert wrapper.compute_logits(torch.ones(1, 4, dtype=torch.bfloat16)) is None
 
 
 @pytest.mark.skipif(

@@ -87,3 +87,81 @@ def test_unexpected_loader_names_and_unknown_ownership_are_rejected():
     bad["weights"]["unknown"] = bad["manifest"]["unknown"] = None
     with pytest.raises(ValueError, match="unknown checkpoint ownership"):
         pipeline_stage_payload(w, bad)
+
+
+def test_tp8_padded_vocabulary_reads_only_actual_original_rows_and_detects_corruption():
+    pytest.importorskip("vllm")
+    # Execute only the pinned source's pure index definitions: importing its ROCm
+    # platform would initialize a GPU even for this CPU metadata contract.
+    import ast
+    from dataclasses import dataclass
+    from pathlib import Path
+    import vllm
+
+    root = Path(vllm.__file__).parent
+    source = ast.parse((root / "model_executor/layers/vocab_parallel_embedding.py").read_text())
+    utilities = ast.parse((root / "distributed/utils.py").read_text())
+    from collections.abc import Sequence
+
+    namespace = {"__name__": __name__, "dataclass": dataclass, "Sequence": Sequence}
+    nodes = [
+        n
+        for n in utilities.body
+        if isinstance(n, ast.FunctionDef) and n.name in ("ensure_divisibility", "divide")
+    ]
+    nodes += [
+        n
+        for n in source.body
+        if isinstance(n, ast.FunctionDef)
+        and n.name
+        in ("vocab_range_from_per_partition_vocab_size", "vocab_range_from_global_vocab_size")
+    ]
+    nodes += [
+        n
+        for n in source.body
+        if isinstance(n, ast.ClassDef) and n.name == "VocabParallelEmbeddingShardIndices"
+    ]
+    cls = next(
+        n for n in source.body if isinstance(n, ast.ClassDef) and n.name == "VocabParallelEmbedding"
+    )
+    method = next(
+        n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "_get_indices"
+    )
+    pure = ast.ClassDef(name="CPUIndices", bases=[], keywords=[], body=[method], decorator_list=[])
+    nodes.append(pure)
+    tree = ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[]))
+    exec(compile(tree, "<pinned-vllm-pure-vocab-indices>", "exec"), namespace)
+    VocabParallelEmbedding = namespace["CPUIndices"]
+
+    vocab = 129280
+    padded = ((vocab + 8 * 64 - 1) // (8 * 64)) * (8 * 64)
+    original = torch.ones(vocab, 2, dtype=torch.bfloat16)
+    manifest = {
+        "head.weight": dict(
+            shape=list(original.shape), dtype=str(original.dtype), sha256=digest(original)
+        )
+    }
+    state = dict(weights={"head.weight": original}, manifest=manifest, weight_version=0)
+    intervals = []
+    for rank in range(8):
+        indices = VocabParallelEmbedding._get_indices(padded, padded, vocab, vocab, rank, 8)
+        local = torch.full((padded // 8, 2), 9, dtype=torch.bfloat16)
+        local[: indices.num_org_elements] = original[
+            indices.org_vocab_start_index : indices.org_vocab_end_index
+        ]
+        w = NS(
+            model=NS(),
+            lm_head=NS(shard_indices=indices),
+            named_parameters=lambda local=local: [("head.weight", local)],
+            hf_to_vllm_mapper=NS(map_name=lambda name: name),
+        )
+        record = verify_loaded_update(w, state, {"head.weight"})["head.weight"]
+        part = record["tp_partition"]
+        intervals.append((part["start"], part["stop"]))
+        assert record["shape"] == [indices.num_org_elements, 2]
+        assert record["logical_sha256"] == digest(original)
+        local[0, 0] = 2
+        with pytest.raises(RuntimeError, match="readback differs"):
+            verify_loaded_update(w, state, {"head.weight"})
+    assert intervals[0][0] == 0 and intervals[-1][1] == vocab
+    assert all(a[1] == b[0] for a, b in zip(intervals[:-1], intervals[1:], strict=True))

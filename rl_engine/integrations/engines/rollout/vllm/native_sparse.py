@@ -29,7 +29,7 @@ class _PrefillBoundary(ast.NodeTransformer):
         return self.generic_visit(node)
 
 
-def bind_rollout_sparse(attention, observer=None):
+def bind_rollout_sparse(attention, observer=None, *, max_workspace_bytes=1 << 30):
     if attention._use_aiter_sparse_mla_prefill or attention._use_aiter_sparse_mla_decode:
         raise ValueError("initial native sparse binding expects the pinned gather-prefill path")
     original = type(attention)._forward_prefill
@@ -38,7 +38,7 @@ def bind_rollout_sparse(attention, observer=None):
     tree = transform.visit(tree)
     if transform.calls != 1:
         raise ValueError("unsupported vLLM sparse prefill boundary ABI")
-    operator = NativeSparseAttention()
+    operator = NativeSparseAttention(max_workspace_bytes=max_workspace_bytes)
 
     def prefill(
         *,

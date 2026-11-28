@@ -1,9 +1,35 @@
 # SPDX-License-Identifier: Apache-2.0
 """Observe real native-MCore/vLLM module boundaries without replacing arithmetic."""
+
 import json
 import dataclasses
 import os
 from pathlib import Path
+
+
+def metadata_snapshot(value, depth=0):
+    if depth > 5:
+        return repr(type(value))
+    if isinstance(value, dict):
+        return {k: metadata_snapshot(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [metadata_snapshot(v, depth + 1) for v in value]
+    if dataclasses.is_dataclass(value) and type(value).__module__.startswith("vllm"):
+        return {
+            field.name: metadata_snapshot(getattr(value, field.name), depth + 1)
+            for field in dataclasses.fields(value)
+        }
+    import torch
+
+    if isinstance(value, torch.Tensor):
+        # vLLM Parameters carry weight_loader callbacks to their owner. A plain
+        # detached tensor retains dtype/stride/storage bytes, not those handles.
+        return value.detach()
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    # Methods can receive module/worker handles. Serializing those also walks
+    # their local trace hooks and fails on lambdas; they are not tensor state.
+    return f"<{type(value).__module__}.{type(value).__qualname__}>"
 
 
 def capture(model, root, role):
@@ -17,20 +43,6 @@ def capture(model, root, role):
     restores = []
     worker = model._rlk_p1 if role == "actor" else model._rlk_trace_worker
     original_observer = worker.observer
-
-    def metadata_snapshot(value, depth=0):
-        if depth > 5:
-            return repr(type(value))
-        if isinstance(value, dict):
-            return {k: metadata_snapshot(v, depth + 1) for k, v in value.items()}
-        if isinstance(value, (list, tuple)):
-            return [metadata_snapshot(v, depth + 1) for v in value]
-        if dataclasses.is_dataclass(value) and type(value).__module__.startswith("vllm"):
-            return {
-                field.name: metadata_snapshot(getattr(value, field.name), depth + 1)
-                for field in dataclasses.fields(value)
-            }
-        return value
 
     def dump(name, value):
         file = save_trace(metadata_snapshot(value), root / f"{len(events):05d}.pt")

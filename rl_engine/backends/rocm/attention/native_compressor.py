@@ -4,6 +4,7 @@
 import torch
 
 C128_PROFILE = "dsv4-c128-native-single-pass-prefill-decode-gfx942-v1"
+PINNED_C128_PROFILE = "dsv4-c128-native-pinned-two-stage-splits16-gfx942-v1"
 
 
 def _functional(kv, score, ape, weight, cache, ratio, eps):
@@ -13,9 +14,7 @@ def _functional(kv, score, ape, weight, cache, ratio, eps):
     values = kv[: n * ratio].reshape(n, ratio, b, width)
     scores = score[: n * ratio].reshape(n, ratio, b, width) + ape[None, :, None, :]
     if ratio == 4:
-        previous = torch.cat(
-            (torch.zeros_like(values[:1, :, :, :dim]), values[:-1, :, :, :dim]), 0
-        )
+        previous = torch.cat((torch.zeros_like(values[:1, :, :, :dim]), values[:-1, :, :, :dim]), 0)
         old_scores = torch.cat(
             (
                 torch.full_like(scores[:1, :, :, :dim], -float("inf")),
@@ -26,28 +25,23 @@ def _functional(kv, score, ape, weight, cache, ratio, eps):
         values = torch.cat((previous, values[:, :, :, dim:]), 1)
         scores = torch.cat((old_scores, scores[:, :, :, dim:]), 1)
     pooled = (scores.softmax(1) * values).sum(1)
-    normalized = (
-        pooled
-        * torch.rsqrt(pooled.square().mean(-1, keepdim=True) + eps)
-        * weight.float()
-    )
+    normalized = pooled * torch.rsqrt(pooled.square().mean(-1, keepdim=True) + eps) * weight.float()
     pos = torch.arange(n, device=kv.device) * ratio
     cos, sin = cache.index_select(0, pos).chunk(2, -1)
     cos, sin = cos[:, None, :], sin[:, None, :]
     tail = normalized[..., 448:]
     even, odd = tail[..., 0::2], tail[..., 1::2]
-    rotated = torch.stack((even * cos - odd * sin, odd * cos + even * sin), -1).flatten(
-        -2
-    )
+    rotated = torch.stack((even * cos - odd * sin, odd * cos + even * sin), -1).flatten(-2)
     return torch.cat((normalized[..., :448], rotated), -1)
 
 
-def _forward(kv, score, ape, weight, cache, ratio, eps):
+def _forward(kv, score, ape, weight, cache, ratio, eps, c128_profile=C128_PROFILE):
     from vllm.models.deepseek_v4.common.ops.cache_utils import (
         dequantize_and_gather_k_cache,
     )
     from vllm.models.deepseek_v4.common.ops.fused_compress_quant_cache import (
         compress_norm_rope_store_triton,
+        compress_norm_rope_store_two_stage_triton,
     )
     from vllm.models.deepseek_v4.common.ops.save_partial_states import (
         _SAVE_PARTIAL_STATES_KERNEL,
@@ -61,9 +55,7 @@ def _forward(kv, score, ape, weight, cache, ratio, eps):
         or score.dtype != torch.float32
         or width != (1024 if ratio == 4 else 512)
     ):
-        raise ValueError(
-            "native main compressor requires original FP32 projected operands"
-        )
+        raise ValueError("native main compressor requires original FP32 projected operands")
     state_block = 64
     state_pages = (t + state_block - 1) // state_block
     state = torch.zeros(
@@ -80,13 +72,9 @@ def _forward(kv, score, ape, weight, cache, ratio, eps):
     page_bytes = ((kblock * 584 + 575) // 576) * 576
     packed = torch.zeros((b * kpages, page_bytes), device=kv.device, dtype=torch.uint8)
     kcache = packed.as_strided((b * kpages, kblock, 576), (page_bytes, 576, 1))
-    ktable = torch.arange(b * kpages, device=kv.device, dtype=torch.int32).reshape(
-        b, kpages
-    )
+    ktable = torch.arange(b * kpages, device=kv.device, dtype=torch.int32).reshape(b, kpages)
     kslots = positions // ratio + owners.long() * kpages * kblock
-    metadata = CompressorMetadata(
-        block_table=ktable, slot_mapping=kslots, block_size=kblock
-    )
+    metadata = CompressorMetadata(block_table=ktable, slot_mapping=kslots, block_size=kblock)
     flat_kv = kv.permute(1, 0, 2).reshape(-1, width).contiguous()
     flat_score = score.permute(1, 0, 2).reshape(-1, width).contiguous()
     _SAVE_PARTIAL_STATES_KERNEL(
@@ -101,10 +89,20 @@ def _forward(kv, score, ape, weight, cache, ratio, eps):
         compress_ratio=ratio,
         pdl_kwargs={},
     )
-    # C128's occupancy-selected prefill splits change FP32 reduction order,
-    # including BF16 RoPE cache rounding. Use the actual native decode kernel
-    # for every batch shape; rollout binds the same declared single-pass profile.
-    compress_norm_rope_store_triton(
+    # Keep the single-pass native profile and the seven-layer pinned two-stage
+    # profile explicit: their FP32 reduction schedules are not interchangeable.
+    function = compress_norm_rope_store_triton
+    extra = {}
+    if ratio == 128 and c128_profile == PINNED_C128_PROFILE:
+        from .compressor_schedule import pin_c128_compressor_schedule
+
+        pin_c128_compressor_schedule()
+        function = compress_norm_rope_store_two_stage_triton
+        extra = dict(
+            num_decode_tokens=0,
+            compress_scratch=torch.empty((t * b, 512), device=kv.device, dtype=torch.float32),
+        )
+    function(
         state_cache=state,
         num_actual=t * b,
         token_to_req_indices=owners,
@@ -127,19 +125,18 @@ def _forward(kv, score, ape, weight, cache, ratio, eps):
         quant_block=64,
         token_stride=576,
         scale_dim=8,
+        **extra,
     )
     out = torch.empty((b, n, 512), device=kv.device, dtype=torch.bfloat16)
     lengths = torch.full((b,), n, device=kv.device, dtype=torch.int32)
-    dequantize_and_gather_k_cache(
-        out, packed, lengths, None, ktable, kblock, 0, use_fnuz=False
-    )
+    dequantize_and_gather_k_cache(out, packed, lengths, None, ktable, kblock, 0, use_fnuz=False)
     return out.permute(1, 0, 2).contiguous()
 
 
 class _Compress(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, kv, score, ape, weight, cache, ratio, eps):
-        out = _forward(kv, score, ape, weight, cache, ratio, eps)
+    def forward(ctx, kv, score, ape, weight, cache, ratio, eps, c128_profile):
+        out = _forward(kv, score, ape, weight, cache, ratio, eps, c128_profile)
         ctx.save_for_backward(kv, score, ape, weight, cache)
         ctx.ratio, ctx.eps = ratio, eps
         return out
@@ -148,17 +145,15 @@ class _Compress(torch.autograd.Function):
     def backward(ctx, dy):
         kv, score, ape, weight, cache = ctx.saved_tensors
         with torch.enable_grad():
-            operands = [
-                x.detach().requires_grad_(True) for x in (kv, score, ape, weight)
-            ]
+            operands = [x.detach().requires_grad_(True) for x in (kv, score, ape, weight)]
             result = _functional(*operands, cache, ctx.ratio, ctx.eps)
             gradients = torch.autograd.grad(result, operands, dy.float())
-        return *gradients, None, None, None
+        return *gradients, None, None, None, None
 
 
-def compressed_kv(kv, score, ape, weight, cache, ratio, eps=1e-6):
+def compressed_kv(kv, score, ape, weight, cache, ratio, eps=1e-6, *, c128_profile=C128_PROFILE):
     if ratio not in (4, 128) or kv.shape[0] < ratio:
-        raise ValueError(
-            "main compressor codec requires at least one original C4/C128 group"
-        )
-    return _Compress.apply(kv, score, ape, weight, cache, ratio, eps)
+        raise ValueError("main compressor codec requires at least one original C4/C128 group")
+    if c128_profile not in (C128_PROFILE, PINNED_C128_PROFILE):
+        raise ValueError("unsupported native C128 compressor profile")
+    return _Compress.apply(kv, score, ape, weight, cache, ratio, eps, c128_profile)

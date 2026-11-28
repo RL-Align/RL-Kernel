@@ -24,7 +24,7 @@ def test_explicit_sparse_budget_keeps_default_and_validation(monkeypatch):
     monkeypatch.setenv("RLK_NATIVE_SPARSE_WORKSPACE_BYTES", str(16 << 30))
     assert sparse_workspace_budget() == 16 << 30
     assert sparse_workspace_budget(2 << 30) == 2 << 30
-    for value in (0, -1, True, 1.5, "large"):
+    for value in (0, -1, True, 1.5, "large", (32 << 30) + 1):
         with pytest.raises(ValueError):
             sparse_workspace_budget(value)
     for value in ("invalid", "0", "-1"):

@@ -62,3 +62,42 @@ def test_removed_buffer_is_not_exported_as_stale_success():
     root.router.expert_bias = None
     with pytest.raises(RuntimeError, match="no longer available"):
         export()
+
+
+@pytest.mark.parametrize("parameter", [False, True])
+def test_original_i64_routing_survives_native_i32_destination_and_readback(parameter):
+    from rl_engine.integrations.engines.train.megatron.checkpoint_state import copy_original_tensor
+
+    root = model()
+    destination = torch.zeros((2, 2), dtype=torch.int32)
+    if parameter:
+        root.router.tid2eid = torch.nn.Parameter(destination, requires_grad=False)
+    else:
+        root.router.register_buffer("tid2eid", destination)
+    destination = root.router.tid2eid
+    export = checkpoint_export_value(root, destination)
+    source = torch.tensor([[1, 2**40], [-(2**40), 255]], dtype=torch.int64)
+    copy_original_tensor(destination, source, "layers.0.ffn.gate.tid2eid")
+    assert root.router.tid2eid is destination
+    actual = export if parameter else export()
+    assert actual.dtype == source.dtype
+    assert actual.numpy().tobytes() == source.numpy().tobytes()
+    source.zero_()
+    assert actual[0, 1] == 2**40
+    with pytest.raises(TypeError, match="original dtype mismatch"):
+        copy_original_tensor(torch.zeros(2), torch.zeros(2, dtype=torch.float64), "norm.weight")
+
+
+def test_native_rollout_router_keeps_the_registered_i64_parameter_reference():
+    from types import SimpleNamespace
+    from rl_engine.integrations.engines.rollout.vllm.hash_table import preserve_original_hash_dtype
+
+    gate = torch.nn.Module()
+    gate.tid2eid = torch.nn.Parameter(torch.zeros(2, 2, dtype=torch.int32), requires_grad=False)
+    native_router_reference = gate.tid2eid
+    preserve_original_hash_dtype(SimpleNamespace(gate=gate))
+    assert gate.tid2eid is native_router_reference
+    original = torch.tensor([[1, 2**40], [255, 0]], dtype=torch.int64)
+    gate.tid2eid.copy_(original)
+    assert native_router_reference.dtype == torch.int64
+    assert torch.equal(native_router_reference, original)

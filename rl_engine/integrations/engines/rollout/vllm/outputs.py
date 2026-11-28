@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Explicit eager TP1 DSV4 vocabulary-head and raw-score worker boundaries."""
+"""Explicit eager sharded DSV4 vocabulary-head and raw-score worker boundaries."""
 
 import inspect
 from functools import wraps
@@ -16,6 +16,10 @@ from .runtime import (
     _validated_lm_head_weight_cache,
 )
 
+# Stateless ops: construct once, not per call.
+_LM_HEAD_OP = TritonLMHeadOp()
+_LOGP_OP = TritonLogpOp()
+
 
 def bind_output_head(wrapper, worker):
     if worker.role != "rollout" or hasattr(wrapper, "_rlk_output_worker"):
@@ -23,8 +27,16 @@ def bind_output_head(wrapper, worker):
     weight = wrapper.lm_head.weight
     if weight.dtype != torch.bfloat16 or weight.ndim != 2:
         raise ValueError("DSV4 output head requires the original BF16 vocabulary weight")
-    if weight.shape[0] != wrapper.config.vocab_size:
-        raise ValueError("DSV4 output head currently requires TP=1 and an unpadded vocabulary")
+    from vllm.distributed import get_tensor_model_parallel_world_size
+
+    tp = get_tensor_model_parallel_world_size()
+    head = wrapper.lm_head
+    if tp not in (1, 2, 4, 8) or head.tp_size != tp:
+        raise ValueError("DSV4 head requires the actual native TP1/2/4/8 group")
+    if head.org_vocab_size != wrapper.config.vocab_size or head.shard_indices.num_added_elements:
+        raise ValueError("DSV4 head requires the original vocabulary without adapter tokens")
+    if weight.shape[0] != head.shard_indices.num_elements_padded:
+        raise ValueError("DSV4 head weight differs from native shard/padding metadata")
     processor = wrapper.logits_processor
     if getattr(processor, "scale", 1.0) != 1.0 or getattr(processor, "soft_cap", None) is not None:
         raise ValueError("raw RLK DSV4 head does not support scaled or soft-capped logits")
@@ -51,10 +63,15 @@ def bind_output_head(wrapper, worker):
             if torch.is_grad_enabled() and (
                 hidden_states.requires_grad or wrapper.lm_head.weight.requires_grad
             ):
-                result = TritonLMHeadOp().forward_fp32(hidden_states, wrapper.lm_head.weight)
+                local = _LM_HEAD_OP.forward_fp32(hidden_states, wrapper.lm_head.weight)
             else:
                 weight_t = _validated_lm_head_weight_cache(wrapper.lm_head)
-                result = TritonLMHeadOp().forward_fp32_prepared(hidden_states, weight_t)
+                local = _LM_HEAD_OP.forward_fp32_prepared(hidden_states, weight_t)
+            result = processor._gather_logits(local) if tp > 1 else local
+            if result is None:
+                return None  # Native gather only returns scores on its sampling rank.
+            # Original tokens occupy the native base-vocabulary region; trim only padding.
+            result = result[..., : wrapper.config.vocab_size].contiguous()
             if not executed[0]:
                 print(
                     "RLK_ROLLOUT_LM_HEAD_EXECUTED",
@@ -79,7 +96,7 @@ def selected_raw_logprobs(wrapper, logits, token_ids, *, weight_version):
         raise ValueError("raw rollout scores require nonempty int64 target columns")
     with worker.request(weight_version):
         values = torch.stack(
-            [TritonLogpOp()(logits, token_ids[:, i]) for i in range(token_ids.shape[1])], -1
+            [_LOGP_OP(logits, token_ids[:, i]) for i in range(token_ids.shape[1])], -1
         )
         if not getattr(worker, "_rollout_logprob_executed", False):
             print(

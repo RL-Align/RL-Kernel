@@ -23,8 +23,10 @@ def sparse_workspace_budget(value=None):
             value = (1 << 30) if raw is None else int(raw)
         except ValueError as error:
             raise ValueError(f"{name} must be a positive integer") from error
-    if type(value) is not int or value <= 0:
-        raise ValueError("positive native sparse workspace budget required (integer bytes)")
+    if type(value) is not int or not 0 < value <= 32 << 30:
+        raise ValueError(
+            "positive native sparse workspace budget required (integer bytes, at most 32 GiB)"
+        )
     return value
 
 

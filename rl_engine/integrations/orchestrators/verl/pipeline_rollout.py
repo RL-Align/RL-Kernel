@@ -12,6 +12,14 @@ from verl.workers.rollout.replica import RolloutMode
 from verl.workers.rollout.vllm_rollout.vllm_async_server import vLLMHttpServer
 
 
+# Any pipeline size with TP1, or PP1 with TP-invariant rollout at TP 1/2/4/8.
+_PP1_TP = (1, 2, 4, 8)
+
+
+def _allowed_pp_tp(pp, tp):
+    return type(pp) is int and pp >= 1 and (tp == 1 or (pp == 1 and tp in _PP1_TP))
+
+
 @dataclass
 class RLKPipelineRolloutConfig(RolloutConfig):
     rlk_node_ips: list[str] = field(default_factory=list)
@@ -23,10 +31,10 @@ class RLKPipelineRolloutConfig(RolloutConfig):
             if isinstance(self.mtp, dict)
             else getattr(self.mtp, "enable", False)
         )
+        pp = self.pipeline_model_parallel_size
         if (
             self.name != "vllm"
-            or self.pipeline_model_parallel_size < 1
-            or self.tensor_model_parallel_size != 1
+            or not _allowed_pp_tp(pp, self.tensor_model_parallel_size)
             or self.expert_parallel_size != 1
             or self.data_parallel_size != 1
             or not self.enforce_eager
@@ -34,7 +42,8 @@ class RLKPipelineRolloutConfig(RolloutConfig):
             or mtp_enabled
         ):
             raise ValueError(
-                "RLK rollout requires eager standalone TP1 PP>=1 EP1 DP1 without sleep/MTP"
+                "RLK rollout requires eager standalone (TP1, PP>=1) or (PP1, TP in 1,2,4,8), "
+                "EP1 DP1 without sleep/MTP"
             )
         # Preserve every upstream validation/coercion other than its generic PP
         # rejection. The dedicated server below supplies actual PP2 engine args.
@@ -53,6 +62,14 @@ def validate_pipeline_server(
 ):
     from .pipeline_topology import validate_pp2_layout
 
+    if getattr(config, "pipeline_model_parallel_size", None) == 1:
+        if (
+            not isinstance(config, RLKPipelineRolloutConfig)
+            or rollout_mode != RolloutMode.STANDALONE
+            or workers
+        ):
+            raise ValueError("RLK rollout server requires standalone native workers")
+        return
     if (
         not isinstance(config, RLKPipelineRolloutConfig)
         or rollout_mode != RolloutMode.STANDALONE

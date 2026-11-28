@@ -241,3 +241,34 @@ def test_source_hash_guard_and_framework_same_boundary(tmp_path):
     source.write_text("raise RuntimeError('must never be executed')")
     with pytest.raises(JointAttentionError, match="hash"):
         load_pinned_kernel(source)
+
+
+@pytest.mark.parametrize("queries", [8193, 16384])
+def test_explicit_long_context_budget_keeps_original_workspace_guard(queries):
+    # The native seven-layer warmup uses 8,193 queries; batched prefill can use
+    # 16,384. Q+O alone exceed the historical 1 GiB budget at 64x512.
+    with pytest.raises(JointAttentionError, match="workspace budget"):
+        JointAttentionContract(64, 512, queries, 32768, 0, 640, graph=False)
+    contract = JointAttentionContract(
+        64, 512, queries, 32768, 0, 640, graph=False, max_workspace_bytes=4 << 30
+    )
+    assert 1 << 30 < contract.workspace_bytes < 4 << 30
+    with pytest.raises(JointAttentionError, match="workspace budget"):
+        replace(contract, max_queries=32768)
+
+
+@pytest.mark.parametrize("budget", [0, -1, True, 1.5, (32 << 30) + 1])
+def test_native_sparse_rejects_unbounded_or_invalid_budget_before_gpu_init(budget):
+    from rl_engine.backends.rocm.attention.native_sparse import NativeSparseAttention
+
+    with pytest.raises(ValueError, match="budget"):
+        NativeSparseAttention(max_workspace_bytes=budget)
+
+
+def test_backward_workspace_for_full_long_context_sequence():
+    # prompt <= 1024 plus response <= 7168 gives at most 8,192 queries per sequence.
+    from rl_engine.backends.rocm.attention.joint_backward import AiterJointBackwardBackend
+
+    need = AiterJointBackwardBackend.workspace_bytes(8192, 64, 512, 640, 8192 + 8192 // 4)
+    assert 4 << 30 < need <= 16 << 30
+    assert AiterJointBackwardBackend.workspace_bytes(3072, 64, 512, 640, 3072 + 768) > 4 << 30
