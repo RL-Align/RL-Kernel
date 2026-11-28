@@ -22,6 +22,54 @@ def wo_b_row_partition(hidden, columns, tp, rank):
     return start, start + rows, start // 128, (start + rows) // 128
 
 
+def bind_original_input_projection(attention, checkpoint_file, layer):
+    """Replace the replicated fused wq_a|wkv GEMM with the actor's two original projections.
+
+    vLLM's gfx942 path runs this GEMM through AITER bpreshuffle, whose kernel is picked
+    from tuned (gfx, cu_num, M, N, K) rows; on cu_num=80 those rows switch between
+    triton/CK/asm/opus kernels by M and break parity with the actor's fixed CK no-split-K.
+    """
+    import torch
+    from safetensors import safe_open
+
+    from rl_engine.backends.rocm.gemm.checkpoint_fp8 import CheckpointFP8Linear
+
+    device = attention.fused_wqa_wkv.weight.device
+    projections = []
+    with safe_open(str(checkpoint_file), framework="pt", device="cpu") as source:
+        for key in ("wq_a", "wkv"):
+            prefix = f"layers.{layer}.attn.{key}"
+            projections.append(
+                CheckpointFP8Linear(
+                    source.get_tensor(prefix + ".weight").to(device),
+                    source.get_tensor(prefix + ".scale").to(device),
+                )
+            )
+    widths = [p.codes.shape[0] for p in projections]
+    if widths != [attention.q_lora_rank, attention.head_dim]:
+        raise ValueError(f"original wq_a/wkv rows {widths} differ from the fused projection")
+    attention._rlk_wq_a, attention._rlk_wkv = projections
+
+    def project(self, hidden_states):
+        x = hidden_states.reshape(-1, hidden_states.shape[-1])
+        if not x.shape[0]:
+            return x.new_empty((*hidden_states.shape[:-1], sum(widths)))
+        out = torch.cat([self._rlk_wq_a(x)[0], self._rlk_wkv(x)[0]], dim=-1)
+        if not getattr(self, "_rlk_input_projection_executed", False):
+            print(
+                "RLK_ROLLOUT_ORIGINAL_WQA_WKV_EXECUTED",
+                __file__,
+                f"layers.{layer}.attn.wq_a|wkv",
+                "original E4M3/E8M0, AITER CK no-split-K",
+                flush=True,
+            )
+            self._rlk_input_projection_executed = True
+        return out.reshape(*hidden_states.shape[:-1], out.shape[-1])
+
+    attention._fused_wqa_wkv_gemm = types.MethodType(project, attention)
+    return attention
+
+
 def bind_original_group_projection(attention, checkpoint, layer, observer=None):
     from safetensors import safe_open
     from vllm.distributed import (
@@ -47,6 +95,7 @@ def bind_original_group_projection(attention, checkpoint, layer, observer=None):
     paths = list(Path(checkpoint).glob("*.safetensors"))
     if len(paths) != 1:
         raise ValueError("original wo_a importer requires one extracted checkpoint file")
+    bind_original_input_projection(attention, paths[0], layer)
     device = attention.wo_a.weight.device
     with safe_open(str(paths[0]), framework="pt", device="cpu") as source:
         prefix = f"layers.{layer}.attn.wo_a"
@@ -62,20 +111,20 @@ def bind_original_group_projection(attention, checkpoint, layer, observer=None):
         # Read only this rank's original groups; never place a full model copy on each rank.
         weight = weight_source[start : start + local_rows].to(device)
         scale = scale_source[start // 128 : (start + local_rows) // 128].to(device)
-        if tp > 1:
-            # TP-invariant wo_b: this rank's H/TP original rows with the FULL K, so
-            # every output element is accumulated exactly as in the TP1 actor.
-            b_prefix = f"layers.{layer}.attn.wo_b"
-            b_weight = source.get_slice(b_prefix + ".weight")
-            b_scale = source.get_slice(b_prefix + ".scale")
-            hidden, b_columns = b_weight.get_shape()
-            if b_columns != rows or b_scale.get_shape() != [hidden // 128, b_columns // 128]:
-                raise ValueError("original wo_b geometry differs from grouped wo_a output")
-            b0, b1, s0, s1 = wo_b_row_partition(hidden, b_columns, tp, rank)
-            attention._rlk_wo_b = CheckpointFP8Linear(
-                b_weight[b0:b1].to(device), b_scale[s0:s1].to(device)
-            )
-            attention._rlk_wo_b_partition = dict(tp=tp, rank=rank, start=b0, stop=b1)
+        # This rank's H/TP original wo_b rows with the FULL K (all rows at TP1), so every
+        # output element is accumulated exactly as in the TP1 actor. TP1 must not fall
+        # back to vLLM's cu_num-tuned bpreshuffle GEMM either.
+        b_prefix = f"layers.{layer}.attn.wo_b"
+        b_weight = source.get_slice(b_prefix + ".weight")
+        b_scale = source.get_slice(b_prefix + ".scale")
+        hidden, b_columns = b_weight.get_shape()
+        if b_columns != rows or b_scale.get_shape() != [hidden // 128, b_columns // 128]:
+            raise ValueError("original wo_b geometry differs from grouped wo_a output")
+        b0, b1, s0, s1 = wo_b_row_partition(hidden, b_columns, tp, rank)
+        attention._rlk_wo_b = CheckpointFP8Linear(
+            b_weight[b0:b1].to(device), b_scale[s0:s1].to(device)
+        )
+        attention._rlk_wo_b_partition = dict(tp=tp, rank=rank, start=b0, stop=b1)
     attention._rlk_wo_a = CheckpointFP8Group(weight, scale, attention.n_local_groups)
     attention._rlk_wo_a_partition = dict(
         tp=tp, rank=rank, original_rows=rows, start=start, stop=start + local_rows
@@ -107,9 +156,7 @@ def bind_original_group_projection(attention, checkpoint, layer, observer=None):
 
             full = gather_last_dim(zf.contiguous())
             return gather_last_dim(self._rlk_wo_b(full)[0].contiguous())
-        if self._wo_b_scale is not None and zf.dim() == 2:
-            return self._bpre_attn_gemm(self.wo_b.weight, self._wo_b_scale, zf, True)
-        return self.wo_b(zf)
+        return self._rlk_wo_b(zf)[0]
 
     attention._o_proj = types.MethodType(project, attention)
     return attention

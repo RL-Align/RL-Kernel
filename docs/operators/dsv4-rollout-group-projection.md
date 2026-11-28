@@ -5,8 +5,14 @@ fallback decodes the checkpoint weight to a BF16 cache and evaluates einsum.
 `bind_original_group_projection(attention, checkpoint, layer)` instead imports
 the original E4M3/E8M0 block128 weight into `CheckpointFP8Group`, preserving
 packed bytes/scales and the fixed AITER group128 FNUZ / CK no-split-K profile.
-The ordinary real vLLM `wo_b` call remains in use. Bind after loading and before
-warmup on the actual attention instance. No framework source patch is needed.
+The same binding also imports the original `wo_b` (all rows at TP1, H/TP rows
+with full K at TP>1) and, through `bind_original_input_projection`, replaces the
+replicated fused `wq_a|wkv` GEMM with the actor's two original projections.
+vLLM runs both GEMMs through AITER bpreshuffle, which picks a kernel from tuned
+`(gfx, cu_num, M, N, K)` rows. MI300X (304 CUs) has no rows for these shapes and
+happened to match the actor; MI308X (80 CUs) has rows that switch between
+triton, CK, asm and opus kernels by M. Bind after loading and before warmup on
+the actual attention instance. No framework source patch is needed.
 
 Inverse RoPE remains exactly once in `forward_mqa`: the gfx950-only native
 fused path stays unset and this grouped projection consumes already unrotated
